@@ -182,6 +182,10 @@ extension AgentPaneHostError {
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
+        case .daemonRefused(let holder?, let socketPath, _):
+            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "acpmux is running, but %1$@ owns it (%2$@) and this build may not use it. Quit %1$@, or use that build.", bundle: .module), holder, socketPath)
+        case .daemonRefused(nil, let socketPath, let reason):
+            String(format: String(localized: "agentPane.error.daemonRefused", defaultValue: "acpmux is running at %1$@, but this build may not use it: %2$@.", bundle: .module), socketPath, reason)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
         }
