@@ -85,7 +85,7 @@ final class DebugResizeTrace {
             "frame": .number(Double(frame)),
             "t_ms": .number(((CACurrentMediaTime() - start) * 1_000).rounded()),
             "live": .bool(window.inLiveResize),
-            "window_w": .number(window.contentView?.bounds.width ?? 0),
+            "window_w": .number(Double(window.contentView?.bounds.width ?? 0)),
             "sidebar_w": .number(controller.root.sidebar.frame.width),
             "panes": .array(panes),
         ]))
