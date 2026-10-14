@@ -408,9 +408,10 @@ public nonisolated enum {enum}: String, CaseIterable, Sendable {{
 
 def flags_ts(section, data):
     rows = [row for entry in data["lists"] for row in entry["rows"]]
-    body = "\n".join("  %s: { owner: %s, created: %s, expires: %s, cohort: %s, intent: %s }," % (
-        row["_name"], json.dumps(row["owner"]), json.dumps(row["created"]), json.dumps(row["expires"]),
-        json.dumps(row["cohort"]), json.dumps(row["help"]["text"], ensure_ascii=False)) for row in rows)
+    # One field per line: the webviews formatter's shape, so `bun run check` passes the copy as written.
+    body = "\n".join("  %s: {\n%s\n  }," % (row["_name"], "\n".join("    %s: %s," % (field, json.dumps(value, ensure_ascii=False)) for field, value in (
+        ("owner", row["owner"]), ("created", row["created"]), ("expires", row["expires"]),
+        ("cohort", row["cohort"]), ("intent", row["help"]["text"])))) for row in rows)
     return """// {header}
 // Read a flag with labsFlag / useLabsFlag (./labs.ts), never this table's cohort.
 

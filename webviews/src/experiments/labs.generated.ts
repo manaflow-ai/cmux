@@ -3,7 +3,13 @@
 // Read a flag with labsFlag / useLabsFlag (./labs.ts), never this table's cohort.
 
 export const LABS_FLAGS = {
-  previewFeatures: { owner: "leo", created: "2026-10-03", expires: "2026-10-27", cohort: "off", intent: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view." },
+  previewFeatures: {
+    owner: "leo",
+    created: "2026-10-03",
+    expires: "2026-10-27",
+    cohort: "off",
+    intent: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+  },
 } as const;
 
 export type LabsFlagName = keyof typeof LABS_FLAGS;

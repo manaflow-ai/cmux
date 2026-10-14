@@ -26,5 +26,9 @@ function subscribe(change: () => void): () => void {
 
 /** `labsFlag` for a component: it renders again when the flag turns on or off. */
 export function useLabsFlag(name: LabsFlagName): boolean {
-  return useSyncExternalStore(subscribe, () => labsFlag(name), () => false);
+  return useSyncExternalStore(
+    subscribe,
+    () => labsFlag(name),
+    () => false,
+  );
 }
