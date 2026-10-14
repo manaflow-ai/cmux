@@ -38,6 +38,8 @@ pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
 pub mod native;
+#[cfg(windows)]
+mod owner_only;
 pub mod peer;
 #[cfg(not(unix))]
 mod platform;
@@ -60,6 +62,7 @@ pub mod subagents;
 pub mod transcript;
 pub mod trust;
 pub mod tui;
+pub mod user_settings;
 pub mod web_modes;
 
 pub mod model_catalog;
