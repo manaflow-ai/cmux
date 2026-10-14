@@ -9,7 +9,7 @@ Status: IN PROGRESS (checklist; results are filled in as each item is checked).
 - [ ] N4 diff header path — double slash gone; NEW: ConnectionSettings folder squeezed to a 4 pt glyph fragment (05)
 - [ ] N5 AX5 turn card names
 - [ ] Artifacts grid: CSV / link / folder tiles, badge in footer
-- [ ] N6 scroll-to-top flash (recording)
+- [x] N6 polish FAIL (02, 03, 03b): blank gap gone; one 100 ms frame draws the image tile over the composer
 - [x] N7 PASS (08, 09) menu casing
 - [ ] Feed quote bubbles right-aligned
 - [ ] Relaunch persistence
