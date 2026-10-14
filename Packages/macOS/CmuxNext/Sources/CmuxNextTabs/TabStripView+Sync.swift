@@ -52,6 +52,12 @@ extension TabStripView {
         let adding = ordered.contains { cells[$0.id] == nil }
         let animated = hasSynced && !reduceMotion && animating && (!adding || Motion.animates(.newTab))
         let ids = Set(ordered.map(\.id))
+        if MotionTrace.isEnabled {
+            let shownBefore = displayed.map(\.id)
+            MotionTrace.note("tabs.sync fromModel=\(fromModel) animating=\(animating) animated=\(animated)"
+                + " added=\(ordered.filter { cells[$0.id] == nil }.map(\.id.rawValue)) removed=\(cells.keys.filter { !ids.contains($0) }.map(\.rawValue))"
+                + " order=\(ordered.map(\.id) == shownBefore.filter(ids.contains) ? "same" : "moved") swaps=\(swaps.count)")
+        }
         // A replaced page goes at once: its newcomer takes its cell's place and geometry.
         var handedOver: [TabID: TabMotion] = [:]
         for (newcomer, page) in swaps where cells[page] != nil {

@@ -1,5 +1,4 @@
-import CmuxNextDesign
-import CmuxNextSettings
+public import CmuxNextDesign
 import CoreGraphics
 
 /// The motion parity corpus of this port (`debug.motion {action:
@@ -8,10 +7,14 @@ import CoreGraphics
 /// retarget to 50 pt after 5 frames) at 60 and 120 Hz until the spring
 /// rests. cmux-motion's `motion_trajectories` example prints the same
 /// document; scripts/cmux-next/motion-parity.py compares them.
-enum MotionParityCorpus {
-    private static let tokens = MotionSpring.allCases
+/// `debug.motion` (CmuxNextApp) serves it; it lives here, beside the
+/// motion settings, to keep the App target small.
+public struct MotionParityCorpus {
+    private let tokens = MotionSpring.allCases
 
-    static var document: JSONValue {
+    public init() {}
+
+    public var document: JSONValue {
         var tokenRows: [JSONValue] = []
         var paths: [JSONValue] = []
         for bounce in [MotionBounce.none, .subtle] {
@@ -36,7 +39,7 @@ enum MotionParityCorpus {
         return ["port": .string("swift"), "tokens": .array(tokenRows), "paths": .array(paths)]
     }
 
-    private static func path(_ spring: SpringParameters, hz: Double, retarget: (Int, CGFloat)?) -> [CGFloat] {
+    private func path(_ spring: SpringParameters, hz: Double, retarget: (Int, CGFloat)?) -> [CGFloat] {
         var value = SpringValue(0)
         value.target = 200
         var out: [CGFloat] = []

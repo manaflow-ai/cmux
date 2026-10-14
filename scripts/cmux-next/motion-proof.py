@@ -147,7 +147,7 @@ def run_config(name, settings):
         rpc("debug.motion", change)
     state = rpc("debug.motion", {"action": "read"}) or {}
     out = os.path.join(opts.out, name)
-    results = {"settings": settings, "state": {k: state.get(k) for k in ("speed", "reduce_motion", "bounce", "disabled_kinds")},
+    results = {"settings": settings, "state": {k: state.get(k) for k in ("speed", "reduce_motion", "bounce", "enabled_kinds", "pane_animations")},
                "gestures": []}
     # Cmd-T from a terminal tab (Cmd-T on a New Tab page only focuses it), then its close.
     terminal_tab()
