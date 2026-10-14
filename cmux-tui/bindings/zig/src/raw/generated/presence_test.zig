@@ -37,6 +37,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "truncated");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "seq");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
+    try expectExplicitNullRejected(protocol.ConversationRunRequest, "after_rev");
+    try expectExplicitNullRejected(protocol.ConversationRunAppendRequest, "steps");
     try expectExplicitNullRejected(protocol.ConversationSnapshotResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationThreadRequest, "after_seq");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
@@ -79,6 +81,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
     try expectExplicitNullRejected(protocol.CloudConversationChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudConversationRunChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxResetEvent, "account");
     try expectExplicitNullRejected(protocol.CloudMuxResyncedEvent, "account");
