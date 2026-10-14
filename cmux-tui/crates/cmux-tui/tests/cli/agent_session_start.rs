@@ -461,7 +461,7 @@ fn only_the_agent_page_reads_folder_trust_and_its_answer_needs_the_persons_gestu
     assert_eq!(refused["error"]["details"]["reason"], "page_not_allowed", "{refused}");
     let (mut page, relay_id) = daemon.page_relay("agent");
     let legacy = page.rpc(json!({"cmd": "agent-session-trust", "surface": surface, "cwd": cwd}));
-    assert_eq!(legacy["ok"], false, "{legacy}");
+    assert_eq!(legacy["error_code"], "origin.forbidden", "{legacy}");
     let got = page.v2("agent_session.trust.get", &read, json!({}));
     assert_eq!(got["ok"], true, "{got}");
     assert_ne!(got["result"]["level"], "trusted", "{got}");
@@ -469,6 +469,20 @@ fn only_the_agent_page_reads_folder_trust_and_its_answer_needs_the_persons_gestu
     set["level"] = json!("trusted");
     let bare = page.v2("agent_session.trust.set", &set, json!({"idempotency_key": "t1"}));
     assert_eq!(bare["error"]["details"]["reason"], "gesture_required", "{bare}");
+    // Forgetting the answer (`unknown`) is an answer too: it needs the gesture.
+    let mut forget = read.clone();
+    forget["level"] = json!("unknown");
+    let forget = page.v2("agent_session.trust.set", &forget, json!({"idempotency_key": "t0"}));
+    assert_eq!(forget["error"]["details"]["reason"], "gesture_required", "{forget}");
+    // A page cannot prove the person chose the home folder: it never sends home_confirmed.
+    let mut home = set.clone();
+    home["home_confirmed"] = json!(true);
+    let home = page.v2("agent_session.trust.get", &home, json!({}));
+    assert_eq!(home["error"]["details"]["extra"]["code"], "agent_session.bad_request", "{home}");
+    let mut read_level = read.clone();
+    read_level["level"] = json!("trusted");
+    let bad = page.v2("agent_session.trust.get", &read_level, json!({}));
+    assert_eq!(bad["error"]["details"]["extra"]["code"], "agent_session.bad_request", "{bad}");
     // The person's gesture: the verified app mints a confirmation for exactly this request.
     let mut app = daemon.verified_app();
     let issued = app.v2(
