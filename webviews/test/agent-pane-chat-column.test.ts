@@ -215,6 +215,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
         ? [[frames[index - 1]!, frame]]
         : [],
     );
+  /// How far the newest line may rest from where the last one did: lines are 22.75px and rows are
+  /// placed by their drawn heights, so the end can settle a few pixels off; a jump is a line.
+  const REST_SLACK = 4;
   /// The first frame read, before anything streams: the view at rest at the end.
   const restingFrame = async (page: Page): Promise<Frame> => {
     await page.waitForTimeout(100);
@@ -286,7 +289,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // The text only ever moves up while it follows the reply, and the view rests at the end.
     expect(movedDown(frames)).toEqual([]);
     expect(backwards(frames)).toEqual([]);
-    expect(frames.at(-1)!.lastLine).toBe(atRest.lastLine);
+    expect(Math.abs(frames.at(-1)!.lastLine - atRest.lastLine)).toBeLessThanOrEqual(REST_SLACK);
     await page.close();
   });
 
@@ -342,7 +345,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     expect(backwards(frames)).toEqual([]);
     const steps = frames.slice(1).map((frame, index) => (frames[index]!.top ?? 0) - (frame.top ?? 0));
     expect(Math.max(...steps)).toBeLessThanOrEqual(23);
-    expect(frames.at(-1)!.lastLine).toBe(atRest.lastLine);
+    expect(Math.abs(frames.at(-1)!.lastLine - atRest.lastLine)).toBeLessThanOrEqual(REST_SLACK);
     await page.close();
   });
 
