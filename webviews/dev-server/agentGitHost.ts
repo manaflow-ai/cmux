@@ -115,9 +115,12 @@ function gitEnvironment(settings: readonly Setting[]): NodeJS.ProcessEnv {
 /// Settings every run passes, as run.rs: the repository's fsmonitor command never runs, a
 /// submodule's change is a one-line summary (never a child `git diff` with its own drivers), and
 /// no transport is allowed. The orderfile and global attributes file are never read, since a
-/// repository naming /dev/zero for either has git read until memory runs out.
+/// repository naming /dev/zero for either has git read until memory runs out. No hook runs: a
+/// working-tree diff rewrites a stale index despite GIT_OPTIONAL_LOCKS, and every index write
+/// runs post-index-change from .git/hooks or core.hooksPath.
 const BASE_SETTINGS: readonly Setting[] = [
   ["core.fsmonitor", "false"],
+  ["core.hooksPath", "/dev/null"],
   ["diff.orderFile", "/dev/null"],
   ["core.attributesFile", "/dev/null"],
   ["core.quotePath", "false"],
