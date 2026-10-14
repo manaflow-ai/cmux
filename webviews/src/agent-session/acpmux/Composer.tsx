@@ -156,6 +156,8 @@ type Props = {
   sessionId?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
+  /// A quiet status control for permissions already granted in this chat.
+  permissionStatus?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
@@ -233,6 +235,7 @@ export function Composer({
   onQueueLost,
   draft,
   leading,
+  permissionStatus,
   accessory,
   prompt,
   onEdit,
@@ -1202,6 +1205,7 @@ export function Composer({
               />
             )}
             <Chips snapshot={snapshot} />
+            {permissionStatus}
             <span className="acpmux-composer-actions">
               {accessory}
               {stop ? (
