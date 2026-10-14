@@ -582,6 +582,8 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bytes",
+ "cmux-rd-core",
+ "cmux-rd-proto",
  "cmux-transport",
  "cmux-wg",
  "cnx-link",
