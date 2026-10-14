@@ -99,7 +99,11 @@ extension VMClient {
             summary.displayName = label
         }
         summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // The `vms` stream record names the creator by id only.
         summary.createdBy = VMCreator(vmResponse: dict)
+            ?? (dict["createdByUserId"] as? String)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : VMCreator(userId: $0) }
         summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
         // `resources` is the pool claim used by limits.used*. A
         // legacy row may conservatively claim the provider maximum;

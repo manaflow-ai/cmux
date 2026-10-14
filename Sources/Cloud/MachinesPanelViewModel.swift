@@ -800,6 +800,40 @@ final class MachinesPanelViewModel: ObservableObject {
     /// free-access window, the shared stats store and the last usage, then the
     /// same post-list reconcile runs as after a REST read. `limits` never
     /// change here; only ``refresh(routinePoll:)`` carries them.
+    /// A `vms` stream record carries the row's own columns only; the creator's
+    /// name, the pool claim, agent updates and the free-access expiry come
+    /// from the REST list. Keep the existing row's values for those until the
+    /// next list read replaces them.
+    static func keepingListOnlyFields(of existing: MachineSnapshot, in streamed: MachineSnapshot, streamed summary: VMSummary) -> MachineSnapshot {
+        let createdBy: VMCreator? = if let creator = streamed.createdBy, creator.userId != existing.createdBy?.userId {
+            creator
+        } else {
+            existing.createdBy ?? streamed.createdBy
+        }
+        var next = MachineSnapshot(
+            id: streamed.id,
+            provider: streamed.provider,
+            image: streamed.image,
+            isDesktop: streamed.isDesktop,
+            capabilities: streamed.capabilities,
+            activity: streamed.activity,
+            createdAt: streamed.createdAt,
+            createdBy: createdBy,
+            label: streamed.label,
+            slug: streamed.slug,
+            freeAccess: summary.freeAccessExpiresAt == nil ? existing.freeAccess : streamed.freeAccess,
+            stats: streamed.stats,
+            resourceReservation: streamed.resourceReservation ?? existing.resourceReservation,
+            resourcePoolClaim: streamed.resourcePoolClaim ?? existing.resourcePoolClaim,
+            usesResourcePool: streamed.usesResourcePool,
+            usage: streamed.usage,
+            privateAddress: streamed.privateAddress,
+            isPinned: streamed.isPinned
+        )
+        next.agentUpdates = streamed.agentUpdates ?? existing.agentUpdates
+        return next
+    }
+
     func applyVMChanges(upserts: [VMSummary], deletions: Set<String>, authoritative: Bool) {
         guard isCloudEnabled() else { return }
         let previous = resourceStats?.snapshot ?? [:]
@@ -815,7 +849,7 @@ final class MachinesPanelViewModel: ObservableObject {
             snapshot.usage = usageByMachineID[summary.id]
             upsertedIDs.insert(summary.id)
             if let position = index[summary.id], rows.indices.contains(position), rows[position].id == summary.id {
-                rows[position] = snapshot
+                rows[position] = Self.keepingListOnlyFields(of: rows[position], in: snapshot, streamed: summary)
             } else {
                 let createdAt = snapshot.createdAt ?? .distantPast
                 let position = rows.firstIndex { ($0.createdAt ?? .distantPast) < createdAt } ?? rows.endIndex
