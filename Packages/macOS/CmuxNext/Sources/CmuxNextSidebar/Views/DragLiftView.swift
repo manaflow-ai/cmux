@@ -125,6 +125,6 @@ final class DragLiftView: NSView {
     func setRefused(_ refused: Bool) {
         let target: CGFloat = refused ? 0.55 : 1
         guard alphaValue != target else { return }
-        Motion.animate(.hover, in: self) { animator().alphaValue = target }
+        Motion.animate(.hover, in: self) { [self] in animator().alphaValue = target }
     }
 }

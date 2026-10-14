@@ -151,7 +151,7 @@ final class HoverCardPanel: NSPanel {
     func dismiss() {
         guard isVisible, !isDismissing else { return }
         isDismissing = true
-        Motion.animateTimed(.fadeOut, in: contentView, { animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.animateTimed(.fadeOut, in: contentView, { [self] in animator().alphaValue = 0 }, completion: { [weak self] in
             guard let self, self.isDismissing else { return }
             self.isDismissing = false
             self.parentWindowRef?.removeChildWindow(self)

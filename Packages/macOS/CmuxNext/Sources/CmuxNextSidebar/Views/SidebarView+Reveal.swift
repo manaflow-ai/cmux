@@ -23,7 +23,7 @@ extension SidebarView {
         let hidden = (top: above == 0, bottom: below == 0)
         guard changed || hidden != minimalHiddenBands else { return }
         minimalHiddenBands = hidden
-        Motion.animate(.hover, in: self) {
+        Motion.animate(.hover, in: self) { [self] in
             if changed {
                 newButton.animator().alphaValue = alpha
                 profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
