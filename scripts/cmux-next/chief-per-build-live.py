@@ -143,11 +143,24 @@ class App:
     def send(self, text):
         # The Home transcript appears after home.show settles (as chief-first-send-live.py waits).
         self.rpc("action.run", {"id": "home.show"})
-        shown = wait(lambda: (self.rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 240)
-        if not shown:
-            say(self.name, "Home transcript not shown:", json.dumps(self.rpc("debug.home") or {})[:600])
-        say(self.name, "drive", self.rpc("debug.home.drive", {"action": "focus"}),
-            self.rpc("debug.home.drive", {"action": "type", "text": text}), self.rpc("debug.home.drive", {"action": "send"}))
+        # The shown Home of the active window, else a native Home tab
+        # (`debug.home` page.tabs): a window that is never key may have no active one.
+        def target():
+            if (self.rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"):
+                return {}
+            tabs = ((self.rpc("debug.home") or {}).get("page") or {}).get("tabs") or []
+            for tab in sorted(tabs, key=lambda t: not t.get("visible")):
+                if (self.rpc("debug.home.drive", {"action": "geometry", "tab": tab["key"]}) or {}).get("ok"):
+                    return {"tab": tab["key"]}
+            return None
+        where = wait(lambda: (lambda t: {"t": t} if t is not None else None)(target()), 240)
+        where = where["t"] if where else {}
+        if not where and not (self.rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"):
+            home = self.rpc("debug.home") or {}
+            say(self.name, "Home transcript not shown; page:", json.dumps(home.get("page"))[:2500])
+        say(self.name, "drive", self.rpc("debug.home.drive", {"action": "focus", **where}),
+            self.rpc("debug.home.drive", {"action": "type", "text": text, **where}),
+            self.rpc("debug.home.drive", {"action": "send", **where}))
 
         def answered():
             shown = self.shown()
