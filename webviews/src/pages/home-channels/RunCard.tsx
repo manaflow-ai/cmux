@@ -161,12 +161,17 @@ export function RunCard({ entry, author, strings, onOpen, onLoad }: RunCardProps
           {author && <Avatar participant={author} size={16} />}
           <RunMark status={status} />
           <span className="lg-run-label">{runLabel(run, now, strings)}</span>
-          {count > 0 && (
-            <span className="lg-run-meta">
-              {count === 1 ? strings.t("run.steps.one") : strings.format("run.steps.many", String(count))}
+          {(count > 0 || cost) && (
+            // One line with the label when the card is wide; its own line under it when narrow.
+            <span className="lg-run-metas">
+              {count > 0 && (
+                <span className="lg-run-meta">
+                  {count === 1 ? strings.t("run.steps.one") : strings.format("run.steps.many", String(count))}
+                </span>
+              )}
+              {cost && <span className="lg-run-meta">{cost}</span>}
             </span>
           )}
-          {cost && <span className="lg-run-meta">{cost}</span>}
           <ChevronRight size={14} strokeWidth={1.2} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />
         </button>
         <button type="button" className="lg-link-button lg-run-open" onClick={() => onOpen(run)}>
