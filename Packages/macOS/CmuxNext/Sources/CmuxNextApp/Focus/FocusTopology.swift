@@ -2,6 +2,8 @@
 /// shows: panes in layout order, their tabs (strip order) and the selected
 /// tab. Built by `WorkspaceContentController` from the daemon mirror and the
 /// window's client-local selection (plans/cmux-next/focus.md section 4).
+/// The input of `cmux-focus-core`'s `Topology` (same JSON shape); the
+/// close-focus and expectation lookups run there.
 nonisolated struct FocusTopology: Hashable, Sendable, Codable {
     enum Kind: String, Hashable, Sendable, Codable {
         case terminal
@@ -74,41 +76,9 @@ nonisolated struct FocusTopology: Hashable, Sendable, Codable {
         self.screens = screens
     }
 
-    /// The columns of the screen that holds `pane`.
-    func columns(containing pane: String) -> [Column]? {
-        if screens.isEmpty { return panes.contains { $0.id == pane } ? [Column(id: "", panes: panes.map(\.id))] : nil }
-        return screens.first { $0.contains { $0.panes.contains(pane) } }
-    }
-
-    /// Column id -> panes, over every screen.
-    var columnsByID: [String: [String]] {
-        if screens.isEmpty { return ["": panes.map(\.id)] }
-        return Dictionary(screens.flatMap { $0 }.map { ($0.id, $0.panes) }, uniquingKeysWith: { first, _ in first })
-    }
-
     func pane(_ id: String) -> Pane? { panes.first { $0.id == id } }
 
     func contains(pane id: String) -> Bool { panes.contains { $0.id == id } }
 
-    /// Pane and tab holding the tab with this id.
-    func location(ofTab id: String) -> (pane: String, tab: String)? {
-        for pane in panes where pane.tabs.contains(where: { $0.id == id }) { return (pane.id, id) }
-        return nil
-    }
-
-    /// Pane and tab showing this daemon surface.
-    func location(ofSurface surface: String) -> (pane: String, tab: String)? {
-        for pane in panes {
-            if let tab = pane.tabs.first(where: { $0.surface == surface }) { return (pane.id, tab.id) }
-        }
-        return nil
-    }
-
     var allTabIDs: Set<String> { Set(panes.flatMap { $0.tabs.map(\.id) }) }
-
-    /// Selects `tab` in `pane` in this copy (the applier makes it real).
-    mutating func select(_ tab: String, in pane: String) {
-        guard let index = panes.firstIndex(where: { $0.id == pane }) else { return }
-        panes[index].selected = tab
-    }
 }
