@@ -141,6 +141,11 @@ class App:
         return [(m["author"], m["text"]) for m in (self.chief_row() or {}).get("shown_tail", [])]
 
     def send(self, text):
+        # The Home transcript appears after home.show settles (as chief-first-send-live.py waits).
+        self.rpc("action.run", {"id": "home.show"})
+        shown = wait(lambda: (self.rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 240)
+        if not shown:
+            say(self.name, "Home transcript not shown:", json.dumps(self.rpc("debug.home") or {})[:600])
         say(self.name, "drive", self.rpc("debug.home.drive", {"action": "focus"}),
             self.rpc("debug.home.drive", {"action": "type", "text": text}), self.rpc("debug.home.drive", {"action": "send"}))
 
