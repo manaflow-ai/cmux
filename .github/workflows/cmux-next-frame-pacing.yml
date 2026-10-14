@@ -86,7 +86,9 @@ jobs:
           tag=frame-pacing
           if [ "$SUITES_INPUT" = golden ]; then
             slug="$(printf '%s' "$REF_INPUT" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' | cut -c1-32 | sed -E -e 's/^-+//' -e 's/-+$//')"
-            tag="golden-${slug:-feat}"
+            # The checksum keeps two refs that share a 32-character prefix on their own tags.
+            sum="$(printf '%s' "$REF_INPUT" | cksum | cut -d' ' -f1)"
+            tag="golden-${slug:-feat}-${sum}"
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
