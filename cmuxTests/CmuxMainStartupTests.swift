@@ -21,10 +21,47 @@ struct CmuxMainStartupTests {
             bundleIdentifier: "com.cmuxterm.app.test",
             appSupportDirectory: directory
         )
+        let panelID = UUID()
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion, createdAt: 1,
             windows: [SessionWindowSnapshot(
-                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+                tabManager: SessionTabManagerSnapshot(
+                    selectedWorkspaceIndex: 0,
+                    workspaces: [SessionWorkspaceSnapshot(
+                        processTitle: "Terminal",
+                        customTitle: nil,
+                        customColor: nil,
+                        isPinned: false,
+                        currentDirectory: directory.path,
+                        focusedPanelId: panelID,
+                        layout: .pane(SessionPaneLayoutSnapshot(
+                            panelIds: [panelID],
+                            selectedPanelId: panelID
+                        )),
+                        panels: [SessionPanelSnapshot(
+                            id: panelID,
+                            type: .terminal,
+                            title: "Terminal",
+                            customTitle: nil,
+                            directory: directory.path,
+                            isPinned: false,
+                            isManuallyUnread: false,
+                            listeningPorts: [],
+                            ttyName: nil,
+                            terminal: SessionTerminalPanelSnapshot(
+                                workingDirectory: directory.path
+                            ),
+                            browser: nil,
+                            markdown: nil,
+                            filePreview: nil,
+                            rightSidebarTool: nil
+                        )],
+                        statusEntries: [],
+                        logEntries: [],
+                        progress: nil,
+                        gitBranch: nil
+                    )]
+                ),
                 sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
             )]
         )
