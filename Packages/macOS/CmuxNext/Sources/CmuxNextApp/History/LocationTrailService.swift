@@ -16,7 +16,7 @@ import Observation
 /// the steps are read back from it at connect. Only the Back/Forward cursor
 /// is this app's own view state.
 final class LocationTrailService {
-    private unowned let services: AppServices
+    unowned let services: AppServices
     private(set) var trail = LocationTrail()
     private var loaded = false
     private var loading = false
@@ -142,26 +142,6 @@ final class LocationTrailService {
         services.settings.flatMap { HistoryStepScope(rawValue: $0.snapshot.navigationHistorySteps) } ?? .default
     }
 
-    /// `anyTarget`: also when the keyboard is elsewhere (a page's origin).
-    func location(of state: FocusState, in controller: WindowController, anyTarget: Bool = false) -> HistoryLocation? {
-        guard anyTarget || state.target.isPaneScoped || state.target.isSidebar, let pane = state.pane,
-              let tabID = state.topology.pane(pane)?.selectedTab?.id,
-              let (tab, paneModel) = services.locateTab(tabID) else { return nil }
-        let daemon = services.daemon(for: paneModel)
-        let workspace = daemon.store.workspace(containing: paneModel.handle)
-        let content: HistoryLocation.Content = switch tab.kind {
-        case .pty: .terminal
-        case .browser: .browser
-        default: .other
-        }
-        let workspaceID = workspace?.id ?? state.topology.workspace ?? ""
-        return HistoryLocation(
-            key: .init(machine: daemon.machineID, tab: tab.id), window: controller.state.id, workspace: workspaceID,
-            pane: paneModel.id, content: content, title: tab.displayTitle.isEmpty ? Strings.untitledTerminal : tab.displayTitle,
-            workspaceTitle: workspace?.displayName, machineName: daemon.machineID == MachineRegistry.localID ? nil : daemon.machineID,
-            url: tab.url, cwd: tab.cwd, isIncognito: services.windows.isIncognito(workspace: workspaceID))
-    }
-
     /// The user showed top page `route` in the active window: a trail entry
     /// (TOP-SECTION-ITEMS-ARE-PAGES Q2), through the same settle rules.
     /// `origin` is where the window was (`WindowController.trailOrigin`): when the trail's
@@ -173,8 +153,10 @@ final class LocationTrailService {
                                             isIncognito: services.windows.isIncognito(window: controller.state.id))
         let time = now()
         if let origin, Self.needsOrigin(origin, before: location, current: trail.current?.location) {
-            // A jump: neither entry is coalesced away as a quick pass.
-            step(origin, at: time, jump: true) { $0.recordJump(origin, at: time) }
+            // A jump: neither entry is coalesced away as a quick pass. The origin is a millisecond
+            // older, so the daemon's rows (newest first by time) keep the order.
+            let before = time.addingTimeInterval(-0.001)
+            step(origin, at: before, jump: true) { $0.recordJump(origin, at: before) }
             step(location, at: time, jump: true) { $0.recordJump(location, at: time) }
             changed()
             return
@@ -183,13 +165,6 @@ final class LocationTrailService {
     }
 
     // MARK: Navigation
-
-    /// Whether the location's tab exists on a connected machine now.
-    func isAvailable(_ location: HistoryLocation) -> Bool {
-        if let page = location.page { return TopPageRoute(rawValue: page).map(hasPage) ?? false }
-        guard let (_, pane) = services.locateTab(location.key.tab) else { return false }
-        return services.daemon(for: pane).machineID == location.key.machine
-    }
 
     enum Direction { case back, forward, last }
 
@@ -295,11 +270,6 @@ final class LocationTrailService {
         return services.revealTab(location.key.tab)
     }
 
-    private func hasPage(_ route: TopPageRoute) -> Bool {
-        if case .page(let id) = route { return TopPages.provider(id, services: services) != nil }
-        return true
-    }
-
     // MARK: Clearing
 
     func clear(since start: Date?) {
@@ -336,7 +306,10 @@ final class LocationTrailService {
     }
 
     private func report(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope, jump: Bool) {
-        guard let daemon = services.history.daemonHistory else { return }
+        guard let daemon = services.history.daemonHistory else {
+            unsent.insert(TrailStepID(location.key, time))
+            return
+        }
         reports.yield {
             try? await daemon.recordTrail(window: location.window, location: location, at: time, steps: steps, jump: jump)
         }
@@ -347,8 +320,11 @@ final class LocationTrailService {
     private func loadOnce() {
         guard !loaded, !loading, let daemon = services.history.daemonHistory else { return }
         loading = true
-        services.machines.local.store.sideEvents.subscribe { [weak self] event in
-            if case .historyChanged(_, let kinds) = event, kinds.contains("location") { self?.reread() }
+        if !subscribed {
+            subscribed = true
+            services.machines.local.store.sideEvents.subscribe { [weak self] event in
+                if case .historyChanged(_, let kinds) = event, kinds.contains("location") { self?.reread() }
+            }
         }
         // task-owner: one read of the daemon's trail; ends with its reply
         Task { [weak self] in
@@ -365,11 +341,15 @@ final class LocationTrailService {
         known = Set(steps.map { TrailStepID($0.location.key, $0.time) })
         var merged = LocationTrail()
         for step in steps { merged.recordJump(step.location, at: step.time) }
-        // Steps taken before the daemon answered: the ones it lacks go to it now.
+        // Steps taken before the daemon answered stay newest; the ones taken while no daemon served
+        // the trail go to it now (the others are in its FIFO already).
         for entry in trail.entries where !known.contains(TrailStepID(entry.location.key, entry.enteredAt)) {
             merged.recordJump(entry.location, at: entry.enteredAt)
-            if !entry.location.isIncognito { report(entry.location, at: entry.enteredAt, steps: .everything, jump: true) }
+            if unsent.remove(TrailStepID(entry.location.key, entry.enteredAt)) != nil, !entry.location.isIncognito {
+                report(entry.location, at: entry.enteredAt, steps: .everything, jump: true)
+            }
         }
+        unsent.removeAll()
         trail = merged
         notify()
     }
@@ -378,6 +358,9 @@ final class LocationTrailService {
     /// another client (the React History page): its entries leave the Back/Forward steps too.
     /// Steps this app reported but the daemon has not stored yet were never known, so they stay.
     private var known: Set<TrailStepID> = []
+    /// Steps recorded while no daemon served the trail (before the first connection).
+    private var unsent: Set<TrailStepID> = []
+    private var subscribed = false
     private var rereads = 0
 
     private func reread() {

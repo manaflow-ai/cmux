@@ -326,6 +326,11 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
     every["steps"] = json!("everything");
     let fox = record(&mut app, "r7", every);
     assert_eq!(fox, json!({"id": "location:5", "recorded": true}));
+    // A jump to another tab of the same workspace is its own step (Swift
+    // recordJump never replaces the sidebar item's entry).
+    let mut jump = step("w2", location("tab_g", "Golf", "ws-4"), at + 55_000);
+    jump["jump"] = json!(true);
+    assert_eq!(record(&mut app, "r7j", jump), json!({"id": "location:6", "recorded": true}));
     let mut secret = step("w3", location("tab_s", "Secret", "ws-9"), at + 60_000);
     secret["incognito"] = json!(true);
     assert_eq!(record(&mut app, "r8", secret), json!({"recorded": false}));
@@ -335,16 +340,19 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
     let locations = rows(&mut relay, &["location"]);
     assert_eq!(
         field(&locations, "id"),
-        ["location:5", "location:4", "location:2", "location:1"],
+        ["location:6", "location:5", "location:4", "location:2", "location:1"],
         "{locations:?}"
     );
-    assert_eq!(field(&locations, "title"), ["Fox", "Echo", "Gamma", "Alpha"]);
-    assert_eq!(field(&locations, "detail"), ["ws-4 name", "ws-4 name", "ws-2 name", "ws-1 name"]);
+    assert_eq!(field(&locations, "title"), ["Golf", "Fox", "Echo", "Gamma", "Alpha"]);
+    assert_eq!(
+        field(&locations, "detail"),
+        ["ws-4 name", "ws-4 name", "ws-4 name", "ws-2 name", "ws-1 name"]
+    );
     assert_eq!(locations[0]["current"], true, "{locations:?}");
     assert_eq!(locations[1]["current"], false, "{locations:?}");
-    assert_eq!(locations[2]["window"], "w2", "{locations:?}");
-    assert_eq!(locations[2]["location"]["tab"], "tab_c", "{locations:?}");
-    assert_eq!(locations[2]["at_ms"], (at + 10_000).to_string(), "{locations:?}");
+    assert_eq!(locations[3]["window"], "w2", "{locations:?}");
+    assert_eq!(locations[3]["location"]["tab"], "tab_c", "{locations:?}");
+    assert_eq!(locations[3]["at_ms"], (at + 10_000).to_string(), "{locations:?}");
 
     // The same rows over the daemon WebSocket (a page in a plain browser).
     let (addr, token) = owner.listener();
@@ -383,7 +391,11 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
         with_gesture(&mut app, &mut relay, &relay_id, "history.entries.remove", remove, "x2");
     assert_eq!(ok(&removed)["value"]["removed"], 2, "{removed}");
     let left = rows(&mut relay, &["location"]);
-    assert_eq!(field(&left, "id"), ["location:5", "location:4", "location:1"], "{left:?}");
+    assert_eq!(
+        field(&left, "id"),
+        ["location:6", "location:5", "location:4", "location:1"],
+        "{left:?}"
+    );
     let left = app.rpc(json!({"cmd": "list-terminal-commands"}));
     let left_ids: Vec<&str> = left["data"]["commands"]
         .as_array()
@@ -399,7 +411,7 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
     let refused = relay.v2("history.clear", clear.clone(), json!({"idempotency_key": "c1"}));
     assert_eq!(refusal(&refused), "gesture_required");
     let cleared = with_gesture(&mut app, &mut relay, &relay_id, "history.clear", clear, "c2");
-    assert_eq!(ok(&cleared)["value"]["removed"], 4, "{cleared}");
+    assert_eq!(ok(&cleared)["value"]["removed"], 5, "{cleared}");
     assert_eq!(rows(&mut relay, &["location", "command"]), Vec::<Value>::new());
 }
 
