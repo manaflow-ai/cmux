@@ -483,17 +483,18 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
 
 /// This Chief's record from the local owner's Chief registry, read once on
 /// its own bound connection. No registry (the cloud source, an older
-/// daemon) or no record for it (a Chief started before it had one): every
-/// tool, no profile, as before. A connection failure is fatal only for a
-/// Chief that is not the default one, whose grant must not open up because
-/// the daemon was briefly away (its supervisor starts it again); the
-/// default Chief starts as before.
+/// daemon) or no record for this participant (a Chief started before it had
+/// one, such as hq-ec's instruction-file VM Chiefs): every tool, no profile,
+/// as before records. Any other failure (the daemon away, a refused bind) is
+/// fatal for a Chief that is not the default one, so its grant never opens
+/// up because the daemon was briefly away (its supervisor starts it again);
+/// the default Chief starts as before.
 fn load_chief_tools(
     source: &Source,
     daemon_socket: &str,
     membership: &crate::membership::Membership,
 ) -> Result<crate::chief_profile::ChiefTools, String> {
-    use crate::chief_profile::{ChiefTools, ProfileClient};
+    use crate::chief_profile::{ChiefTools, LoadError, ProfileClient};
     let Source::Local { token_file } = source else {
         return Ok(ChiefTools::none());
     };
@@ -512,11 +513,8 @@ fn load_chief_tools(
             }
             Ok(tools)
         }
-        Err(e)
-            if e.contains("chief_not_found")
-                || e.contains("operation") && e.contains("unknown") =>
-        {
-            log(format!("chief record: none ({e}); every tool, no profile"));
+        Err(e @ (LoadError::NoRecord(_) | LoadError::NoRegistry(_))) => {
+            log(format!("chief record: {e}; every tool, no profile"));
             Ok(ChiefTools::none())
         }
         Err(e) if membership.is_default() => {

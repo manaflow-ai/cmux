@@ -225,6 +225,7 @@ impl Grant {
 }
 
 /// This Chief's record, grant and profile client, as the host serves them.
+#[derive(Debug)]
 pub struct ChiefTools {
     pub profile: Option<Profile>,
     pub grant: Grant,
@@ -243,7 +244,7 @@ impl ChiefTools {
 
     /// Reads the record with `client` (None: the cloud source, no registry).
     /// Err when the daemon answers but has no such Chief or refuses.
-    pub fn load(client: Option<ProfileClient>) -> Result<ChiefTools, String> {
+    pub fn load(client: Option<ProfileClient>) -> Result<ChiefTools, LoadError> {
         let Some(client) = client else {
             return Ok(ChiefTools::none());
         };
@@ -283,6 +284,50 @@ impl ChiefTools {
             .as_ref()
             .ok_or("this Chief has no record here")?;
         client.apply(args)
+    }
+}
+
+/// Why the record could not be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoadError {
+    /// The registry has no record for this participant (a Chief started
+    /// before it had one, such as an instruction-file VM Chief, or one the
+    /// person deleted): the daemon refuses its bound connection
+    /// (`chief_registry_caller`) or answers `chief_not_found`.
+    NoRecord(String),
+    /// The daemon has no Chief registry (an older daemon refuses the v2
+    /// envelope or the operation as invalid).
+    NoRegistry(String),
+    /// Anything else: the daemon away, the bind refused, a bad answer.
+    Other(String),
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::NoRecord(e) => write!(f, "no record: {e}"),
+            LoadError::NoRegistry(e) => write!(f, "no registry: {e}"),
+            LoadError::Other(e) => f.write_str(e),
+        }
+    }
+}
+
+impl LoadError {
+    fn from_sdk(error: SdkError) -> LoadError {
+        if let SdkError::Protocol { code, details, .. } = &error {
+            let reasons = [
+                details.get("reason"),
+                details.get("extra").and_then(|x| x.get("reason")),
+            ];
+            let reason = |r: &str| reasons.iter().flatten().any(|v| v.as_str() == Some(r));
+            if reason("chief_registry_caller") || reason("chief_not_found") {
+                return LoadError::NoRecord(error.to_string());
+            }
+            if code == "validation.invalid" {
+                return LoadError::NoRegistry(error.to_string());
+            }
+        }
+        LoadError::Other(error.to_string())
     }
 }
 
@@ -360,11 +405,12 @@ impl ProfileClient {
     }
 
     /// The Chief's record (`chief.profile.get`).
-    pub fn get(&self) -> Result<Profile, String> {
+    pub fn get(&self) -> Result<Profile, LoadError> {
         let v = self
             .v2("chief.profile.get", Map::new(), false)
-            .map_err(|e| e.to_string())?;
-        Profile::from_wire(&v).ok_or_else(|| format!("chief.profile.get answered no record: {v}"))
+            .map_err(LoadError::from_sdk)?;
+        Profile::from_wire(&v)
+            .ok_or_else(|| LoadError::Other(format!("chief.profile.get answered no record: {v}")))
     }
 
     /// The `profile` tool's work (schemas/chief-profile/tool.json `answers`).
@@ -416,9 +462,18 @@ impl ProfileClient {
         let mut last = Value::Null;
         if !text.is_empty() {
             last = self
-                .v2("chief.profile.update", text, true)
+                .v2("chief.profile.update", text.clone(), true)
                 .map_err(denied)?;
         }
+        // A refused picture after a committed text change says both.
+        let changed = |e: String| {
+            if text.is_empty() {
+                e
+            } else {
+                let fields: Vec<&str> = text.keys().map(String::as_str).collect();
+                format!("{e} (Your {} did change.)", fields.join(", "))
+            }
+        };
         if let Some((media_type, bytes)) = picture {
             let mut p = Map::new();
             p.insert("media_type".into(), json!(media_type));
@@ -428,13 +483,13 @@ impl ProfileClient {
             );
             last = self
                 .v2("chief.profile.avatar.set", p, true)
-                .map_err(denied)?;
+                .map_err(|e| changed(denied(e)))?;
         } else if clear {
             let mut p = Map::new();
             p.insert("clear".into(), json!(true));
             last = self
                 .v2("chief.profile.avatar.set", p, true)
-                .map_err(denied)?;
+                .map_err(|e| changed(denied(e)))?;
         }
         let record = last.get("value").cloned().unwrap_or(last);
         Ok(format!(

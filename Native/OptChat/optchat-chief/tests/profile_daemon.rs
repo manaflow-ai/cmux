@@ -299,6 +299,25 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
         "byte-stable while the record does not change"
     );
 
+    // A Chief with no record (started before it had one) keeps every tool.
+    me.req(json!({"cmd": "conversation-create", "idempotency_key": "dm-ghost",
+                  "actor": "user_local", "title": "Ghost", "participants": [
+                      {"id": "user_local", "kind": "human", "display_name": "Ada"},
+                      {"id": "agent_ghost", "kind": "agent", "display_name": "Ghost", "agent_class": "mux"}]}));
+    let ghost_token = me.token_file(dir.path(), "agent_ghost");
+    let ghost = ChiefTools::load(Some(ProfileClient::new(
+        daemon.socket.clone(),
+        Some(ghost_token),
+        "agent_ghost".into(),
+    )));
+    assert!(
+        matches!(
+            ghost,
+            Err(optchat_chief::chief_profile::LoadError::NoRecord(_))
+        ),
+        "{ghost:?}"
+    );
+
     // The default Chief renders nothing: its prompt stays byte-identical.
     let mux_token = me.token_file(dir.path(), "agent_mux");
     let default = ChiefTools::load(Some(ProfileClient::new(

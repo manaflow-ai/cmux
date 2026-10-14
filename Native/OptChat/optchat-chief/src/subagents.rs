@@ -154,6 +154,9 @@ pub struct Spawner {
     /// The harnesses the person lets this Chief's subagents use (its
     /// record's `harnesses`, chief_profile.rs); empty: every harness.
     harnesses: std::collections::BTreeSet<String>,
+    /// Queued ids of a spawn the grant refused, with the refusal: the queue
+    /// starter fails them with it when the brain dequeues them.
+    refused: Mutex<BTreeMap<String, String>>,
 }
 
 impl Spawner {
@@ -176,6 +179,7 @@ impl Spawner {
             waiting: Mutex::new(BTreeMap::new()),
             log,
             harnesses: std::collections::BTreeSet::new(),
+            refused: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -531,6 +535,14 @@ impl Spawner {
                 error: error.to_owned(),
             });
         };
+        let refused = self
+            .refused
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(id);
+        if let Some(e) = refused {
+            return fail(&e);
+        }
         let Some(w) = waiting else {
             return fail("the Chief host restarted while it waited for a free slot");
         };
@@ -724,14 +736,29 @@ impl Orchestrator for Spawner {
         };
         let mut started = Vec::new();
         let mut lines = Vec::new();
+        if let Some(e) = &refused {
+            // Queued ids first, before any failure frees a slot: the brain
+            // dequeues them to the queue starter, which fails them with this
+            // refusal (they are in no `waiting` entry).
+            let mut map = self
+                .refused
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for id in plan.ids.iter().filter(|id| plan.queued.contains(id)) {
+                map.insert(id.clone(), e.clone());
+            }
+        }
         for (id, task) in plan.ids.iter().zip(&tasks) {
             if let Some(e) = &refused {
                 (self.log)(&format!("subagent {id} did not start: {e}"));
+                lines.push(format!("- {id}: did not start ({e})"));
+                if plan.queued.contains(id) {
+                    continue;
+                }
                 let _ = self.send(Input::SubagentFailed {
                     id: id.clone(),
                     error: e.clone(),
                 });
-                lines.push(format!("- {id}: did not start ({e})"));
                 continue;
             }
             if plan.queued.contains(id) {
