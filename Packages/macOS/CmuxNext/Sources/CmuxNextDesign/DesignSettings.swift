@@ -37,6 +37,9 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); off by default.
     public var paneAnimations = false
+    /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
+    /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
+    public var classicHome = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
@@ -98,6 +101,9 @@ public final class DesignSettings {
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
     /// when `focusIndicator` marks tabs.
     public var inactiveTabStyle: InactiveTabStyle = .fade
+    /// The Ghostty config's `unfocused-split-opacity` and
+    /// `unfocused-split-fill`; no dim unless the config sets one.
+    public var unfocusedPaneDim = UnfocusedPaneDim()
 
     /// `focusIndicator` unless Debug Settings overrides it.
     public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }

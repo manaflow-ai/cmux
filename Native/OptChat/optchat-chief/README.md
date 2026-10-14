@@ -51,6 +51,32 @@ follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
 ends, and the end posts what the turn said and "(turn stopped)".
 
+## Several Chiefs and channels
+
+One host is one Chief (`src/membership.rs`). Several Chiefs on one owner run
+one host each, with their own `MUX_HOME`, acpmux home, participant id
+(`OPTCHAT_CHIEF_PARTICIPANT`) and token (`conversation-agent-token` for that
+id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
+conversation the Chief takes part in is a wake of that conversation, read and
+answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
+it too (never its own; other agents never do). Loop guard: after
+`CHIEF_TURN_BUDGET` (6) consecutive Chief messages in one thread (or the top
+level), no Chief answers a Chief there until a person writes
+(`cmux_chief::rules::chief_streak`, computed from the conversation, so every
+host and the page agree with no shared state). The owner's own guard is
+lower today: at most `MAX_AGENT_TURNS` (4) agent messages per conversation
+after a person's message (`cmux_conversation::check_agent_streak`), so a
+Chief also stays quiet once that streak is reached (`owner_agent_streak`)
+instead of running a turn whose reply would be refused. A page shows
+"Chiefs paused" for a thread when either streak at its tail is at its limit. `every` adds a constant
+"Channels" paragraph to the system prompt: the Chief acts on its own when a
+message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
+In a conversation of more than two participants the reply goes into the
+thread of the message it answers (`reply_to` that message, `thread_root` its
+root, else the message itself). The local owner has no wake queue: a side
+conversation's messages that arrive while the host is down are not read after
+the restart. Behavior test: `tests/channels_daemon.rs` (real daemon).
+
 ## Pure Rust over ACP
 
 The Chief's own path is Rust end to end, checked 2026-10-05:
@@ -343,6 +369,9 @@ replies).
 | `CMUX_DAEMON_SOCKET` | (`--daemon-socket`) | the session daemon (local-conversations-v1) |
 | `MUX_HOME` | `~/.cmux/mux` (`--mux-home`) | where everything lives |
 | `MUX_AGENT_TOKEN_FILE` | required (exit 2 without) | the app's agent_mux token |
+| `OPTCHAT_CHIEF_PARTICIPANT` | `agent_mux` | the participant this Chief binds and answers as (one host per Chief, each with its own `MUX_HOME` and token); its main conversation is its oldest DM with the person ([Several Chiefs and channels](#several-chiefs-and-channels)) |
+| `MUX_CHIEF_TITLE` | `Chief` | the title of the Chief's conversation when the host creates it; for a Chief that is not agent_mux, also its participant name |
+| `OPTCHAT_GROUP_WAKE` | unset | local source: `mention` or `every` makes the other local conversations the Chief takes part in wake it (a mention or reply, or every person's message); unset, it answers only in its main conversation |
 | `OPTCHAT_CHIEF_ENGINE` | `acpmux` | `acpmux` or `native` (Messages API loop in the host) |
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |

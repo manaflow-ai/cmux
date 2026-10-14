@@ -12,6 +12,11 @@ final class OutlineRenderer: DropOverlayRenderer {
     private let ring = DropOutlineRing()
     private let chip = PassthroughView()
     private let label = DropOverlayLabel()
+    /// Outlines of the panes the drop resizes, at their final frames (the
+    /// final-layout preview): a 1 pt line of the ring color at half strength,
+    /// no fill, so the new pane (filled) reads as the change.
+    private var companions: [CALayer] = []
+    private var companionRadius: CGFloat = 0
 
     var drivesOwnMotion: Bool { true }
     /// The ring's model state (debug and tests).
@@ -38,19 +43,46 @@ final class OutlineRenderer: DropOverlayRenderer {
                   fillOpacity: fill)
         // The ring resolved its colors outside the theme scope; resolve them again inside it.
         if colorsChanged { applyTheme() }
+        placeCompanions(frame.refused ? [] : frame.companions, cornerRadius: frame.cornerRadius)
         placeChip(in: frame.finalTarget, frame: frame)
     }
 
     func hide(animated: Bool) {
         chip.isHidden = true
+        placeCompanions([], cornerRadius: 0)
         ring.hide(animated: animated)
     }
 
     func applyTheme() {
         view.performWithTheme {
             ring.applyTheme()
+            let line = Palette.tunable(DropOutlineTunables.color.value)
+            for layer in companions { layer.borderColor = line.withAlphaComponent(line.alphaComponent * 0.6).cgColor }
             chip.layer?.backgroundColor = Palette.elevatedBackground.cgColor
             label.applyTheme(ring.isRefused ? Palette.danger : Palette.textPrimary)
+        }
+    }
+
+    /// Shows one outline per rect (snapped: they mark the result, they do not move between targets).
+    private func placeCompanions(_ rects: [CGRect], cornerRadius: CGFloat) {
+        let grew = rects.count > companions.count
+        while companions.count < rects.count {
+            let layer = CALayer()
+            layer.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "opacity": NSNull(),
+                             "borderColor": NSNull(), "borderWidth": NSNull(), "hidden": NSNull()]
+            layer.borderWidth = 1
+            view.layer?.insertSublayer(layer, below: ring.layer)
+            companions.append(layer)
+        }
+        if grew { applyTheme() }
+        Motion.withoutAnimation {
+            for (index, layer) in companions.enumerated() {
+                guard index < rects.count else { layer.isHidden = true; continue }
+                let rect = rects[index]
+                layer.isHidden = false
+                layer.frame = rect
+                layer.cornerRadius = max(0, min(cornerRadius, min(rect.width, rect.height) / 2))
+            }
         }
     }
 
