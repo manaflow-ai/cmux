@@ -24,7 +24,7 @@ final class DebugResizeTrace {
     private let services: AppServices
     private lazy var client = FrameClient(owner: "debug.resize_trace", isAnimation: false, on: .app) { [weak self] _ in
         self?.sample()
-        return true
+        return self != nil
     }
     private var start: CFTimeInterval = 0
     private var samples: [JSONValue] = []

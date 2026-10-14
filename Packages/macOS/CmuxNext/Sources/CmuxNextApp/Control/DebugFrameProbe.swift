@@ -30,6 +30,7 @@ final class DebugFrameProbe {
             start()
             #if DEBUG
             // `resize_trace: true` also samples every surface's size each frame (DebugResizeTrace).
+            _ = resizeTrace?.end()
             resizeTrace = params["resize_trace"]?.boolValue == true ? services.map(DebugResizeTrace.init) : nil
             resizeTrace?.begin()
             #endif
@@ -63,6 +64,9 @@ final class DebugFrameProbe {
     private func stop() {
         client.deactivate()
         expiry.cancel()
+        #if DEBUG
+        _ = resizeTrace?.end() // the expiry stops the trace too; "stop" still reads its samples
+        #endif
     }
 
     private func tick(_ tick: FrameTick) {
