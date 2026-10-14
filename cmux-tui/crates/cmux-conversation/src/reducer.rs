@@ -3,7 +3,7 @@
 
 use crate::types::{
     Change, ConversationHead, Message, Op, Part, Participant, ParticipantKind, Reaction,
-    ReactionKind, Summary,
+    ReactionKind, Summary, ThreadResolution, ThreadStatus,
 };
 use crate::{
     MAX_DISPLAY_NAME_CHARS, MAX_EMOJI_BYTES, MAX_PARTICIPANTS, MAX_PARTS, MAX_PREVIEW_BYTES,
@@ -72,10 +72,14 @@ pub enum Reject {
     /// is itself in a thread (`thread_root` is always the top root), or a
     /// root that is not the `reply_to` parent's own root.
     InvalidThreadRoot,
+    /// A `thread.update` sets none of `title`, `status` and `owner`.
+    InvalidThreadUpdate,
+    /// A `thread.update` `owner` is not a participant of the conversation.
+    InvalidThreadOwner,
 }
 
 impl Reject {
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 28] = [
         Self::NotParticipant,
         Self::NotAuthor,
         Self::UnknownMessage,
@@ -102,6 +106,8 @@ impl Reject {
         Self::QuestionClosed,
         Self::InvalidAnswer,
         Self::InvalidThreadRoot,
+        Self::InvalidThreadUpdate,
+        Self::InvalidThreadOwner,
     ];
 
     pub fn code(self) -> &'static str {
@@ -132,6 +138,8 @@ impl Reject {
             Self::QuestionClosed => "question_closed",
             Self::InvalidAnswer => "invalid_answer",
             Self::InvalidThreadRoot => "invalid_thread_root",
+            Self::InvalidThreadUpdate => "invalid_thread_update",
+            Self::InvalidThreadOwner => "invalid_thread_owner",
         }
     }
 }
@@ -326,6 +334,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 answers: answers.clone(),
                 answers_pending: answers_pending.clone(),
                 thread_root,
+                thread: None,
                 created_at: now.to_string(),
                 edited_at: None,
                 retracted_at: None,
@@ -454,6 +463,46 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             crate::question::answer(question, answer, actor, now)?;
             // A person's answer is a human turn: the agent may go on.
             next.agent_text_streak = 0;
+            updated(message)
+        }
+        // A thread object lives on its root (conversation-thread-objects-v1).
+        // Like an edit it changes a message, not the list order, so
+        // `updated_at` stays; any participant may set it, a Chief too.
+        Op::ThreadUpdate { root, title, status, owner } => {
+            let mut message = target(head, request, root)?;
+            if message.thread_root.is_some() {
+                return Err(Reject::InvalidThreadRoot);
+            }
+            if title.is_none() && status.is_none() && owner.is_none() {
+                return Err(Reject::InvalidThreadUpdate);
+            }
+            let mut state = message.thread.take().unwrap_or_default();
+            if let Some(title) = title {
+                // An empty title clears it (readers show the root's first line).
+                let count = title.chars().count();
+                if count > MAX_TITLE_CHARS || title.chars().any(char::is_control) {
+                    return Err(Reject::InvalidTitle);
+                }
+                state.title = (count > 0).then(|| title.clone());
+            }
+            if let Some(owner) = owner {
+                if !owner.is_empty() && head.participant(owner).is_none() {
+                    return Err(Reject::InvalidThreadOwner);
+                }
+                state.owner = (!owner.is_empty()).then(|| owner.clone());
+            }
+            match status {
+                Some(ThreadStatus::Resolved) => {
+                    state.resolved = Some(ThreadResolution {
+                        by: request.actor.to_string(),
+                        at: now.to_string(),
+                        seq: head.last_seq,
+                    });
+                }
+                Some(ThreadStatus::Open) => state.resolved = None,
+                None => {}
+            }
+            message.thread = (!state.is_empty()).then_some(state);
             updated(message)
         }
         Op::TitleSet { title } => {
