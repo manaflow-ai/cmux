@@ -123,13 +123,17 @@ public final class ThemedMenuRowView: NSView {
     /// Runs the item, as releasing on a native row would: closes the menu, then sends the action
     /// once the tracking loop has ended (the run loop is back in its default mode), so an action
     /// that opens a field, popover or another menu never does it inside the closing one. Rows with
-    /// a submenu open it instead (AppKit does that).
+    /// a submenu open it instead (AppKit does that). Only an open menu (the row on screen in its
+    /// menu window) is closed: `cancelTracking()` on a menu that is not tracking stops the thread's
+    /// current run loop, and on the main thread outside a tracking loop that is the app's own.
     func activate() {
         guard let item = enclosingMenuItem, Self.runs(item), let menu = item.menu else { return }
-        var root = menu
-        while let parent = root.supermenu { root = parent }
-        root.cancelTracking()
-        if menu !== root { menu.cancelTracking() }
+        if window?.isVisible == true {
+            var root = menu
+            while let parent = root.supermenu { root = parent }
+            root.cancelTracking()
+            if menu !== root { menu.cancelTracking() }
+        }
         pendingItem = item
         RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: 0, modes: [.default])
     }
