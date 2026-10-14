@@ -105,3 +105,13 @@ test("the render card's Open hands its page to the side panel", async () => {
   act(() => button("Open preview")!.click());
   expect(opened).toEqual([{ kind: "html", lang: "html", code: PAGE }]);
 });
+
+test("only a fence that closed draws as a card: not one in a streaming list, nor one a cut reply left open", async () => {
+  // A reply that ended (cancelled or cut) with its fence still open.
+  await draw(`Here is the clamp:\n\n\`\`\`cmux-render\n<title>Desk clamp</title><canvas>`);
+  expect(host.querySelector(".acpmux-render-card")).toBeNull();
+  expect(host.textContent).toContain("<canvas>");
+  // A fence inside a list item while the reply streams: only the last top-level block knows it is open.
+  await draw(`- the clamp:\n\n  \`\`\`cmux-render\n  <title>Desk clamp</title><canvas>`, true);
+  expect(host.querySelector(".acpmux-render-card")).toBeNull();
+});
