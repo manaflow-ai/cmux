@@ -8,6 +8,8 @@ use std::os::fd::FromRawFd;
 
 #[path = "chief_autostart.rs"]
 mod autostart;
+#[path = "chief_build_homes.rs"]
+mod build_homes;
 #[path = "conversation_link_preview.rs"]
 mod link_preview;
 
