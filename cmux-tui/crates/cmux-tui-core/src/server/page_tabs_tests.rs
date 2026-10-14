@@ -246,7 +246,13 @@ fn history_closed_rows_are_only_things_worth_reopening() {
     let mux = test_mux("history-closed-signal");
     let (_, pane) = terminal_pane(&mux);
     let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
-    for url in ["chrome://newtab/", "https://example.com/", "chrome://newtab", "https://example.com/", "https://cmux.com/"] {
+    for url in [
+        "chrome://newtab/",
+        "https://example.com/",
+        "chrome://newtab",
+        "https://example.com/",
+        "https://cmux.com/",
+    ] {
         let created = run(&mux, browser(url)).unwrap();
         run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
     }
@@ -255,8 +261,12 @@ fn history_closed_rows_are_only_things_worth_reopening() {
     run(&mux, json!({"cmd":"create-workspace","name":"workspace-35","key":key})).unwrap();
     for (open, put) in [(true, "put-open"), (false, "put-closed")] {
         let record = json!({"workspace_key":key,"workspace_keys":[key],"open":open});
-        resource(&mux, "window_record.put",
-                 json!({"install_id":"install_a","window_id":"win_1","record":record}), Some(put));
+        resource(
+            &mux,
+            "window_record.put",
+            json!({"install_id":"install_a","window_id":"win_1","record":record}),
+            Some(put),
+        );
     }
     let listed = resource(&mux, "history.entries.list", json!({"kinds":["closed"]}), None);
     let rows: Vec<String> = listed["entries"]
