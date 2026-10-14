@@ -514,15 +514,16 @@ consulted. Without `--workspace`, the app targets the workspace that owns the
 named surface, otherwise the selected workspace of the active window. A surface
 is named positionally or with `--surface <id|ref|index>`, and `--surface` wins
 when both are given. Every `--option` consumes the following token as its value,
-so a flag's value is never read as a positional. Socket canvas verbs never
-animate.
+so a flag's value is never read as a positional. The subcommand word and the
+`mode`, `align`, `zoom` and `--type` arguments are lowercased before they are
+checked. Socket canvas verbs never animate.
 
 | Command | Contract |
 | --- | --- |
 | `canvas info [--workspace <id\|ref\|index>] [--json]` | `canvas.info`: the workspace's layout `mode` (`canvas` or `splits`) and its `panes` back to front, each with the pane's surface id and ref, `x`, `y`, `width`, `height`, `focused`, the ids and refs of the surfaces it hosts as tabs, and the selected one. `magnification` and `viewport_center` (`x`, `y`) are present only in canvas mode with an attached viewport. Works in either layout mode. The text form prints only `OK workspace:<n>`; read the layout with `--json`. |
 | `canvas mode <canvas\|splits\|toggle>` | `canvas.set_mode`. Works in either layout mode and replies with the resulting `mode`. Any other word is a usage error before the request is sent. |
 | `canvas set-frame <surface> --x <n> --y <n> --width <n> --height <n>` | `canvas.set_frame`: place one pane at an explicit canvas frame. All four values are required and numeric (usage error otherwise); the app rejects a non-positive width or height with `invalid_params`. |
-| `canvas align <tidy\|align-left\|align-right\|align-top\|align-bottom\|equalize-widths\|equalize-heights\|distribute-horizontally\|distribute-vertically>` | `canvas.align`: run one alignment, distribution or tidy command over the workspace's panes. The CLI forwards the word as given; the app rejects an unknown one with `invalid_params` naming the accepted set. |
+| `canvas align <tidy\|align-left\|align-right\|align-top\|align-bottom\|equalize-widths\|equalize-heights\|distribute-horizontally\|distribute-vertically>` | `canvas.align`: run one alignment, distribution or tidy command over the workspace's panes. The CLI lowercases the word and forwards it unchecked; the app rejects an unknown one with `invalid_params` naming the accepted set. |
 | `canvas reveal [<surface>]` | `canvas.reveal`: scroll a pane into view without moving focus. Without a surface, the focused pane; `invalid_state` (`No focused pane to target (pass surface_id)`) when the workspace has none. |
 | `canvas overview` | `canvas.overview`: toggle the fit-all overview zoom. |
 | `canvas zoom <in\|out\|reset>` | `canvas.zoom`: step the viewport magnification. Any other word is a usage error before the request is sent. |
@@ -545,7 +546,7 @@ Project subcommands:
 | Command | Contract |
 | --- | --- |
 | `project open <path> [--workspace <id\|ref\|index>] [--window <id\|ref\|index>] [--focus <true\|false>] [--json]` | `project.open`: open a project pane for `<path>` as a new tab in the workspace's focused pane. The CLI expands `~` and resolves a relative path from the current directory; the app requires the path to exist (`not_found`, `Project not found at <path>`) and does not check its extension, though the pane expects an `.xcodeproj` or `.xcworkspace`. Without `--workspace` or `--window`, `CMUX_WORKSPACE_ID` is used when set. The app selects the workspace (bringing its window forward) before opening; `--focus` defaults to `true`, accepts `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` (anything else is a usage error), and `--focus false` adds the tab without moving focus. A workspace with no focused pane fails with `not_found` (`No focused pane to open project in`). Prints `OK surface=<handle> pane=<handle> project=<path>`; `--json` prints `window_id`, `workspace_id`, `pane_id`, `surface_id` and `path`. |
-| `project <path>` | Accepted as `project open <path>` when `<path>` is the only argument left after the options. A first word other than `open` followed by further arguments is a usage error (`Unknown project subcommand: <word>`); `project` alone is a usage error naming the `open` form. |
+| `project <path>` | Accepted as `project open <path>` when `<path>` is the only argument left after the options. A first word other than `open` (matched case-insensitively) followed by further arguments is a usage error (`Unknown project subcommand: <word>`); `project` alone is a usage error naming the `open` form. |
 
 `cmux project` has no pre-socket usage text; see [Current Help Caveats](#current-help-caveats).
 
