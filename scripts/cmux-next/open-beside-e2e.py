@@ -81,6 +81,17 @@ def panes_of(workspace):
     return []
 
 
+def selected_url(workspace, pane):
+    """The URL of the tab `pane` selects ('' for none or a tab without one)."""
+    for ws in topology().get("workspaces", []):
+        if ws.get("id") != workspace:
+            continue
+        for p in (ws.get("screens") or [{}])[0].get("panes") or []:
+            if p.get("id") == pane:
+                return next((t.get("url") or "" for t in p.get("tabs") or [] if t.get("id") == p.get("selected_tab")), "")
+    return ""
+
+
 def brief(workspace):
     return [(pane[-6:], [t.get("kind") + (":" + t["url"].rsplit(":", 1)[-1] if t.get("url") else "") for t in tabs])
             for pane, tabs in panes_of(workspace)]
@@ -182,15 +193,25 @@ def main():
     tabs_before = len(browsers(workspace, chat))
     click(chat, f'a[href="http://127.0.0.1:{PORT}/pr/1"]')
     time.sleep(1.5)  # test harness: a wrong open would land by now
+    shown = wait(lambda: selected_url(workspace, holder[0]).endswith("/pr/1") if holder else False, 5)
     again = tabs_before == 2 and len(browsers(workspace, chat)) == tabs_before and len(panes_of(workspace)) == panes_after_first
-    row("a link already open beside the chat opens no other tab", f"still 2 browser tabs, {panes_after_first} panes",
-        f"panes {brief(workspace)}", again)
+    row("a link already open beside the chat selects its tab there, no other tab",
+        f"still 2 browser tabs, {panes_after_first} panes, /pr/1 selected",
+        f"panes {brief(workspace)} selected {selected_url(workspace, holder[0]) if holder else None!r}", again and bool(shown))
 
-    # 4. The file ref: its page in that same pane.
+    # 4. The file ref: its page in that same pane, even when the chat's own pane shows the file
+    # already (a Command-click opens it there): a page elsewhere never turns the click into a no-op.
+    chat_tab = next((t.get("id") for p, tabs in panes_of(workspace) if p == chat for t in tabs
+                     if t.get("kind") == "conversation"), None)
+    rpc("action.run", {"action": "file.open", "args": {"path": NOTES}, "target": f"pane:{chat}", "wait": True})
+    wait(lambda: sum(1 for p, tabs in panes_of(workspace) if p == chat for t in tabs if t.get("kind") == "page") > 0, 10)
+    rpc("action.run", {"action": "tab.focus", "target": f"tab:{chat_tab}", "focus": True})
+    time.sleep(1)  # test harness: the chat shows again before its click
     pages_before = sum(1 for _, tabs in beside(workspace, chat) for t in tabs if t.get("kind") != "browser")
     click(chat, f'[data-path="{NOTES}"]')
     page = wait(lambda: sum(1 for _, tabs in beside(workspace, chat) for t in tabs if t.get("kind") != "browser") > pages_before, 10)
-    row("a file ref opens its page beside the chat", "one more page tab outside the chat's pane, no new pane",
+    row("a file ref opens its page beside the chat, also when the chat's pane shows it",
+        "one more page tab outside the chat's pane, no new pane",
         f"panes {brief(workspace)}", bool(page) and len(panes_of(workspace)) == panes_after_first)
 
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "open-beside.png")})
