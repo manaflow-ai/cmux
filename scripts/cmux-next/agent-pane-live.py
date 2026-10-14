@@ -361,14 +361,13 @@ try:
         for n in range(3):
             say("columns new column", json.dumps(rpc("action.run", {"action": "newColumn", "focus": True}))[:200])
             time.sleep(1)
-        cua = os.path.expanduser("~/.local/bin/cua-driver")
-        for step in range(6):
-            rpc("debug.focus")
+        for step in range(5):
             time.sleep(1.5)
+            # The window as the window server composites it, its child windows (Chromium pages)
+            # included: a desktop shot on the shared GUI host shows other apps in front.
             shot = os.path.join(OUT, f"columns-{step}.png")
-            subprocess.run([cua, "call", "get_desktop_state", json.dumps({"screenshot_out_file": shot})],
-                           capture_output=True, text=True, timeout=60)
-            say("columns shot", step, os.path.exists(shot))
+            r = rpc("debug.window_snapshot", {"kind": "main", "path": shot}, timeout=60)
+            say("columns shot", step, json.dumps({k: (r or {}).get(k) for k in ("method", "child_windows", "child_windows_failed", "width")}))
             say("columns focus left", json.dumps(rpc("action.run", {"action": "focusLeft", "focus": True}))[:200])
         raise SystemExit(0)
     if STAGE == "subagents":
