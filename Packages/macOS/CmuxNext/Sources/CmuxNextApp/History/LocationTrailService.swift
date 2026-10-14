@@ -20,6 +20,9 @@ final class LocationTrailService {
     private(set) var trail = LocationTrail()
     private var loaded = false
     private var loading = false
+    private var rereads = 0
+    /// What the app last read of the daemon's trail, and its steps the daemon never got.
+    private var sync = HistoryTrailSync()
     private var observation: Task<Void, Never>?
     /// Steps go to the daemon in order: one FIFO, so a step never overtakes the one before it.
     private let reports: AsyncStream<@Sendable () async -> Void>.Continuation
@@ -63,6 +66,10 @@ final class LocationTrailService {
             _ = services?.registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
         }
         let store = services.daemon.store
+        // Another client changed the daemon's trail (the React History page): read it again.
+        store.sideEvents.subscribe { [weak self] event in
+            if case .historyChanged(_, let kinds) = event, kinds.contains("location") { self?.reread() }
+        }
         observation = Task { [weak self] in
             for await connected in ObservationStream({ if case .connected = store.connectionState { true } else { false } }) where connected {
                 self?.loadOnce()
@@ -122,7 +129,7 @@ final class LocationTrailService {
         } else {
             recorded = step(location, at: time, steps: scope) { $0.record(location, at: time, scope: scope) }
         }
-        if recorded { changed() } else { pageHistoryDidChange() }
+        if recorded { notify() } else { pageHistoryDidChange() }
     }
 
     /// When the user last picked a jump (``noteJump()``).
@@ -158,10 +165,10 @@ final class LocationTrailService {
             let before = time.addingTimeInterval(-0.001)
             step(origin, at: before, jump: true) { $0.recordJump(origin, at: before) }
             step(location, at: time, jump: true) { $0.recordJump(location, at: time) }
-            changed()
+            notify()
             return
         }
-        if step(location, at: time, steps: .everything, { $0.record(location, at: time) }) { changed() }
+        if step(location, at: time, steps: .everything, { $0.record(location, at: time) }) { notify() }
     }
 
     // MARK: Navigation
@@ -199,7 +206,7 @@ final class LocationTrailService {
         case .last: trail.last(scope: scope, isAvailable: isAvailable)
         }
         guard let entry else { return false }
-        changed()
+        notify()
         if !focus(entry.location) { trail.cancelPending() }
         return true
     }
@@ -226,7 +233,7 @@ final class LocationTrailService {
     func go(toIndex index: Int) -> Bool {
         guard trail.entries.indices.contains(index), isAvailable(trail.entries[index].location),
               let entry = trail.go(to: index) else { return false }
-        changed()
+        notify()
         if !focus(entry.location) { trail.cancelPending() }
         return true
     }
@@ -274,26 +281,22 @@ final class LocationTrailService {
 
     func clear(since start: Date?) {
         trail.removeAll { entry in start.map { entry.enteredAt >= $0 } ?? true }
-        changed()
+        notify()
     }
 
     /// Removes every entry of one tab (Remove from History).
     func remove(_ key: HistoryLocation.Key) {
         trail.removeAll { $0.location.key == key }
-        changed()
+        notify()
     }
 
     /// The incognito session ended (its last window closed): its entries go.
     func forgetIncognito() {
         trail.removeAll { $0.location.isIncognito }
-        changed()
+        notify()
     }
 
     // MARK: The daemon's trail
-
-    private func changed() {
-        notify()
-    }
 
     /// Runs one record on the trail and, when it changed the trail, reports the same step to the
     /// daemon, which runs the same step rules on its trail (cx-hnmbt.12). Incognito steps stay here.
@@ -307,7 +310,7 @@ final class LocationTrailService {
 
     private func report(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope, jump: Bool) {
         guard let daemon = services.history.daemonHistory else {
-            unsent.insert(TrailStepID(location.key, time))
+            sync.unsent.insert(HistoryTrailStepID(location.key, time))
             return
         }
         reports.yield {
@@ -320,12 +323,6 @@ final class LocationTrailService {
     private func loadOnce() {
         guard !loaded, !loading, let daemon = services.history.daemonHistory else { return }
         loading = true
-        if !subscribed {
-            subscribed = true
-            services.machines.local.store.sideEvents.subscribe { [weak self] event in
-                if case .historyChanged(_, let kinds) = event, kinds.contains("location") { self?.reread() }
-            }
-        }
         // task-owner: one read of the daemon's trail; ends with its reply
         Task { [weak self] in
             let steps = try? await daemon.trail()
@@ -338,31 +335,16 @@ final class LocationTrailService {
 
     private func adopt(_ steps: [(location: HistoryLocation, time: Date)]) {
         loaded = true
-        known = Set(steps.map { TrailStepID($0.location.key, $0.time) })
-        var merged = LocationTrail()
-        for step in steps { merged.recordJump(step.location, at: step.time) }
         // Steps taken before the daemon answered stay newest; the ones taken while no daemon served
         // the trail go to it now (the others are in its FIFO already).
-        for entry in trail.entries where !known.contains(TrailStepID(entry.location.key, entry.enteredAt)) {
-            merged.recordJump(entry.location, at: entry.enteredAt)
-            if unsent.remove(TrailStepID(entry.location.key, entry.enteredAt)) != nil, !entry.location.isIncognito {
-                report(entry.location, at: entry.enteredAt, steps: .everything, jump: true)
-            }
-        }
-        unsent.removeAll()
+        let (merged, resend) = sync.adopt(steps, local: trail)
+        for entry in resend { report(entry.location, at: entry.enteredAt, steps: .everything, jump: true) }
         trail = merged
         notify()
     }
 
-    /// The daemon steps the app last read. A step that left them was removed or cleared by
-    /// another client (the React History page): its entries leave the Back/Forward steps too.
-    /// Steps this app reported but the daemon has not stored yet were never known, so they stay.
-    private var known: Set<TrailStepID> = []
-    /// Steps recorded while no daemon served the trail (before the first connection).
-    private var unsent: Set<TrailStepID> = []
-    private var subscribed = false
-    private var rereads = 0
-
+    /// Another client changed the daemon's trail (the React History page): steps that left it
+    /// leave Back/Forward too. Only the newest read applies.
     private func reread() {
         guard loaded, let daemon = services.history.daemonHistory else { return }
         rereads += 1
@@ -370,11 +352,9 @@ final class LocationTrailService {
         // task-owner: one read of the daemon's trail; ends with its reply
         Task { [weak self] in
             guard let steps = try? await daemon.trail(), let self, generation == self.rereads else { return }
-            let now = Set(steps.map { TrailStepID($0.location.key, $0.time) })
-            let gone = self.known.subtracting(now)
-            self.known = now
+            let gone = self.sync.reconcile(steps)
             guard !gone.isEmpty else { return }
-            self.trail.removeAll { gone.contains(TrailStepID($0.location.key, $0.enteredAt)) }
+            self.trail.removeAll { gone.contains(HistoryTrailStepID($0.location.key, $0.enteredAt)) }
             self.notify()
         }
     }
