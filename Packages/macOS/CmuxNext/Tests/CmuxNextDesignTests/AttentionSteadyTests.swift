@@ -48,4 +48,14 @@ import Testing
         let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
         #expect(values == [0, rest])
     }
+
+    @Test func aFurtherNotificationSwellsWithoutDroppingOut() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
+        let values = opacities(Motion.attentionAnimation(steady, look: .subtle, showing: true))
+        #expect(values.first == rest)
+        #expect((values.min() ?? 0) >= rest, "the ring dropped out: \(values)")
+        #expect((values.max() ?? 0) > rest)
+    }
 }
