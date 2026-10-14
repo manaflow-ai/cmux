@@ -43,6 +43,22 @@ export const canFork = (snapshot: AcpmuxSnapshot) =>
 /// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
 export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
 
+/// Every turn a fork can start from, newest first: its seq and the prompt that began it (on one
+/// line). A steer later in the turn does not rename it; a turn begun without text (an image only)
+/// is left out rather than shown under another turn's prompt.
+export function forkablePrompts(rows: readonly { kind: string; seq?: number; text?: string }[]) {
+  const prompts: { seq: number; text: string }[] = [];
+  let prompt: string | undefined;
+  for (const row of rows) {
+    if (row.kind === "user" && prompt === undefined) prompt = row.text?.trim().replace(/\s+/g, " ") ?? "";
+    else if (row.kind === "turnSummary") {
+      if (row.seq !== undefined && prompt) prompts.push({ seq: row.seq, text: prompt });
+      prompt = undefined;
+    }
+  }
+  return prompts.reverse();
+}
+
 /// The latest completed turn's summary event: the one turn a fork goes through unless the chat
 /// `forksAnyTurn` (`acp.session.fork` refuses another agent's earlier turn).
 export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): number | undefined {
