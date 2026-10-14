@@ -12,8 +12,9 @@ extension ShellWindow {
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
         cursorRectHold?.windowWillSend(event, in: self)
-        guard event.type == .leftMouseDown, TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow,
-              !PaneSwapDrag.claims(event, in: self) else {
+        // A control-press is a right-click: AppKit opens the menu, the window stays.
+        guard event.type == .leftMouseDown, !event.modifierFlags.contains(.control),
+              TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow, !PaneSwapDrag.claims(event, in: self) else {
             return super.sendEvent(event)
         }
         if event.clickCount != 2 { super.sendEvent(event) }
