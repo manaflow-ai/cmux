@@ -51,7 +51,7 @@
 }
 
 .content {
-  padding: 26px 32px 56px;
+  padding: 26px var(--page-edge) 56px;
 }
 
 .column {
@@ -779,7 +779,7 @@
   }
 
   .content {
-    padding: 14px 16px 40px;
+    padding: 14px var(--page-edge) 40px;
     --content-fade-top: 12px;
   }
 }

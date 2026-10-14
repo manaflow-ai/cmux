@@ -103,6 +103,28 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
+    // In CI the first load of the dev server can stall past 30 s while it transforms deps
+    // (#20276's run 38480535894), as in agent-pane-replay. Load it here, again if it stalls, so
+    // the test times only the chat; a stalled load's page errors go to the log.
+    const { port } = vite.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon.port}/`;
+    for (let attempt = 1; ; attempt++) {
+      promptAt = peerNow() - 5_000;
+      const warm = await browser.newPage();
+      const errors: string[] = [];
+      warm.on("pageerror", (error) => errors.push(error.message));
+      warm.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+      await warm.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+      try {
+        await warm.locator(".cv-worked").first().waitFor({ timeout: 25_000 });
+        await warm.close();
+        break;
+      } catch (error) {
+        console.warn(`agent-pane-peer-chat: load ${attempt} stalled`, errors);
+        await warm.close();
+        if (attempt === 3) throw error;
+      }
+    }
   });
   afterAll(async () => {
     await browser?.close();

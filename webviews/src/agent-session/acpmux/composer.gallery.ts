@@ -1034,6 +1034,17 @@ export default agentPaneEntry({
           throw new Error("shared popup is missing glass material");
         if (!style.backgroundColor || style.backgroundColor === "rgba(0, 0, 0, 0)")
           throw new Error("shared popup is missing its themed surface fill");
+        const box = ctx.find({ selector: ".acpmux-composer-box" });
+        const context = ctx.find({ selector: ".acpmux-composer-context" });
+        const boxStyle = ctx.document.defaultView!.getComputedStyle(box);
+        const contextStyle = ctx.document.defaultView!.getComputedStyle(context);
+        if (!boxStyle.boxShadow || boxStyle.boxShadow === "none") throw new Error("composer surface has no soft edge");
+        if (contextStyle.borderTopWidth !== "0px" || contextStyle.boxShadow !== "none")
+          throw new Error("location scope still draws a divider or inner box");
+        if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
+        const spacer = ctx.find({ selector: ".acpmux-chips-spacer" });
+        if (Number(ctx.document.defaultView!.getComputedStyle(spacer).flexGrow) < 1)
+          throw new Error("composer controls lost the flexible gap between left and right groups");
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
         await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));

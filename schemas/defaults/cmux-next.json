@@ -380,7 +380,7 @@
     "setting.layout.paneBorderWidth": null,
     "setting.layout.paneCornerRadius": null,
     "setting.layout.panePadding": null,
-    "setting.layout.paneSeparation": "borders",
+    "setting.layout.paneSeparation": null,
     "setting.layout.rows": true,
     "setting.layout.splitSizing": "even",
     "setting.layout.stripMargin": 0,

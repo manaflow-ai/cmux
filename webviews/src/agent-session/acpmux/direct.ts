@@ -151,6 +151,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       id: String(option.optionId ?? option.id),
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
+      kind: typeof option.kind === "string" ? option.kind : undefined,
     })),
   };
 }
