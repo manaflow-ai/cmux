@@ -3083,7 +3083,7 @@
               "unattributed"
             ]
           },
-          "description": "verified: an unbroken parent chain from a live cmux terminal's child (source terminal_process_tree), or this daemon saw the process or an ancestor in such a chain earlier, matched by pid and start time, and the terminal has since closed or the process left its tree (source launch_ledger; a daemon restart forgets it); probable: reparented but still in a live cmux terminal's session; unattributed: no evidence. A shared controlling terminal and an inherited environment variable are never evidence."
+          "description": "verified: an unbroken parent chain from a live cmux terminal's child (source terminal_process_tree), or this daemon saw the process or an ancestor in such a chain earlier, matched by pid and start time, and the terminal has since closed or the process left its tree (source launch_ledger; a process that started after that terminal closed is not attributed to it, a daemon restart forgets the ledger, and a launch_ledger attribution never by itself makes a runtime safe to stop); probable: reparented but still in a live cmux terminal's session; unattributed: no evidence. A shared controlling terminal and an inherited environment variable are never evidence."
         },
         "source": {
           "required": true,

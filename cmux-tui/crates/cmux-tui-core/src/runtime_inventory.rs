@@ -10,7 +10,8 @@
 //! - **verified**: the process descends from a live cmux terminal's child
 //!   through a chain of parents, each started before its child; or the
 //!   daemon saw it (or an ancestor) so descend earlier, and its terminal has
-//!   since closed or it left the terminal's tree ([`ledger`]).
+//!   since closed or it left the terminal's tree ([`ledger`]). A ledger
+//!   attribution never by itself makes a runtime safe to stop.
 //! - **probable**: the process was reparented out of that chain but is still
 //!   in the session a live cmux terminal's child leads.
 //! - **unattributed**: anything else. A shared controlling terminal is never
@@ -34,8 +35,9 @@ use serde::Serialize;
 use crate::process_inventory::{InventoryProcess, ProcessInventory};
 use crate::process_resources::Sampler;
 
-use ledger::{LedgerView, Observation, ProcessKey, ledger_descendants};
+use ledger::{LedgerView, Observation, ledger_descendants};
 
+pub use crate::process_inventory::{ProcessKey, ProcessLink};
 pub use redact::{redact_args, redact_path};
 pub use vendor::{Role, Vendor, recognize};
 
@@ -136,31 +138,6 @@ pub struct RuntimeInventory {
     /// Every process the scan showed descending from a cmux terminal (live,
     /// or through the ledger), agent or not, for the launch ledger.
     pub observations: Vec<Observation>,
-}
-
-/// The parent link of one process generation; nothing else about it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProcessLink {
-    pub pid: u32,
-    pub ppid: u32,
-    pub started_ms: u64,
-}
-
-impl ProcessLink {
-    pub fn of(process: &InventoryProcess) -> Self {
-        Self { pid: process.pid, ppid: process.ppid, started_ms: process.started_ms }
-    }
-
-    pub fn key(&self) -> ProcessKey {
-        ProcessKey { pid: self.pid, started_ms: self.started_ms }
-    }
-}
-
-/// Every process generation of a complete scan, for pruning the ledger;
-/// `None` for an incomplete one, which must never prune.
-pub fn complete_keys(scan: &ProcessInventory) -> Option<HashSet<ProcessKey>> {
-    (!scan.truncated && scan.unreadable == 0)
-        .then(|| scan.processes.iter().map(|process| ProcessLink::of(process).key()).collect())
 }
 
 /// Recognize and attribute the agent processes of one scan. `ledger` is

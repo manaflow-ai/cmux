@@ -109,7 +109,7 @@ impl Mux {
         match runtime {
             Some(runtime) => {
                 self.purge_terminal_runtime_side_tables(&runtime);
-                self.terminate_terminal_runtime(&runtime);
+                self.terminate_unpublished_terminal_runtime(&runtime);
             }
             None => self.terminate_discovered_terminal_host(terminal_id, None),
         }

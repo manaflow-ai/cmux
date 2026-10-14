@@ -13,9 +13,8 @@ use super::ParsedResourceRequest;
 use super::auxiliary::resolve_session;
 use crate::process_inventory::{MAX_INVENTORY_PROCESSES, scan};
 use crate::resource::{ResourceError, WireDecimal};
-use crate::runtime_inventory::{
-    CmuxTerminal, ProcessLink, Runtime, classify, cmux_started, complete_keys,
-};
+use crate::runtime_inventory::ledger::ScanFacts;
+use crate::runtime_inventory::{CmuxTerminal, ProcessLink, Runtime, classify, cmux_started};
 use crate::{Mux, SurfaceKind};
 
 pub(super) fn list_runtimes(
@@ -45,7 +44,8 @@ pub(super) fn list_runtimes(
     let terminals = cmux_started(&links, terminals);
     let home = std::env::var("HOME").ok();
     let inventory = classify(&processes, &terminals, &view, home.as_deref());
-    ledger.record(scanned, &inventory.observations, complete_keys(&processes).as_ref());
+    let facts = ScanFacts { scanned, links: &links, listed: processes.listed.as_deref() };
+    ledger.record(&facts, &inventory.observations);
     Ok(json!({
         "session_id": session_id.as_str(),
         "complete": inventory.complete,

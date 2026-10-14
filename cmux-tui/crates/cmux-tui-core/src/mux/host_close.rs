@@ -12,10 +12,11 @@
 //! requesting connection.
 //!
 //! Before a terminal's process is ended, the launch ledger records its
-//! process tree (runtime_inventory/ledger.rs), so an agent that detached
-//! from it stays attributed. A hosted close records it on the pool, before
-//! the host is signaled; a local one inline, before the kill. Neither holds
-//! a daemon lock.
+//! process tree and its close time (runtime_inventory/ledger.rs), so an
+//! agent that detached from it stays attributed. A hosted close records it
+//! on the pool, before the host is signaled; a local one inline, before the
+//! kill, on the closing thread after the close released the state, registry
+//! and creation locks. A rolled-back unpublished creation records nothing.
 
 #[cfg(any(unix, windows))]
 use std::collections::VecDeque;
@@ -46,25 +47,26 @@ struct PendingHostClose {
 #[cfg(any(unix, windows))]
 struct ClosingTerminal {
     ledger: Arc<LaunchLedger>,
-    terminal: CmuxTerminal,
+    terminal_id: String,
+    /// Its child, unless it already exited: a dead child's pid may be
+    /// reused by another process, whose tree must not be recorded.
+    child: Option<CmuxTerminal>,
     requested: Instant,
 }
 
 #[cfg(any(unix, windows))]
 impl ClosingTerminal {
     fn of(ledger: &Arc<LaunchLedger>, runtime: &Surface) -> Option<Self> {
-        Some(Self {
-            ledger: ledger.clone(),
-            terminal: CmuxTerminal {
-                terminal_id: runtime.terminal_public_id()?.as_str().to_string(),
-                pid: runtime.process_id()?,
-            },
-            requested: Instant::now(),
-        })
+        let terminal_id = runtime.terminal_public_id()?.as_str().to_string();
+        let child = runtime
+            .process_id()
+            .filter(|_| !runtime.is_dead())
+            .map(|pid| CmuxTerminal { terminal_id: terminal_id.clone(), pid });
+        Some(Self { ledger: ledger.clone(), terminal_id, child, requested: Instant::now() })
     }
 
     fn observe(&self) {
-        self.ledger.observe_closing(&self.terminal, self.requested);
+        self.ledger.observe_closing(&self.terminal_id, self.child.as_ref(), self.requested);
     }
 }
 
@@ -263,6 +265,16 @@ impl Mux {
     /// awaited on the host-close pool, so the close reply never waits for
     /// the host's termination receipt; a local runtime is killed inline.
     pub(super) fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
+        self.terminate_terminal_runtime_observed(runtime, true);
+    }
+
+    /// End the runtime of a terminal whose creation was rolled back before
+    /// it was published: the launch ledger records nothing for it.
+    pub(super) fn terminate_unpublished_terminal_runtime(&self, runtime: &Arc<Surface>) {
+        self.terminate_terminal_runtime_observed(runtime, false);
+    }
+
+    fn terminate_terminal_runtime_observed(&self, runtime: &Arc<Surface>, observe: bool) {
         let identity = self.resource_terminal_host_identity(runtime);
         if let Some(identity) = identity.as_ref() {
             self.terminal_respawns.forget_argv(&identity.terminal_id);
@@ -272,7 +284,9 @@ impl Mux {
             if !runtime.has_host_termination() {
                 // A local runtime: kill it inline, and end any host record
                 // left for the same terminal.
-                if let Some(closing) = ClosingTerminal::of(&self.launch_ledger, runtime) {
+                let closing =
+                    observe.then(|| ClosingTerminal::of(&self.launch_ledger, runtime)).flatten();
+                if let Some(closing) = closing {
                     closing.observe();
                 }
                 runtime.kill();
@@ -286,7 +300,9 @@ impl Mux {
             }
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             self.terminal_host_closes.enqueue(PendingHostClose {
-                observe: ClosingTerminal::of(&self.launch_ledger, runtime),
+                observe: observe
+                    .then(|| ClosingTerminal::of(&self.launch_ledger, runtime))
+                    .flatten(),
                 runtime: runtime.clone(),
                 step: HostCloseStep::Signal,
                 identity,
@@ -295,7 +311,7 @@ impl Mux {
         }
         #[cfg(not(any(unix, windows)))]
         {
-            let _ = identity;
+            let _ = (identity, observe);
             runtime.kill();
         }
     }

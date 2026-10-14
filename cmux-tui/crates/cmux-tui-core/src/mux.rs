@@ -731,7 +731,8 @@ pub struct Mux {
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Processes seen under cmux terminals (runtime_inventory/ledger.rs).
-    /// Its locks are leaves: never taken under another daemon lock.
+    /// Never taken under another daemon lock: list reads it after the state
+    /// lock, and closes after the close released its locks.
     launch_ledger: Arc<crate::runtime_inventory::ledger::LaunchLedger>,
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
