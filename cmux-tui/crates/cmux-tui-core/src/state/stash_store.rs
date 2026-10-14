@@ -51,6 +51,27 @@ pub(crate) fn new_stash_id() -> String {
     format!("stash_{}", new_uuid_v4().replace('-', ""))
 }
 
+/// A member's stable id: `stash.restore` and `stash.delete` name members by
+/// it, so a request made from an older listing never hits another page.
+fn new_member_id() -> String {
+    format!("member_{}", new_uuid_v4().replace('-', ""))
+}
+
+/// The members of a stash named by `ids` and the rest, in stash order. An
+/// id the stash does not hold is `resource.not_found` (nothing changes).
+pub(crate) fn choose_members(
+    members: Vec<Value>,
+    ids: Option<&[String]>,
+) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
+    let Some(ids) = ids else { return Ok((members, Vec::new())) };
+    if let Some(unknown) =
+        ids.iter().find(|id| !members.iter().any(|member| member["id"] == id.as_str()))
+    {
+        return Err(super::commit::state_not_found("stash member", unknown));
+    }
+    Ok(members.into_iter().partition(|member| ids.iter().any(|id| member["id"] == id.as_str())))
+}
+
 /// The close in this transaction stashes `tabs`: `capture_closed` records
 /// none of them in the closed history.
 pub(crate) fn mark_capture(transaction: &Transaction<'_>, tabs: &[String]) -> anyhow::Result<()> {
@@ -84,7 +105,8 @@ pub(crate) fn clear_capture_mark(transaction: &Transaction<'_>) -> anyhow::Resul
 pub(crate) enum Refusal {
     /// In an incognito workspace, or no longer open.
     Private,
-    /// A terminal, a conversation, a remote terminal or a page without URL.
+    /// A terminal, a conversation, a remote terminal, an app tab or a page
+    /// that is not http(s).
     NotPage,
 }
 
@@ -102,8 +124,8 @@ pub(crate) fn stash_member(
     let page = tab["kind"] == "browser"
         && tab.get("conversation").is_none_or(Value::is_null)
         && tab.get("remote").is_none_or(Value::is_null)
-        && tab["url"].as_str().is_some_and(|url| !url.is_empty());
-    if !page {
+        && tab["url"].as_str().is_some_and(is_web_url);
+    if !page || is_app_tab(connection, tab_id)? {
         return Ok(Err(Refusal::NotPage));
     }
     let title = connection
@@ -118,6 +140,19 @@ pub(crate) fn stash_member(
         .flatten();
     member["screens"][0]["tabs"][0]["title"] = json!(title);
     Ok(Ok(member))
+}
+
+/// Whether open tab `tab_id` shows an app (`app-screens-v1`): never stashed.
+fn is_app_tab(connection: &Connection, tab_id: &str) -> anyhow::Result<bool> {
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM resource_tabs AS t JOIN app_tabs AS a ON a.browser_id = t.content_id
+             WHERE t.public_id = ?1",
+            [tab_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
 }
 
 /// The public tab ids of a workspace's open tabs, in sidebar order.
@@ -193,8 +228,11 @@ pub(crate) fn insert_stash(
     stash_id: &str,
     name: Option<&str>,
     created_at_ms: Option<u64>,
-    members: Vec<Value>,
+    mut members: Vec<Value>,
 ) -> anyhow::Result<Value> {
+    for member in &mut members {
+        member["id"] = json!(new_member_id());
+    }
     let created_at_ms = match created_at_ms {
         Some(created) => created,
         None => unix_epoch_ms()?,
@@ -257,6 +295,7 @@ pub(crate) fn public_stash(record: &Value) -> Value {
         .map(|member| {
             let tab = &member["screens"][0]["tabs"][0];
             json!({
+                "id": member["id"],
                 "url": tab["url"],
                 "title": tab.get("title").cloned().unwrap_or(Value::Null),
                 "browser_profile_id": tab["browser_profile_id"],
