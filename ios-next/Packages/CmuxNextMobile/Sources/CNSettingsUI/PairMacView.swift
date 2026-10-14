@@ -126,7 +126,9 @@ struct AddMacSheet: View {
                     onPaired(host)
                     dismiss()
                 }
+                .cnGroupedRowBackground()
             }
+            .cnGroupedFormBackground()
             .navigationTitle("Add Mac")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -10,6 +10,7 @@ struct OnboardingView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Group {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         Image(systemName: "laptopcomputer.and.iphone")
@@ -32,7 +33,10 @@ struct OnboardingView: View {
                     }
                     Button("Sign Out", role: .destructive) { Task { await model.auth.signOut() } }
                 }
+                }
+                .cnGroupedRowBackground()
             }
+            .cnGroupedFormBackground()
             .navigationTitle("Connect your Mac")
             .refreshable {
                 await model.hosts.refresh()

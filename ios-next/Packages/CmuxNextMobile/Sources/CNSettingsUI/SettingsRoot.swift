@@ -33,6 +33,7 @@ public struct SettingsRoot: View {
         @Bindable var preferences = preferences
         NavigationStack {
             Form {
+                Group {
                 accountSection
                 macsSection
                 connectionSection
@@ -64,7 +65,10 @@ public struct SettingsRoot: View {
                     Text("When you open a Mac browser tab that's in the background, switch the Mac's pane to it so it can show here.")
                 }
                 aboutSection
+                }
+                .cnGroupedRowBackground()
             }
+            .cnGroupedFormBackground()
             .navigationTitle("Settings")
             .cnShellLeadingBarItem()
             .refreshable { await hosts.refresh() }
