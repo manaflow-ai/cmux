@@ -31,7 +31,8 @@
 //!   path.
 //!
 //! Nothing here is specific to browser tabs: a later Mac screen surface can
-//! open the same carrier with its own [`StreamSpec`] (another SSRC).
+//! open the same carrier with its own [`StreamSpec`] (another SSRC and
+//! overlay port, say 7423, so each stream keeps its own interceptor chain).
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -74,6 +75,8 @@ pub fn max_payload(max_datagram: usize) -> usize {
 /// The one stream a carrier moves: what SDP would say on WebRTC.
 #[derive(Debug, Clone)]
 pub struct StreamSpec {
+    /// Overlay UDP port of the stream on both sides.
+    pub port: u16,
     pub ssrc: u32,
     pub payload_type: u8,
     pub mime_type: String,
@@ -87,6 +90,7 @@ impl StreamSpec {
     pub fn h264_video() -> Self {
         let codec = super::track::h264();
         Self {
+            port: MEDIA_PORT,
             ssrc: super::SenderConfig::default().ssrc,
             payload_type: super::DEFAULT_PAYLOAD_TYPE,
             mime_type: codec.mime_type,
@@ -258,7 +262,7 @@ fn is_rtcp(datagram: &[u8]) -> bool {
 }
 
 impl WgCarrier {
-    /// Binds [`MEDIA_PORT`] on `net` and wires the interceptors for one
+    /// Binds the stream's port on `net` and wires the interceptors for one
     /// stream toward `peer_ip`. `path` counts the session's roams.
     pub async fn open(
         net: &WgNet,
@@ -268,10 +272,10 @@ impl WgCarrier {
         path: watch::Receiver<u64>,
         impairment: Impairment,
     ) -> Result<Arc<Self>, MediaError> {
-        let socket = net.bind_datagram(MEDIA_PORT).await.map_err(other)?;
+        let socket = net.bind_datagram(spec.port).await.map_err(other)?;
         let max_datagram = socket.max_datagram();
         let max_payload = max_payload(max_datagram);
-        let peer = SocketAddr::new(peer_ip, MEDIA_PORT);
+        let peer = SocketAddr::new(peer_ip, spec.port);
         let counters = Arc::new(Counters::default());
         let (out_tx, out_rx) = mpsc::channel::<Outgoing>(OUT_QUEUE);
         let (raw_rtp_tx, raw_rtp_rx) = mpsc::channel::<rtp::packet::Packet>(IN_QUEUE);
