@@ -6,6 +6,7 @@
     "agent.list",
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
     "agent.report",
     "browser.activate",
@@ -124,6 +125,8 @@
     "pane.swap",
     "pane.viewport_width.set",
     "pane.zoom",
+    "participant.avatar.get",
+    "participant.avatar.set",
     "project.add",
     "project.list",
     "project.observe",
@@ -199,9 +202,11 @@
     "sidebar.group.update",
     "sidebar.item.add",
     "sidebar.item.remove",
+    "sidebar.item.remove_ref",
     "sidebar.item.update",
     "sidebar.move",
     "sidebar.pin",
+    "sidebar.reset",
     "sidebar.section.add",
     "sidebar.section.move",
     "sidebar.section.remove",
@@ -549,6 +554,7 @@
       "cloud-conversation-thread",
       "cloud-conversation-runs",
       "cloud-conversation-run",
+      "cloud-participant-avatar-get",
       "cloud-conversation-op",
       "cloud-inbox-op",
       "cloud-inbox-subscribe",
@@ -794,6 +800,12 @@
       "name": "pane-closed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "participant-avatar-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {

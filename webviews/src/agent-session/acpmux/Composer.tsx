@@ -63,6 +63,7 @@ import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
+import { useRowFit } from "./composerRowFit";
 import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
@@ -148,8 +149,6 @@ type Props = {
   onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
   /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
   onQueueLost?(text: string): void;
-  /// The chat draws the queue in its own place above the pull requests (App.tsx's queue slot).
-  queueSlot?: boolean;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -157,8 +156,6 @@ type Props = {
   sessionId?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
-  /// A quiet status control for permissions already granted in this chat.
-  permissionStatus?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
@@ -210,8 +207,6 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
-  /// The location row heads the card instead of closing it (Start Agent's panel, cx-hkat).
-  contextFirst?: boolean;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -232,10 +227,8 @@ export function Composer({
   onQueueRemove,
   onQueueChange,
   onQueueLost,
-  queueSlot,
   draft,
   leading,
-  permissionStatus,
   accessory,
   prompt,
   onEdit,
@@ -257,7 +250,6 @@ export function Composer({
   onShellInterrupt,
   onMode,
   onOpenInWindow,
-  contextFirst = false,
   handle,
   sessionId,
   blocked,
@@ -326,6 +318,9 @@ export function Composer({
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
+  // The controls row drops its permission labels to icons when it runs out of room (composerRowFit.ts).
+  const bar = useRef<HTMLDivElement>(null);
+  useRowFit(bar);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -506,7 +501,11 @@ export function Composer({
   const planning = plan?.id === currentModeId;
   const planChoice: Choice | undefined =
     plan && onMode
-      ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
+      ? {
+          id: `plan:${plan.id}`,
+          name: planning ? t("picker.build") : t("picker.plan"),
+          icon: planning ? <BuildIcon /> : <PlanIcon />,
+        }
       : undefined;
   // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
   const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);
@@ -927,8 +926,8 @@ export function Composer({
     },
   ];
 
-  // The location row: the card's footer (one fill, one edge, a hairline above it), or its header
-  // where `contextFirst` is set (Start Agent).
+  // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
+  // composer location strip), so the card holds one controls row.
   const context = (
     <ComposerContext
       projectChoices={projectChoices}
@@ -991,20 +990,18 @@ export function Composer({
           />,
           form.current.parentElement,
         )}
-      <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
-        {!queueSlot && (
-          <ComposerQueue
-            queue={snapshot.queue}
-            paused={snapshot.summary?.queuePaused === true}
-            t={t}
-            onRemove={onQueueRemove}
-            onChange={onQueueChange}
-            onLost={onQueueLost}
-            onLeave={() => field.current?.focus()}
-            floating
-          />
-        )}
-        {contextFirst && context}
+      {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
+      <ComposerQueue
+        queue={snapshot.queue}
+        paused={snapshot.summary?.queuePaused === true}
+        t={t}
+        onRemove={onQueueRemove}
+        onChange={onQueueChange}
+        onLost={onQueueLost}
+        onLeave={() => field.current?.focus()}
+      />
+      {context}
+      <div className="acpmux-composer-box">
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -1111,7 +1108,7 @@ export function Composer({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          <div className="acpmux-composer-bar">
+          <div ref={bar} className="acpmux-composer-bar">
             <input
               ref={chooser}
               className="acpmux-attach-input"
@@ -1199,9 +1196,27 @@ export function Composer({
                 ]}
               />
             )}
+            {/* The granted-permission status gets no slot in this row (hq#1957 item 15 compact row):
+                one lock, the permission mode's. */}
             <Chips snapshot={snapshot} />
-            {permissionStatus}
             <span className="acpmux-composer-actions">
+              {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
+                  when typing during a turn turns Stop into Steer and Send (hq#1957). */}
+              {steerable && (
+                <button
+                  key="steer"
+                  type="button"
+                  className="acpmux-steer"
+                  aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                  title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                  onClick={() => {
+                    send(false, true);
+                    field.current?.focus();
+                  }}
+                >
+                  {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                </button>
+              )}
               {accessory}
               {stop ? (
                 <button
@@ -1216,45 +1231,27 @@ export function Composer({
                   <StopIcon />
                 </button>
               ) : remote.canSend ? (
-                <>
-                  {steerable && (
-                    <button
-                      key="steer"
-                      type="button"
-                      className="acpmux-steer"
-                      aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
-                      title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
-                      onClick={() => {
-                        send(false, true);
-                        field.current?.focus();
-                      }}
-                    >
-                      {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
-                    </button>
-                  )}
-                  <button
-                    key="send"
-                    ref={sendButton}
-                    type="submit"
-                    disabled={Boolean(blocked) && !shell}
-                    className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
-                    aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                    title={
-                      shell
-                        ? t("composer.shellRun")
-                        : blocked?.reason
-                          ? t(blocked.reason)
-                          : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
-                    }
-                  >
-                    <ArrowUpIcon />
-                  </button>
-                </>
+                <button
+                  key="send"
+                  ref={sendButton}
+                  type="submit"
+                  disabled={Boolean(blocked) && !shell}
+                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                  aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                  title={
+                    shell
+                      ? t("composer.shellRun")
+                      : blocked?.reason
+                        ? t(blocked.reason)
+                        : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                  }
+                >
+                  <ArrowUpIcon />
+                </button>
               ) : null}
             </span>
           </div>
         </ChromeArea>
-        {!contextFirst && context}
       </div>
     </form>
   );

@@ -8,7 +8,7 @@
 // ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
@@ -32,7 +32,6 @@ export function ComposerQueue({
   onChange,
   onLost,
   onLeave,
-  floating,
 }: {
   queue: AcpmuxSnapshot["queue"];
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
@@ -46,8 +45,6 @@ export function ComposerQueue({
   onLost?(text: string): void;
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
-  /// Drawn over the composer box, for a surface without the chat's queue slot (App.tsx).
-  floating?: boolean;
 }) {
   // A row leaves as soon as it is removed or sent; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
@@ -65,9 +62,6 @@ export function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
-  const reserve = useCallback((node: HTMLOListElement | null) => {
-    list.current = node;
-  }, []);
   useEffect(() => {
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
@@ -281,12 +275,7 @@ export function ComposerQueue({
     </>
   );
   return (
-    <ol
-      ref={reserve}
-      className="acpmux-composer-queue"
-      data-floating={floating ? "" : undefined}
-      aria-label={`${t("composer.queue")} (${shown.length})`}
-    >
+    <ol ref={list} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
       {waiting > 0 && (
         <li className="acpmux-queue-header" aria-hidden="true">
           <span className="acpmux-queued-kind">{t("composer.queued")}</span>

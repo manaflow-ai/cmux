@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use crate::config::Action;
 
 mod agent_wrapper;
+mod agents_doctor;
 mod app_control;
 mod attach;
 mod browser;
@@ -31,6 +32,7 @@ mod terminal_input;
 pub(crate) mod terminal_respawn;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
+pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::AppControlMessages;
 pub(crate) use attach::AttachMessages;
 pub(crate) use browser::BrowserMessages;
@@ -131,6 +133,7 @@ pub(crate) struct Catalog {
     pub cli_connection: CliConnectionMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
+    pub agents_doctor: AgentsDoctorMessages,
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
 }
@@ -147,6 +150,7 @@ static ENGLISH: Catalog = Catalog {
     coderouter: coderouter::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
+    agents_doctor: agents_doctor::ENGLISH,
     startup: startup::ENGLISH,
     terminal_input: terminal_input::ENGLISH,
     local_server: local_server::ENGLISH,
@@ -176,6 +180,7 @@ static JAPANESE: Catalog = Catalog {
     coderouter: coderouter::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,
+    agents_doctor: agents_doctor::JAPANESE,
     startup: startup::JAPANESE,
     terminal_input: terminal_input::JAPANESE,
     local_server: local_server::JAPANESE,

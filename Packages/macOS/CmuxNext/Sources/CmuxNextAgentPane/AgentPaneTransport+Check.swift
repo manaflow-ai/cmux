@@ -204,7 +204,11 @@ extension AgentPaneTransport {
         let params = object["params"] as? [String: Any]
         let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
             .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
-        guard let session, sessions.contains(session), othersHeld else {
+        // Ones that may name a session (an accepted offer's child): none is fine, a named one
+        // (even `null`) must be the pane's.
+        let optionalHeld = AcpmuxPaneMethods.optionalScopedSessionParams[method, default: []]
+            .allSatisfy { params?[$0] == nil || (params?[$0] as? String).map(sessions.contains) == true }
+        guard let session, sessions.contains(session), othersHeld, optionalHeld else {
             return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
         }
         return nil

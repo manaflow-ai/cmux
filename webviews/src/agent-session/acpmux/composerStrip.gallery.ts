@@ -1,0 +1,106 @@
+// l10n-allow-file: gallery fixtures (sample chats and folders), not shipped UI.
+// The composer's location strip (hq#1957 composer location strip, Composer.tsx, ComposerContext.tsx,
+// composerLocation.css): the folder, the computer and the branch sit in a tab on the card's top
+// edge instead of a second row inside it, so the card holds one controls row. The strip keeps one
+// height with a project, without one and while the host's name loads; queued prompts stack above
+// it. A new chat's effort and access chips draw what this harness last showed, never a placeholder
+// (`awaiting` against `reported`). test/composer-location-strip.test.ts measures it.
+import { agentPaneEntry } from "../../gallery/format";
+import { assistant, chat, noChat, summary, user } from "../../gallery/fixtures/acpmux";
+import type { AcpmuxSnapshot } from "./model";
+
+const effort = {
+  id: "effort",
+  name: "Reasoning",
+  category: "thought_level",
+  currentValue: "medium",
+  options: [
+    { value: "low", name: "Low" },
+    { value: "medium", name: "Medium" },
+    { value: "high", name: "High" },
+  ],
+};
+
+const modes = {
+  currentModeId: "auto",
+  availableModes: [
+    { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
+    { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
+    { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+  ],
+};
+
+function started(fields: Parameters<typeof chat>[1] = {}): AcpmuxSnapshot {
+  const snapshot = chat(
+    [
+      user("Add retries with backoff to the fetch helper", 10),
+      assistant("Done: GETs retry, POSTs only with a policy.", 9),
+      summary(9, { status: "completed" }),
+    ],
+    { title: "Location strip", ...fields },
+  );
+  return { ...snapshot, summary: { ...snapshot.summary!, configOptions: [effort], modes } };
+}
+
+/// A new chat on Claude: `reported` once its session has reported effort and access.
+function fresh(reported: boolean): AcpmuxSnapshot {
+  return noChat([], {
+    summary: {
+      sessionId: reported ? "gallery-new" : "",
+      harness: "claude",
+      model: "claude-opus-5-5",
+      turnCount: 0,
+      ...(reported ? { configOptions: [effort], modes } : {}),
+    },
+  });
+}
+
+export default agentPaneEntry({
+  id: "agent-pane.composer-strip",
+  title: "Composer location strip",
+  area: "Agent pane",
+  height: 360,
+  widths: { narrow: 420, normal: 720, wide: 1100 },
+  anchors: [
+    { selector: ".acpmux-composer-strip" },
+    { selector: ".acpmux-composer-box" },
+    { selector: ".acpmux-composer-bar" },
+  ],
+  covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext", "agent-session/acpmux/Composer.tsx#Composer"],
+  variants: {
+    project: {
+      note: "A started chat: folder · computer and the branch in the strip on the card's top edge; one controls row in the card.",
+      snapshot: started(),
+    },
+    "no-project": {
+      note: "A new chat with no folder yet: Choose folder in the strip, which keeps its height.",
+      ready: { newSession: true },
+      snapshot: fresh(true),
+    },
+    "host-loading": {
+      note: "The host has not named this Mac yet: the strip keeps its height and its place.",
+      ready: { newSession: true, machineName: undefined },
+      snapshot: fresh(true),
+    },
+    queued: {
+      note: "A running turn with queued prompts: they stack above the strip, never over it or the field.",
+      snapshot: {
+        ...started({ isWorking: true }),
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      },
+    },
+    awaiting: {
+      note: "A new chat before its session reports effort and access: the chips this harness last showed, or nothing; never grey bars.",
+      ready: { newSession: true },
+      snapshot: fresh(false),
+    },
+    reported: {
+      note: "The same new chat once its session reported: the chips take the places they held.",
+      ready: { newSession: true },
+      snapshot: fresh(true),
+    },
+  },
+});

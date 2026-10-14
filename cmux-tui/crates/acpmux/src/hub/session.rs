@@ -85,6 +85,8 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// The commands its harness runs in the background (`processes.rs`).
+    pub(super) processes: StdMutex<processes::ProcessTable>,
 }
 
 impl Session {

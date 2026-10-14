@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e.
+// cmux-tui mux protocol 12, IR 2aa331c20b3e6ca393f281f5bf1ff219ba1c48d5e9ffceb4cca2b82ef05e14f5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -485,6 +485,13 @@ pub struct PaneClosedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParticipantAvatarChangedEvent {
+    pub avatar: Nullable<T::JsonValue>,
+    pub participant: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersonalChangedEvent {
     pub personal_revision: u64,
 }
@@ -927,6 +934,7 @@ pub enum Event {
     PairingResolved(PairingResolvedEvent),
     PaneAdded(PaneAddedEvent),
     PaneClosed(PaneClosedEvent),
+    ParticipantAvatarChanged(ParticipantAvatarChangedEvent),
     PersonalChanged(PersonalChangedEvent),
     ProgramStatusChanged(ProgramStatusChangedEvent),
     RenderDelta(RenderDeltaEvent),
@@ -1013,6 +1021,7 @@ impl Event {
             Self::PairingResolved(_) => Some("pairing-resolved"),
             Self::PaneAdded(_) => Some("pane-added"),
             Self::PaneClosed(_) => Some("pane-closed"),
+            Self::ParticipantAvatarChanged(_) => Some("participant-avatar-changed"),
             Self::PersonalChanged(_) => Some("personal-changed"),
             Self::ProgramStatusChanged(_) => Some("program-status-changed"),
             Self::RenderDelta(_) => Some("render-delta"),
@@ -1098,6 +1107,7 @@ impl Event {
             Self::PairingResolved(_) => Some(&PAIRING_RESOLVED_EVENT_METADATA),
             Self::PaneAdded(_) => Some(&PANE_ADDED_EVENT_METADATA),
             Self::PaneClosed(_) => Some(&PANE_CLOSED_EVENT_METADATA),
+            Self::ParticipantAvatarChanged(_) => Some(&PARTICIPANT_AVATAR_CHANGED_EVENT_METADATA),
             Self::PersonalChanged(_) => Some(&PERSONAL_CHANGED_EVENT_METADATA),
             Self::ProgramStatusChanged(_) => Some(&PROGRAM_STATUS_CHANGED_EVENT_METADATA),
             Self::RenderDelta(_) => Some(&RENDER_DELTA_EVENT_METADATA),
@@ -1481,6 +1491,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("pane-closed") => match serde_json::from_value::<PaneClosedEvent>(raw.clone()) {
             Ok(event) => Event::PaneClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("participant-avatar-changed") => match serde_json::from_value::<ParticipantAvatarChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ParticipantAvatarChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

@@ -146,10 +146,15 @@ pub struct Inputs {
     /// get `request_secret` (`secret_mcp.rs`). Without the card an ask would
     /// wait with nothing to answer it.
     pub secrets: bool,
+    /// The app shows offered chats as chips ([`OFFER_TOOLS_ENV`] is `1`):
+    /// sessions get `offer_session` (`offer_mcp.rs`).
+    pub offers: bool,
 }
 
 /// Set to `1` by an app that shows the secret card (cx-ncc.42).
 pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
+/// Set to `1` by an app that shows offered chats as chips (cx-807da).
+pub const OFFER_TOOLS_ENV: &str = "ACPMUX_OFFER_TOOLS";
 
 impl Inputs {
     pub fn current() -> Self {
@@ -166,6 +171,7 @@ impl Inputs {
             cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
             acpmux: std::env::current_exe().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
+            offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
         }
     }
 }
@@ -291,6 +297,15 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
+    if let (true, Some(acpmux)) = (inputs.offers, &inputs.acpmux) {
+        // offer_session (`offer_mcp.rs`): `for_session` names the session.
+        servers.push(McpServer {
+            name: crate::offer_mcp::SERVER_NAME.into(),
+            command: acpmux.clone(),
+            args: vec!["offer-mcp".into()],
+            env: vec![],
+        });
+    }
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
@@ -335,15 +350,41 @@ impl AgentTools {
             if server.name == "cmux" {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
             }
-            if server.name == crate::secret_mcp::SERVER_NAME {
+            let session_env = match server.name.as_str() {
+                crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
+                crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
+                _ => None,
+            };
+            if let Some(key) = session_env {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (crate::secret_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    (key.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                 ];
             }
         }
         self
+    }
+
+    /// The chat's tool list rows for these tools (`hub/tools.rs`): each MCP
+    /// server, which `toggles` says the harness turns on or off mid-session,
+    /// and for Claude Code (`claude`) each skill of the plugin.
+    pub fn tool_rows(&self, claude: bool, toggles: bool) -> Vec<crate::store::ToolRow> {
+        let row = |id: String, name: &str, can_toggle: bool| crate::store::ToolRow {
+            id,
+            name: name.to_owned(),
+            kind: "cmux".into(),
+            source: "cmux".into(),
+            enabled: true,
+            can_toggle,
+        };
+        let mut rows: Vec<_> =
+            self.servers.iter().map(|s| row(format!("mcp:{}", s.name), &s.name, toggles)).collect();
+        if claude && self.plugin_dir.is_some() {
+            let skills = SKILL_FILES.iter().filter_map(|(p, _)| p.strip_suffix("/SKILL.md"));
+            rows.extend(skills.map(|n| row(format!("skill:{PLUGIN_NAME}:{n}"), n, false)));
+        }
+        rows
     }
 
     /// `mcpServers` for an ACP `session/new`, `session/load` or `session/fork`.

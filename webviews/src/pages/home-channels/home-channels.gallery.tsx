@@ -9,6 +9,8 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
 import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
+import type { Pane } from "./panes";
+import type { HomeRoute } from "./routes";
 import { HomeChannelsStore } from "./store";
 
 type Props = {
@@ -28,6 +30,15 @@ type Props = {
   refuseInbox?: boolean;
   /** Adds #media: images, a video with its poster and a PDF. */
   media?: boolean;
+  /** A sheet route (routes.ts) to open. */
+  route?: HomeRoute;
+  /** The host relays the person's click for a Chief's grant and delete (the app). */
+  hostGrants?: boolean;
+  /** Adds a second Chief (one that can be archived). */
+  extraChief?: boolean;
+  /** The page's own width (px): below 720 it shows one pane (panes.ts), `pane`. */
+  width?: number;
+  pane?: Pane;
 };
 
 function HomeChannelsGallery({
@@ -39,11 +50,20 @@ function HomeChannelsGallery({
   runs = "none",
   refuseInbox = false,
   media = false,
+  route,
+  hostGrants = false,
+  extraChief = false,
+  width,
+  pane,
 }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(
-      offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media),
-    );
+    const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media);
+    if (provider) provider.hostGrants = hostGrants;
+    if (provider && extraChief) provider.addChief("Release Chief");
+    const created = new HomeChannelsStore(provider, undefined, hostGrants ? provider : null);
+    // The gallery owns its window hash: the page never writes it here.
+    created.routed = false;
+    if (route) created.sheets.show(route);
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
@@ -53,10 +73,10 @@ function HomeChannelsGallery({
   const [strings] = useState(() => createStrings(table));
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   return (
-    <div ref={setRoot} style={{ height: "100%" }}>
+    <div ref={setRoot} style={{ height: "100%", width: width ?? "100%" }}>
       {root ? (
         <UiProvider container={root}>
-          <HomeChannelsPage store={store} strings={strings} />
+          <HomeChannelsPage store={store} strings={strings} pane={width ? pane : undefined} />
         </UiProvider>
       ) : null}
     </div>
@@ -90,13 +110,19 @@ export default componentEntry<Props>({
     "pages/home-channels/MessageRow.tsx#MessageRow",
     "pages/home-channels/Avatar.tsx#Avatar",
     "pages/home-channels/Avatar.tsx#ChannelMark",
+    "pages/home-channels/Avatar.tsx#PicturesContext",
     "pages/home-channels/Composer.tsx#Composer",
     "pages/home-channels/ThreadSheet.tsx#ThreadSheet",
     "pages/home-channels/ThreadRow.tsx#ThreadRow",
     "pages/home-channels/Palette.tsx#Palette",
     "pages/home-channels/MessageActions.tsx#MessageActions",
     "pages/home-channels/EmojiPicker.tsx#EmojiPicker",
-    "pages/home-channels/AddChannel.tsx#AddChannel",
+    "pages/home-channels/FormDialog.tsx#FormDialog",
+    "pages/home-channels/PeoplePicker.tsx#PeoplePicker",
+    "pages/home-channels/ConversationSheets.tsx#NewMessageSheet",
+    "pages/home-channels/ConversationSheets.tsx#InviteSheet",
+    "pages/home-channels/ChiefSheet.tsx#ChiefSheet",
+    "pages/home-channels/RouteSheets.tsx#RouteSheets",
     "pages/home-channels/MessageRow.tsx#DraftRow",
     "pages/home-channels/icons.tsx#HomeIcon",
     "pages/home-channels/RunCard.tsx",
@@ -382,21 +408,113 @@ export default componentEntry<Props>({
         );
       },
     },
-    "add-channel": {
-      note: "Add channel in the list header; the popover asks for a name and members.",
+    "new-message": {
+      note: "The list header's compose button opens #/new/message: pick people and Chiefs, name it to make a channel.",
       props: { select: "c-chief" },
       checks: {
-        longFrameFailMs: {
-          value: 66,
-          reason:
-            "Cold first open of the shared Popover (Floating UI positioning): one ~54 ms frame on the CPU-only VM.",
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "A picked person moves to the top of the picker, so the rows above their old place move down.",
         },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-list-header .hc-icon-button"));
         await ctx.click({ selector: ".lg-list-header .hc-icon-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-add-channel input"));
-        await ctx.type("launch", { selector: ".hc-add-channel input" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-row"));
+        await ctx.click({ selector: '.lg-form input[aria-label="Builder"]' });
+        await ctx.click({ selector: '.lg-form input[aria-label="Reviewer"]' });
+        await ctx.type("launch", { selector: ".lg-form-field .hc-link-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form-actions .primary:not(:disabled)"));
+      },
+    },
+    "new-message-search": {
+      note: "Typing in the sheet's search narrows the people and Chiefs; the picked ones stay on top.",
+      props: { select: "c-chief", route: { kind: "newMessage" } },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: { value: 0.05, reason: "The search removes rows that do not match; the kept rows move up." },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-search"));
+        await ctx.type("rev", { selector: ".lg-form .lg-picker-search" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-picker-row").length === 1);
+      },
+    },
+    "new-chief": {
+      note: "#/new/chief in a plain browser: a new Chief needs the person's click in the cmux app, so the sheet is read-only and says so.",
+      props: { select: "c-chief", route: { kind: "newChief" } },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-chief-identity input:disabled"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:disabled"));
+      },
+    },
+    "new-chief-grants": {
+      note: "In the app the host relays the person's click: the whole profile, the tools and the harnesses can be set.",
+      props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
+        // Every harness shows checked (the owner's default means every harness).
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
+      },
+    },
+    "new-chief-defaults": {
+      note: "Create with the grant left as it is: the sheet names no tools or harnesses, so the owner applies its defaults.",
+      props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Create adds the new Chief's direct message to the list and opens it; the rows below move down.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
+        await ctx.click({ selector: ".lg-form-actions .primary" });
+        await ctx.waitFor(() => {
+          const sent = ctx.document.documentElement.dataset.mockChiefCreate ?? "";
+          return sent.includes("display_name") && !sent.includes("tools") && !sent.includes("harnesses");
+        });
+      },
+    },
+    "edit-chief": {
+      note: "#/chief/<agent>/edit from the Chief's header: the profile with its current values.",
+      props: { select: "c-chief" },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.find({ role: "button", name: "Edit Chief" }));
+        await ctx.click({ role: "button", name: "Edit Chief" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector<HTMLInputElement>(".lg-form .lg-chief-identity input")?.value === "Chief",
+        );
+      },
+    },
+    invite: {
+      note: "#/conversation/<id>/invite from the header: add people or Chiefs who are not in it yet.",
+      props: { select: "c-release" },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.find({ role: "button", name: "Add people" }));
+        await ctx.click({ role: "button", name: "Add people" });
+        // Everyone the sample Home knows is in #release already: the picker says so.
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-none"));
+      },
+    },
+    "archive-chief": {
+      note: "#/chief/<agent>/archive asks once: the Chief stops and its memory is kept for 30 days.",
+      props: {
+        select: "c-chief",
+        route: { kind: "archiveChief", chief: "agent_new1" },
+        hostGrants: true,
+        extraChief: true,
+      },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .hc-text-button.danger"));
       },
     },
     draft: {
@@ -427,6 +545,41 @@ export default componentEntry<Props>({
       props: { select: "c-chief", runs: "live" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.running .cv-tool"));
+      },
+    },
+    "narrow-list": {
+      note: "The docked Home (600 px): one pane at a time; with no conversation in the hash, the list.",
+      props: { width: 600, pane: "list" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list [data-list-row]"));
+      },
+    },
+    "narrow-conversation": {
+      note: "600 px with a conversation open: the conversation fills the page, Back in its header, the run card on one line.",
+      props: { width: 600, pane: "conversation", select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-back") && ctx.document.querySelector(".lg-run.done"));
+      },
+    },
+    "narrow-thread": {
+      note: "600 px: the thread sheet covers the conversation pane.",
+      props: { width: 600, pane: "conversation", select: "c-release", thread: "c-release-m2" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-sheet"));
+      },
+    },
+    "narrow-run-card": {
+      note: "A narrow run card (380 px page): Worked for and Open on the first line, the step count and cost under it.",
+      props: { width: 380, pane: "conversation", select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
+      },
+    },
+    "narrow-run-card-480": {
+      note: "A run card on a 480 px page: the step count and cost move under Worked for as one line, never starting with a separator.",
+      props: { width: 480, pane: "conversation", select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
       },
     },
     "draft-posted": {

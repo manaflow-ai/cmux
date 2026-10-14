@@ -26,13 +26,12 @@ use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
 
 /// Env passed through to the turn's tools, as mux/host passes it.
-const PASSTHROUGH: [&str; 6] = [
+const PASSTHROUGH: [&str; 5] = [
     "CMUX_SOCKET_PATH",
     crate::cmux_env::APP_DAEMON_KEY,
     "ACPMUX_SOCKET",
     "ACPMUX_HOME",
     "ACPMUX_BIN",
-    "CMUX_MCP_COMMAND",
 ];
 
 /// A turn longer than this is stopped (minutes; `OPTCHAT_CHIEF_TURN_LIMIT_MIN`,
@@ -78,6 +77,33 @@ pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> St
     } else {
         claude.to_owned()
     }
+}
+
+/// The compactor's harness at host start, from acpmux's start-up `answer`:
+/// the set one (`OPTCHAT_COMPACTOR_HARNESS`, else engine.json's
+/// `compactor_harness`), else the turns' Claude harness (engine.json's
+/// `harness`, else the host's `turn`), else `default_harness`. On a
+/// machine whose only Claude login is the subrouter, a Chief set to
+/// `claude-sr` compacts there too, not on a `claude` that is not signed in
+/// (cosmic-gray 2026-10-14).
+pub fn compactor_harness_for(
+    answer: &serde_json::Value,
+    set: Option<&str>,
+    turn: &str,
+    engine: &crate::engine::EngineChoice,
+) -> String {
+    if let Some(set) = set {
+        return set.to_owned();
+    }
+    // engine.json's harness when it is Claude, else the host's `turn` when
+    // it is (a codex engine on a claude-sr host still compacts on claude-sr).
+    let turn = engine
+        .harness
+        .as_deref()
+        .filter(|h| crate::harness_gate::plan(answer, h).family == Family::Claude)
+        .unwrap_or(turn);
+    let family = crate::harness_gate::plan(answer, turn).family;
+    default_compactor_harness(turn, family, default_harness(answer))
 }
 
 /// `ACPMUX_PROBE_HARNESSES` of the acpmux daemon this host starts: the
@@ -439,6 +465,7 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         .value("mux-home")
         .map(PathBuf::from)
         .unwrap_or_else(mux_home);
+    let _ = HOST_HOME.set(home.clone());
     let source = match conversation_source(flags) {
         Ok(source) => source,
         Err(why) => {
@@ -548,10 +575,12 @@ fn start(
     let mut daemon_env = pinned.clone();
     // The Chief home whose codex homes acpmux's built-in codex presets use
     // (acpmux `config/chief_builtins.rs`): in the daemon's own environment.
-    daemon_env.insert(
-        "ACPMUX_CHIEF_MUX_HOME".to_owned(),
-        home.display().to_string(),
-    );
+    // A shared acpmux (one per Chief home) names the Chief home, whose
+    // `c/<id>` directories hold the other Chiefs (acpmux maps their ids).
+    let chief_mux_home = env("CMUX_CHIEF_HOME")
+        .filter(|_| crate::acpmux_daemon::shared())
+        .unwrap_or_else(|| home.display().to_string());
+    daemon_env.insert("ACPMUX_CHIEF_MUX_HOME".to_owned(), chief_mux_home);
     daemon_env.insert(
         "ACPMUX_PROBE_HARNESSES".to_owned(),
         probe_harnesses(
@@ -683,13 +712,15 @@ fn start(
                 sub_harness = harness.clone();
             }
         }
-        // The compactor runs on a Claude route unless set otherwise, whatever
-        // the turns run on (engine.json may swap them to codex per turn).
-        if compactor_set.is_none() {
-            let turn_family = crate::harness_gate::plan(&answer, &harness).family;
-            compactor_harness =
-                default_compactor_harness(&harness, turn_family, default_harness(&answer));
-        }
+        // The compactor runs on a Claude route unless set otherwise: the
+        // turns' engine harness when it is one, else the default route
+        // (engine.json may swap the turns to codex per turn).
+        compactor_harness = compactor_harness_for(
+            &answer,
+            compactor_set.as_deref(),
+            &harness,
+            &engine_choice_file,
+        );
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
             plan(&compactor_harness, "compactor"),
@@ -728,8 +759,8 @@ fn start(
     };
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
-    // directory; acpmux gives any other harness no MCP server, so its memory
-    // tools are the launcher's commands.
+    // directory; acpmux gives no other harness the optchat server (only its
+    // own agent tools), so its memory tools are the launcher's commands.
     let tools = if claude {
         crate::prompt::Tools::Mcp
     } else {
@@ -737,7 +768,6 @@ fn start(
     };
     let setup = SessionSetup {
         exe: exe.display().to_string(),
-        cmux_mcp: env("CMUX_MCP_COMMAND"),
         env: session_env,
         instructions: instructions.clone(),
         tools,
@@ -1444,12 +1474,28 @@ static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 /// Stops the acpmux daemon this host started, once: its agent hosts and
 /// their sessions (and their MCP children) end with it; a daemon this host
 /// did not start is left alone. A second caller waits for the first.
+/// On a shared acpmux (`acpmux_daemon::shared`) the daemon stays: other
+/// Chiefs use it; only this Chief's own sessions end.
 fn stop_started_acpmux() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
+        if crate::acpmux_daemon::shared() {
+            let home = HOST_HOME.get().cloned().unwrap_or_else(mux_home);
+            match crate::agents::end_own_sessions(&home) {
+                Ok(names) => log(format!(
+                    "shared acpmux: ended this Chief's {} session(s); the daemon keeps running",
+                    names.len()
+                )),
+                Err(e) => log(format!("shared acpmux: ending this Chief's sessions: {e}")),
+            }
+            return;
+        }
         crate::acpmux_daemon::shutdown_started(&|line| log(line));
     });
 }
+
+/// This host's `MUX_HOME` (`--mux-home`), for the stop path.
+static HOST_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Set just before the brain's loop starts.
 static BRAIN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

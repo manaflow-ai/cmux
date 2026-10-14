@@ -11,12 +11,21 @@
 //! start (`take_from_env`), so no terminal it starts inherits it. Without
 //! it nothing starts.
 //!
-//! Each brain runs in `<home>/c/<last 8 of id>` with its own acpmux home
-//! (`a` in it), as the participant `<id>` with a token minted in process
-//! (`agent-token`, 0600). The directory is short because Unix sockets live
-//! under it (optchat/tools.sock, the acpmux router's socket) and a socket
-//! path has at most 103 bytes; `<home>/chiefs/<id>` was 120 and more on a
-//! DEV build (2026-10-14, cmux-lawrence-2).
+//! Each brain runs in `<home>/c/<last 8 of id>`, as the participant `<id>`
+//! with a token minted in process (`agent-token`, 0600). The directory is
+//! short because a Unix socket lives under it (optchat/tools.sock) and a
+//! socket path has at most 103 bytes; `<home>/chiefs/<id>` was 120 and more
+//! on a DEV build (2026-10-14, cmux-lawrence-2).
+//!
+//! One acpmux per Chief home (hq-6d 2026-10-14): every brain uses the Chief
+//! home's acpmux, `<home>/acpmux`, the default Chief's (one config, one
+//! login-env cache, one daemon), with `OPTCHAT_ACPMUX_SHARED=1`: the brain
+//! starts it when none answers and never shuts it down; each Chief's
+//! sessions keep their own names and tags (its home id), and a Chief reaches
+//! only its own (optchat-chief agents.rs). Delete ends that Chief's sessions
+//! only (the brain's `end-sessions`). At start the supervisor removes the
+//! per-Chief acpmux homes `<home>/c/<id>/a` of earlier builds (never in the
+//! person's shared `~/.cmux/chief/default`).
 //! The default Chief (`agent_mux`) is never started here: the app's Home
 //! keeps its lifecycle (and NIGHTLY's shared home) as it was.
 //!
@@ -28,7 +37,7 @@
 //!   60 s; one that exits 0 waits for the next message. A record change of a
 //!   field the prompt renders restarts the brain between turns (the brain
 //!   types while a main turn runs).
-//! - Stop (SIGTERM to its process group; the host stops its own acpmux):
+//! - Stop (SIGTERM to its process group; the host ends its own sessions):
 //!   `chief.profile.delete`, 30 minutes with no message and no turn, and
 //!   daemon shutdown.
 
@@ -69,11 +78,16 @@ pub struct BrainsConfig {
 pub struct AppValues {
     /// The bundle's `bin` (first on `PATH`).
     pub bin_dir: Option<PathBuf>,
+    /// The person's login-shell `PATH` (the app's login environment
+    /// capture; the `cmux chief` CLI's own `PATH`): after `bin_dir`, before
+    /// the fixed tool directories, so the brain and its acpmux find the
+    /// harnesses a terminal finds (claude under Homebrew, nvm, ...).
+    pub path: Option<String>,
     /// The person's name (`MUX_USER_NAME`).
     pub user_name: Option<String>,
-    /// The localized Chief title (`MUX_CHIEF_TITLE`).
+    /// The localized Chief title (`MUX_CHIEF_TITLE` when the record has no
+    /// display_name; a Chief's own name comes first, `brain_environment`).
     pub chief_title: Option<String>,
-    pub mcp_command: Option<String>,
     pub bundled_cli: Option<PathBuf>,
     pub acpmux_bin: Option<PathBuf>,
     /// `MUX_HARNESS`.
@@ -126,10 +140,10 @@ pub fn brain_home(home: &Path, chief: &str) -> PathBuf {
     home.join("c").join(tail.to_ascii_lowercase())
 }
 
-/// The longest socket path under a brain directory: acpmux's router socket
-/// (`a/router/router.sock`, no short alias; `optchat/tools.sock` is 2 bytes
-/// shorter). A home whose sockets do not fit starts no brain.
-const LONGEST_SOCKET: &str = "a/router/router.sock";
+/// The longest socket path under a brain directory (the Chief home's acpmux
+/// has its own, the default Chief's). A home whose socket does not fit
+/// starts no brain.
+const LONGEST_SOCKET: &str = "optchat/tools.sock";
 /// The longest Unix socket path, in bytes (macOS sun_path less the NUL).
 const MAX_SOCKET_PATH: usize = 103;
 
@@ -140,9 +154,14 @@ fn sockets_fit(mux_home: &Path) -> bool {
 /// The brain's whole environment (the brain starts from an empty one): the
 /// one list of what a Chief brain needs, from the Chief home, the brain's
 /// own directory, the app's values and a few user variables of the daemon.
+/// `title` is the Chief's own name (its record's display_name): the brain's
+/// `MUX_CHIEF_TITLE`, which titles its conversation, so each Chief's DM
+/// shows its name, not the app's "Chief" (hq-6d 2026-10-14); `None` or
+/// empty keeps the app's title.
 pub fn brain_environment(
     config: &BrainsConfig,
     chief: &str,
+    title: Option<&str>,
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> BTreeMap<String, String> {
     let mux_home = brain_home(&config.home, chief);
@@ -154,12 +173,23 @@ pub fn brain_environment(
     };
     let mut path: Vec<String> = app.bin_dir.iter().map(|d| d.display().to_string()).collect();
     path.extend(
+        // Absolute entries only: a relative one (`.`, `node_modules/.bin`)
+        // would run a file planted in the project a turn works in.
+        app.path
+            .iter()
+            .flat_map(|p| p.split(':'))
+            .filter(|d| d.starts_with('/'))
+            .map(str::to_owned),
+    );
+    path.extend(
         ["bin", ".local/bin", ".bun/bin", ".cargo/bin"].map(|d| format!("{user_home}/{d}")),
     );
     path.extend(
         ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
             .map(str::to_owned),
     );
+    let mut seen = BTreeSet::new();
+    path.retain(|d| seen.insert(d.clone()));
     put("PATH", path.join(":"));
     put("HOME", user_home);
     put("MUX_HOME", mux_home.display().to_string());
@@ -170,9 +200,10 @@ pub fn brain_environment(
     // The constant links to the app that last opened Home (ChiefAppLinks).
     put("CMUX_SOCKET_PATH", config.home.join("state/app.sock").display().to_string());
     put("CMUX_APP_DAEMON_SOCKET", config.home.join("state/app-daemon.sock").display().to_string());
-    // Its own acpmux (the brain derives the socket from the home); never the
-    // default Chief's.
-    put("ACPMUX_HOME", mux_home.join("a").display().to_string());
+    // The Chief home's acpmux, the default Chief's (the brain derives the
+    // socket from the home); shared: the brain never shuts it down.
+    put("ACPMUX_HOME", config.home.join("acpmux").display().to_string());
+    put("OPTCHAT_ACPMUX_SHARED", "1".into());
     put("ACPMUX_LOCAL_ROUTER", "1".into());
     put("ACPMUX_SECRET_TOOLS", "1".into());
     put("OPTCHAT_CHIEF_PARTICIPANT", chief.to_owned());
@@ -180,8 +211,13 @@ pub fn brain_environment(
     put("OPTCHAT_GROUP_WAKE", "every".into());
     let optional = [
         ("MUX_USER_NAME", app.user_name.clone()),
-        ("MUX_CHIEF_TITLE", app.chief_title.clone()),
-        ("CMUX_MCP_COMMAND", app.mcp_command.clone()),
+        (
+            "MUX_CHIEF_TITLE",
+            title
+                .filter(|t| !t.trim().is_empty())
+                .map(str::to_owned)
+                .or_else(|| app.chief_title.clone()),
+        ),
         ("CMUX_BUNDLED_CLI_PATH", app.bundled_cli.as_ref().map(|p| p.display().to_string())),
         ("ACPMUX_BIN", app.acpmux_bin.as_ref().map(|p| p.display().to_string())),
         ("MUX_HARNESS", app.harness.clone()),
@@ -228,12 +264,26 @@ enum Signal {
 #[derive(Default)]
 pub(crate) struct Slot {
     sender: Mutex<Option<mpsc::Sender<Signal>>>,
+    /// What came before [`start`] ran (the control socket accepts clients
+    /// before the owner loop starts the supervisor): a Chief created then
+    /// still gets its brain. Kept only when brains are configured, at most
+    /// [`EARLY_MAX`]; lock order: `sender`, then `early`.
+    early: Mutex<Vec<Signal>>,
 }
+
+/// The most signals [`Slot`] keeps before the supervisor starts.
+const EARLY_MAX: usize = 256;
 
 impl Slot {
     fn send(&self, signal: Signal) {
-        if let Some(sender) = self.sender.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+        let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
             let _ = sender.send(signal);
+        } else if taken().is_some() {
+            let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+            if early.len() < EARLY_MAX {
+                early.push(signal);
+            }
         }
     }
 
@@ -300,8 +350,14 @@ impl ChiefBrains {
 pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     let config = config()?;
     let (sender, inbox) = mpsc::channel();
-    *mux.chiefs().brains.sender.lock().unwrap_or_else(PoisonError::into_inner) =
-        Some(sender.clone());
+    {
+        let slot = &mux.chiefs().brains;
+        let mut installed = slot.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        for early in slot.early.lock().unwrap_or_else(PoisonError::into_inner).drain(..) {
+            let _ = sender.send(early);
+        }
+        *installed = Some(sender.clone());
+    }
     let mut supervisor = Supervisor {
         mux: Arc::downgrade(mux),
         socket: socket.to_owned(),
@@ -311,7 +367,14 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     };
     let thread = std::thread::Builder::new()
         .name("chief-brains".into())
-        .spawn(move || supervisor.run(&inbox))
+        .spawn(move || {
+            // Before any brain starts: its lock probe cannot race a start.
+            remove_old_acpmux_homes(
+                &supervisor.config.home,
+                supervisor.config.app.acpmux_bin.as_deref(),
+            );
+            supervisor.run(&inbox);
+        })
         .ok()?;
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
 }
@@ -380,7 +443,7 @@ struct Brain {
     pending_wake: bool,
     /// The held-lock note was logged.
     lock_noted: bool,
-    /// The Chief was deleted: when the process ends, its acpmux ends too.
+    /// The Chief was deleted: when the process ends, its sessions end too.
     deleted: bool,
     typing: BTreeSet<String>,
 }
@@ -519,7 +582,7 @@ impl Supervisor {
                 }
                 let mux_home = brain_home(&self.config.home, &chief);
                 stop_lock_holder(&mux_home.join("state/host.lock"));
-                self.end_acpmux(&mux_home);
+                self.end_sessions(&chief);
                 self.brains.remove(&chief);
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
@@ -575,7 +638,7 @@ impl Supervisor {
         brain.typing.clear();
         if brain.deleted {
             self.brains.remove(chief);
-            self.end_acpmux(&brain_home(&self.config.home, chief));
+            self.end_sessions(chief);
             return;
         }
         let expected = std::mem::take(&mut brain.stopping);
@@ -715,7 +778,12 @@ impl Supervisor {
             .arg("--mux-home")
             .arg(&mux_home)
             .env_clear()
-            .envs(brain_environment(&self.config, &record.id, &inherited))
+            .envs(brain_environment(
+                &self.config,
+                &record.id,
+                Some(&record.display_name),
+                &inherited,
+            ))
             .current_dir(&mux_home)
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
@@ -745,35 +813,37 @@ impl Supervisor {
         Ok(Process { pid, reaped })
     }
 
-    /// `acpmux daemon shutdown` for the brain directory `mux_home`: the brain
-    /// started its acpmux in a process group of its own, so it outlives the
-    /// brain. Reaped on its own thread.
-    fn end_acpmux(&self, mux_home: &Path) {
-        let acpmux = self.config.app.acpmux_bin.clone().unwrap_or_else(|| "acpmux".into());
+    /// Ends the sessions of Chief `chief` on the Chief home's shared acpmux
+    /// (its turns, compactor and subagents; never another Chief's, never the
+    /// daemon): the brain executable's `end-sessions`, as that Chief. The
+    /// host ends them itself when it stops; this covers a brain that
+    /// crashed or was not running. Reaped on its own thread.
+    fn end_sessions(&self, chief: &str) {
+        let mux_home = brain_home(&self.config.home, chief);
+        if !mux_home.is_dir() {
+            return;
+        }
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let env = brain_environment(&self.config, "", &inherited);
-        let spawned = std::process::Command::new(acpmux)
-            .args(["daemon", "shutdown"])
+        let spawned = std::process::Command::new(&self.config.executable)
+            .arg("end-sessions")
             .env_clear()
-            .envs(
-                env.iter()
-                    .filter(|(k, _)| matches!(k.as_str(), "PATH" | "HOME" | "USER" | "TMPDIR")),
-            )
-            .env("ACPMUX_HOME", mux_home.join("a"))
+            .envs(brain_environment(&self.config, chief, None, &inherited))
+            .current_dir(&mux_home)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
-        if let Err(error) = &spawned {
-            eprintln!(
-                "cmux-tui: acpmux shutdown for {} did not start: {error}",
-                mux_home.display()
-            );
-        }
-        if let Ok(mut child) = spawned {
-            let _ = std::thread::Builder::new().name("chief-acpmux-end".into()).spawn(move || {
-                let _ = child.wait();
-            });
+        match spawned {
+            Ok(mut child) => {
+                let _ = std::thread::Builder::new().name("chief-sessions-end".into()).spawn(
+                    move || {
+                        let _ = child.wait();
+                    },
+                );
+            }
+            Err(error) => {
+                eprintln!("cmux-tui: ending the sessions of Chief {chief} did not start: {error}");
+            }
         }
     }
 
@@ -866,6 +936,59 @@ fn stop_lock_holder(lock: &Path) {
     }
     #[cfg(not(unix))]
     let _ = lock;
+}
+
+/// Removes the per-Chief acpmux homes `<home>/c/<tail>/a` that brains of
+/// earlier builds used (before one acpmux per Chief home): `acpmux daemon
+/// shutdown` there first (that Chief's own daemon, not the shared one),
+/// then the folder. Only inside this build's Chief home `home`, never in
+/// the person's shared `~/.cmux/chief/default` (NIGHTLY's), and not while
+/// a brain an earlier owner left holds that Chief's lock (it still uses
+/// its acpmux; a later start removes it). Runs on the supervisor thread
+/// before the first brain starts.
+fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
+    // Without HOME the person's default home cannot be ruled out: keep all.
+    let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
+    let shared_default =
+        std::fs::canonicalize(PathBuf::from(user).join(".cmux/chief/default")).ok();
+    let Ok(canonical) = std::fs::canonicalize(home) else { return };
+    if shared_default.as_deref() == Some(canonical.as_path()) {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(home.join("c")) else { return };
+    for entry in entries.flatten() {
+        let chief_dir = home.join("c").join(entry.file_name());
+        let old = chief_dir.join("a");
+        // A real folder only: never follow a link out of the Chief home.
+        let is_dir = std::fs::symlink_metadata(&chief_dir).is_ok_and(|m| m.is_dir())
+            && std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
+        if !is_dir || lock_held(&chief_dir.join("state/host.lock")) {
+            continue;
+        }
+        let acpmux = acpmux_bin.map(Path::to_path_buf).unwrap_or_else(|| "acpmux".into());
+        let user = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
+        let mut command = std::process::Command::new(acpmux);
+        command
+            .args(["daemon", "shutdown"])
+            .env_clear()
+            .env("ACPMUX_HOME", &old)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        for key in ["PATH", "HOME", "USER", "TMPDIR"] {
+            if let Some(value) = user(key) {
+                command.env(key, value);
+            }
+        }
+        // On this thread only: `daemon shutdown` ends that daemon's agents
+        // first (acpmux bounds its own grace), then the folder goes.
+        // No acpmux to ask: its daemon may still run there; keep the folder.
+        let Ok(mut child) = command.spawn() else { continue };
+        let _ = child.wait();
+        if let Err(error) = std::fs::remove_dir_all(&old) {
+            eprintln!("cmux-tui: removing {}: {error}", old.display());
+        }
+    }
 }
 
 fn is_default(record: &ChiefRecord) -> bool {

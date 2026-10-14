@@ -37,6 +37,9 @@
 //! found", like `_acpmux/directories`. Agents and MCP get them only through
 //! the `chats.read` scope, which is never granted by default.
 
+mod offers;
+mod stats;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -62,6 +65,13 @@ pub(super) async fn route(
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = offers::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
+    // So do the process methods (`processes.rs`).
+    if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {
@@ -69,6 +79,10 @@ pub(super) async fn route(
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
         return hub.transfer_request(m, &params).await;
+    }
+    // Personal stats over the session logs (`stats.rs`): local, never a peer's.
+    if m == crate::rpc::method::MUX_STATS {
+        return stats::handle(hub, conn.origin, &params).await;
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
