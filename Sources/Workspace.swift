@@ -105,7 +105,7 @@ extension Workspace {
                 for: self,
                 panelIds: Set(allPanelIds)
             )
-        let panelSnapshots = allPanelIds
+        let builtPanelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 sessionPanelSnapshot(
@@ -134,6 +134,9 @@ extension Workspace {
                     agentProcessPresence: agentProcessPresence
                 )
             }
+        let panelSnapshots = restorableAgentIndex?.removingTranscriptlessClaudeResume(
+            from: builtPanelSnapshots
+        ) ?? builtPanelSnapshots
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
         let layout = layoutCodec.pruned(rawLayout, keeping: persistedPanelIds) ?? .pane(
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
@@ -916,7 +919,7 @@ extension Workspace {
                 for: self,
                 panelIds: [panelId]
             )
-        guard let snapshot = sessionPanelSnapshot(
+        guard let builtSnapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
             restorableAgentObservation: restorableAgentObservation,
@@ -929,6 +932,8 @@ extension Workspace {
         ) else {
             return nil
         }
+        let snapshot = agentIndex.removingTranscriptlessClaudeResume(from: [builtSnapshot]).first
+            ?? builtSnapshot
         let projection = SurfaceCatalog.shared.projectionRecord(forPanel: panelId)
         return ClosedPanelHistoryEntry(
             workspaceId: id,
@@ -15280,7 +15285,7 @@ extension Workspace: BonsplitDelegate {
                 _ = AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: owningTabManager,
                     debugSource: "surfaceTabBar.newWorkspace",
-                    skipConfiguredAction: true
+                    localOnly: true
                 )
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:

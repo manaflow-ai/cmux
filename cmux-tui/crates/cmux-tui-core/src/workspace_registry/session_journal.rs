@@ -1591,7 +1591,7 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
             .records
             .into_iter()
             .map(|record| record.kind)
-            .collect::<std::collections::BTreeSet<_>>();
+            .collect::<BTreeSet<_>>();
         for kind in kinds {
             connection.execute(
                 "INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",

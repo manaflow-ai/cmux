@@ -1189,6 +1189,13 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Whether truncation left additional Codex panels without a retained
     /// per-panel marker. Such panels are incomplete unless explicitly verified.
     private let hasUnboundedCodexIncompleteness: Bool
+    /// Claude sessions whose hook records were read in this load but whose
+    /// transcript was not on disk in any config root, keyed to the paths where
+    /// Claude would write it. Claude only writes the transcript after the first
+    /// message, so these cannot be resumed. Consumers re-check the paths
+    /// because the first prompt may land after this load, which also keeps
+    /// the map safe to carry into a cached copy marked incomplete.
+    let claudeTranscriptPathsBySessionWithoutTranscript: [String: [String]]
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
@@ -1331,7 +1338,11 @@ struct RestorableAgentSessionIndex: Sendable {
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             inconclusiveCodexPanelKeys: inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
-            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
+            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness,
+            // Consumers re-check the expected transcript paths, so evidence
+            // from an older load cannot drop a session that wrote one since.
+            claudeTranscriptPathsBySessionWithoutTranscript:
+                claudeTranscriptPathsBySessionWithoutTranscript
         )
     }
 
@@ -1787,7 +1798,9 @@ struct RestorableAgentSessionIndex: Sendable {
             incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
             inconclusiveCodexPanelKeys: self.inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
-            hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness
+            hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness,
+            claudeTranscriptPathsBySessionWithoutTranscript:
+                self.claudeTranscriptPathsBySessionWithoutTranscript
         )
     }
 
@@ -1865,6 +1878,8 @@ struct RestorableAgentSessionIndex: Sendable {
         var hasUnboundedCodexIncompleteness = false
         var codexIndexedStoreByHome: [String: Bool] = [:]
         var codexHookRecordsForIndex: [RestorableAgentHookSessionRecord]?
+        var claudeSessionIDsWithTranscript = Set<String>()
+        var claudeTranscriptPathsBySessionMissingTranscript: [String: [String]] = [:]
 
         func codexPanelKey(
             for record: RestorableAgentHookSessionRecord
@@ -2192,6 +2207,28 @@ struct RestorableAgentSessionIndex: Sendable {
                     // this panel deferred so the restore boundary can clear
                     // only the rejected checkpoint.
                     incompleteCodexPanelKeys.insert(panelKey)
+                }
+                if kind == .claude {
+                    if codexOwnerIsAdmitted {
+                        claudeSessionIDsWithTranscript.insert(normalizedSessionId)
+                        if let originalSessionId = normalizedNonEmptyValue(record.sessionId) {
+                            claudeSessionIDsWithTranscript.insert(originalSessionId)
+                        }
+                    } else if claudeRecordNamesTranscriptLocation(record),
+                              !claudeTranscriptExists(
+                                  for: record,
+                                  fileManager: fileManager,
+                                  lookup: claudeTranscriptLookup
+                              ) {
+                        // The trusted record found nothing; the raw record can
+                        // still name a CLAUDE_CONFIG_DIR its launch capture lost.
+                        claudeTranscriptPathsBySessionMissingTranscript[normalizedSessionId, default: []]
+                            .append(contentsOf: claudeExpectedTranscriptPaths(
+                                for: record,
+                                sessionId: normalizedSessionId,
+                                lookup: claudeTranscriptLookup
+                            ))
+                    }
                 }
                 guard codexOwnerIsAdmitted else {
                     continue
@@ -2523,7 +2560,9 @@ struct RestorableAgentSessionIndex: Sendable {
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             inconclusiveCodexPanelKeys: inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
-            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
+            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness,
+            claudeTranscriptPathsBySessionWithoutTranscript: claudeTranscriptPathsBySessionMissingTranscript
+                .filter { !claudeSessionIDsWithTranscript.contains($0.key) }
         )
     }
 
@@ -2888,6 +2927,46 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+    }
+
+    /// Whether a Claude record says where Claude writes its transcript: the
+    /// SessionStart `transcript_path`, or an explicit config directory. Older
+    /// records without either may live in a root the lookup cannot see, so a
+    /// miss there is not evidence that the conversation is empty.
+    private static func claudeRecordNamesTranscriptLocation(
+        _ record: RestorableAgentHookSessionRecord
+    ) -> Bool {
+        normalizedNonEmptyValue(record.transcriptPath) != nil
+            || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil
+    }
+
+    /// Where Claude writes this session's transcript: the reported
+    /// `transcript_path`, then `<root>/projects/<cwd slug>/<id>.jsonl` for each
+    /// config root and recorded cwd. A later save re-checks these paths.
+    private static func claudeExpectedTranscriptPaths(
+        for record: RestorableAgentHookSessionRecord,
+        sessionId: String,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> [String] {
+        var paths: [String] = []
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
+            paths.append((transcriptPath as NSString).expandingTildeInPath)
+        }
+        guard claudeSessionIdIsSafeFilename(sessionId) else { return paths }
+        let cwdCandidates = [
+            normalizedWorkingDirectory(record.cwd),
+            normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
+        ].compactMap { $0 }
+        for root in lookup.configRoots(for: record) {
+            let projectsRoot = (root as NSString).appendingPathComponent("projects")
+            for cwd in cwdCandidates {
+                let projectRoot = (projectsRoot as NSString)
+                    .appendingPathComponent(encodeClaudeProjectDir(cwd))
+                paths.append((projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl"))
+            }
+        }
+        var seen: Set<String> = []
+        return paths.filter { seen.insert(($0 as NSString).standardizingPath).inserted }
     }
 
     private static func codexLegacyLaunchHasPositiveEvidence(
@@ -3742,7 +3821,8 @@ struct RestorableAgentSessionIndex: Sendable {
         incompleteCodexPanelKeys: Set<PanelKey> = [],
         inconclusiveCodexPanelKeys: Set<PanelKey>? = nil,
         verifiedCodexPanelKeys: Set<PanelKey> = [],
-        hasUnboundedCodexIncompleteness: Bool = false
+        hasUnboundedCodexIncompleteness: Bool = false,
+        claudeTranscriptPathsBySessionWithoutTranscript: [String: [String]] = [:]
     ) {
         self.entriesByPanel = entriesByPanel
         self.liveSessionOwners = liveSessionOwners
@@ -3758,6 +3838,8 @@ struct RestorableAgentSessionIndex: Sendable {
         self.verifiedCodexPanelKeys = verifiedCodexPanelKeys
         self.verifiedCodexPanelIds = Set(verifiedCodexPanelKeys.map(\.panelId))
         self.hasUnboundedCodexIncompleteness = hasUnboundedCodexIncompleteness
+        self.claudeTranscriptPathsBySessionWithoutTranscript =
+            claudeTranscriptPathsBySessionWithoutTranscript
         // Keep only the bounded candidate prefix while indexing. Exact owner
         // lookups still use `entriesByPanel`, but stable-panel resolution must
         // never retain or sort an unbounded owner history a second time.
