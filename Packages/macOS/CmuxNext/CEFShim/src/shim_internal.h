@@ -243,6 +243,10 @@ std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title
 // the Chrome Web Store's origin, or null for any other URL (shim_webstore.mm).
 CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url);
 bool IsWebStoreURL(const std::string& url);
+// The Web Store's CRX download URL (https://clients2.google.com/service/
+// update2/crx, any query): the URL Chromium's WebstoreInstaller downloads an
+// extension package from (extension_urls::IsWebstoreUpdateUrl).
+bool IsWebStoreCrxURL(const std::string& url);
 
 // Downloads (shim_downloads.mm, UI thread). The page clients' download
 // handler: every download waits for the host's path (DOWNLOAD_STARTED,
