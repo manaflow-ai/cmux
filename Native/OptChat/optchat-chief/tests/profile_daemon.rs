@@ -734,7 +734,15 @@ fn a_chief_turn_gets_no_second_cmux_mcp_server() {
             .cloned()
             .collect();
         assert_eq!(servers, vec!["optchat".to_owned()], "{place}: {mcp:?}");
-        let enabled = read(&settings).unwrap()["enabledMcpjsonServers"].clone();
-        assert_eq!(enabled, json!(["optchat"]), "{place}: {settings:?}");
+        let settings = read(&settings).unwrap();
+        let enabled = &settings["enabledMcpjsonServers"];
+        assert_eq!(enabled, &json!(["optchat"]), "{place}");
+        // Nor is the variable passed to the turn's tools.
+        assert!(
+            settings["env"].get("CMUX_MCP_COMMAND").is_none(),
+            "{place}: {settings}"
+        );
     }
+    let launcher = std::fs::read_to_string(root.join("bin/chief")).unwrap();
+    assert!(!launcher.contains("CMUX_MCP_COMMAND"), "{launcher}");
 }

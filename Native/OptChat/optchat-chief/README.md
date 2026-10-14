@@ -822,7 +822,7 @@ file. A sign-in kept in the keyring instead of auth.json is not linked. The node
 deleted when it ends (and a crash's leftovers before the next node in the
 slot). The start-up probe fails when the session lists any `$skill`
 command.
-acpmux gives codex no MCP servers, so the memory tools are the launcher's
+acpmux gives codex no `optchat` MCP server, so the memory tools are the launcher's
 `zoom` and `date` commands (`optchat-chief zoom ID N`, `optchat-chief date
 ID`), named by absolute path in AGENTS.md.
 

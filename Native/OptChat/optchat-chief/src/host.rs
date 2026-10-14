@@ -727,8 +727,8 @@ fn start(
     };
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
-    // directory; acpmux gives any other harness no MCP server, so its memory
-    // tools are the launcher's commands.
+    // directory; acpmux gives no other harness the optchat server (only its
+    // own agent tools), so its memory tools are the launcher's commands.
     let tools = if claude {
         crate::prompt::Tools::Mcp
     } else {
