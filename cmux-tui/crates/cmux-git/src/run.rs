@@ -1,8 +1,9 @@
 //! Runs git for the git reads. The caller's own environment never redirects
 //! git (every `GIT_*` variable is dropped), repository config never runs a
-//! program (no fsmonitor here; callers add `--no-ext-diff`, `--no-textconv`
-//! and blank filter drivers through `overrides`), pathspecs are literal, and
-//! each run has a deadline and bounded output.
+//! program (no fsmonitor, no transport, so no lazy fetch in a partial clone,
+//! and no `git diff` inside a submodule here; callers add `--no-ext-diff`,
+//! `--no-textconv` and blank filter drivers through `overrides`), pathspecs
+//! are literal, and each run has a deadline and bounded output.
 
 use std::io::{ErrorKind, Read};
 use std::path::Path;
@@ -50,11 +51,13 @@ impl std::fmt::Display for GitFailure {
 
 impl std::error::Error for GitFailure {}
 
-/// Runs `git -c <override>... <arguments>` in `directory`; `overrides` are
-/// `key=value` config settings that win over every config file.
+/// A config setting, as (key, value), that wins over every config file.
+pub type Override = (String, String);
+
+/// Runs `git <arguments>` in `directory` with `overrides` set.
 pub fn run_git(
     directory: &Path,
-    overrides: &[String],
+    overrides: &[Override],
     arguments: &[&str],
     max_stdout: usize,
 ) -> Result<GitOutput, GitFailure> {
@@ -64,7 +67,7 @@ pub fn run_git(
 /// [`run_git`] that stops git after `deadline` (at most [`DEADLINE`]).
 pub fn run_git_within(
     directory: &Path,
-    overrides: &[String],
+    overrides: &[Override],
     arguments: &[&str],
     max_stdout: usize,
     deadline: Duration,
@@ -83,9 +86,11 @@ pub fn run_git_within(
     // and run the signing program.
     command.args(["-c", "core.fsmonitor=false", "-c", "core.quotePath=false"]);
     command.args(["-c", "log.showSignature=false"]);
-    for setting in overrides {
-        command.args(["-c", setting]);
-    }
+    // `diff.submodule=diff` would run `git diff` inside a submodule, with
+    // the submodule's own diff drivers.
+    command.args(["-c", "diff.submodule=short"]);
+    set_overrides(&mut command, overrides);
+    deny_transports(&mut command);
     command
         .args(arguments)
         .current_dir(directory)
@@ -132,6 +137,27 @@ pub fn run_git_within(
         return Err(GitFailure::Exit(String::from_utf8_lossy(&stderr).trim().to_string()));
     }
     Ok(GitOutput { stdout, truncated })
+}
+
+/// Sets `overrides` through `GIT_CONFIG_COUNT`, which keeps a key whole: a
+/// `-c key=value` argument splits at the first `=`, so a filter driver named
+/// `a=b` could never be blanked that way.
+pub(crate) fn set_overrides(command: &mut Command, overrides: &[Override]) {
+    command.env("GIT_CONFIG_COUNT", overrides.len().to_string());
+    for (index, (key, value)) in overrides.iter().enumerate() {
+        command.env(format!("GIT_CONFIG_KEY_{index}"), key);
+        command.env(format!("GIT_CONFIG_VALUE_{index}"), value);
+    }
+}
+
+/// No run reaches a remote: a missing object in a partial clone would be
+/// fetched on demand through the repository's `core.sshCommand` or an
+/// `ext::` URL. An empty `GIT_ALLOW_PROTOCOL` refuses every transport and
+/// outranks `protocol.<name>.allow` in repository config, which
+/// `protocol.allow=never` does not; `GIT_NO_LAZY_FETCH` (git 2.45 and later)
+/// stops git before it tries.
+pub(crate) fn deny_transports(command: &mut Command) {
+    command.env("GIT_NO_LAZY_FETCH", "1").env("GIT_ALLOW_PROTOCOL", "");
 }
 
 /// Kills git and anything it started, so the output pipes close.

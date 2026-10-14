@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::MAX_SMALL_OUTPUT_BYTES;
 use crate::parse;
-use crate::run::{DEADLINE, GitFailure, GitOutput, run_git_within};
+use crate::run::{DEADLINE, GitFailure, GitOutput, Override, run_git_within};
 
 /// A repository's top level, which every run works from, and the config
 /// overrides every run carries. A repository opened with
@@ -15,7 +15,7 @@ use crate::run::{DEADLINE, GitFailure, GitOutput, run_git_within};
 #[derive(Debug, Clone)]
 pub struct Repository {
     pub root: PathBuf,
-    pub overrides: Vec<String>,
+    pub overrides: Vec<Override>,
     deadline: Option<Instant>,
 }
 
@@ -189,7 +189,7 @@ pub fn main_root(common_dir: &Path) -> Option<&Path> {
 /// `process`), and diffing the working tree would run it. A read never needs
 /// one, so every configured driver is blanked: an empty command is no filter,
 /// and nothing is required.
-pub fn filter_overrides(root: &Path) -> Result<Vec<String>, GitFailure> {
+pub fn filter_overrides(root: &Path) -> Result<Vec<Override>, GitFailure> {
     filter_overrides_within(root, DEADLINE)
 }
 
@@ -199,7 +199,7 @@ fn remaining(deadline: Option<Instant>) -> Duration {
     deadline.map_or(DEADLINE, |deadline| deadline.saturating_duration_since(Instant::now()))
 }
 
-fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<String>, GitFailure> {
+fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<Override>, GitFailure> {
     let pattern = r"^filter\..*\.(clean|smudge|process|required)$";
     let arguments = ["config", "--null", "--name-only", "--get-regexp", pattern];
     let output = match run_git_within(root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, deadline) {
@@ -221,12 +221,8 @@ fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<String
     Ok(drivers
         .into_iter()
         .flat_map(|driver| {
-            [
-                format!("filter.{driver}.clean="),
-                format!("filter.{driver}.smudge="),
-                format!("filter.{driver}.process="),
-                format!("filter.{driver}.required=false"),
-            ]
+            [("clean", ""), ("smudge", ""), ("process", ""), ("required", "false")]
+                .map(|(setting, value)| (format!("filter.{driver}.{setting}"), value.to_string()))
         })
         .collect())
 }
