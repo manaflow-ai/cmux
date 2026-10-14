@@ -14,9 +14,23 @@ const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
+// Frames run only when the test runs them: JSDOM's own are a 16 ms timer, which on a loaded runner
+// fired the pick's frame inside the click's act() and read 1 where the test expects 0 (feat-cmux-next,
+// about 1 run in 3).
+const frames = new Map<number, FrameRequestCallback>();
+let lastFrame = 0;
+const nextFrame = () => {
+  const due = [...frames.values()];
+  frames.clear();
+  for (const run of due) run(0);
+};
 
 beforeAll(() => {
   window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true }).window;
+  Object.assign(window, {
+    requestAnimationFrame: (run: FrameRequestCallback) => (frames.set(++lastFrame, run), lastFrame),
+    cancelAnimationFrame: (id: number) => frames.delete(id),
+  });
   Object.assign(scope, {
     window,
     document: window.document,
@@ -66,8 +80,7 @@ test("the New Tab page offers its five styles as radios, the current one checked
   });
   expect(picks).toEqual(["classic"]);
   expect(fieldAsked).toBe(0);
-  await act(() => new Promise<void>((done) => window.requestAnimationFrame(() => done())));
-  await act(() => new Promise<void>((done) => window.requestAnimationFrame(() => done())));
+  await act(async () => nextFrame());
   expect(fieldAsked).toBe(1);
   await act(async () => root.unmount());
 });
