@@ -14,7 +14,7 @@ impl Hub {
         let (command_line, translator) = if claude {
             // As `ensure_child` starts a fresh Claude session.
             let fresh_id = uuid::Uuid::now_v7().to_string();
-            let effort = current_option(draft, "effort").unwrap_or_else(|| "default".into());
+            let effort = current_effort(draft).unwrap_or_else(|| "default".into());
             let mode = "default".to_owned();
             let model = current_model(draft).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(

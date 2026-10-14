@@ -3,7 +3,7 @@
 // the mode and model chips, the location row, Send and Stop), through the pane's own inputs: the
 // `ready` answer's draft and new-chat fields, and the snapshot.
 import { agentPaneEntry } from "../../gallery/format";
-import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
 // Three prompts waiting for the running turn.
@@ -49,6 +49,18 @@ const composerControls = {
       { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
     ],
   },
+};
+
+/// Claude Code's Ultracode switch, as acpmux's claude_stdio lists it beside the levels.
+const CLAUDE_ULTRACODE_OFF = {
+  id: "ultracode",
+  name: "Ultracode",
+  category: "model_config",
+  currentValue: "off",
+  options: [
+    { value: "off", name: "Off" },
+    { value: "on", name: "On", description: "Extra High effort plus multi-agent workflow orchestration" },
+  ],
 };
 
 export default agentPaneEntry({
@@ -99,6 +111,22 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    "new-chat-reasoning": {
+      note: "Play: a new chat on a harness no chat has shown here yet names the level acpmux starts it on (Medium) before its session reports, never nothing.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([], {
+        catalog: CATALOG.map((entry) =>
+          entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
+        ),
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5" },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".acpmux-chips .acpmux-effort")?.textContent?.trim() === "Medium",
+        );
+      },
     },
     "agent-home": {
       note: "A new chat with no project (cmux's agent home): the hero asks what to build, the folder reads Choose folder.",
@@ -764,7 +792,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: Claude's reasoning menu: Low to Max with Extra High, Ultracode (with its line), Ultrathink, then Fast Mode On/Off; the chip reads Medium Fast.",
+      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (with its line) and Fast Mode On/Off; the chip reads Medium Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {
@@ -779,10 +807,9 @@ export default agentPaneEntry({
               { value: "high", name: "High" },
               { value: "xhigh", name: "Extra High" },
               { value: "max", name: "Max" },
-              { value: "ultracode", name: "Ultracode" },
-              { value: "ultrathink", name: "Ultrathink" },
             ],
           },
+          CLAUDE_ULTRACODE_OFF,
           {
             id: "fast-mode",
             name: "Fast mode",
@@ -798,6 +825,38 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+      },
+    },
+    "reasoning-claude-default": {
+      note: "Play: a chat on Claude Code's own level (default) on Opus 5.5 [1m]: the chip names the level it resolves to, Medium; the menu checks Medium with a Default hint and lists no Ultrathink.",
+      snapshot: withSummary(chat(finished, { title: "Claude default reasoning" }), {
+        model: "claude-opus-5-5[1m]",
+        configOptions: [
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            currentValue: "default",
+            // An older acpmux still lists Ultrathink, a prompt keyword: the menu drops it.
+            options: ["default", "low", "medium", "high", "xhigh", "max", "ultrathink"].map((value) => ({ value })),
+          },
+          CLAUDE_ULTRACODE_OFF,
+        ],
+      }),
+      play: async (ctx) => {
+        const chip = () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button");
+        await ctx.waitFor(() => chip()?.textContent?.trim() === "Medium");
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        await ctx.waitFor(() => {
+          const checked = ctx.document.querySelectorAll(
+            '.acpmux-effort-menu [role="menuitemradio"][aria-checked="true"]',
+          );
+          const level = checked[0]?.textContent ?? "";
+          return level.includes("Medium") && level.includes("Default");
+        });
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".acpmux-effort-menu")?.textContent?.includes("Ultrathink"),
+        );
       },
     },
     "reasoning-codex": {
