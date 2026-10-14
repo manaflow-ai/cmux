@@ -50,6 +50,8 @@ enum WorkspaceGroupHandlers {
             guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }
             context.ungroupPersonal(try context.workspace(invocation).model)
         })
+        ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
+        ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { _ in ((try? context.sidebar().model.orderedSelection.count) ?? 0) < 2 }
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             newPersonalWorkspace(in: try context.group(invocation).id, newTabPage: invocation.origin == .user, context)
         })

@@ -2491,16 +2491,22 @@ function AcpmuxPane() {
   }, []);
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
+  /// Opens the chat folder's diff in its own pane right of the chat, as the header's Changes does
+  /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
+  /// same webpage"). False when the host cannot (a remote chat, Quick Chat, the gallery): the turn's
+  /// diff then opens in place. Set below, once the header's actions exist.
+  const diffBeside = useRef<() => Promise<boolean>>(async () => false);
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
-    inspectorOpenRef.current = false;
-    setInspectorOpen(false);
-    setDiffView({
-      sessionId: sessionIdRef.current,
-      rowId,
-      path,
-      opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
-    });
+    const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
+    const inPlace = () => {
+      inspectorOpenRef.current = false;
+      setInspectorOpen(false);
+      setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
+    };
+    void diffBeside.current().then((opened) => {
+      if (!opened) inPlace();
+    }, inPlace);
   }, []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
@@ -4007,6 +4013,17 @@ function AcpmuxPane() {
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
+  };
+  diffBeside.current = async () => {
+    // A remote or cloud chat's folder is not on this Mac, and Quick Chat's panel has no tab beside it.
+    if (quick || !localCwd) return false;
+    const reply = await callNative<{ ran?: boolean } | null>("pane.action", {
+      id: HEADER_ACTIONS.changes,
+      cwd: localCwd,
+      mode: "open",
+    });
+    window.setTimeout(refreshTabState, 400);
+    return reply?.ran === true;
   };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
