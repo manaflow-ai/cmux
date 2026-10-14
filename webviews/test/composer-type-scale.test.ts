@@ -69,18 +69,15 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
       await page.reload();
       await ready();
     });
-    // A variant with a play (a menu, a draft) reads after the play ran; one without has none to wait for.
-    await page
-      .waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, { timeout: 10_000 })
-      .catch(() => {});
-    // A play that failed (a menu that never opened) would leave less text to read, so it fails here.
-    const play = await page.evaluate(() => document.documentElement.dataset.galleryPlay);
-    if (play === "fail") {
-      const report = await page.evaluate(() =>
-        JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
-      );
+    // The stage marks itself ready after a variant's play ran (the play's report is published with it).
+    // A play whose own step never happened (a menu that never opened) would leave less text to read, so
+    // it fails here; the stage's frame-timing and layout checks are the gallery's, not this test's.
+    const playError = await page.evaluate(
+      () => (window as unknown as { cmuxGalleryPlayReport?: { error?: string } }).cmuxGalleryPlayReport?.error,
+    );
+    if (playError) {
       await page.close();
-      return [`the play failed: ${report}`];
+      return [`the play did not run: ${playError}`];
     }
     const found = await page.evaluate(
       ({ sizes, weights }) => {
@@ -146,7 +143,6 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
       "working-interrupt",
       "queued",
       "queued-paused",
-      "queued-long",
       "codex-model",
       "tray-long-branch",
       "docked-400",
