@@ -48,6 +48,7 @@ import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
+import { cliOnlyCommand } from "./cliOnlyCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import {
   flushPendingDraftWrites,
@@ -586,6 +587,19 @@ export function Composer({
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
+      return false;
+    }
+    // A Claude command that needs its terminal is not sent: the composer keeps it and says what to use.
+    const cliOnly = attachments.length === 0 ? cliOnlyCommand(prompt, snapshot.summary?.harness) : undefined;
+    if (cliOnly) {
+      const values = { command: cliOnly.name };
+      setAttachError(
+        cliOnly.use === "access"
+          ? t("composer.cliOnly.access", values)
+          : cliOnly.use === "model"
+            ? t("composer.cliOnly.model", values)
+            : t("composer.cliOnly.terminal", values),
+      );
       return false;
     }
     const owned = commands?.find(

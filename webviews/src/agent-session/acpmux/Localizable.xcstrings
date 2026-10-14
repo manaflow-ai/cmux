@@ -1,6 +1,534 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "stop.forced": {
+      "comment": "Agent pane: transcript note when the agent never answered Stop and cmux ended its turn itself",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب الوكيل للإيقاف، لذا أنهى cmux دوره."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent nije odgovorio na Zaustavi, pa je cmux završio njegov korak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten svarede ikke på Stop, så cmux afsluttede dens tur."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent hat nicht auf Stopp reagiert, daher hat cmux seinen Durchgang beendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent didn't answer Stop, so cmux ended its turn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El agente no respondió a Detener, así que cmux terminó su turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent n’a pas répondu à Arrêter, cmux a donc terminé son tour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agente non ha risposto a Interrompi, quindi cmux ha terminato il suo turno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが停止に応答しなかったため、cmux がターンを終了しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមិនបានឆ្លើយតបនឹងការបញ្ឈប់ទេ ដូច្នេះ cmux បានបញ្ចប់វេនរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 중지에 응답하지 않아 cmux가 턴을 끝냈습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten svarte ikke på Stopp, så cmux avsluttet runden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent nie odpowiedział na Zatrzymaj, więc cmux zakończył jego turę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O agente não respondeu a Parar, então o cmux encerrou o turno."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент не ответил на «Стоп», поэтому cmux завершил его ход."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ไม่ตอบสนองต่อการหยุด cmux จึงจบรอบของมัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan Durdur’a yanıt vermedi, bu yüzden cmux turunu bitirdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент не відповів на «Стоп», тому cmux завершив його хід."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử không phản hồi lệnh Dừng nên cmux đã kết thúc lượt của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体没有响应停止，因此 cmux 结束了它的这一轮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式沒有回應停止，因此 cmux 結束了它的這一輪。"
+          }
+        }
+      }
+    },
+    "composer.cliOnly.access": {
+      "comment": "Agent pane composer note: a Claude slash command that needs Claude Code's terminal; {command} is its name without the slash",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل ‎/{command}‎ فقط في طرفية Claude Code. استخدم قائمة الوصول بجوار + لتحديد ما يمكن للوكيل فعله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} radi samo u terminalu Claude Codea. Koristite meni pristupa pored + da odaberete šta agent smije raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} virker kun i Claude Codes terminal. Brug adgangsmenuen ved siden af + til at vælge, hvad agenten må."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} funktioniert nur im Terminal von Claude Code. Lege über das Zugriffsmenü neben + fest, was der Agent darf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} works only in Claude Code's terminal. Use the access menu next to + to choose what the agent may do."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} solo funciona en la terminal de Claude Code. Usa el menú de acceso junto a + para elegir lo que puede hacer el agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ne fonctionne que dans le terminal de Claude Code. Utilisez le menu d’accès à côté de + pour choisir ce que l’agent peut faire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} funziona solo nel terminale di Claude Code. Usa il menu di accesso accanto a + per scegliere cosa può fare l’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} は Claude Code のターミナルでのみ使えます。+ の横のアクセスメニューで、エージェントに許可する操作を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ដំណើរការតែក្នុង terminal របស់ Claude Code ប៉ុណ្ណោះ។ ប្រើម៉ឺនុយសិទ្ធិចូលនៅជាប់ + ដើម្បីជ្រើសអ្វីដែលភ្នាក់ងារអាចធ្វើបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command}은(는) Claude Code 터미널에서만 작동합니다. + 옆의 접근 메뉴에서 에이전트가 할 수 있는 일을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} fungerer bare i terminalen til Claude Code. Bruk tilgangsmenyen ved siden av + for å velge hva agenten kan gjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} działa tylko w terminalu Claude Code. Użyj menu dostępu obok +, aby wybrać, co agent może robić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} só funciona no terminal do Claude Code. Use o menu de acesso ao lado de + para escolher o que o agente pode fazer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} работает только в терминале Claude Code. Выберите, что может делать агент, в меню доступа рядом с +."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ใช้ได้เฉพาะในเทอร์มินัลของ Claude Code ใช้เมนูการเข้าถึงข้าง + เพื่อเลือกสิ่งที่เอเจนต์ทำได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} yalnızca Claude Code terminalinde çalışır. Ajanın neler yapabileceğini seçmek için + yanındaki erişim menüsünü kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} працює лише в терміналі Claude Code. Виберіть, що може робити агент, у меню доступу поруч із +."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} chỉ hoạt động trong terminal của Claude Code. Dùng menu truy cập cạnh + để chọn những gì tác tử được làm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} 只能在 Claude Code 的终端中使用。请用 + 旁边的访问菜单选择智能体可以做什么。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} 只能在 Claude Code 的終端機中使用。請用 + 旁的存取選單選擇代理程式可以做什麼。"
+          }
+        }
+      }
+    },
+    "composer.cliOnly.model": {
+      "comment": "Agent pane composer note: bare /model, which needs Claude Code's terminal; {command} is its name without the slash",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل ‎/{command}‎ فقط في طرفية Claude Code. غيّر النموذج من منتقي النماذج أدناه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} radi samo u terminalu Claude Codea. Promijenite model u biraču modela ispod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} virker kun i Claude Codes terminal. Skift model med modelvælgeren nedenfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} funktioniert nur im Terminal von Claude Code. Wechsle das Modell mit der Modellauswahl unten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} works only in Claude Code's terminal. Change the model with the model picker below."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} solo funciona en la terminal de Claude Code. Cambia el modelo con el selector de modelos de abajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ne fonctionne que dans le terminal de Claude Code. Changez de modèle avec le sélecteur de modèle ci-dessous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} funziona solo nel terminale di Claude Code. Cambia modello con il selettore di modelli qui sotto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} は Claude Code のターミナルでのみ使えます。モデルは下のモデル選択で変更してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ដំណើរការតែក្នុង terminal របស់ Claude Code ប៉ុណ្ណោះ។ ប្តូរម៉ូដែលដោយប្រើកម្មវិធីជ្រើសម៉ូដែលខាងក្រោម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command}은(는) Claude Code 터미널에서만 작동합니다. 아래 모델 선택기에서 모델을 바꾸세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} fungerer bare i terminalen til Claude Code. Bytt modell med modellvelgeren nedenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} działa tylko w terminalu Claude Code. Zmień model w selektorze modeli poniżej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} só funciona no terminal do Claude Code. Troque o modelo no seletor de modelos abaixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} работает только в терминале Claude Code. Смените модель в списке моделей ниже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ใช้ได้เฉพาะในเทอร์มินัลของ Claude Code เปลี่ยนโมเดลได้ที่ตัวเลือกโมเดลด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} yalnızca Claude Code terminalinde çalışır. Modeli aşağıdaki model seçiciden değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} працює лише в терміналі Claude Code. Змініть модель у списку моделей нижче."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} chỉ hoạt động trong terminal của Claude Code. Đổi mô hình bằng bộ chọn mô hình bên dưới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} 只能在 Claude Code 的终端中使用。请用下方的模型选择器更换模型。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} 只能在 Claude Code 的終端機中使用。請用下方的模型選擇器更換模型。"
+          }
+        }
+      }
+    },
+    "composer.cliOnly.terminal": {
+      "comment": "Agent pane composer note: a Claude slash command that needs Claude Code's terminal and has no cmux control; {command} is its name without the slash",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل ‎/{command}‎ فقط في طرفية Claude Code، وليس في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} radi samo u terminalu Claude Codea, ne u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} virker kun i Claude Codes terminal, ikke i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} funktioniert nur im Terminal von Claude Code, nicht in cmux."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} works only in Claude Code's terminal, not in cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} solo funciona en la terminal de Claude Code, no en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ne fonctionne que dans le terminal de Claude Code, pas dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} funziona solo nel terminale di Claude Code, non in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} は Claude Code のターミナルでのみ使えます。cmux では使えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ដំណើរការតែក្នុង terminal របស់ Claude Code ប៉ុណ្ណោះ មិនមែនក្នុង cmux ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command}은(는) cmux가 아닌 Claude Code 터미널에서만 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} fungerer bare i terminalen til Claude Code, ikke i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} działa tylko w terminalu Claude Code, nie w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} só funciona no terminal do Claude Code, não no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} работает только в терминале Claude Code, а не в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} ใช้ได้เฉพาะในเทอร์มินัลของ Claude Code ไม่ใช่ใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} yalnızca Claude Code terminalinde çalışır, cmux’ta çalışmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} працює лише в терміналі Claude Code, а не в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} chỉ hoạt động trong terminal của Claude Code, không phải trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} 只能在 Claude Code 的终端中使用，不能在 cmux 中使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/{command} 只能在 Claude Code 的終端機中使用，不能在 cmux 中使用。"
+          }
+        }
+      }
+    },
     "newTabPage.openFailed": {
       "comment": "Agent pane: under the New Tab page's field when the terminal or browser tab it asked for did not open",
       "extractionState": "manual",
