@@ -71,9 +71,24 @@ export function threadStatus(thread: HomeThreadObject | undefined, lastReplySeq:
   return resolved && (lastReplySeq === undefined || lastReplySeq <= resolved.seq) ? "resolved" : "open";
 }
 
-/** A thread's title: its own, else the root's first line. */
+/** The longest derived title (the row truncates by width before this). */
+const TITLE_MAX = 120;
+
+/** A thread's title: its own, else the root's first non-empty line without Markdown marks or a
+ * trailing colon. */
 export function threadTitle(root: HomeMessage): string {
-  return root.thread?.title || messageText(root).split("\n", 1)[0]!.trim();
+  if (root.thread?.title) return root.thread.title;
+  const line =
+    messageText(root)
+      .split("\n")
+      .map((part) => part.trim())
+      .find((part) => part.length > 0) ?? "";
+  const plain = line
+    .replace(/^#+\s+|^[-*>]\s+|^\d+\.\s+/, "")
+    // Paired emphasis and code marks only: `fix_sidebar_bug` and `~/path` keep their characters.
+    .replace(/(\*\*|__|~~|\*|_|`)(\S(?:.*?\S)?)\1/g, "$2")
+    .replace(/[:;,]\s*$/, "");
+  return plain.length > TITLE_MAX ? `${plain.slice(0, TITLE_MAX - 1)}…` : plain;
 }
 
 /** The thread a message belongs to (its root's id), or undefined for a top-level message. */
@@ -308,10 +323,15 @@ export function withDraft(rows: TimelineRow[], draft: HomeDraft | undefined): Ti
 }
 
 /** My newest top-level text message in the window that I can still edit (Up in the composer). */
-export function lastEditable(messages: readonly HomeMessage[], me: string | undefined): HomeMessage | undefined {
+export function lastEditable(
+  messages: readonly HomeMessage[],
+  me: string | undefined,
+  /** Thread roots: the timeline shows them as thread rows, so they are edited in the sheet. */
+  roots: ReadonlySet<string> = new Set(),
+): HomeMessage | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
-    if (message.author !== me || message.retracted || threadOf(message)) continue;
+    if (message.author !== me || message.retracted || threadOf(message) || roots.has(message.id)) continue;
     if (message.parts.length > 0 && message.parts.every((part) => part.type === "text")) return message;
   }
   return undefined;
@@ -357,4 +377,66 @@ export function disambiguators(
     });
   }
   return out;
+}
+
+/** The id prefix of a message I sent that the owner has not shown yet. */
+export const PENDING_PREFIX = "pending:";
+
+/** My pending sends of one conversation as messages after the window (seq after `afterSeq`), so
+ * the timeline and the thread tree place them like owner messages. */
+export function pendingMessages(
+  pending: readonly { key: string; conversation: string; text: string; threadRoot?: string; replyTo?: string; createdAt: number }[],
+  conversation: string | undefined,
+  me: string | undefined,
+  afterSeq: number,
+): HomeMessage[] {
+  if (!conversation || !me) return [];
+  return pending
+    .filter((entry) => entry.conversation === conversation)
+    .map((entry, index) => {
+      const message: HomeMessage = {
+        id: `${PENDING_PREFIX}${entry.key}`,
+        conversation,
+        seq: afterSeq + 1 + index,
+        author: me,
+        createdAt: entry.createdAt,
+        retracted: false,
+        parts: [{ type: "text", text: entry.text, mentions: [] }],
+        reactions: [],
+        clientMessageId: entry.key,
+      };
+      if (entry.threadRoot) message.threadRoot = entry.threadRoot;
+      if (entry.replyTo) message.replyTo = { message: entry.replyTo, partIndex: 0 };
+      return message;
+    });
+}
+
+/** Every conversation, newest activity first (the one chronological list: rooms and people). */
+export function chronological(conversations: Iterable<HomeConversation>): HomeConversation[] {
+  return [...conversations].sort((a, b) => activityAt(b) - activityAt(a) || (a.id < b.id ? -1 : 1));
+}
+
+/** A conversation's last activity: its last message, else its last change (a new, empty room). */
+export function activityAt(conversation: HomeConversation): number {
+  return conversation.lastAt ?? conversation.updatedAt;
+}
+
+/** A Chief's live state as its row and header show it. */
+export type ChiefState = "working" | "waiting" | "idle";
+
+/** The state of the Chief a direct message is with (undefined: not a Chief's direct message).
+ * Working: it types or writes a reply now, or its last message carries running work. Waiting:
+ * its last message carries work that waits for me. Else idle. */
+export function chiefState(
+  conversation: HomeConversation,
+  me: string | undefined,
+  active: ReadonlySet<string> | undefined,
+): ChiefState | undefined {
+  const others = conversation.participants.filter((p) => p.id !== me);
+  const chief = others.length === 1 && others[0]!.chief ? others[0]! : undefined;
+  if (!chief) return undefined;
+  if (active?.has(chief.id)) return "working";
+  if (conversation.lastAuthor === chief.id && conversation.lastWork === "waiting") return "waiting";
+  if (conversation.lastAuthor === chief.id && conversation.lastWork === "running") return "working";
+  return "idle";
 }
