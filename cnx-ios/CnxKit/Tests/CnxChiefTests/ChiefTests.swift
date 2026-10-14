@@ -46,12 +46,12 @@ import Testing
             "id": "msg_1", "conversation": "conv_1", "seq": 4, "client_msg_id": "c1", "author": "user_local",
             "parts": [["type": "text", "text": "run the tests"], ["type": "work", "session": "s", "status": "running", "preview": "swift test"]],
             "created_at": "2026-10-12T09:41:07.123Z",
-            "reactions": [["author": "agent_chief", "part_index": 0, "kind": ["tapback": "like"], "at": "2026-10-12T09:41:08.000Z"]],
+            "reactions": [["author": "agent_mux", "part_index": 0, "kind": ["tapback": "like"], "at": "2026-10-12T09:41:08.000Z"]],
         ]
         let read = try #require(wire.message(object, peerReadSeq: 4))
         #expect(read.text == "run the tests\nswift test (running)")
         #expect(read.delivery == .read(nil))
-        #expect(read.reactions == [ConversationReactionMark(participantID: "agent_chief", reaction: .thumbsup)])
+        #expect(read.reactions == [ConversationReactionMark(participantID: "agent_mux", reaction: .thumbsup)])
         #expect(read.sentAt.timeIntervalSince1970 > 1_791_000_000)
         #expect(wire.message(object, peerReadSeq: 3)?.delivery == .delivered)
     }
@@ -61,7 +61,18 @@ import Testing
 /// owner's commands, plus Chief replying (typing, then a message) to each send.
 final class FakeDaemon: @unchecked Sendable {
     private let lock = NSLock()
-    private var conversations: [[String: Any]] = []
+    /// The Mac's Home creates Chief; the phone only finds it.
+    private var conversations: [[String: Any]] = [[
+        "id": "conv_chief", "owner": "local", "title": "Chief",
+        "participants": [["id": "user_local", "kind": "human", "display_name": "You"],
+                         ["id": "agent_mux", "kind": "agent", "display_name": "Chief", "agent_class": "mux"]],
+        "read_cursors": [:], "created_at": "2026-10-12T09:00:00.000Z", "updated_at": "2026-10-12T09:00:00.000Z",
+    ]]
+    private(set) var ops: [[String: Any]] = []
+
+    init(chiefStarted: Bool = true) {
+        if !chiefStarted { conversations = [] }
+    }
     private var messages: [[String: Any]] = []
     private var rev = 0
     private(set) var commands: [String] = []
@@ -93,7 +104,7 @@ final class FakeDaemon: @unchecked Sendable {
         lock.withLock {
             let hash = "chiefphoto"
             stored[hash] = bytes
-            messages.append(message(author: "agent_chief", text: "", client: "seed-photo", parts: [[
+            messages.append(message(author: "agent_mux", text: "", client: "seed-photo", parts: [[
                 "type": "attachment", "hash": hash, "name": "chart.png", "mime_type": "image/png",
                 "byte_count": bytes.count, "width": 4, "height": 3,
             ]]))
@@ -155,6 +166,7 @@ final class FakeDaemon: @unchecked Sendable {
                             "data": piece.base64EncodedString(), "eof": offset + piece.count >= bytes.count])]
             case "conversation-op":
                 let op = object["op"] as! [String: Any]
+                ops.append(op)
                 switch op["kind"] as! String {
                 case "message.send":
                     let parts = op["parts"] as! [[String: Any]]
@@ -168,9 +180,9 @@ final class FakeDaemon: @unchecked Sendable {
                     let reply = ok(["rev": rev, "seq": mine["seq"]!, "replayed": false, "change": ["kind": "message", "message": mine]])
                     rev += 1
                     let readCursor = line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev, "transaction": NSNull(),
-                                           "change": ["kind": "read-cursor", "participant": "agent_chief", "seq": mine["seq"]!]])
-                    let typing = line(["event": "conversation-typing", "conversation": "conv_chief", "participant": "agent_chief", "on": true])
-                    let answer = message(author: "agent_chief", text: "On it.", client: "chief-1")
+                                           "change": ["kind": "read-cursor", "participant": "agent_mux", "seq": mine["seq"]!]])
+                    let typing = line(["event": "conversation-typing", "conversation": "conv_chief", "participant": "agent_mux", "on": true])
+                    let answer = message(author: "agent_mux", text: "On it.", client: "chief-1")
                     messages.append(answer)
                     rev += 1
                     let answered = line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev, "transaction": NSNull(),
@@ -196,7 +208,7 @@ final class FakeDaemon: @unchecked Sendable {
 }
 
 @Suite struct ChiefDaemonBackendTests {
-    @Test func createsSubscribesSendsAndReceivesChief() async throws {
+    @Test func findsSubscribesSendsAndReceivesChief() async throws {
         let daemon = FakeDaemon()
         let link = MockMacLink { _, request in daemon.respond(request) }
         let backend = try await ChiefDaemonBackend.open(link: link)
@@ -210,7 +222,8 @@ final class FakeDaemon: @unchecked Sendable {
         #expect(info.title == "Chief")
         #expect(me == "user_local")
         #expect(!lagged)
-        #expect(daemon.commands.prefix(4) == ["conversation-list", "conversation-create", "subscribe", "conversation-snapshot"])
+        #expect(daemon.commands.prefix(3) == ["conversation-list", "subscribe", "conversation-snapshot"])
+        #expect(!daemon.commands.contains("conversation-create"))
 
         let sent = try await backend.send(ConversationOutgoingDraft(clientMessageID: "c-1", text: "run the tests", replyToID: nil, attachmentIDs: []))
         #expect(sent.seq == 1)
@@ -222,9 +235,9 @@ final class FakeDaemon: @unchecked Sendable {
         var chiefReply: ConversationMessage?
         while chiefReply == nil, let event = await events.next() {
             switch event {
-            case .typing(let who, let on): sawTyping = sawTyping || (who == "agent_chief" && on)
+            case .typing(let who, let on): sawTyping = sawTyping || (who == "agent_mux" && on)
             case .message(let message, _):
-                if message.senderID == "agent_chief" { chiefReply = message }
+                if message.senderID == "agent_mux" { chiefReply = message }
                 if message.id == sent.id, case .read = message.delivery { sawRead = true }
             default: break
             }
@@ -240,6 +253,102 @@ final class FakeDaemon: @unchecked Sendable {
         #expect(page.messages.map(\.seq) == [1, 2])
         #expect(!page.hasMore)
         backend.close()
+    }
+}
+
+@Suite struct ChiefLiveRulesTests {
+    func preferences() -> ChiefPreferences {
+        let suite = "cnx.chief.tests.\(UUID().uuidString)"
+        return ChiefPreferences(defaults: UserDefaults(suiteName: suite)!)
+    }
+
+    /// The phone never creates Chief: a Mac whose Home has not run yet is an
+    /// honest disconnect with the reason, not a new conversation.
+    @Test func noChiefOnTheMacIsAnHonestDisconnect() async throws {
+        let daemon = FakeDaemon(chiefStarted: false)
+        let backend = try await ChiefDaemonBackend.open(link: MockMacLink { _, request in daemon.respond(request) })
+        var events = backend.events().makeAsyncIterator()
+        guard case .disconnected(let reason)? = await events.next() else {
+            Issue.record("expected a disconnect")
+            return
+        }
+        #expect(reason == ChiefDaemonBackend.notStarted)
+        #expect(!daemon.commands.contains("conversation-create"))
+    }
+
+    /// The conversation the Mac's Home shows: the oldest with agent_mux.
+    @Test func picksTheOldestChiefConversation() {
+        let wire = ChiefWire(identity: .standard)
+        let chief: [[String: Any]] = [["id": "user_local"], ["id": "agent_mux"]]
+        let list: [[String: Any]] = [
+            ["id": "conv_B", "created_at": "2026-10-12T09:00:00.000Z", "participants": chief],
+            ["id": "conv_A", "created_at": "2026-10-12T09:00:00.000Z", "participants": chief],
+            ["id": "conv_0", "created_at": "2026-10-11T09:00:00.000Z", "participants": [["id": "user_local"], ["id": "agent_codex"]]],
+            ["id": "conv_C", "created_at": "2026-10-13T09:00:00.000Z", "participants": chief],
+        ]
+        #expect(wire.chiefConversation(in: list) == "conv_A")
+    }
+
+    @Test func mentionsTravelAsRuns() throws {
+        let wire = ChiefWire(identity: .standard)
+        let part = wire.textPart("hi @Chief", mentions: [ConversationMention(participantID: "agent_mux", location: 3, length: 6)])
+        let runs = try #require(part["runs"] as? [[String: Any]])
+        #expect(runs.first?["mention"] as? String == "agent_mux")
+        #expect(runs.first?["start"] as? Int == 3)
+        let message = try #require(wire.message(["id": "msg_1", "seq": 1, "author": "agent_mux", "parts": [part], "reactions": []], peerReadSeq: 0))
+        #expect(message.mentions == [ConversationMention(participantID: "agent_mux", location: 3, length: 6)])
+    }
+
+    /// Hide Alerts and Send Read Receipts are real: kept for the conversation,
+    /// and with receipts off reading never moves the Mac's read cursor.
+    @Test func receiptsOffKeepsTheReadPositionOnThePhone() async throws {
+        let daemon = FakeDaemon()
+        let preferences = preferences()
+        let channel = try await MockMacLink { _, request in daemon.respond(request) }.openChannel(service: "chief", args: [:])
+        let backend = ChiefDaemonBackend(client: DaemonClient(channel: channel), preferences: preferences)
+        var events = backend.events().makeAsyncIterator()
+        _ = await events.next()
+        let info = try await backend.updateListState(ConversationListStateChange(muted: true, sendReadReceipts: false))
+        #expect(info.listState.muted)
+        #expect(!info.listState.sendReadReceipts)
+        #expect(preferences.muted("conv_chief"))
+        await backend.markRead(upToSeq: 3)
+        #expect(!daemon.ops.contains { $0["kind"] as? String == "read_cursor.set" })
+        // Back on: the position read here goes to the Mac.
+        _ = try await backend.updateListState(ConversationListStateChange(sendReadReceipts: true))
+        #expect(daemon.ops.contains { $0["kind"] as? String == "read_cursor.set" && $0["seq"] as? Int == 3 })
+    }
+
+    @Test func engineControlRepliesDecode() throws {
+        let report = #"{"protocol":"cmux.protocol/2","type":"response","id":"r1","ok":true,"result":{"engine":{"harness":"claude","model":"opus","effort":"high"},"choice":{"model":"opus"},"recent":[{"model":"opus","status":"done","ms":4200,"cost_usd":0.12}],"offered":{"models":[{"id":"opus","name":"Opus"},{"id":"sonnet","name":"Sonnet"}],"efforts":["low","high"]}}}"#
+        let got: ChiefEngineReport = try ChiefControl.decode(Data(report.utf8), mutation: false)
+        #expect(got.engine.model == "opus")
+        #expect(got.offered.models.map(\.id) == ["opus", "sonnet"])
+        #expect(got.harnesses == ["claude", "codex"])
+        let set = #"{"protocol":"cmux.protocol/2","type":"response","id":"r2","ok":true,"result":{"value":{"engine":{"harness":"codex"}},"generation":"g","revision":"0","replayed":false}}"#
+        let after: ChiefEngineReport = try ChiefControl.decode(Data(set.utf8), mutation: true)
+        #expect(after.engine.harness == "codex")
+        let refused = #"{"protocol":"cmux.protocol/2","type":"response","id":"r3","ok":false,"error":{"code":"operation.failed","message":"x","details":{"reason":"not_configured"},"retryable":false}}"#
+        #expect(throws: ChiefControlError.self) { let _: ChiefEngineReport = try ChiefControl.decode(Data(refused.utf8), mutation: false) }
+    }
+}
+
+/// Audit B9: a message written to Chief before it connects is kept and sent
+/// once it does, never dropped.
+@Suite @MainActor struct ChiefOutboxTests {
+    @Test func waitsOnDiskAndSendsOnConnect() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
+        let outbox = ChiefOutbox(file: file)
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox)
+        session.send(ConversationComposeMessage(text: "run the tests"))
+        #expect(session.outbox.count == 1)
+        #expect(outbox.load().map(\.text) == ["run the tests"])
+        // A relaunch keeps it.
+        #expect(ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox).outbox.count == 1)
+        session.use(ChiefMockBackend(sleep: { _ in }))
+        while !session.store.messages.contains(where: { $0.text == "run the tests" && $0.seq != nil }) { await Task.yield() }
+        #expect(session.outbox.isEmpty)
+        #expect(outbox.load().isEmpty)
     }
 }
 
@@ -333,7 +442,7 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         #expect(sent.text == "the chart")
 
         let page = try await backend.history(beforeSeq: nil, limit: 50)
-        let incoming = try #require(page.messages.first { $0.senderID == "agent_chief" && !$0.attachments.isEmpty })
+        let incoming = try #require(page.messages.first { $0.senderID == "agent_mux" && !$0.attachments.isEmpty })
         #expect(incoming.attachments.first?.id == "att:\(photo)")
         #expect(incoming.attachments.first?.localData == tinyPNG)
         #expect(daemon.commands.contains("conversation-attachment-read"))
@@ -355,7 +464,7 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 
     @Test func listsChiefFirstAndSearchesNames() async throws {
         let directory = directory()
-        #expect(try await directory.searchContacts("", limit: 10, excluding: []).map(\.id) == ["agent_chief", "tab:t1"])
+        #expect(try await directory.searchContacts("", limit: 10, excluding: []).map(\.id) == ["agent_mux", "tab:t1"])
         #expect(try await directory.searchContacts("clau", limit: 10, excluding: []).map(\.id) == ["tab:t1"])
         #expect(try await directory.lookupHandles(["nobody"]).first?.service == nil)
     }
@@ -364,9 +473,9 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         let directory = directory()
         let agent = try await directory.createConversation([.participant("tab:t1")])
         #expect(agent.info.id == "tab:t1")
-        let chief = try await directory.createConversation([.participant("agent_chief")])
+        let chief = try await directory.createConversation([.participant("agent_mux")])
         #expect(chief.info.id == ChiefDirectory.chiefContactID)
-        let both = try await directory.createConversation([.participant("agent_chief"), .participant("tab:t1")])
+        let both = try await directory.createConversation([.participant("agent_mux"), .participant("tab:t1")])
         #expect(both.info.id == ChiefDirectory.chiefContactID)
         await #expect(throws: ConversationBackendError.self) { try await directory.createConversation([.handle("nobody")]) }
     }

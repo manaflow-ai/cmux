@@ -23,6 +23,11 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
     static let linkPage = 3
     let table = UITableView(frame: .zero, style: .insetGrouped)
     private let spacer = UIView()
+    /// One switch per setting for the page's life: a store change moves it
+    /// with `setOn(_:animated:)` instead of rebuilding its row, so a tap
+    /// slides the thumb as a system switch does.
+    private let alertsSwitch = UISwitch()
+    private let receiptsSwitch = UISwitch()
     var onScroll: (() -> Void)?
 
     init(store: ConversationStore) {
@@ -45,6 +50,16 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         table.register(ConversationDetailsMembersCell.self, forCellReuseIdentifier: "m")
         table.accessibilityIdentifier = "conversation.details"
         table.tableHeaderView = spacer
+        alertsSwitch.addTarget(self, action: #selector(alertsToggled(_:)), for: .valueChanged)
+        alertsSwitch.accessibilityIdentifier = "conversation.details.hideAlerts"
+        receiptsSwitch.addTarget(self, action: #selector(receiptsToggled(_:)), for: .valueChanged)
+        receiptsSwitch.accessibilityIdentifier = "conversation.details.readReceipts"
+        for toggle in [alertsSwitch, receiptsSwitch] {
+            toggle.tag = Self.toggleTag
+            toggle.translatesAutoresizingMaskIntoConstraints = false
+        }
+        alertsSwitch.isOn = info.listState.muted
+        receiptsSwitch.isOn = info.listState.sendReadReceipts
     }
 
     /// The other members, as the group grid shows them.
@@ -90,9 +105,24 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         default:
             break
         }
+        let oldSections = sections
+        let oldToggleCount = toggleCount
         if let info = store.info { self.info = info }
         media.storeDidChange()
-        table.reloadData()
+        if alertsSwitch.isOn != info.listState.muted { alertsSwitch.setOn(info.listState.muted, animated: true) }
+        if receiptsSwitch.isOn != info.listState.sendReadReceipts { receiptsSwitch.setOn(info.listState.sendReadReceipts, animated: true) }
+        // Rebuilding the switch rows would cut a thumb's slide short, so
+        // only the other cards reload while the layout keeps its sections.
+        guard sections == oldSections, toggleCount == oldToggleCount,
+              let toggles = sections.firstIndex(of: .toggles) else {
+            table.reloadData()
+            return
+        }
+        let others = IndexSet(sections.indices.filter { $0 != toggles })
+        guard !others.isEmpty else { return }
+        UIView.performWithoutAnimation {
+            table.reloadSections(others, with: .none)
+        }
     }
 
     // MARK: Table
@@ -208,26 +238,23 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         } else {
             switch section {
             case .toggles:
-                let toggle = UISwitch()
+                let toggle: UISwitch
                 if indexPath.row == 0 {
                     // DETAILS_VIEW_HIDE_ALERTS_TOGGLE_TITLE
                     content.text = Self.hideAlertsTitle
-                    toggle.isOn = info.listState.muted
-                    toggle.addTarget(self, action: #selector(alertsToggled(_:)), for: .valueChanged)
-                    toggle.accessibilityIdentifier = "conversation.details.hideAlerts"
+                    toggle = alertsSwitch
+                    if toggle.isOn != info.listState.muted { toggle.isOn = info.listState.muted }
                 } else {
                     // READ_RECEIPTS
                     content.text = Self.readReceiptsTitle
-                    toggle.isOn = info.listState.sendReadReceipts
-                    toggle.addTarget(self, action: #selector(receiptsToggled(_:)), for: .valueChanged)
-                    toggle.accessibilityIdentifier = "conversation.details.readReceipts"
+                    toggle = receiptsSwitch
+                    if toggle.isOn != info.listState.sendReadReceipts { toggle.isOn = info.listState.sendReadReceipts }
                 }
                 // Messages ends the switch 14 pt before the card's drawn edge
                 // (iOS 27.0: track 309...372, card ending at 386, 16 pt in
                 // from the cell's own edge); an accessory view sat 6 pt
                 // further in.
-                toggle.tag = Self.toggleTag
-                toggle.translatesAutoresizingMaskIntoConstraints = false
+                toggle.removeFromSuperview()
                 // On the cell itself: the content configuration replaces the
                 // content view.
                 cell.addSubview(toggle)

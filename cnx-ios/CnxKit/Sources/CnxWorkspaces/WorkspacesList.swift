@@ -83,7 +83,17 @@ public struct WorkspacesList: View {
     private var inbox: WorkspaceInbox {
         WorkspaceInbox(scope: scope, macs: macs, workspaces: store.workspaces, query: query,
                        context: WorkspaceInbox.Context(pending: store.pendingWorkspaceIDs, seenAt: store.seenAt,
-                                                       sync: store.workspaceListSync))
+                                                       phases: phases))
+    }
+
+    /// Live mode: each Mac's data phase (nil in mock mode: every list is live).
+    private var phases: [String: MacDataMachine.Phase]? {
+        guard store.tracksMacData else { return nil }
+        return Dictionary(macs.map { ($0.id, store.macDataPhase($0.id)) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private func listState(_ macID: String) -> WorkspaceInbox.ListState {
+        store.tracksMacData ? WorkspaceInbox.ListState(store.macDataPhase(macID)) : .live
     }
 
     /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
@@ -155,7 +165,7 @@ public struct WorkspacesList: View {
         theme.haptics.selection()
         withAnimation(theme.motion.smooth.animation) { filter.select(value, in: team.id) }
         // Live: the phone links one Mac at a time; showing another links it.
-        if let id = value.macID, mac(id)?.isOnline == true, store.listState(macID: id) == .notConnected {
+        if let id = value.macID, mac(id)?.isOnline == true, listState(id) == .notConnected {
             reconnect?(id)
         }
     }
@@ -295,6 +305,18 @@ public struct WorkspacesList: View {
             WorkspaceRow(workspace: ws, status: status, macName: inbox.showsMacNames ? macName : nil,
                          offlineMacName: status == .offline ? macName : nil)
         }
+        // Last-known rows (live mode), dimmed until the Mac answers on this link.
+        .opacity(inbox.stale.contains(ws.id) ? 0.55 : 1)
+        .animation(theme.motion.smooth.animation, value: inbox.stale.contains(ws.id))
+        .onAppear {
+            // verify/fast-connect.md: when a row is first on screen, cached or live.
+            if store.tracksMacData {
+                ConnectTimeline.shared.mark(inbox.stale.contains(ws.id) ? "workspace_row_cached" : "workspace_row_live")
+            }
+        }
+        .onChange(of: store.macDataPhase(ws.macID) == .live) { _, live in
+            if live, store.tracksMacData { ConnectTimeline.shared.mark("workspace_row_live") }
+        }
         .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20))
         .listRowBackground(theme.colors.bg.color)
         .alignmentGuide(.listRowSeparatorLeading) { _ in gutter }
@@ -412,9 +434,11 @@ public struct WorkspacesList: View {
     /// linked to (live), linking it on a tap.
     private func foldLine(_ fold: WorkspaceInbox.Fold, proxy: ScrollViewProxy) -> some View {
         let isOpen = fold.isForcedOpen || unfolded.contains(fold.mac.id)
-        let detail = fold.reason == .offline
-            ? RelativeStamp().presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
-            : "Not connected"
+        let detail = switch fold.reason {
+        case .offline: RelativeStamp().presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
+        case .notConnected: "Not connected"
+        case .failed: "Can't connect"
+        }
         return Button {
             switch fold.reason {
             case .offline:
@@ -431,18 +455,18 @@ public struct WorkspacesList: View {
                         withAnimation(theme.motion.smooth.animation) { proxy.scrollTo(first.id, anchor: .bottom) }
                     }
                 }
-            case .notConnected:
+            case .notConnected, .failed:
                 reconnect?(fold.mac.id)
             }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: fold.reason == .offline ? "moon.zzz" : "link")
+                Image(systemName: fold.reason == .offline ? "moon.zzz" : "bolt.horizontal.circle")
                     .accessibilityHidden(true)
                 Text("\(fold.mac.name) · \(detail)")
                     .lineLimit(3)
                 Spacer(minLength: 8)
-                if fold.reason == .notConnected {
-                    if reconnect != nil { Text("Connect") }
+                if fold.reason != .offline {
+                    if reconnect != nil { Text(fold.reason == .notConnected ? "Connect" : "Retry") }
                 } else if !fold.isForcedOpen {
                     Text("\(fold.workspaces.count)")
                         .monospacedDigit()
@@ -459,7 +483,7 @@ public struct WorkspacesList: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .disabled(fold.isForcedOpen || (fold.reason == .notConnected && reconnect == nil))
+        .disabled(fold.isForcedOpen || (fold.reason != .offline && reconnect == nil))
         .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 4, trailing: 20))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
@@ -502,7 +526,16 @@ public struct WorkspacesList: View {
                     message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
                 )
                 .accessibilityIdentifier("workspaces.empty.offline")
-            } else if store.listState(macID: mac.id) == .notConnected {
+            } else if case .failed(let reason) = listState(mac.id) {
+                EmptyState(
+                    symbol: "bolt.horizontal.circle",
+                    title: "Can't connect to \(mac.name)",
+                    message: "\(mac.name) is online, but this iPhone can't reach it: \(reason).",
+                    primaryTitle: reconnect == nil ? nil : "Retry",
+                    primary: reconnect.map { reconnect in { reconnect(mac.id) } }
+                )
+                .accessibilityIdentifier("workspaces.failed")
+            } else if listState(mac.id) == .notConnected {
                 EmptyState(
                     symbol: "link",
                     title: "\(mac.name) isn't connected",
@@ -574,9 +607,11 @@ public struct WorkspacesList: View {
         Binding(get: { scope == value }, set: { if $0 { select(value) } })
     }
 
+    /// Presence plus this phone's connection ("Online · Connecting…"), and the live link line.
     private func macDetail(_ mac: MacDevice) -> String {
         let presence = RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-        return [presence, store.macLinkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
+        let status = store.macStatusLine(mac, presence: presence).text
+        return [status, store.macLinkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
     }
 
     private func retry() {

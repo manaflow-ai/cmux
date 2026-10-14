@@ -129,10 +129,10 @@ the lab in these ways:
 - **Incoming bubbles are clipped at the leading edge.** In a direct chat
   there is no avatar column, so they slide past the leading edge while the
   drawer is open. This is the travel the package avoided by default.
-- **The daemon path still cannot reach a phone.** `conversation-*` commands
-  are not on the cnx-hostd allowlist
-  (`rust/crates/cnx-hostd/src/policy.rs`). Adding them is a trust-policy
-  change, which goes through cmux#13742.
+- **The daemon path still cannot reach a phone.** Resolved on
+  `feat-cnx-ios-chieflive`. The phone now reaches the Mac's Chief owner
+  through hostd's scoped `chief` service. See `chief-mac-parity.md` and
+  `../SECURITY.md`.
 - **The drawer is driven by a lab verb, not a finger.** The edge swipe was
   not recorded, for the same reason as above. It needs a hand check on a
   device.

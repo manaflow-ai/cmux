@@ -21,6 +21,13 @@ public final class AppStore {
     /// Live link status per Mac id ("Connected · WireGuard relay · 27 ms"),
     /// shown in the Workspaces Mac section header. Empty in mock mode.
     public var macLinkStatus: [String: String] = [:]
+    /// Live mode: where each Mac's workspaces came from (cached, live, ...).
+    /// Empty states read this, never `workspaces` alone (`macDataPhase`).
+    public var macData: [String: MacDataMachine] = [:]
+    /// Live mode: this phone's connection to each Mac it dials.
+    public var macConnection: [String: MacConnection] = [:]
+    /// True once live data drives the store (false in mock mode).
+    public var tracksMacData = false
     /// How many Macs the signed-in account has in any team or its personal
     /// space (`GET /v1/me/macs`); nil until discovery first answers, and in
     /// mock mode. Zero means the Mac, if any, is signed in to another account.
@@ -31,21 +38,6 @@ public final class AppStore {
     /// Placeholder id → the real workspace id once its creation succeeds, so
     /// a screen opened on the placeholder follows the real workspace.
     public private(set) var workspaceAliases: [String: String] = [:]
-
-    /// Which Macs' workspace lists are current (live mode).
-    public struct WorkspaceListSync: Hashable, Sendable {
-        /// Listed on the open link.
-        public var current: Set<String>
-        /// The linked Mac, before its first list arrives.
-        public var loading: Set<String>
-
-        public enum State: Hashable, Sendable { case current, loading, notConnected }
-
-        public init(current: Set<String> = [], loading: Set<String> = []) {
-            self.current = current
-            self.loading = loading
-        }
-    }
 
     /// Phases of a remote load.
     public enum LoadState: Hashable, Sendable {
@@ -166,19 +158,6 @@ public final class AppStore {
         return workspace.tabs.first
     }
 
-    /// Live mode: which Macs' workspace lists are current. Nil (mock) means
-    /// every list is current. The phone links one Mac at a time, so another
-    /// online Mac's list is not known until the user picks it.
-    public var workspaceListSync: WorkspaceListSync?
-
-    /// How far a Mac's workspace list can be trusted.
-    public func listState(macID: String) -> WorkspaceListSync.State {
-        guard let sync = workspaceListSync else { return .current }
-        if sync.current.contains(macID) { return .current }
-        if sync.loading.contains(macID) { return .loading }
-        return .notConnected
-    }
-
     /// When this device last opened each workspace (this session): "Done"
     /// stays cleared until the workspace has newer activity.
     public private(set) var seenAt: [String: Date] = [:]
@@ -285,6 +264,14 @@ public final class AppStore {
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
         workspaces[index].tabs.append(tab)
         workspaces[index].lastActivityAt = Date()
+    }
+
+    /// Puts back a tab whose close the Mac refused, at its old position.
+    public func insertTab(_ tab: WorkspaceTab, at position: Int, in workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              !workspaces[index].tabs.contains(where: { $0.id == tab.id }) else { return }
+        workspaces[index].tabs.insert(tab, at: min(position, workspaces[index].tabs.count))
     }
 
     /// Removes a tab. Returns the tab that should be on screen next when the

@@ -12,8 +12,14 @@ private let log = Logger(subsystem: "dev.cmux.cnx", category: "terminal")
 ///   live `output` chunks are fed to the local Ghostty mirror in order; a
 ///   `resized` event (protocol 6+) resets the mirror (`ESC c`) and replays.
 ///   `detached` ends the session.
-/// - Input: `send {surface, bytes}` (base64), in order.
-/// - Size: `resize-surface {surface, cols, rows}` with the phone's TUI grid.
+/// - Input: `send {surface, bytes}` (base64), in order, batched while a
+///   request is out, on its own `daemon` channel on the link's input lane
+///   (PROTOCOL.md "Lanes"), so a keystroke or ^C never waits behind the
+///   output it should interrupt. Until that channel is open (or when it
+///   fails) input goes on the attach channel.
+/// - Size: `resize-surface {surface, cols, rows}` with the phone's TUI grid,
+///   on the attach channel (the daemon gives geometry authority to the
+///   attaching client).
 ///
 /// The alternate screen flag is derived from the bytes (no event carries it).
 ///
@@ -34,15 +40,20 @@ public final class DaemonTerminalSession: TerminalSession {
     public private(set) var lastError: String?
 
     private let open: @Sendable () async throws -> DaemonClient
+    private let openInput: (@Sendable () async throws -> DaemonClient)?
     private var client: DaemonClient?
+    /// The input-lane channel for `send`, once open.
+    private var inputClient: DaemonClient?
+    /// Keystrokes not yet sent; sent as one `send` while none is out.
+    private var input: [Data] = []
+    private var inputDraining = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     private var detector = AlternateScreenDetector()
     private var eventTask: Task<Void, Never>?
-    /// Input and resizes go out one at a time, in order.
+    /// Resizes go out one at a time, in order, on the attach channel.
     private var outbox: [Outgoing] = []
 
     private enum Outgoing: Sendable {
-        case bytes(String)
         case size(columns: Int, rows: Int)
     }
     private var draining = false
@@ -67,11 +78,19 @@ public final class DaemonTerminalSession: TerminalSession {
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
     }
 
-    /// `open` returns a client on a fresh `daemon` channel to the Mac.
-    public init(surface: Int, programName: String = "zsh", open: @escaping @Sendable () async throws -> DaemonClient) {
+    /// `open` returns a client on a fresh `daemon` channel to the Mac;
+    /// `openInput`, one on the link's input lane for keystrokes (nil: input
+    /// shares the attach channel).
+    public init(
+        surface: Int,
+        programName: String = "zsh",
+        open: @escaping @Sendable () async throws -> DaemonClient,
+        openInput: (@Sendable () async throws -> DaemonClient)? = nil
+    ) {
         self.surface = surface
         self.programName = programName
         self.open = open
+        self.openInput = openInput
     }
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
@@ -83,7 +102,8 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func send(_ bytes: Data) {
         guard !bytes.isEmpty else { return }
-        enqueue(.bytes(bytes.base64EncodedString()))
+        input.append(bytes)
+        drainInput()
     }
 
     public func resize(columns: Int, rows: Int) {
@@ -101,7 +121,9 @@ public final class DaemonTerminalSession: TerminalSession {
         eventTask = nil
         handler = nil
         client = nil
+        dropInputLane()
         outbox.removeAll()
+        input.removeAll()
     }
 
     /// Attaches again after a dropped link. A no-op while attached or
@@ -151,6 +173,8 @@ public final class DaemonTerminalSession: TerminalSession {
                 outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)
             }
             drain()
+            drainInput()
+            openInputLane(for: client)
         } catch {
             lastError = LinkController.reason(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
@@ -163,6 +187,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func channelEnded(_ client: DaemonClient) {
         guard self.client === client else { return }
         self.client = nil
+        dropInputLane()
         attached = false
         draining = false
         guard handler != nil, !ended else { return }
@@ -243,9 +268,6 @@ public final class DaemonTerminalSession: TerminalSession {
                 let cmd: String
                 let reply: Data
                 switch next {
-                case .bytes(let base64):
-                    cmd = "send"
-                    reply = try await client.request(cmd, params: ["surface": surface, "bytes": base64])
                 case .size(let columns, let rows):
                     cmd = "resize-surface"
                     reply = try await client.request(cmd, params: ["surface": surface, "cols": columns, "rows": rows])
@@ -270,6 +292,111 @@ public final class DaemonTerminalSession: TerminalSession {
             draining = false
             drain()
         }
+    }
+
+    // MARK: Input lane
+
+    /// Opens the input-lane channel for the attach `main` (a no-op without
+    /// `openInput`). It is dropped with the attach channel.
+    private func openInputLane(for main: DaemonClient) {
+        guard let openInput else { return }
+        Task { [weak self] in
+            guard let lane = try? await openInput() else { return }
+            await lane.start()
+            guard let self, self.client === main, self.attached, self.inputClient == nil else {
+                await lane.close()
+                return
+            }
+            self.inputClient = lane
+            let events = lane.events
+            Task { [weak self] in
+                for await _ in events {}
+                guard let self, self.inputClient === lane else { return }
+                self.inputClient = nil
+            }
+        }
+    }
+
+    /// Closes the input-lane channel (the Mac drops its daemon connection).
+    private func dropInputLane() {
+        guard let lane = inputClient else { return }
+        inputClient = nil
+        Task { await lane.close() }
+    }
+
+    /// Sends queued keystrokes as one `send`, one request at a time, on the
+    /// input lane when open, else on the attach channel.
+    private func drainInput() {
+        guard attached, !inputDraining, !input.isEmpty, let target = inputClient ?? client else { return }
+        inputDraining = true
+        let batch = input.reduce(into: Data()) { $0.append($1) }
+        input.removeAll()
+        let surface = surface
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let encoded = batch.base64EncodedString()
+                let request: @Sendable () async throws -> Data = { try await target.request("send", params: ["surface": surface, "bytes": encoded]) }
+                // A lane request gets an answer within seconds or the lane is
+                // given up. The batch is not sent again then: the Mac may
+                // already have typed it, and a doubled Return runs a command
+                // twice.
+                let reply: Data
+                if target !== client {
+                    guard let answer = try await Self.within(.seconds(10), request) else {
+                        log.error("send on the input lane got no answer; using the attach channel")
+                        if inputClient === target { dropInputLane() }
+                        inputDraining = false
+                        drainInput()
+                        return
+                    }
+                    reply = answer
+                } else {
+                    reply = try await request()
+                }
+                if let error = Self.error(in: reply) {
+                    lastError = error
+                    log.error("send failed: \(error, privacy: .public)")
+                }
+            } catch {
+                // Keep the keystrokes: retry on the attach channel when the
+                // lane failed, or after the reattach when the link dropped.
+                lastError = LinkController.reason(error)
+                input.insert(batch, at: 0)
+                if inputClient === target {
+                    dropInputLane()
+                } else if self.client === target {
+                    self.client = nil
+                    inputClient = nil
+                    attached = false
+                    handler?(.connection(connectionState))
+                }
+            }
+            inputDraining = false
+            drainInput()
+        }
+    }
+
+    /// `operation`'s result, or nil when it takes longer than `limit`. Does
+    /// not wait for `operation` to notice cancellation (a request on a dead
+    /// channel never does).
+    private static func within(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> Data) async throws -> Data? {
+        let once = RaceOnce()
+        let result: Result<Data?, any Error> = await withCheckedContinuation { continuation in
+            let work = Task {
+                let result: Result<Data?, any Error>
+                do { result = .success(try await operation()) } catch { result = .failure(error) }
+                if once.claim() { continuation.resume(returning: result) }
+            }
+            Task {
+                try? await Task.sleep(for: limit)
+                if once.claim() {
+                    work.cancel()
+                    continuation.resume(returning: .success(nil))
+                }
+            }
+        }
+        return try result.get()
     }
 
     private static func error(in reply: Data) -> String? {

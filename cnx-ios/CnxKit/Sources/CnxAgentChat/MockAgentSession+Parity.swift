@@ -75,6 +75,8 @@ extension MockAgentSession {
 
     // MARK: Parity
 
+    public var supportsCheckpoints: Bool { true }
+
     public func checkpoints() async throws -> [AgentCheckpoint] {
         try await sleep(.milliseconds(350))
         return checkpointLog.sorted { $0.createdAt > $1.createdAt }

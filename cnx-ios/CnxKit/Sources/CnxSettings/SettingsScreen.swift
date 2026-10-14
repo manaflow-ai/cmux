@@ -16,18 +16,25 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let settings: SettingsStore
     let leading: () -> Leading
     let inviteToTeam: (Team) -> Void
+    /// Saves a team's color and icon: the same path as the sidebar's editor
+    /// (`PUT /v1/teams/:id/prefs` when live, this iPhone only otherwise).
+    let saveAppearance: (TeamAppearance, Team) -> Void
+    /// The live service for the device list and account deletion (nil in mock mode).
+    let directory: (any SettingsDeviceDirectory)?
     @Binding var path: [SettingsRoute]
     let scrollRequest: String?
     @State private var confirmsLogOut = false
     @State private var editingTeam: Team?
 
-    public init(auth: CnxAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, inviteToTeam: @escaping (Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+    public init(auth: CnxAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
+        self.directory = directory
         self.auth = auth
         self.store = store
         self.settings = settings
         _path = path
         self.inviteToTeam = inviteToTeam
+        self.saveAppearance = saveAppearance
         self.leading = leading
     }
 
@@ -57,13 +64,14 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     NavigationLink(value: SettingsRoute.pairedMacs) {
                         SettingsLabel("Paired Macs", symbol: "desktopcomputer", value: "\(store.activeTeam?.macs.count ?? 0)")
                     }
-                    Toggle(isOn: $settings.showConnectionDetails) {
-                        SettingsLabel("Show connection details", symbol: "point.3.connected.trianglepath.dotted")
-                    }
                 } header: {
                     Text("Connection")
                 } footer: {
-                    Text("Switching reconnects to your Macs.")
+                    if directory?.relayAvailable == false {
+                        Text("Relay (TURN) unavailable — connections outside your network may fail. Switching reconnects to your Macs.")
+                    } else {
+                        Text("Switching reconnects to your Macs.")
+                    }
                 }
                 Section("Terminal") {
                     NavigationLink(value: SettingsRoute.terminal) {
@@ -141,7 +149,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 destination(route)
             }
             .sheet(item: $editingTeam) { team in
-                TeamAppearanceEditor(team: team) { store.setAppearance($0, for: team.id) }
+                TeamAppearanceEditor(team: team) { saveAppearance($0, team) }
             }
             }
         }
@@ -169,12 +177,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 
     @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
         switch route {
-        case .account: AccountPage(auth: auth)
+        case .account: AccountPage(auth: auth, directory: directory)
         case .team:
             if let team = store.activeTeam {
-                TeamPage(team: team, user: auth.user, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
+                TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
             }
-        case .pairedMacs: PairedMacsPage(store: store, transport: settings.transport)
+        case .pairedMacs: PairedMacsPage(store: store, directory: directory)
         case .terminal: TerminalPage(settings: settings)
         case .composer: ComposerPage(settings: settings)
         case .notifications: NotificationsPage(settings: settings)

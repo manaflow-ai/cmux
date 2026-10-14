@@ -18,6 +18,9 @@ public struct DaemonTree: Sendable {
     public var surfaces: [String: Int]
     /// Each tab's working directory on the Mac, unabbreviated, when the daemon reports one.
     public var directories: [String: String] = [:]
+    /// The pane a new tab of each workspace goes to: its active screen's
+    /// active pane, else its first pane.
+    public var panes: [String: Int] = [:]
     public var revision: Int?
 
     /// The app tab id for a daemon surface.
@@ -42,6 +45,7 @@ public struct DaemonTree: Sendable {
         var agentTabs: [String: AgentBinding] = [:]
         var surfaces: [String: Int] = [:]
         var directories: [String: String] = [:]
+        var panes: [String: Int] = [:]
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
         for case let ws as [String: Any] in data["workspaces"] as? [Any] ?? [] {
@@ -54,8 +58,10 @@ public struct DaemonTree: Sendable {
             var focusOrder = 0
             for case let screen as [String: Any] in ws["screens"] as? [Any] ?? [] {
                 let activePane = screen["active_pane"] as? Int
+                if screen["active"] as? Bool == true, let activePane { panes[key] = activePane }
                 for case let pane as [String: Any] in screen["panes"] as? [Any] ?? [] {
                     focusOrder = max(focusOrder, pane["focused_at"] as? Int ?? 0)
+                    if panes[key] == nil, let id = pane["id"] as? Int { panes[key] = id }
                     let paneTabs = pane["tabs"] as? [[String: Any]] ?? []
                     for (index, tab) in paneTabs.enumerated() {
                         guard let surface = tab["surface"] as? Int, tab["dead"] as? Bool != true else { continue }
@@ -107,6 +113,7 @@ public struct DaemonTree: Sendable {
         self.agentTabs = agentTabs
         self.surfaces = surfaces
         self.directories = directories
+        self.panes = panes
     }
 
     /// One daemon tab as an app tab, or nil for tabs the phone does not show (pages, conversations).

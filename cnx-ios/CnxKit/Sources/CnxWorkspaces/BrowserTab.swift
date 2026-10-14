@@ -3,13 +3,14 @@ import Observation
 import SwiftUI
 import UIKit
 import WebKit
+import CnxBrowserStream
 
 /// One browser tab's `WKWebView` and the state the tab toolbar shows. The
 /// web view lives as long as the tab, so switching tabs or zooming to the
 /// grid never reloads the page. (A streamed Mac browser replaces this later.)
 @MainActor
 @Observable
-public final class BrowserTabModel {
+public final class BrowserTabModel: BrowserTabState {
     public private(set) var url: URL?
     public private(set) var title: String = ""
     public private(set) var canGoBack = false

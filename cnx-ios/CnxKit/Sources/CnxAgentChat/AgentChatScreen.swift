@@ -85,14 +85,28 @@ public final class AgentChatSurface {
         var id: String { changes.id + (fileID ?? "") }
     }
 
-    /// Opens the session's combined changes (title menu "Changes").
+    /// Opens the edits this agent made in the loaded chat history (title menu
+    /// "Agent edits"). Not the working tree: other changes on the Mac, and
+    /// edits older than the loaded history, are not included.
     public func openAllChanges(of store: AgentChatStore) {
+        guard let changes = Self.agentEdits(of: store) else { return }
+        diffRoute = DiffRoute(changes: changes, fileID: nil)
+    }
+
+    /// Each file the agent edited, once, in first-edit order (the later
+    /// entry wins for a file edited twice); nil when there are none.
+    static func agentEdits(of store: AgentChatStore) -> DiffChangeSet? {
         let files = store.turns.compactMap(\.changeSet).flatMap(\.files)
-        guard !files.isEmpty else { return }
+        guard !files.isEmpty else { return nil }
         var unique: [String: DiffFile] = [:]
         for file in files { unique[file.id] = file }
         let ordered = files.map(\.id).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.compactMap { unique[$0] }
-        diffRoute = DiffRoute(changes: DiffChangeSet(id: "session", title: "Changes", subtitle: store.summary.branch ?? "working tree", files: ordered), fileID: nil)
+        return DiffChangeSet(id: "session", title: "Agent edits", subtitle: "Edits in this chat", files: ordered)
+    }
+
+    /// Whether the chat has agent edits to open.
+    public static func hasAgentEdits(_ store: AgentChatStore) -> Bool {
+        store.turns.contains { $0.changeSet?.files.isEmpty == false }
     }
 
     public func scrollToBottom(animated: Bool = true) {
@@ -113,6 +127,7 @@ public final class AgentChatSurface {
 
     // MARK: Demo
 
+    #if DEBUG
     /// DEBUG demo commands (`DemoDirector`) run through the same state the
     /// user's input changes.
     func run(_ command: DemoDirector.Command, store: AgentChatStore) {
@@ -196,6 +211,7 @@ public final class AgentChatSurface {
             break
         }
     }
+    #endif
 }
 
 /// SPEC 6: the agent chat. Transcript with follow mode and jump-to-bottom,
@@ -226,7 +242,8 @@ public struct AgentChatScreen: View {
             Menu {
 
                 Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
-                Button("Changes", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
+                Button("Agent edits", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
+                    .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
                 Button("Copy session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
                 if !store.modes.isEmpty {
@@ -254,6 +271,7 @@ public struct AgentChatScreen: View {
                 Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
                 ShareLink(item: AgentChatSurface.transcriptText(store)) { Label("Share transcript", systemImage: "square.and.arrow.up") }
                 Button("Stop agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
+                    .disabled(!store.isRunning)
             } label: {
                 Image(systemName: "ellipsis")
             }
@@ -282,7 +300,9 @@ public struct AgentChatTranscript: View {
     var placement: ChatDockPlacement
     var onUserScroll: ((CGFloat) -> Void)?
     @State private var warningTrigger = 0
+    #if DEBUG
     private let director = DemoDirector.shared
+    #endif
 
     /// A workspace tab's transcript: full screen under the tab chrome, with
     /// `topInset` for the status bar. The tab's accessory draws the bottom
@@ -353,9 +373,11 @@ public struct AgentChatTranscript: View {
         .sensoryFeedback(.warning, trigger: warningTrigger)
         .onChange(of: store.pendingPermission?.request.id) { _, new in if new != nil { warningTrigger += 1 } }
         .onChange(of: store.pendingQuestion?.id) { _, new in if new != nil { warningTrigger += 1 } }
+        #if DEBUG
         .onChange(of: director.serial) {
             if let command = director.command { surface.run(command, store: store) }
         }
+        #endif
     }
 }
 
@@ -698,7 +720,11 @@ public struct AgentParityMenuItems: View {
             Button(store.subagents.isEmpty ? "Subagents" : "Subagents (\(store.subagents.count))", systemImage: "person.2.wave.2") {
                 surface.parityRoute = .subagents
             }
-            Button("Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints }
+            // Only where the session can list and restore them: the phone
+            // link does not carry checkpoints yet.
+            if store.source.supportsCheckpoints {
+                Button("Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints }
+            }
             Button("Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff }
         }
     }

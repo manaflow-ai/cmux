@@ -176,23 +176,34 @@ import Testing
     }
 
     @Test func liveListStates() {
-        // Linked to "a", its list not yet in: cached rows show, marked updating.
-        let loading = inbox(context: .init(sync: .init(current: [], loading: ["a"])))
-        #expect(loading.isUpdating)
-        #expect(!loading.isLoading)
-        // "b" is online but not linked: one line, no stale rows.
-        #expect(loading.recent.allSatisfy { $0.macID == "a" })
-        #expect(loading.folds.map(\.id) == ["off", "b"])
-        #expect(loading.folds[1].reason == .notConnected)
-        #expect(loading.folds[1].workspaces.isEmpty)
-        // Nothing cached yet: a loading state, not "No workspaces".
-        let empty = inbox(.mac("a"), context: .init(sync: .init(loading: ["a"])), workspaces: [])
+        func ctx(_ phases: [String: MacDataMachine.Phase]) -> WorkspaceInbox.Context { .init(phases: phases) }
+        // Linked to "a", dialing, last-known rows cached: shown dimmed (stale)
+        // with no agent state, and marked updating.
+        let cached = inbox(context: ctx(["a": .cached(.connecting)]))
+        #expect(cached.isUpdating)
+        #expect(!cached.isLoading)
+        #expect(cached.needsYou.isEmpty)
+        #expect(cached.recent.filter { $0.macID == "a" }.allSatisfy { cached.stale.contains($0.id) && cached.status($0) == .idle })
+        // "b" is online but nothing dials it: one line, no stale rows.
+        #expect(cached.recent.allSatisfy { $0.macID == "a" })
+        #expect(cached.folds.map(\.id) == ["off", "b"])
+        #expect(cached.folds[1].reason == .notConnected)
+        #expect(cached.folds[1].workspaces.isEmpty)
+        // A failed dial with nothing known: a line that retries.
+        let failed = inbox(context: ctx(["a": .live, "b": .failed("timed out")]))
+        #expect(failed.folds.last?.reason == .failed("timed out"))
+        #expect(failed.needsYou.map(\.id) == ["a-waiting-new", "a-waiting-old"])
+        #expect(failed.stale.isEmpty)
+        // Nothing known yet: a loading state, not "No workspaces".
+        let empty = inbox(.mac("a"), context: ctx(["a": .loading]), workspaces: [])
         #expect(empty.isLoading)
         // Filtered to the unlinked Mac: no fold line, the empty state explains.
-        let unlinked = inbox(.mac("b"), context: .init(sync: .init(current: ["a"])))
+        let unlinked = inbox(.mac("b"), context: ctx(["a": .live]))
         #expect(unlinked.isEmpty)
-        // A Mac whose list is current is not updating.
-        #expect(!inbox(.mac("a"), context: .init(sync: .init(current: ["a"]))).isUpdating)
+        // A Mac whose list is live is not updating.
+        #expect(!inbox(.mac("a"), context: ctx(["a": .live])).isUpdating)
+        #expect(WorkspaceInbox.ListState(.empty) == .live)
+        #expect(WorkspaceInbox.ListState(.cached(.idle)) == .cached(updating: false))
     }
 
     @Test func pendingRowsShowAsCreatingAtTheTop() {

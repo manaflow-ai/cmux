@@ -1,7 +1,7 @@
 import Foundation
 
 /// A cmux-next workspace on one Mac.
-public struct Workspace: Identifiable, Hashable, Sendable {
+public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     public let id: String
     public var macID: String
     public var title: String
@@ -51,8 +51,37 @@ public struct Workspace: Identifiable, Hashable, Sendable {
     }
 }
 
+extension Workspace {
+    enum CodingKeys: String, CodingKey {
+        case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
+        case needsAttention, isWorking, hasUnread, colorHex, icon
+    }
+
+    /// Snapshots saved before a field existed still load (it takes its default).
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try c.decode(String.self, forKey: .id),
+            macID: try c.decode(String.self, forKey: .macID),
+            title: try c.decode(String.self, forKey: .title),
+            directory: try c.decode(String.self, forKey: .directory),
+            branch: try c.decodeIfPresent(String.self, forKey: .branch),
+            tabs: try c.decode([WorkspaceTab].self, forKey: .tabs),
+            lastActivityAt: try c.decode(Date.self, forKey: .lastActivityAt),
+            needsAttention: try c.decodeIfPresent(Bool.self, forKey: .needsAttention) ?? false,
+            isWorking: try c.decodeIfPresent(Bool.self, forKey: .isWorking) ?? false,
+            hasUnread: try c.decodeIfPresent(Bool.self, forKey: .hasUnread) ?? false,
+            colorHex: try c.decodeIfPresent(String.self, forKey: .colorHex),
+            icon: try c.decodeIfPresent(String.self, forKey: .icon),
+            hasActivityTime: try c.decodeIfPresent(Bool.self, forKey: .hasActivityTime) ?? false,
+            focusOrder: try c.decodeIfPresent(Int.self, forKey: .focusOrder) ?? 0,
+            activeTabID: try c.decodeIfPresent(String.self, forKey: .activeTabID)
+        )
+    }
+}
+
 /// One tab inside a workspace.
-public struct WorkspaceTab: Identifiable, Hashable, Sendable {
+public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     public enum Kind: String, Hashable, Sendable, Codable {
         case terminal, browser, agent
     }
@@ -71,7 +100,7 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable {
 
     /// An agent's state as the Mac reports it. The Mac does not say whether a
     /// waiting agent asks for a permission or a question.
-    public enum AgentStatus: String, Hashable, Sendable {
+    public enum AgentStatus: String, Hashable, Sendable, Codable {
         case working, waiting
     }
 

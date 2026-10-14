@@ -21,6 +21,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
     /// Live mode: Files and Links previews from the Mac.
     var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
+    /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
+    var uploaderProvider: (@MainActor (WorkspaceTab) -> (@MainActor (Data, String) async throws -> String)?)?
     /// DEBUG mock mode (Settings → Developer → Mock data): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
@@ -51,6 +53,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
             title: tab.title
         )
+        model.uploader = live == nil ? nil : uploaderProvider?(tab)
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         workspaceOwner[tab.id] = workspace.id

@@ -74,9 +74,12 @@ public struct DiffFileScreen: View {
             }
         }
         .toolbar(.hidden, for: .tabBar)
+        #if DEBUG
         .onChange(of: DemoDirector.shared.serial) { runDemoCommand() }
+        #endif
     }
 
+    #if DEBUG
     private func runDemoCommand() {
         switch DemoDirector.shared.command {
         case .diffSetSplit(let split)?:
@@ -94,6 +97,7 @@ public struct DiffFileScreen: View {
             break
         }
     }
+    #endif
 
     private func move(_ delta: Int) {
         let next = index + delta

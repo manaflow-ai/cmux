@@ -59,34 +59,60 @@ public struct WorkspaceInbox: Hashable, Sendable {
             /// Online, but this phone is linked to another Mac, so its list
             /// is not known (live mode). A tap links it.
             case notConnected
+            /// Online, nothing known, and the last dial failed (live). A tap retries.
+            case failed(String)
         }
 
         public var mac: MacDevice
         public var reason: Reason
-        /// Newest first; empty for `.notConnected` (not known).
+        /// Newest first; empty for `.notConnected` and `.failed` (not known).
         public var workspaces: [Workspace]
         /// Rows always shown (filtered to this Mac, a search, or every Mac asleep).
         public var isForcedOpen: Bool
         public var id: String { mac.id }
     }
 
+    /// How far one online Mac's list can be trusted, from its live data
+    /// phase (`MacDataMachine`).
+    public enum ListState: Hashable, Sendable {
+        /// The Mac's own list on the current link (always, in mock mode).
+        case live
+        /// Dialing, nothing known yet.
+        case loading
+        /// Last-known rows; `updating` while the link is connecting.
+        case cached(updating: Bool)
+        /// Nothing known and the last dial failed.
+        case failed(String)
+        /// Nothing known and nothing dialing this Mac.
+        case notConnected
+
+        public init(_ phase: MacDataMachine.Phase) {
+            switch phase {
+            case .live, .empty: self = .live
+            case .loading: self = .loading
+            case .cached(let link): self = .cached(updating: link == .connecting)
+            case .failed(let reason): self = .failed(reason)
+            case .idle, .offline: self = .notConnected
+            }
+        }
+    }
+
     /// What the phone sees of the store, for the layout.
-    public struct Context: Hashable, Sendable {
+    public struct Context: Equatable, Sendable {
         public var pending: Set<String>
         public var seenAt: [String: Date]
-        public var sync: AppStore.WorkspaceListSync?
+        /// Live mode: each Mac's data phase. Nil (mock) treats every list as live.
+        public var phases: [String: MacDataMachine.Phase]?
 
-        public init(pending: Set<String> = [], seenAt: [String: Date] = [:], sync: AppStore.WorkspaceListSync? = nil) {
+        public init(pending: Set<String> = [], seenAt: [String: Date] = [:], phases: [String: MacDataMachine.Phase]? = nil) {
             self.pending = pending
             self.seenAt = seenAt
-            self.sync = sync
+            self.phases = phases
         }
 
-        func listState(_ macID: String) -> AppStore.WorkspaceListSync.State {
-            guard let sync else { return .current }
-            if sync.current.contains(macID) { return .current }
-            if sync.loading.contains(macID) { return .loading }
-            return .notConnected
+        func listState(_ macID: String) -> ListState {
+            guard let phases else { return .live }
+            return ListState(phases[macID] ?? .idle)
         }
     }
 
@@ -101,6 +127,9 @@ public struct WorkspaceInbox: Hashable, Sendable {
     public var isLoading: Bool
     /// An online Mac in scope is linking and its list has not arrived (cached rows may show).
     public var isUpdating: Bool
+    /// Rows from a Mac's last-known list (not the Mac's live answer): dimmed,
+    /// and their agent state is not shown (it may be stale).
+    public var stale: Set<String>
     /// Scope is All and every Mac is offline.
     public var allAsleep: Bool
 
@@ -117,16 +146,28 @@ public struct WorkspaceInbox: Hashable, Sendable {
             chosen.contains(ws.macID) && Self.matches(ws, macName: byID[ws.macID]?.name, query)
         }
         var statuses: [String: WorkspaceStatus] = [:]
+        var stale: Set<String> = []
         for ws in matching {
-            statuses[ws.id] = WorkspaceStatus(ws, isOnline: byID[ws.macID]?.isOnline ?? false,
-                                              isPending: context.pending.contains(ws.id), seenAt: context.seenAt[ws.id])
+            let online = byID[ws.macID]?.isOnline ?? false
+            let pending = context.pending.contains(ws.id)
+            if online, !pending, case .cached = context.listState(ws.macID) {
+                // Last-known rows: never claim an agent is waiting or working now.
+                stale.insert(ws.id)
+                statuses[ws.id] = .idle
+                continue
+            }
+            statuses[ws.id] = WorkspaceStatus(ws, isOnline: online, isPending: pending, seenAt: context.seenAt[ws.id])
         }
+        self.stale = stale
         func sorted(_ list: [Workspace]) -> [Workspace] {
             list.sorted { Self.isNewer($0, $1, order: order) }
         }
         let live = matching.filter { ws in
             guard let mac = byID[ws.macID], mac.isOnline else { return false }
-            return context.listState(mac.id) != .notConnected || context.pending.contains(ws.id)
+            switch context.listState(mac.id) {
+            case .live, .cached: return true
+            case .loading, .failed, .notConnected: return context.pending.contains(ws.id)
+            }
         }
         needsYou = sorted(live.filter { statuses[$0.id] == .needsYou })
         recent = sorted(live.filter { statuses[$0.id] != .needsYou })
@@ -134,21 +175,28 @@ public struct WorkspaceInbox: Hashable, Sendable {
         let asleep = scope == .all && !scoped.isEmpty && online.isEmpty
         allAsleep = asleep
         let searching = !query.isEmpty
-        var folds = scoped.compactMap { mac -> Fold? in
+        let folds = scoped.compactMap { mac -> Fold? in
             if !mac.isOnline {
                 let rows = sorted(matching.filter { $0.macID == mac.id })
                 guard !rows.isEmpty else { return nil }
                 return Fold(mac: mac, reason: .offline, workspaces: rows,
                             isForcedOpen: scope.macID != nil || searching || asleep)
             }
-            guard context.listState(mac.id) == .notConnected, !searching else { return nil }
-            return Fold(mac: mac, reason: .notConnected, workspaces: [], isForcedOpen: false)
+            guard !searching, scope.macID == nil else { return nil }
+            // A fold for the one Mac a filter shows is its empty state, not a line.
+            switch context.listState(mac.id) {
+            case .notConnected: return Fold(mac: mac, reason: .notConnected, workspaces: [], isForcedOpen: false)
+            case .failed(let reason): return Fold(mac: mac, reason: .failed(reason), workspaces: [], isForcedOpen: false)
+            case .live, .loading, .cached: return nil
+            }
         }
-        // A fold for the one Mac a filter shows is its empty state, not a line.
-        if scope.macID != nil { folds.removeAll { $0.reason == .notConnected } }
         self.folds = folds
-        let loadingMacs = online.filter { context.listState($0.id) == .loading }
-        isUpdating = !loadingMacs.isEmpty
+        isUpdating = online.contains { mac in
+            switch context.listState(mac.id) {
+            case .loading, .cached(updating: true): return true
+            default: return false
+            }
+        }
         isLoading = isUpdating && needsYou.isEmpty && recent.isEmpty && !searching
         showsMacNames = scope == .all && Set(recent.map(\.macID)).count > 1
         self.statuses = statuses

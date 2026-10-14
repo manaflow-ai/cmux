@@ -1,0 +1,119 @@
+import CmuxConversationCore
+import Foundation
+import UserNotifications
+#if canImport(UIKit)
+import UIKit
+#endif
+
+/// This phone's per-conversation Chief settings: Hide Alerts and Send Read
+/// Receipts. They belong to the phone, as in Messages, so they live in its
+/// defaults, keyed by the owner's conversation id.
+public struct ChiefPreferences: @unchecked Sendable {
+    let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    private func key(_ name: String, _ conversationID: String) -> String { "cnx.chief.\(conversationID).\(name)" }
+
+    /// Hide Alerts: no notification for this conversation's messages.
+    public func muted(_ conversationID: String) -> Bool {
+        defaults.bool(forKey: key("muted", conversationID))
+    }
+
+    public func setMuted(_ muted: Bool, _ conversationID: String) {
+        defaults.set(muted, forKey: key("muted", conversationID))
+    }
+
+    /// Send Read Receipts: whether reading here moves the read position the
+    /// Mac (and Chief) see. On by default, as in Messages.
+    public func sendsReadReceipts(_ conversationID: String) -> Bool {
+        defaults.object(forKey: key("receipts", conversationID)) as? Bool ?? true
+    }
+
+    public func setSendsReadReceipts(_ on: Bool, _ conversationID: String) {
+        defaults.set(on, forKey: key("receipts", conversationID))
+    }
+
+    /// The list state the details page shows for `conversationID`.
+    public func listState(_ conversationID: String) -> ConversationListState {
+        ConversationListState(pinned: true, pinOrder: 0, muted: muted(conversationID),
+                              sendReadReceipts: sendsReadReceipts(conversationID))
+    }
+}
+
+/// Local notifications for Chief's messages: one per new message from Chief
+/// while the Chief conversation is not on screen, unless Hide Alerts is on.
+/// Chief reaches the phone only over the live link, so these come while the
+/// app runs (in the foreground, or in the background before iOS suspends it).
+@MainActor
+public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
+    public static let shared = ChiefAlerts()
+
+    /// True while the Chief conversation is on screen (it shows the message itself).
+    public var conversationVisible = false
+    /// False while the app is in the background, where an open Chief is not seen.
+    private var appActive = true
+    private var installed = false
+    private var observers: [NSObjectProtocol] = []
+
+    /// Shows Chief's alerts as banners while the app is in the foreground.
+    /// Takes the delegate only when no one else has.
+    public func install() {
+        guard !installed, Self.canNotify else { return }
+        installed = true
+        let center = UNUserNotificationCenter.current()
+        if center.delegate == nil { center.delegate = self }
+        #if canImport(UIKit)
+        let notifications = NotificationCenter.default
+        observers = [
+            notifications.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { ChiefAlerts.shared.appActive = false }
+            },
+            notifications.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { ChiefAlerts.shared.appActive = true }
+            },
+        ]
+        #endif
+    }
+
+    /// The notification center exists only for an app bundle (not a test runner).
+    static var canNotify: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+
+    /// Posts an alert for `message` from Chief in `conversationID`.
+    func notify(_ message: ConversationMessage, title: String, conversationID: String, preferences: ChiefPreferences) {
+        guard Self.canNotify, !(conversationVisible && appActive), !preferences.muted(conversationID) else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = message.isUnsent ? String(localized: "Message unsent")
+            : message.text.isEmpty && !message.attachments.isEmpty ? String(localized: "Attachment") : message.text
+        content.sound = .default
+        content.threadIdentifier = "chief.\(conversationID)"
+        content.userInfo = ["cnx.chief.conversation": conversationID]
+        let request = UNNotificationRequest(identifier: "chief.\(message.id)", content: content, trigger: nil)
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
+            try? await center.add(request)
+        }
+    }
+
+    /// Hide Alerts turned on: take back what is already delivered for it.
+    func clearDelivered(conversationID: String) {
+        guard Self.canNotify else { return }
+        let center = UNUserNotificationCenter.current()
+        Task {
+            let ids = await center.deliveredNotifications()
+                .filter { $0.request.content.threadIdentifier == "chief.\(conversationID)" }
+                .map(\.request.identifier)
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
+    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
+        -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
+    }
+}

@@ -78,6 +78,9 @@ export class TeamHub extends DurableObject<Env> {
     // owner_project_id: added with multi-project support; NULL (older rows) means the primary project.
     if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(macs)`).toArray().some((c) => c.name === "owner_project_id"))
       this.sql.exec(`ALTER TABLE macs ADD COLUMN owner_project_id TEXT`)
+    // Devices registered in this team (both kinds), so a signal socket is admitted here without a
+    // database round trip (the Worker falls back to the database for a device this hub has not seen).
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, owner_key TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, initiator TEXT NOT NULL, responder TEXT NOT NULL, created_at INTEGER NOT NULL)`)
   }
 
@@ -92,6 +95,23 @@ export class TeamHub extends DurableObject<Env> {
     const ok = (await userTeams(this.env, caller)).includes(teamId)
     this.members.set(key, { ok, at: now })
     return ok
+  }
+
+  /** A device registered in this team (POST /v1/devices): admits its signal socket here later. */
+  async rememberDevice(d: { deviceId: string; ownerKey: string; kind: "mac" | "phone"; name: string }): Promise<void> {
+    this.sql.exec(
+      `INSERT INTO devices (device_id, owner_key, kind, name) VALUES (?, ?, ?, ?)
+       ON CONFLICT(device_id) DO UPDATE SET owner_key = excluded.owner_key, kind = excluded.kind, name = excluded.name`,
+      d.deviceId,
+      d.ownerKey,
+      d.kind,
+      d.name
+    )
+  }
+
+  /** A device moved to another team: this hub no longer admits it (its open socket stays until it reconnects). */
+  async forgetRegistration(deviceId: string): Promise<void> {
+    this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
   }
 
   /** A Mac registered (or renamed) in this team. Broadcasts presence when the name changed. */
@@ -110,6 +130,7 @@ export class TeamHub extends DurableObject<Env> {
 
   /** A Mac moved to another team: drop it here and close its sockets. */
   async forgetMac(deviceId: string): Promise<void> {
+    this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
     this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
     for (const ws of this.ctx.getWebSockets(deviceId)) {
       this.setAttach(ws, { ...this.attach(ws), replaced: true })
@@ -117,6 +138,30 @@ export class TeamHub extends DurableObject<Env> {
         ws.close(4001, "moved")
       } catch {}
     }
+  }
+
+  /**
+   * A device was deleted (PROTOCOL.md `DELETE /v1/devices/:deviceId`): drop a Mac from presence with a last
+   * `removed` frame, close the device's socket with 4002 `removed`, and end its relay sessions.
+   */
+  async forgetDevice(deviceId: string): Promise<void> {
+    this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
+    const mac = this.macRow(deviceId)
+    if (mac) {
+      this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
+      const lastSeenAt = mac.last_seen_at ? new Date(mac.last_seen_at).toISOString() : null
+      this.broadcast(JSON.stringify({ type: "presence", mac: { deviceId, name: mac.name, online: false, lastSeenAt, removed: true } }))
+    }
+    for (const ws of this.ctx.getWebSockets(deviceId)) {
+      this.setAttach(ws, { ...this.attach(ws), replaced: true })
+      try {
+        ws.close(4002, "removed")
+      } catch {}
+    }
+    this.live.delete(deviceId)
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId).toArray())
+      this.sessions.delete(r.session_id)
+    this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
   }
 
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
@@ -144,8 +189,23 @@ export class TeamHub extends DurableObject<Env> {
 
   override async fetch(req: Request): Promise<Response> {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected websocket", { status: 426 })
-    const att = JSON.parse(req.headers.get("x-cnx-attachment") ?? "null") as Attachment | null
+    let att = JSON.parse(req.headers.get("x-cnx-attachment") ?? "null") as Attachment | null
+    // The Worker's fast path: only the caller's identity and device id; the device row is this hub's.
+    const claim = JSON.parse(req.headers.get("x-cnx-claim") ?? "null") as { userId: string; projectId: string; deviceId: string; ownerKey: string } | null
+    if (!att && claim) {
+      const row = this.sql
+        .exec<{ owner_key: string; kind: string; name: string }>(`SELECT owner_key, kind, name FROM devices WHERE device_id = ?`, claim.deviceId)
+        .toArray()[0]
+      if (!row) return new Response("unknown device", { status: 409 })
+      if (row.owner_key !== claim.ownerKey) return new Response("not owner", { status: 403 })
+      att = { userId: claim.userId, projectId: claim.projectId, deviceId: claim.deviceId, kind: row.kind === "mac" ? "mac" : "phone", name: row.name }
+    }
     if (!att) return new Response("missing identity", { status: 400 })
+    if (!claim) {
+      // The slow path checked the database: remember the device for next time.
+      const ownerKey = req.headers.get("x-cnx-owner-key")
+      if (ownerKey) await this.rememberDevice({ deviceId: att.deviceId, ownerKey, kind: att.kind, name: att.name })
+    }
     // One live socket per device: a reconnect replaces the old socket without an offline blip.
     for (const old of this.ctx.getWebSockets(att.deviceId)) {
       this.setAttach(old, { ...this.attach(old), replaced: true })

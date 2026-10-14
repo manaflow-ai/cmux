@@ -119,6 +119,9 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "reopen-saved-tab-group",
         "ack-tab-notifications",
         "notify",
+        // Agent chat tabs: only an acpmux session tab of this Mac's own
+        // acpmux, checked below (`agent_tab_verdict`).
+        "new-conversation-tab",
         // Browser tabs.
         "new-browser-tab",
         "browser-frame-presented",
@@ -168,19 +171,43 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
 pub enum Verdict {
     /// Send the original line.
     Forward,
+    /// Send this line instead (no newline): the policy filled in a field the
+    /// phone may not choose (the agent tab host).
+    Rewrite(Vec<u8>),
     /// Answer the phone with this v12 error line (no newline); never send it on.
     Refuse(String),
 }
+
+/// Top-level fields a phone may set on `new-conversation-tab`: a placement,
+/// a size and an idempotency key. Never `conversation`/`owner` (another
+/// conversation owner) or `page`/`route` (the app's own pages).
+const AGENT_TAB_FIELDS: &[&str] =
+    &["pane", "workspace", "agent_session", "origin", "mutation_id", "cols", "rows", "transaction"];
+
+/// Fields of `new-conversation-tab`'s `agent_session` a phone may send. The
+/// `host` is never the phone's: the policy sets it to this Mac's own agent
+/// tab host (the Mac app's `install:<id>`), so the tab runs on this Mac's
+/// acpmux and the Mac app shows it as its own chat.
+const AGENT_SESSION_FIELDS: &[&str] = &["host", "session", "harness", "host_name"];
 
 /// The per-phone policy.
 #[derive(Debug, Clone)]
 pub struct DaemonPolicy {
     projection_subject: String,
+    /// The `agent_session.host` this Mac's app records on its own agent tabs
+    /// (`CNX_AGENT_TAB_HOST`). Unset: a phone cannot create agent tabs.
+    agent_tab_host: Option<String>,
 }
 
 impl DaemonPolicy {
     pub fn new(device_id: &str) -> Self {
-        Self { projection_subject: format!("ios-device:{device_id}") }
+        Self { projection_subject: format!("ios-device:{device_id}"), agent_tab_host: None }
+    }
+
+    /// Lets the phone create agent tabs recorded for `host`.
+    pub fn with_agent_tab_host(mut self, host: Option<String>) -> Self {
+        self.agent_tab_host = host.filter(|host| !host.is_empty());
+        self
     }
 
     /// Judge one newline-stripped request line.
@@ -220,7 +247,64 @@ impl DaemonPolicy {
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return self.projection_verdict(&object, id, command == "put-frontend-projection");
         }
+        if command == "new-conversation-tab" {
+            let id = id.cloned();
+            return self.agent_tab_verdict(object, id);
+        }
         Verdict::Forward
+    }
+
+    /// `new-conversation-tab` from a phone: an acpmux session tab of this
+    /// Mac only. The phone names the agent kind (`harness`), optionally a
+    /// session it made through its `acpmux` lane, and where the tab goes;
+    /// the host is this Mac's own (set here), so no other machine's chat,
+    /// conversation owner or page is ever opened by a phone.
+    fn agent_tab_verdict(&self, mut object: Map<String, Value>, id: Option<Value>) -> Verdict {
+        let refuse = |code: &str, message: &str| Verdict::Refuse(error_line(id.as_ref(), code, message));
+        let Some(host) = &self.agent_tab_host else {
+            return refuse("unavailable", "this Mac's cmux does not let a phone start agent chats");
+        };
+        let extra: BTreeSet<&str> = object
+            .keys()
+            .map(String::as_str)
+            .filter(|key| !AGENT_TAB_FIELDS.contains(key) && *key != "id" && *key != "cmd")
+            .collect();
+        if !extra.is_empty() {
+            let names = extra.into_iter().collect::<Vec<_>>().join(", ");
+            return refuse("forbidden", &format!("new-conversation-tab does not take {names} from a phone"));
+        }
+        let Some(Value::Object(session)) = object.get_mut("agent_session") else {
+            return refuse("forbidden", "a phone may only open an agent_session tab");
+        };
+        if let Some(key) = session.keys().find(|key| !AGENT_SESSION_FIELDS.contains(&key.as_str())) {
+            return refuse("forbidden", &format!("agent_session does not take {key} from a phone"));
+        }
+        if session.get("host").is_some_and(|given| given.as_str() != Some(host.as_str())) {
+            return refuse("forbidden", "a phone may only open a chat of this Mac");
+        }
+        let token = |value: Option<&Value>, max: usize| match value {
+            None | Some(Value::Null) => true,
+            Some(Value::String(text)) => {
+                (1..=max).contains(&text.len())
+                    && text
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
+            }
+            Some(_) => false,
+        };
+        if !token(session.get("harness"), 64) || !token(session.get("session"), 128) {
+            return refuse("bad_request", "agent_session harness and session are short identifiers");
+        }
+        if session.get("host_name").is_some_and(|name| {
+            name.as_str().is_none_or(|name| name.len() > 256 || name.chars().any(char::is_control))
+        }) {
+            return refuse("bad_request", "agent_session host_name is a short name");
+        }
+        session.insert("host".into(), Value::String(host.clone()));
+        match serde_json::to_vec(&Value::Object(object)) {
+            Ok(line) => Verdict::Rewrite(line),
+            Err(_) => refuse("bad_request", "request is not a JSON object"),
+        }
     }
 
     fn projection_verdict(&self, object: &Map<String, Value>, id: Option<&Value>, write: bool) -> Verdict {
@@ -335,6 +419,49 @@ mod tests {
         let other =
             br#"{"id":1,"cmd":"get-frontend-projection","scope":"personal","subject_key":"ios-device:x"}"#;
         assert!(matches!(policy().evaluate(other), Verdict::Refuse(_)));
+    }
+
+    fn agent_policy() -> DaemonPolicy {
+        policy().with_agent_tab_host(Some("install:mac-1".into()))
+    }
+
+    #[test]
+    fn agent_tabs_get_this_macs_host() {
+        let line = br#"{"id":1,"cmd":"new-conversation-tab","pane":4,"mutation_id":"k","origin":"ios","agent_session":{"harness":"claude","session":"0199-abc","host_name":"Phone"}}"#;
+        let Verdict::Rewrite(rewritten) = agent_policy().evaluate(line) else { panic!("not rewritten") };
+        let value: Value = serde_json::from_slice(&rewritten).unwrap();
+        assert_eq!(value["agent_session"]["host"], "install:mac-1");
+        assert_eq!(value["agent_session"]["harness"], "claude");
+        assert_eq!(value["pane"], 4);
+        assert_eq!(value["id"], 1);
+        // The phone may name this Mac's host itself, never another.
+        let own = br#"{"id":1,"cmd":"new-conversation-tab","workspace":2,"agent_session":{"host":"install:mac-1"}}"#;
+        assert!(matches!(agent_policy().evaluate(own), Verdict::Rewrite(_)));
+    }
+
+    #[test]
+    fn agent_tabs_refuse_other_sources_and_hosts() {
+        for (line, code) in [
+            (br#"{"id":1,"cmd":"new-conversation-tab","pane":1,"agent_session":{"host":"registry:x"}}"#.as_slice(), "forbidden"),
+            (br#"{"id":1,"cmd":"new-conversation-tab","pane":1,"conversation":"c","owner":"local"}"#, "forbidden"),
+            (br#"{"id":1,"cmd":"new-conversation-tab","pane":1,"page":"settings"}"#, "forbidden"),
+            (br#"{"id":1,"cmd":"new-conversation-tab","pane":1}"#, "forbidden"),
+            (br#"{"id":1,"cmd":"new-conversation-tab","pane":1,"agent_session":{"harness":"claude","command":"sh"}}"#, "forbidden"),
+            (br#"{"id":1,"cmd":"new-conversation-tab","pane":1,"agent_session":{"harness":"a b"}}"#, "bad_request"),
+            (br#"{"id":1,"cmd":"new-conversation-tab","pane":1,"agent_session":{"session":7}}"#, "bad_request"),
+            (br#"{"id":1,"cmd":"new-conversation-tab","pane":1,"agent_session":{"host_name":"a\nb"}}"#, "bad_request"),
+        ] {
+            let Verdict::Refuse(answer) = agent_policy().evaluate(line) else {
+                panic!("forwarded {}", String::from_utf8_lossy(line));
+            };
+            let answer: Value = serde_json::from_str(&answer).unwrap();
+            assert_eq!(answer["error_code"], code, "{}", String::from_utf8_lossy(line));
+            assert_eq!(answer["id"], 1);
+        }
+        // Without a configured host (an older Mac app), no agent tabs at all.
+        let line = br#"{"id":1,"cmd":"new-conversation-tab","pane":1,"agent_session":{"harness":"claude"}}"#;
+        let Verdict::Refuse(answer) = policy().evaluate(line) else { panic!() };
+        assert!(answer.contains("unavailable"));
     }
 
     #[test]

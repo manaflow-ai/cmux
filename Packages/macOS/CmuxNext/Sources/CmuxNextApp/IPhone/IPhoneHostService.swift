@@ -39,7 +39,11 @@ final class IPhoneHostService {
         var acpmux: @Sendable () async -> (url: URL, token: String)?
         /// Folders the phone may preview files from (the chat roots).
         var fileRoots: @MainActor () -> [String]
+        /// This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
+        var agentTabHost: @MainActor () -> String? = { nil }
         var computerName: @Sendable () async -> String
+        /// The app's browser hosts for the phone's streamed browser tabs; nil when this build has none.
+        var browserHosts: (any CnxBrowserHosting)? = nil
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
@@ -130,10 +134,11 @@ final class IPhoneHostService {
                     executable: executable, baseURL: dependencies.baseURL, teamID: want.teamID, userID: want.userID,
                     deviceID: deviceID, deviceName: name, daemonSocket: socket,
                     stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
-                    stackProjectID: dependencies.stackProjectID)
+                    stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
-                    log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false)))
+                    log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false),
+                    browserHosts: dependencies.browserHosts))
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))
