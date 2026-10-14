@@ -31,6 +31,9 @@ use sha2::{Digest, Sha256};
 
 use super::{ConversationStore, load_head, rejected};
 
+#[path = "conversation_attachment_links.rs"]
+pub(crate) mod links;
+
 /// The capability of the `conversation-attachment-*` commands.
 pub(crate) const LOCAL_ATTACHMENTS_CAPABILITY: &str = "local-attachments-v1";
 /// The bytes directory inside the session state directory.
@@ -209,6 +212,8 @@ pub(crate) struct Attachments {
     uploads: HashMap<String, Upload>,
     /// Total bytes the store may hold (`DEFAULT_STORAGE_CAP`).
     storage_cap: u64,
+    /// Download links by token (`ws-attachments-v1`, links.rs).
+    links: HashMap<String, links::Link>,
 }
 
 impl Attachments {
@@ -230,7 +235,12 @@ impl Attachments {
             }
             None => Blobs::Memory(HashMap::new()),
         };
-        Ok(Self { blobs, uploads: HashMap::new(), storage_cap: DEFAULT_STORAGE_CAP })
+        Ok(Self {
+            blobs,
+            uploads: HashMap::new(),
+            storage_cap: DEFAULT_STORAGE_CAP,
+            links: HashMap::new(),
+        })
     }
 
     fn has_blob(&self, hash: &str) -> bool {

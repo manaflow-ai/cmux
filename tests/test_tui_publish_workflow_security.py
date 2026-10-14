@@ -2348,7 +2348,9 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     # writes. Chief 2026-10-14 (cx-kfbom): any other ref (branch pushes, pull
     # requests) publishes a shared tree key only after its daemon tests passed,
     # with the marker written first, because a feat-cmux-next push that finds
-    # the key published does not run them (tree c77d397b3a9f).
+    # the key published does not run them (tree c77d397b3a9f). A lane-branch
+    # push publishes without them and writes no marker (daemon_tests false;
+    # tests/test_cmux_tui_lane_daemon_tests.py).
     import yaml
     jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())["jobs"]
     marker_script = "scripts/ci/cmux-tui-mark-daemon-tested.sh"
@@ -2364,10 +2366,12 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
         assert marker_script in job["steps"][mark]["run"], name
         # A pull_request_target run's github.ref is the base branch
         # (feat-cmux-next): the PR publisher marks unconditionally.
-        expected_if = "${{ github.ref != 'refs/heads/feat-cmux-next' }}" if name == "publish-tree" else None
+        expected_if = ("${{ github.ref != 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.daemon_tests == 'true' }}"
+                       if name == "publish-tree" else None)
         assert job["steps"][mark].get("if") == expected_if, name
     # feat-cmux-next itself keeps publishing without waiting for the tests.
-    assert "github.ref == 'refs/heads/feat-cmux-next' || (needs.cmux-next-daemon-tests.result == 'success'" in jobs["publish-tree"]["if"]
+    assert ("github.ref == 'refs/heads/feat-cmux-next' || needs.tree-preflight.outputs.daemon_tests != 'true' || "
+            "(needs.cmux-next-daemon-tests.result == 'success'") in jobs["publish-tree"]["if"]
     marker = jobs["publish-tree-tested"]
     assert {"publish-tree", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]

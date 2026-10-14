@@ -121,13 +121,14 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
 }
 
 nonisolated extension SidebarLayoutOptions {
-    /// Icon only: the name and the unread mark always draw (minimal mode).
-    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon]))
+    /// Icon, the working spinner and progress (spinner and OSC 9;4 bar, Lawrence via cx-htbe5): the name
+    /// and the unread mark always draw (minimal mode).
+    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .progress]))
 
     /// What `ws`'s row draws under these options. Minimal mode drops the
     /// second line (including another computer's name and a machine's
-    /// stage), counts, badges and the working dots; attention states
-    /// (waiting, error) still show, like the unread mark.
+    /// stage), the status block, counts and badges; the working spinner,
+    /// loading, the progress bar and attention states still show, like the unread mark.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         if expanded && !minimal {
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
@@ -136,6 +137,8 @@ nonisolated extension SidebarLayoutOptions {
         guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
         content.detail = nil
+        content.badgeTime = nil
+        content.status = nil
         return content
     }
 }
