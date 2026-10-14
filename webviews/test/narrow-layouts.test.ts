@@ -9,16 +9,16 @@ import { chromium, type Browser } from "playwright";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const VARIANTS = ["controls", "steer", "pull-requests", "new-tab", "code"];
-const SIZES = [
-  { width: 280, scale: 1 },
-  { width: 360, scale: 1 },
-  { width: 480, scale: 1 },
-  { width: 360, scale: 1.25 },
-  { width: 480, scale: 0.8 },
-];
-
 await requireBrowserLane("narrow-layouts.test.ts", async () => {
+  const VARIANTS = ["controls", "working", "pull-requests", "new-tab", "code"];
+  const SIZES = [
+    { width: 280, scale: 1 },
+    { width: 360, scale: 1 },
+    { width: 480, scale: 1 },
+    { width: 360, scale: 1.25 },
+    { width: 480, scale: 0.8 },
+  ];
+
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true })).close();

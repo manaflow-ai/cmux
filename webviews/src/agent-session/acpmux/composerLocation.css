@@ -343,35 +343,40 @@
    the context ring hides, then the rhythm tightens. The turn's own controls (+, mic, Stop, Steer,
    Send) never shrink: the chips give way first, and clip rather than overlap if they still do not fit
    (agent-pane.narrow, test/narrow-layouts.test.ts). */
-.acpmux-composer {
+.acpmux-composer,
+.nt-box {
   container: composer / inline-size;
 }
-.acpmux-composer-bar .acpmux-chips {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips {
   overflow: hidden;
 }
-.acpmux-composer-bar .acpmux-chips > *:not(.acpmux-chips-spacer, .acpmux-model),
-.acpmux-composer-bar .acpmux-composer-plus,
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > *:not(.acpmux-chips-spacer, .acpmux-model),
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-composer-plus,
 .acpmux-composer-actions > * {
   flex-shrink: 0;
 }
+/* Icons keep their drawn size: a chip gives way by its label, never by its glyph. */
+:is(.acpmux-composer-bar, .nt-pickers) svg {
+  flex-shrink: 0;
+}
 /* Between the tiers only the model's name gives way, to an ellipsis, down to its icon. */
-.acpmux-composer-bar .acpmux-model {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model {
   display: inline-flex;
   min-width: 32px;
 }
-.acpmux-composer-bar .acpmux-model .acpmux-picker-button {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button {
   min-width: 32px;
   max-width: 100%;
   overflow: hidden;
 }
-.acpmux-composer-bar .acpmux-model-name {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 @container composer (max-width: 480px) {
-  .acpmux-composer-bar .acpmux-model .acpmux-picker-button {
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button {
     width: 32px !important;
     max-width: 32px;
     justify-content: center;
@@ -379,26 +384,26 @@
     padding-inline: 0;
     overflow: hidden;
   }
-  .acpmux-composer-bar .acpmux-model-name,
-  .acpmux-composer-bar .acpmux-model .acpmux-picker-button .acpmux-icon:last-child {
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-model-name,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button .acpmux-icon:last-child {
     display: none;
   }
-  .acpmux-composer-bar .acpmux-access-trigger { width: auto; max-width: none; padding-inline: 6px; }
-  .acpmux-composer-bar .acpmux-mode-text { display: none; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access-trigger { width: auto; max-width: none; padding-inline: 6px; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mode-text { display: none; }
 }
 @container composer (max-width: 400px) {
-  .acpmux-composer-bar .acpmux-effort { display: none; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort { display: none; }
 }
 @container composer (max-width: 320px) {
-  .acpmux-composer-bar .acpmux-context-usage-menu,
-  .acpmux-composer-bar .acpmux-context { display: none; }
-  .acpmux-composer-bar { gap: 6px; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-context-usage-menu,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-context { display: none; }
+  :is(.acpmux-composer-bar, .nt-pickers) { gap: 6px; }
   .acpmux-composer-actions { gap: 6px; }
 }
 /* Below 220px only +, the model, access and the turn's controls remain: tighten their rhythm. */
 @container composer (max-width: 220px) {
-  .acpmux-composer-bar { padding-inline: 8px; }
-  .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
+  :is(.acpmux-composer-bar, .nt-pickers) { padding-inline: 8px; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
 }
 /* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
    and rounded corners move to the top. */

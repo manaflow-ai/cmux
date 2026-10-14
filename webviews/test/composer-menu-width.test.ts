@@ -4,7 +4,8 @@
 // width must come from its content and the viewport, never from the chip. The location menu is
 // portaled into a Base UI positioner on the body and must still get the pane's surface color.
 //
-// The page is the pane's real stylesheets plus markup in the shape the components render, with the
+// The page is the pane's real stylesheets plus markup in the shape the components render (the bar
+// inside the composer, which is the size container of its narrow tiers), with the
 // inline style useUiAnchor sets. The engines come from `playwright install chromium webkit`; where
 // they are not installed, the cases are skipped and say so.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -50,7 +51,7 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
 ${css}
 .flex{display:flex}
 </style></head><body>
-<div class="acpmux-shell"><div class="acpmux-composer acpmux-composer-bar" style="margin-top:320px;padding:0">
+<div class="acpmux-shell"><div class="acpmux-stage"><div class="acpmux-composer" style="margin-top:320px;padding:0"><div class="acpmux-composer-bar">
   <span class="acpmux-picker acpmux-composer-plus"><button class="acpmux-picker-button" style="width:28px">+</button></span>
   <div class="acpmux-chips">
   <span class="acpmux-picker acpmux-model" style="position:relative">
@@ -87,7 +88,7 @@ ${css}
   </span>
   </div>
   <span class="acpmux-composer-actions"><button class="acpmux-send" style="width:28px;height:28px">↑</button></span>
-</div></div>
+</div></div></div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
   <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
 </div>

@@ -32,7 +32,10 @@ const controls = {
     ],
   },
 };
-const withControls = (snapshot: ReturnType<typeof chat>) => ({ ...snapshot, summary: { ...snapshot.summary!, ...controls } });
+const withControls = (snapshot: ReturnType<typeof chat>) => ({
+  ...snapshot,
+  summary: { ...snapshot.summary!, ...controls },
+});
 
 const finished = [
   user("Add retries with backoff to the fetch helper", 10),
@@ -69,7 +72,8 @@ export function narrowProblems(document: Document): string[] {
   const view = document.defaultView!;
   const problems: string[] = [];
   const page = document.scrollingElement ?? document.documentElement;
-  if (page.scrollWidth > view.innerWidth + 1) problems.push(`the page scrolls sideways (${page.scrollWidth} > ${view.innerWidth})`);
+  if (page.scrollWidth > view.innerWidth + 1)
+    problems.push(`the page scrolls sideways (${page.scrollWidth} > ${view.innerWidth})`);
   const rows: [string, string][] = [
     [".acpmux-composer-bar", "composer bar"],
     [".nt-pickers", "New Tab chips"],
@@ -87,14 +91,17 @@ export function narrowProblems(document: Document): string[] {
       const rects = controls.map((control) => ({ control, rect: control.getBoundingClientRect() }));
       for (const { control, rect } of rects)
         if (rect.left < box.left - 1 || rect.right > box.right + 1)
-          problems.push(`${name}: ${label(control)} leaves the row (${Math.round(rect.left)}–${Math.round(rect.right)} of ${Math.round(box.left)}–${Math.round(box.right)})`);
+          problems.push(
+            `${name}: ${label(control)} leaves the row (${Math.round(rect.left)}–${Math.round(rect.right)} of ${Math.round(box.left)}–${Math.round(box.right)})`,
+          );
       for (let i = 0; i < rects.length; i++)
         for (let j = i + 1; j < rects.length; j++) {
           const a = rects[i]!.rect;
           const b = rects[j]!.rect;
           const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
           const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-          if (width > 1 && height > 1) problems.push(`${name}: ${label(rects[i]!.control)} overlaps ${label(rects[j]!.control)}`);
+          if (width > 1 && height > 1)
+            problems.push(`${name}: ${label(rects[i]!.control)} overlaps ${label(rects[j]!.control)}`);
         }
       // An icon drawn narrower than its own size is a squeezed control (a model chip read as "•").
       for (const icon of row.querySelectorAll<SVGSVGElement>("svg[viewBox]")) {
@@ -103,12 +110,18 @@ export function narrowProblems(document: Document): string[] {
         if (!width || !height || !box?.height) continue;
         const drawn = height * (box.width / box.height);
         if (width + 1 < drawn)
-          problems.push(`${name}: an icon of ${label(icon.closest("button") ?? icon)} is squeezed to ${width.toFixed(1)}px of ${drawn.toFixed(1)}px`);
+          problems.push(
+            `${name}: an icon of ${label(icon.closest("button") ?? icon)} is squeezed to ${width.toFixed(1)}px of ${drawn.toFixed(1)}px`,
+          );
       }
       for (const text of row.querySelectorAll("span, button, a")) {
         if (!visible(text) || !text.textContent?.trim() || text.children.length) continue;
         const style = getComputedStyle(text);
-        if (text.scrollWidth > text.clientWidth + 1 && style.overflowX !== "visible" && style.textOverflow !== "ellipsis")
+        if (
+          text.scrollWidth > text.clientWidth + 1 &&
+          style.overflowX !== "visible" &&
+          style.textOverflow !== "ellipsis"
+        )
           problems.push(`${name}: “${text.textContent.trim()}” is cut off`);
       }
     }
@@ -160,10 +173,9 @@ export default agentPaneEntry({
       snapshot: withControls(chat(finished)),
       play: check,
     },
-    steer: {
-      note: "A prompt typed while a turn runs: Stop, Steer and Send beside the mic, the most crowded row.",
-      snapshot: withControls({ ...chat(working, { isWorking: true }), summary: { ...chat(working).summary!, steering: true } }),
-      ready: { draft: "Use the new tokenizer instead" },
+    working: {
+      note: "A turn running: Stop beside the mic, with the context ring busy.",
+      snapshot: withControls(chat(working, { isWorking: true })),
       play: check,
     },
     "pull-requests": {
@@ -172,7 +184,10 @@ export default agentPaneEntry({
         chat([
           user("Split the change into two PRs", 6),
           activity(
-            [create("Add retry with exponential backoff to the uploader and the fetch helper", 128), create("Cover retry with a test", 129)],
+            [
+              create("Add retry with exponential backoff to the uploader and the fetch helper", 128),
+              create("Cover retry with a test", 129),
+            ],
             5,
           ),
           assistant("Both PRs are open.", 2),
@@ -183,7 +198,10 @@ export default agentPaneEntry({
     },
     "new-tab": {
       note: "The New Tab page with its composer and recent chats.",
-      ready: { newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" }, newSession: true },
+      ready: {
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
+        newSession: true,
+      },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", ...controls },
       }),
