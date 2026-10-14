@@ -3,9 +3,13 @@
 /// `/word` at its start, filters by that word, and picking a command writes
 /// `/name ` back so its arguments can follow.
 
+import type { StringKey } from "./i18n";
+
 export type SlashCommand = {
   name: string;
   description: string;
+  /** A pane string that replaces `description`, for commands cmux owns. */
+  descriptionKey?: StringKey;
   hint?: string;
   /** Where the command came from. Harness commands are the default for old snapshots. */
   source?: "agent" | "cmux" | "skill" | "prompt";
