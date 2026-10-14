@@ -1590,9 +1590,11 @@ mod tests {
         );
 
         let mut decoded = Vec::new();
-        let blob = captured.blobs.iter().find(|blob| {
-            blob.reference.terminal_id == public_id.as_str()
-        }).unwrap();
+        let blob = captured
+            .blobs
+            .iter()
+            .find(|blob| blob.reference.terminal_id == public_id.as_str())
+            .unwrap();
         GzDecoder::new(blob.compressed.as_slice()).read_to_end(&mut decoded).unwrap();
         let replay: Value = serde_json::from_slice(&decoded).unwrap();
         let replay_bytes = base64::engine::general_purpose::STANDARD
