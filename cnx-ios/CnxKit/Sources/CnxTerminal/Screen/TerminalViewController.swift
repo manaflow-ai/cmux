@@ -919,12 +919,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let measured = surface.cellSize
         if measured.height > 0 { cell = measured }
         let cellHeight = cell.height > 0 ? cell.height : 16
-        // The screen plus a margin above and below the visible rows, within
-        // the largest texture Metal allows (8192 px; a bigger surface's frames
-        // are discarded by Ghostty's layer).
-        let scale = view.window?.screen.scale ?? 3
-        let maxRows = Int(floor(8192 / (cellHeight * scale)))
-        let rows = min(Int(ceil(bounds.height / cellHeight)) + 2 * Self.marginRows, maxRows)
+        // The screen plus a margin above and below the visible rows
+        // (TerminalMirrorRows). The rows depend on the screen, not on this
+        // layout's height (V2-1: a grid zoom's transient page height resized
+        // the mirror mid-stream). Out of a window, the rows stay as they are.
+        let screen = view.window?.screen
+        let rows = screen == nil && surfaceRows > 0 ? surfaceRows
+            : TerminalMirrorRows.rows(pageHeight: bounds.height, screenSize: screen?.bounds.size ?? bounds.size,
+                                      cellHeight: cellHeight, scale: screen?.scale ?? 3, marginRows: Self.marginRows)
         if rows != surfaceRows {
             sizingLog.notice("mirror rows \(self.surfaceRows, privacy: .public) -> \(rows, privacy: .public) cause=layout page \(Int(bounds.height), privacy: .public)pt")
             surfaceRows = rows
