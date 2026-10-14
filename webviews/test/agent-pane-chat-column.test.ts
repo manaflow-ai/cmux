@@ -234,9 +234,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           const target = (animation.effect as KeyframeEffect | null)?.target;
           return `${target?.className ?? "?"} ${animation.constructor.name} ${String(animation.effect?.getTiming().duration)}`;
         });
-    await page.waitForFunction(`(${gliding})().length === 0`, null, { timeout: 5_000 }).catch(async (error) => {
-      throw new Error(`still gliding after 5 s: ${JSON.stringify(await page.evaluate(gliding))}`, { cause: error });
-    });
+    await page
+      .waitForFunction(`(${gliding.toString()})().length === 0`, null, { timeout: 5_000 })
+      .catch(async (error) => {
+        throw new Error(`still gliding after 5 s: ${JSON.stringify(await page.evaluate(gliding))}`, { cause: error });
+      });
     return page.evaluate(
       () =>
         new Promise<number>((done) =>
