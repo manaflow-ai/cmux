@@ -1413,12 +1413,15 @@ fn query_session_journal_without_output_after(
                 .collect::<Vec<_>>();
             reached = covered.last().map_or(archive_through, |record| record.sequence);
             records.extend(covered.into_iter().filter(|record| record.kind != "terminal.output"));
-            if records.len() >= limit || reached >= through {
+            // Stay on the legacy path until the sealed prefix is exhausted.
+            // Filtering terminal output can leave a page short even though
+            // unread archived records remain after `reached`.
+            if records.len() >= limit || reached < archive_through || reached >= through {
                 records.truncate(limit);
                 return Ok((records, reached));
             }
         }
-        if records.len() >= limit || reached >= through {
+        if records.len() >= limit || reached < archive_through || reached >= through {
             records.truncate(limit);
             return Ok((records, reached));
         }
@@ -1448,7 +1451,7 @@ fn query_session_journal_without_output_after(
     let active = statement
         .query_map(
             params![
-                i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(reached).context("journal sequence exceeds SQLite range")?,
                 i64::try_from(through).context("journal sequence exceeds SQLite range")?,
                 i64::try_from(remaining).context("journal page limit exceeds SQLite range")?,
             ],
@@ -1484,7 +1487,6 @@ fn archived_non_output_after(
     archive_end: u64,
     limit: usize,
 ) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
-    backfill_legacy_journal_segment_kinds(connection)?;
     // This helper only owns the sealed prefix. Let the active indexed query
     // handle an entirely-active range or a cursor at the archive boundary.
     if sequence >= archive_end {
@@ -1556,20 +1558,12 @@ fn archived_non_output_after(
 }
 
 /// Populate the seal-time kind index for segments written before the index was
-/// introduced. The marker makes this an open-time migration: subsequent reads
-/// use only the indexed metadata and retain the validating fallback for a
-/// segment that is concurrently discovered without an index row.
-fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Result<()> {
-    let complete: Option<String> = connection
-        .query_row(
-            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if complete.as_deref() == Some("1") {
-        return Ok(());
-    }
+/// introduced. This runs during registry open, in the schema transaction. A
+/// segment that cannot be decoded remains unindexed so reads retain the
+/// validating legacy fallback and a later open can retry the migration.
+pub(super) fn backfill_legacy_journal_segment_kinds(
+    connection: &Connection,
+) -> anyhow::Result<()> {
     connection.execute(
         "INSERT OR IGNORE INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')",
         [],
@@ -1588,8 +1582,13 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
             .collect::<Result<Vec<_>, _>>()?
     };
     for segment_id in ids {
-        let segment = load_journal_segment(connection, &segment_id)?;
-        let kinds = decode_journal_segment(segment)?
+        let Ok(segment) = load_journal_segment(connection, &segment_id) else {
+            continue;
+        };
+        let Ok(decoded) = decode_journal_segment(segment) else {
+            continue;
+        };
+        let kinds = decoded
             .records
             .into_iter()
             .map(|record| record.kind)

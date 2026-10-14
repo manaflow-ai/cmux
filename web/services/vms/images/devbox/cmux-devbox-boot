@@ -377,7 +377,15 @@ check_daemon_health() {
   [ "$daemon_health_ticks" -ge "$DAEMON_HEALTH_INTERVAL" ] || return 0
   daemon_health_ticks=0
   if [ "$daemon_health_grace" -gt 0 ]; then
-    daemon_health_grace=$((daemon_health_grace - 1))
+    # Probe during startup so the first successful response ends the grace
+    # period immediately. Until then, preserve the startup budget without
+    # counting expected not-ready responses as failures.
+    if daemon_health_probe; then
+      daemon_health_grace=0
+      daemon_health_failures=0
+    else
+      daemon_health_grace=$((daemon_health_grace - 1))
+    fi
     return 0
   fi
   if daemon_health_probe; then

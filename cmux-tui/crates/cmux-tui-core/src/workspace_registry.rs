@@ -2700,6 +2700,7 @@ impl WorkspaceRegistry {
             create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
+            session_journal::backfill_legacy_journal_segment_kinds(&tx)?;
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
