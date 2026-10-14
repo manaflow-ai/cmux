@@ -20,6 +20,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     weak var services: AppServices? {
         didSet {
             nowPlaying.follow(services)
+            sidebarNowPlaying.follow(services)
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A reopened tab restores one history, not two (cx-d0d.11).
@@ -49,6 +50,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let media = BrowserMediaHub()
     /// The playing tab in macOS Now Playing and on the media keys.
     let nowPlaying = BrowserNowPlaying()
+    /// The playing tab for the sidebar's Now Playing card (cx-ouoxo).
+    let sidebarNowPlaying = BrowserTabsNowPlaying()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).

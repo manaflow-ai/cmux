@@ -9,7 +9,9 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry)
+        let cards = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry)
+        let nowPlaying = SidebarNowPlayingFeed.start(model: model, services: services)
+        cardsObservation = Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); nowPlaying.cancel() } }
     }
 }
 

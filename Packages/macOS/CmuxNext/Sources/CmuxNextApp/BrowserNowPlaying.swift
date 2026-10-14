@@ -71,11 +71,17 @@ final class BrowserNowPlaying {
         services?.cache.browsers.values.first { $0.tab.id == id }?.tab
     }
 
-    private func update(_ sessions: [Session]) {
+    /// The session Now Playing shows after `current`: the shown tab keeps it
+    /// while it plays; another takes it only by playing aloud. The sidebar's
+    /// Now Playing card (`BrowserTabsNowPlaying`) picks the same way.
+    static func pick(after current: Session?, from sessions: [Session]) -> Session? {
         let shown = current.flatMap { current in sessions.first { $0.tab == current.tab } }
-        // The shown tab keeps Now Playing while it plays; another takes it only by playing aloud.
-        let next = (shown?.media.isAudible == true ? shown : nil) ?? sessions.first { $0.media.isAudible }
+        return (shown?.media.isAudible == true ? shown : nil) ?? sessions.first { $0.media.isAudible }
             ?? shown ?? sessions.first { $0.media.isPlaying }
+    }
+
+    private func update(_ sessions: [Session]) {
+        let next = Self.pick(after: current, from: sessions)
         guard next != current else { return }
         current = next
         publish()

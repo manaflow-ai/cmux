@@ -111,7 +111,7 @@ extension SidebarBridge {
         case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying:
-            break
+            SidebarNowPlayingFeed.handle(intent, source: services.cache.pageRequests.sidebarNowPlaying)
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):

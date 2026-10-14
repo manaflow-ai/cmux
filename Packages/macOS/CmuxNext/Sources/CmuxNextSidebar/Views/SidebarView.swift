@@ -353,7 +353,7 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, notice: model.noticeCard)
+                    cards: SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
                 )
             }) {
                 self?.render(state)

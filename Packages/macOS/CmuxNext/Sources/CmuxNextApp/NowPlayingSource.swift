@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSidebar
 import Foundation
 
@@ -17,10 +18,21 @@ protocol NowPlayingSource: AnyObject {
 @MainActor
 enum SidebarNowPlayingFeed {
     static func start(model: SidebarModel, source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
-        Task {}
+        Task {
+            for await nowPlaying in ObservationStream({ enabled() ? source.nowPlaying : nil }) {
+                if model.nowPlaying != nowPlaying { model.nowPlaying = nowPlaying }
+            }
+        }
+    }
+
+    /// The browser tabs' Now Playing for a window's sidebar, while `labs.previewFeatures` is on.
+    static func start(model: SidebarModel, services: AppServices) -> Task<Void, Never> {
+        start(model: model, source: services.cache.pageRequests.sidebarNowPlaying,
+              enabled: { [weak services] in services?.settings?.snapshot.previewFeatures == true })
     }
 
     static func handle(_ intent: SidebarIntent, source: any NowPlayingSource) {
-
+        guard case .nowPlaying(let command) = intent else { return }
+        source.perform(command)
     }
 }
