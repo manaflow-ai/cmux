@@ -120,7 +120,7 @@ public struct WorkspaceScreen: View {
             if let option = source.newTabOptions.first(where: { $0.id == option }) {
                 Task { _ = await source.createTab(option) }
             }
-        case .close(let id): source.close(id)
+        case .close(let id): Task { _ = await source.close(id) }
         case .exit: source.exit()
         case nil: break
         }

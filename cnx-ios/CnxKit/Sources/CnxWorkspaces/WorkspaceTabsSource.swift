@@ -173,14 +173,22 @@ public final class WorkspaceTabsSource: TabsDataSource {
         CnxTheme.standard.haptics.selection()
     }
 
-    /// Closes the tab on the Mac. It leaves the page at once and comes back
-    /// at its place, with a notice, if the Mac refuses.
-    public func close(_ id: TabsKitTab.ID) {
-        guard let workspace, let position = workspace.tabs.firstIndex(where: { $0.id == id }) else { return }
-        let tab = workspace.tabs[position]
+    /// Closes the tab on the Mac, then here. TabsKit keeps the card hidden
+    /// meanwhile; a refusal returns false, so the card comes back, with a
+    /// notice.
+    public func close(_ id: TabsKitTab.ID) async -> Bool {
+        guard let workspace, let tab = workspace.tabs.first(where: { $0.id == id }) else { return true }
         guard let creator else {
             notice = "Connect to \(macName) to close tabs."
-            return
+            CnxTheme.standard.haptics.error()
+            return false
+        }
+        do {
+            try await creator.backend.closeTab(tab, in: workspace)
+        } catch {
+            notice = "Couldn't close \(tab.title) on \(macName): \(Self.message(error))"
+            CnxTheme.standard.haptics.error()
+            return false
         }
         let next = store.removeTab(id, from: workspaceID)
         surfaces[id] = nil
@@ -190,18 +198,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
-        let workspaceID = workspaceID
-        Task { [weak self] in
-            do {
-                try await creator.backend.closeTab(tab, in: workspace)
-            } catch {
-                guard let self else { return }
-                self.store.insertTab(tab, at: position, in: workspaceID)
-                if tab.kind == .browser, !self.streamed.isLive { self.browsers[tab.id] = BrowserTabModel(url: tab.url) }
-                self.notice = "Couldn't close \(tab.title) on \(self.macName): \(Self.message(error))"
-                CnxTheme.standard.haptics.error()
-            }
-        }
+        return true
     }
 
     /// Shown by TabsKit as a glass toast (a tab that could not be created).
@@ -338,7 +335,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
-        let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in self?.close(kit.id) }
+        let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
         switch tab.kind {
         case .agent:
