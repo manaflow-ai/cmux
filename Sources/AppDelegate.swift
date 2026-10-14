@@ -20389,7 +20389,8 @@ private extension NSWindow {
         // The owning web view must receive Return so its native form handling runs.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderWebView != nil &&
+                !cmuxIsLikelyWebInspectorResponder(self.firstResponder),
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
