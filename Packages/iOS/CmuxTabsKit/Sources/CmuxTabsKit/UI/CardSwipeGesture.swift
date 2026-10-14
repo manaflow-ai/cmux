@@ -8,35 +8,25 @@ import UIKit
 @MainActor
 @Observable
 final class CardSwipeState {
-    /// Horizontal offset per card key.
+    /// Horizontal offset per card key, following the finger from touch-down.
     private(set) var offsets: [String: CGFloat] = [:]
+    /// The part of the touch slop not caught up yet (animated to 0 over
+    /// 80 ms when the drag is recognised): the card glides to the finger
+    /// instead of jumping there (Safari, tabs-parity-reaudit D3).
+    private(set) var catchUps: [String: CGFloat] = [:]
     /// Opacity per card key (Reduce Motion crossfades).
     private(set) var opacities: [String: Double] = [:]
-    /// Lift scale per card key (1.09 while dragged).
+    /// Lift scale per card key (1.093 while dragged).
     private(set) var scales: [String: CGFloat] = [:]
 
-    /// A copy of every swiped card, drawn by the grid over the real card.
-    /// It is invisible until the swipe commits; then it flies off while the
-    /// card's tab leaves the grid halfway out (Safari's count changes about
-    /// 99 ms after the release). Made when the drag starts, so the fly-off
-    /// animates it from its first frame (a view inserted in the same update
-    /// as the animated change would not move).
+    /// Cards flying off after a committed swipe. The grid keeps drawing them
+    /// (the same card view, so the exit never re-renders it) after their tab
+    /// has left the list, until they are off screen.
     private(set) var departing: [DepartingCard] = []
-    /// Copies that are flying off (visible; their real card is hidden).
-    private(set) var flying: Set<String> = []
-    func isDeparting(_ key: String) -> Bool { flying.contains(key) }
+    func isDeparting(_ key: String) -> Bool { departing.contains { $0.id == key } }
 
-    func offset(_ key: String) -> CGFloat { offsets[key] ?? 0 }
-    /// The card in its slot (the grid card, or the live terminal over it):
-    /// hidden while its departing copy flies off.
-    func opacity(_ key: String) -> Double { isDeparting(key) ? 0 : opacities[key] ?? 1 }
-    /// The departing copy (Reduce Motion fades it).
-    func departingOpacity(_ key: String) -> Double { flying.contains(key) ? opacities[key] ?? 1 : 0 }
-
-    private func dropCopy(_ key: String) {
-        flying.remove(key)
-        departing.removeAll { $0.id == key }
-    }
+    func offset(_ key: String) -> CGFloat { (offsets[key] ?? 0) + (catchUps[key] ?? 0) }
+    func opacity(_ key: String) -> Double { opacities[key] ?? 1 }
     func scale(_ key: String) -> CGFloat { scales[key] ?? 1 }
     /// Cards above every other card: from touch-down until their spring back
     /// or exit has finished (a lowered card slid under its neighbour while
@@ -44,51 +34,70 @@ final class CardSwipeState {
     private(set) var raised: Set<String> = []
     func isRaised(_ key: String) -> Bool { raised.contains(key) }
 
-    private func spring(_ s: ZoomSpring) -> Animation { .spring(response: s.response, dampingFraction: s.damping) }
+    /// Whether the grid lists `key` again (a refused close put it back).
+    @ObservationIgnored var isListed: (String) -> Bool = { _ in false }
+    /// Times the tab's removal during a fly-off (injected for tests).
+    @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
 
-    func track(_ key: String, translation: CGFloat, reduceMotion: Bool, copy: () -> DepartingCard) {
-        if !departing.contains(where: { $0.id == key }) { departing.append(copy()) }
-        if !raised.contains(key) { raised.insert(key) }
+    /// The textbook spring for `s` (SwiftUI's `.spring(response:dampingFraction:)`
+    /// renders faster and stiffer than its parameters; tabs-parity-reaudit D8).
+    private func spring(_ s: ZoomSpring) -> Animation { s.animation() }
+
+    func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
+        let target = CardSwipe.offset(translation: translation)
+        let first = !raised.contains(key)
+        if first { raised.insert(key) }
         if !reduceMotion, scales[key] == nil {
             withAnimation(spring(CardSwipe.lift)) { scales[key] = CardSwipe.liftScale }
         }
         var t = Transaction()
         t.disablesAnimations = true
         withTransaction(t) {
-            offsets[key] = CardSwipe.offset(translation: translation)
+            if first, !reduceMotion, offsets[key] == nil {
+                // Start where the card is (its slot) and glide to the finger.
+                catchUps[key] = -target
+            }
+            offsets[key] = target
             opacities[key] = nil
+        }
+        if first, !reduceMotion, catchUps[key] != nil {
+            withAnimation(.easeOut(duration: CardSwipe.slopCatchUp)) { catchUps[key] = 0 } completion: { [weak self] in
+                if self?.catchUps[key] == 0 { self?.catchUps[key] = nil }
+            }
         }
     }
 
     /// Release: fly off and close, or spring back. A committed card keeps
     /// going left at the release speed (at least `CardSwipe.flyOffMinSpeed`),
-    /// lifted and opaque, until it is past the screen edge; halfway out
-    /// `close` takes its tab out of the grid (the grid reflows, the count
-    /// changes) without waiting for the host. Refused: the card comes back
-    /// to its slot. With Reduce Motion nothing slides after release: the
-    /// card fades out where it is, or reappears at its slot with a 0.18 s
-    /// fade.
+    /// lifted and opaque, from the release frame until it is past the
+    /// screen edge; 99 ms in, `close` takes its tab out of the grid (the
+    /// count changes, the grid reflows) without waiting for the host.
+    /// Refused: the card comes back to its slot. A card that springs back
+    /// keeps the finger's velocity into the spring. With Reduce Motion
+    /// nothing slides after release: the card fades out where it is, or
+    /// reappears at its slot with a 0.18 s fade.
     func release(_ key: String, velocity: CGFloat, card: CGRect, reduceMotion: Bool,
                  departing makeCopy: () -> DepartingCard, close: @escaping () async -> Bool) {
         let offset = offsets[key] ?? 0
         guard CardSwipe.commits(offset: offset, velocity: velocity, cardWidth: card.width) else {
-            comeBack(key, reduceMotion: reduceMotion)
+            comeBack(key, velocity: velocity, reduceMotion: reduceMotion)
             return
         }
-        if !departing.contains(where: { $0.id == key }) { departing.append(makeCopy()) }
-        flying.insert(key)
+        departing.removeAll { $0.id == key }
+        departing.append(makeCopy())
         let finish: (Bool) -> Void = { [weak self] closed in
             guard let self, !closed else { return }
             // Refused: the tab is back in the grid; its card returns to the slot.
-            self.flying.remove(key)
-            self.comeBack(key, reduceMotion: reduceMotion)
+            self.departing.removeAll { $0.id == key }
+            self.comeBack(key, velocity: 0, reduceMotion: reduceMotion)
         }
         let landed: () -> Void = { [weak self] in
             guard let self, self.isDeparting(key) else { return }
-            self.dropCopy(key)
+            self.departing.removeAll { $0.id == key }
             // Gone for good unless a refusal brings the tab back (comeBack).
             if !self.isListed(key) {
                 self.offsets[key] = nil
+                self.catchUps[key] = nil
                 self.opacities[key] = nil
                 self.scales[key] = nil
                 self.raised.remove(key)
@@ -99,55 +108,76 @@ final class CardSwipeState {
             withAnimation(.easeInOut(duration: CardSwipe.reduceMotionFade)) { opacities[key] = 0 } completion: { landed() }
             return
         }
+        // The slop catch-up ends where it is; the move is one straight line
+        // at the release speed, split where the tab leaves the grid.
+        let start = self.offset(key)
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) {
+            catchUps[key] = nil
+            offsets[key] = start
+        }
         let target = CardSwipe.flyOffOffset(cardMinX: card.minX, cardWidth: card.width)
-        // One straight move at a constant speed, split where the tab leaves the grid.
-        let total = CardSwipe.flyOffDuration(distance: target - offset, velocity: velocity)
-        let f = CardSwipe.flyOffRemovalFraction
-        let removalPoint = offset + (target - offset) * CGFloat(f)
-        withAnimation(.linear(duration: total * f)) { offsets[key] = removalPoint } completion: { [weak self] in
-            Task { finish(await close()) }
-            withAnimation(.linear(duration: total * (1 - f))) { self?.offsets[key] = target } completion: { landed() }
+        let total = CardSwipe.flyOffDuration(distance: target - start, velocity: velocity)
+        // One uninterrupted move (a second animation chained on the first
+        // one's completion started 3-4 frames late).
+        withAnimation(.linear(duration: total)) { offsets[key] = target } completion: { landed() }
+        let clock = self.clock
+        Task {
+            try? await clock.sleep(for: .seconds(min(total, CardSwipe.flyOffRemovalDelay)))
+            finish(await close())
         }
     }
 
-    /// Whether the grid lists `key` again (a refused close put it back).
-    @ObservationIgnored var isListed: (String) -> Bool = { _ in false }
+    func cancel(_ key: String, reduceMotion: Bool) { comeBack(key, velocity: 0, reduceMotion: reduceMotion) }
 
-    func cancel(_ key: String, reduceMotion: Bool) { comeBack(key, reduceMotion: reduceMotion) }
-
-    /// Back to the card's slot: the snap-back and settle springs, or (Reduce
-    /// Motion) a 0.18 s fade in at the slot with no movement.
-    private func comeBack(_ key: String, reduceMotion: Bool) {
+    /// Back to the card's slot: the snap-back spring carrying the finger's
+    /// velocity (Safari's card keeps moving 1–2 frames after a slow release)
+    /// and the settle spring, or (Reduce Motion) a 0.18 s fade in at the
+    /// slot with no movement.
+    private func comeBack(_ key: String, velocity: CGFloat, reduceMotion: Bool) {
+        let from = offset(key)
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) {
+            catchUps[key] = nil
+            offsets[key] = from
+        }
         if reduceMotion {
-            var t = Transaction()
-            t.disablesAnimations = true
             withTransaction(t) {
                 offsets[key] = 0
                 scales[key] = nil
                 opacities[key] = 0
             }
             withAnimation(.easeInOut(duration: CardSwipe.reduceMotionFade), completionCriteria: .removed) { opacities[key] = 1 } completion: { [weak self] in
-                if self?.offsets[key] == 0 {
-                    self?.raised.remove(key)
-                    self?.dropCopy(key)
-                }
+                if self?.offsets[key] == 0 { self?.raised.remove(key) }
             }
         } else {
-            withAnimation(spring(CardSwipe.snapBack), completionCriteria: .removed) {
+            let s = from > 0 ? CardSwipe.snapBackRight : CardSwipe.snapBack
+            // The spring's velocity is a fraction of the change per second.
+            let relative = abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0
+            let animation = s.animation(initialVelocity: relative)
+            withAnimation(animation, completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1
             } completion: { [weak self] in
                 // Lowered only once it is back in its slot (a new drag may
                 // have started meanwhile: then it stays raised).
-                if self?.offsets[key] == 0 {
-                    self?.raised.remove(key)
-                    self?.dropCopy(key)
-                }
+                if self?.offsets[key] == 0 { self?.raised.remove(key) }
             }
             withAnimation(spring(CardSwipe.settle)) { scales[key] = 1 } completion: { [weak self] in
                 if self?.offsets[key] == 0 { self?.scales[key] = nil }
             }
         }
+    }
+}
+
+extension ZoomSpring {
+    /// A damped oscillator with this response and damping (mass 1,
+    /// stiffness (2π / response)², damping 4π · damping / response).
+    func animation(initialVelocity: Double = 0) -> Animation {
+        let w = 2 * Double.pi / response
+        return .interpolatingSpring(mass: 1, stiffness: w * w, damping: 2 * damping * w, initialVelocity: initialVelocity)
     }
 }
 
@@ -209,11 +239,59 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
             return abs(v.x) > abs(v.y)
         }
 
+        /// The card's long-press menu and drag-to-reorder interactions must
+        /// not hold the swipe back: waiting for them to fail kept a slow
+        /// drag's card still for about 300 ms, then it jumped to the finger
+        /// (cmux-next tabs-parity-reaudit D3).
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            !(other.view is UIScrollView)
+        }
+
         /// The grid's scroll view waits for this pan to fail (it fails at
         /// once for a vertical drag), so a horizontal drag is never taken by
         /// the scroller first.
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
             other is UIPanGestureRecognizer && other.view is UIScrollView
+        }
+    }
+}
+
+enum CardPressPhase {
+    /// Window coordinates.
+    case began(CGPoint), changed(CGPoint), ended(CGPoint), cancelled
+}
+
+/// A long press on a card (0.5 s, within 10 pt): Safari's card menu, or,
+/// when the finger then moves, a drag to another slot. A plain UIKit
+/// recognizer on the card itself: the system context menu held the card's
+/// swipe back for about 450 ms (it waited for the menu's press to fail).
+struct CardLongPressGesture: UIGestureRecognizerRepresentable {
+    var onPhase: (CardPressPhase) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let g = UILongPressGestureRecognizer()
+        g.minimumPressDuration = 0.5
+        g.allowableMovement = 10
+        g.delegate = context.coordinator
+        return g
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func handleUIGestureRecognizerAction(_ g: UILongPressGestureRecognizer, context: Context) {
+        let p = g.location(in: nil)
+        switch g.state {
+        case .began: onPhase(.began(p))
+        case .changed: onPhase(.changed(p))
+        case .ended: onPhase(.ended(p))
+        case .cancelled, .failed: onPhase(.cancelled)
+        default: break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            !(other.view is UIScrollView)
         }
     }
 }

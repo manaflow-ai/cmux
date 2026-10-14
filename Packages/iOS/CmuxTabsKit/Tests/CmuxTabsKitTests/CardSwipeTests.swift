@@ -17,11 +17,12 @@ struct CardSwipeTests {
         }
     }
 
-    /// tabs-parity-audit 3e / 8a: Safari closed a 100 pt swipe over 1 s
-    /// (card at −104.6 pt, still moving left).
-    @Test func slowMovingSwipeCloses() {
-        #expect(CardSwipe.commits(offset: -104.6, velocity: -100, cardWidth: w))
-        #expect(!CardSwipe.commits(offset: -60, velocity: -100, cardWidth: w))
+    /// tabs-parity-reaudit D3a: a slow 100 pt drag (about 100 pt/s at
+    /// release) springs back in Safari, every time.
+    @Test func slowDragSpringsBack() {
+        for v: CGFloat in [0, -50, -100, -150, -200] {
+            #expect(!CardSwipe.commits(offset: -104.6, velocity: v, cardWidth: w))
+        }
     }
 
     @Test func leftFlingsClose() {
