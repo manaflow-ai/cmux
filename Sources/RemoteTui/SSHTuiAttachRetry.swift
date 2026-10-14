@@ -64,7 +64,7 @@ final class SSHTuiAttachBackoff {
             wakeRequested = false
             return
         }
-        let sleeper = Task { try? await clock.sleep(for: delay) }
+        let sleeper = Task { _ = try? await clock.sleep(for: delay) }
         self.sleeper = sleeper
         await withTaskCancellationHandler {
             await sleeper.value
