@@ -60,7 +60,9 @@ struct CloudMachinesEnablementPanel: View {
             billingPlanLoaded: billingPlanLoaded,
             isPlanKnown: accountFlow?.hasLoadedBillingPlan == true,
             isProActive: accountFlow?.isProActive == true,
-            hasCloudTeamAccess: !(accountFlow?.availableTeams.isEmpty ?? true),
+            hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(
+                availableTeamCount: accountFlow?.availableTeams.count ?? 0
+            ),
             unavailableMessage: CloudMachinesFeature.disabledMessage,
             chromeBackgroundColor: chromeBackgroundColor,
             onEnable: { coordinator.enable() },

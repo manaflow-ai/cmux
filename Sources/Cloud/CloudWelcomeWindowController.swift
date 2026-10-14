@@ -320,7 +320,9 @@ private struct CloudWelcomeAccountView: View {
                 isAuthenticated: accountFlow?.isAuthenticated == true,
                 isPlanKnown: accountFlow?.hasLoadedBillingPlan == true,
                 isPro: accountFlow?.isProActive == true,
-                hasCloudTeamAccess: !(accountFlow?.availableTeams.isEmpty ?? true)
+                hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(
+                    availableTeamCount: accountFlow?.availableTeams.count ?? 0
+                )
             ),
             onNotNow: onNotNow,
             onNext: onNext,

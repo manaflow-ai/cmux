@@ -11,6 +11,13 @@ enum CloudWelcomeNextStep: Equatable {
     /// whose own gate decides between Upgrade and Enable.
     case openCloud
 
+    /// Stack Auth creates one personal team for a normal account. A free
+    /// account gets shared-team access only when its accepted list contains an
+    /// additional team.
+    static func hasSharedTeamAccess(availableTeamCount: Int) -> Bool {
+        availableTeamCount > 1
+    }
+
     static func resolve(
         isAuthenticated: Bool,
         isPlanKnown: Bool,

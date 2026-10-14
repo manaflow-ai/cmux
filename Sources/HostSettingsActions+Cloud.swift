@@ -92,7 +92,9 @@ extension HostSettingsActions {
         // Pro subscription. Personal VM access remains server-scoped to the
         // user's own plan.
         return flow.hasLoadedBillingPlan
-            ? flow.isProActive || !flow.availableTeams.isEmpty
+            ? flow.isProActive || CloudWelcomeNextStep.hasSharedTeamAccess(
+                availableTeamCount: flow.availableTeams.count
+            )
             : nil
     }
 
