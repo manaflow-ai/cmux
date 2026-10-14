@@ -267,3 +267,42 @@
 .nt-style-option:hover,.nt-style-option:has(:checked){color:var(--agent-text)}
 .nt-style-option:has(:focus-visible){outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
 @media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option{transition:none}}
+/* A chat with the chats its agent started (ChatCards.tsx): its row, a count that opens them, and
+   when open the children indented below it. The count sits before the time column. */
+.nt-card-family {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nt-card-family > .nt-card {
+  padding-right: 96px;
+}
+.nt-card-children-toggle {
+  position: absolute;
+  top: 5px;
+  right: 64px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-soft);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.nt-card-children-toggle:hover,
+.nt-card-children-toggle[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  color: var(--agent-text);
+}
+.nt-card-children {
+  display: flex;
+  flex-direction: column;
+}
+.nt-card-children > .nt-card {
+  padding-left: 30px;
+}
+
