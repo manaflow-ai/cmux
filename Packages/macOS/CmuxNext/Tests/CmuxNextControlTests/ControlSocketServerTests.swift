@@ -218,3 +218,64 @@ import Testing
         #expect(info.st_mode & S_IFMT == S_IFSOCK)
     }
 }
+
+/// The socket file deleted under a running app (a host's /tmp sweeper removed
+/// `/tmp/cmux-debug-<tag>.sock` at the same hour two nights running on a soak
+/// mini): the app kept its listener, but nothing could connect again until a
+/// relaunch. The server puts its socket back, with its mode, and never takes a
+/// path another server holds.
+@Suite(.serialized) struct ControlSocketPathRestoreTests {
+    func makeServer(_ mode: ControlAccessMode, path: String) throws -> ControlSocketServer {
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
+        router.updateCatalog(sampleCatalog())
+        let server = ControlSocketServer(configuration: .init(path: path, accessMode: mode), router: router)
+        try server.start()
+        return server
+    }
+
+    /// Pings until a connect succeeds or `limit` passes.
+    func pingWithin(_ path: String, _ limit: Duration) async -> String? {
+        let deadline = ContinuousClock.now + limit
+        while ContinuousClock.now < deadline {
+            if let client = try? LineClient(path: path) { return client.send("ping") }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return nil
+    }
+
+    @Test func aDeletedSocketFileComesBackWithItsMode() async throws {
+        let path = temporarySocketPath()
+        let server = try makeServer(.allowAll, path: path)
+        defer { server.stop() }
+        let open = try LineClient(path: path)
+        #expect(open.send("ping") == "PONG")
+
+        #expect(unlink(path) == 0)
+        #expect(await pingWithin(path, .seconds(5)) == "PONG", "a new connect reaches the server again")
+        var info = stat()
+        #expect(lstat(path, &info) == 0)
+        #expect(info.st_mode & S_IFMT == S_IFSOCK)
+        #expect(info.st_mode & 0o777 == ControlAccessMode.allowAll.filePermissions)
+        #expect(open.send("ping") == "PONG", "a connection open across the delete keeps working")
+
+        // Deleted again: restored again.
+        #expect(unlink(path) == 0)
+        #expect(await pingWithin(path, .seconds(5)) == "PONG")
+        server.stop()
+        #expect(access(path, F_OK) != 0, "stop removes the restored socket")
+    }
+
+    @Test func aPathAnotherServerTookIsLeftAlone() async throws {
+        let path = temporarySocketPath()
+        let first = try makeServer(.allowAll, path: path)
+        defer { first.stop() }
+        #expect(unlink(path) == 0)
+        let second = try makeServer(.automation, path: path)
+        defer { second.stop() }
+        try await Task.sleep(for: .milliseconds(500))
+        let identify = try LineClient(path: path).call("system.identify")
+        #expect(identify["result"]?["access_mode"] == "automation", "the second server keeps the path")
+        first.stop()
+        #expect(try LineClient(path: path).send("ping") == "PONG", "stopping the first never removes the second's socket")
+    }
+}
