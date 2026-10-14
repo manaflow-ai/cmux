@@ -216,5 +216,96 @@
    }
   },
   "refused": true
+ },
+ {
+  "name": "offer_respond accepted with the chat and the child in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/offer_respond",
+   "params": {
+    "sessionId": "a",
+    "offerId": "o",
+    "outcome": "accepted",
+    "childSessionId": "c"
+   }
+  },
+  "sessions": [
+   "a",
+   "c"
+  ],
+  "refused": false
+ },
+ {
+  "name": "offer_respond accepted with a child outside the scope is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/offer_respond",
+   "params": {
+    "sessionId": "a",
+    "offerId": "o",
+    "outcome": "accepted",
+    "childSessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "offer_respond for a chat outside the scope is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/offer_respond",
+   "params": {
+    "sessionId": "b",
+    "offerId": "o",
+    "outcome": "accepted",
+    "childSessionId": "c"
+   }
+  },
+  "sessions": [
+   "a",
+   "c"
+  ],
+  "refused": true
+ },
+ {
+  "name": "offer_respond dismissed without a child passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/offer_respond",
+   "params": {
+    "sessionId": "a",
+    "offerId": "o",
+    "outcome": "dismissed"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "offer_respond with a null child is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/offer_respond",
+   "params": {
+    "sessionId": "a",
+    "offerId": "o",
+    "outcome": "accepted",
+    "childSessionId": null
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]

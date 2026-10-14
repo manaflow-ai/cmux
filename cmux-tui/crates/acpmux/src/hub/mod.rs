@@ -35,6 +35,7 @@ mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub(crate) use route_switch::route_error;
+mod offers;
 mod secrets;
 mod seen;
 mod session;
@@ -46,8 +47,10 @@ use shutdown::ShutdownPlan;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
+mod startup;
 mod steer_end;
 mod stream;
+mod tags;
 mod tap;
 mod tools;
 pub use lifecycle::{
@@ -186,7 +189,7 @@ pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
-/// `turn_result`.
+/// `turn_result`; and the shells it runs in the background (`idle.rs`).
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
     /// `messageId` of the assistant message streaming now.
@@ -201,6 +204,7 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    pub(super) background_running: std::collections::HashSet<String>,
 }
 
 pub struct Hub {
@@ -268,8 +272,7 @@ pub struct Hub {
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
     /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
-    /// The `sandbox-exec` remote chains run Claude Code under
-    /// (`remote_sandbox.rs`).
+    /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
@@ -285,6 +288,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Chats agents offered the person, still open (`offers.rs`).
+    pub(super) offers: offers::Offers,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -341,6 +346,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            offers: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
@@ -431,122 +437,6 @@ impl Hub {
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
-    }
-
-    /// Hold session creation and agent spawns until `finish_startup`.
-    pub fn begin_startup(&self, login_env: bool) {
-        self.login_env_requested.store(login_env, Ordering::SeqCst);
-        self.startup_ready.send_replace(false);
-        self.catalog_ready.send_replace(false);
-    }
-
-    /// Background startup: import the login environment (when requested),
-    /// reload the catalog so PATH discovery sees it, check launchers, then
-    /// let spawns through and probe models.
-    pub async fn finish_startup(self: &Arc<Self>) {
-        // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
-        self.resume_queues();
-        // The last live model lists, before anything slow.
-        self.load_live_cache().await;
-        let login_env = self.login_env_requested.load(Ordering::SeqCst);
-        let mut reloaded = false;
-        if login_env {
-            // A cache whose fingerprint matches applies at once; the shell
-            // runs only when needed, and agent spawns wait for it (at most
-            // `login_env::TIMEOUT`) only when nothing else can stand in.
-            let plan = tokio::task::spawn_blocking(crate::login_env::begin)
-                .await
-                .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
-            let cached = crate::login_env::outcome() == crate::login_env::Outcome::Cached;
-            if cached {
-                reloaded = self.after_login_env().await;
-            }
-            if plan.run_shell && plan.wait {
-                if crate::login_env::import().await {
-                    reloaded = self.after_login_env().await || reloaded;
-                }
-            } else if plan.run_shell {
-                let hub = self.clone();
-                tokio::spawn(async move {
-                    if crate::login_env::import().await {
-                        hub.after_login_env().await;
-                    }
-                });
-            }
-        }
-        self.catalog_ready.send_replace(true);
-        self.verify_launchers().await;
-        self.startup_ready.send_replace(true);
-        tracing::info!("startup complete; agents may spawn");
-        // Probes of earlier runs left transcripts in the unattended folder: remove them.
-        let _ = tokio::task::spawn_blocking(|| {
-            crate::probe_cleanup::remove_probe_transcripts(
-                &crate::protected_folders::unattended_cwd(),
-            )
-        })
-        .await;
-        // A catalog reload already started fresh probes.
-        if !reloaded {
-            self.probe_models().await;
-        }
-    }
-
-    /// The login environment changed: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
-    /// and harnesses on the login PATH may come from it only. Watchers hear
-    /// the new catalog, so a client that listed the old one catches up.
-    async fn after_login_env(self: &Arc<Self>) -> bool {
-        self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
-        self.reload_and_announce().await
-    }
-
-    pub fn startup_complete(&self) -> bool {
-        *self.startup_ready.borrow()
-    }
-
-    /// Wait until background startup has finished (immediate outside a daemon).
-    pub(super) async fn wait_startup(&self) {
-        let mut rx = self.startup_ready.subscribe();
-        let _ = rx.wait_for(|ready| *ready).await;
-    }
-
-    /// Run `--version` on proxy launchers off the executor and mark the ones
-    /// that fail unavailable (and drop fallbacks that point at them).
-    async fn verify_launchers(&self) {
-        let mut probe = self.config.read().await.clone();
-        let before = probe.harnesses.clone();
-        let Ok(probe) = tokio::task::spawn_blocking(move || {
-            crate::config::verify_launchers(&mut probe);
-            probe
-        })
-        .await
-        else {
-            return;
-        };
-        let mut cfg = self.config.write().await;
-        // Launchers the probe rerouted (claude-sr through the subrouter server), unless a
-        // reload changed them meanwhile.
-        for (name, routed) in &probe.harnesses {
-            let unchanged =
-                cfg.harnesses.get(name).map(|p| &p.argv) == before.get(name).map(|p| &p.argv);
-            if unchanged
-                && before.get(name).map(|p| &p.argv) != Some(&routed.argv)
-                && before.contains_key(name)
-            {
-                cfg.harnesses.insert(name.clone(), routed.clone());
-            }
-        }
-        for (name, reason) in &probe.unavailable {
-            let argv = |c: &Config| c.harnesses.get(name).map(|p| p.argv.clone());
-            if argv(&cfg) != argv(&probe) || cfg.unavailable.contains_key(name) {
-                continue;
-            }
-            for p in cfg.harnesses.values_mut() {
-                if p.fallback.as_deref() == Some(name.as_str()) {
-                    p.fallback = None;
-                }
-            }
-            cfg.unavailable.insert(name.clone(), reason.clone());
-        }
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>) {
@@ -756,34 +646,6 @@ impl Hub {
             remote: None,
         });
         (record, stored)
-    }
-
-    /// Orchestrator tags with optional expiry.
-    pub fn set_tags(
-        &self,
-        session: &Session,
-        set: Option<&serde_json::Map<String, Value>>,
-        remove: &[String],
-        ttl_seconds: Option<u64>,
-    ) {
-        {
-            let mut m = session.meta.lock().unwrap();
-            let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
-            if let Some(set) = set {
-                for (k, v) in set {
-                    let value = match v {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    m.tags.insert(k.clone(), crate::store::Tag { value, expires_at });
-                }
-            }
-            for k in remove {
-                m.tags.remove(k);
-            }
-        }
-        self.save_meta(session);
-        self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {

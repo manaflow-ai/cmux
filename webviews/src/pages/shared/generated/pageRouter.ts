@@ -52,8 +52,16 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     "confirm": []
   },
   "home-channels": {
-    "read": [],
+    "read": [
+      "chief.profile.avatar.get",
+      "chief.profile.avatar.set",
+      "chief.profile.get",
+      "chief.profile.list",
+      "chief.profile.update"
+    ],
     "gesture": [
+      "chief.profile.create",
+      "chief.profile.delete",
       "workspace.open_url"
     ],
     "confirm": []
