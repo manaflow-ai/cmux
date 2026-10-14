@@ -22,7 +22,8 @@ extension WorkspaceRowView {
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {
         timeLabel.isHidden = timeText == nil || isShowingPlaceholder
         guard !timeLabel.isHidden else { return trailing }
-        let w = ceil(timeLabel.intrinsicContentSize.width)
+        // The text's own width too: a time today ("1:26 AM") came out a few points short and ended in "…".
+        let w = ceil(max(timeLabel.intrinsicContentSize.width, timeLabel.attributedStringValue.size().width + 2 * Self.labelInset))
         timeLabel.frame = NSRect(x: trailing - w, y: cy - height / 2, width: w, height: height)
         return trailing - w - Metrics.space2
     }
