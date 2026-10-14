@@ -510,8 +510,8 @@ class GeneratedClientMixin:
     def reattach_view(self, surface: Id, *, counts: Union[bool, None, MissingType] = MISSING) -> ReattachViewResult:
         return self._invoke_command('reattach-view', ReattachViewRequest(surface=surface, counts=counts))
 
-    def register_browser_provider(self, authentication: BrowserProviderAuthentication, endpoint: str, provider_id: str, targets: List[BrowserProviderTarget], *, bearer_token: Union[str, None, MissingType] = MISSING) -> BrowserProviderSnapshot:
-        return self._invoke_command('register-browser-provider', RegisterBrowserProviderRequest(authentication=authentication, endpoint=endpoint, provider_id=provider_id, targets=targets, bearer_token=bearer_token))
+    def register_browser_provider(self, authentication: BrowserProviderAuthentication, endpoint: str, provider_id: str, targets: List[BrowserProviderTarget], *, bearer_token: Union[str, None, MissingType] = MISSING, hosting: Union[BrowserProviderHosting, None, MissingType] = MISSING) -> BrowserProviderSnapshot:
+        return self._invoke_command('register-browser-provider', RegisterBrowserProviderRequest(authentication=authentication, endpoint=endpoint, provider_id=provider_id, targets=targets, bearer_token=bearer_token, hosting=hosting))
 
     def release_attached_view_size(self, surface: Id, *, lease: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> AttachedViewOutcomeResult:
         return self._invoke_command('release-attached-view-size', ReleaseAttachedViewSizeRequest(surface=surface, lease=lease, view=view))

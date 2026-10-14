@@ -5061,6 +5061,13 @@
     "bearer"
    ]
   },
+  "BrowserProviderHosting": {
+   "kind": "enum",
+   "values": [
+    "daemon",
+    "native"
+   ]
+  },
   "BrowserProviderTarget": {
    "kind": "object",
    "fields": {
@@ -5117,6 +5124,15 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "hosting": {
+     "type": {
+      "kind": "ref",
+      "name": "BrowserProviderHosting"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "browser-provider-native-hosting-v1"
     },
     "revision": {
      "type": {
@@ -15274,6 +15290,19 @@
       "nullable": true,
       "default": null
      },
+     "hosting": {
+      "type": {
+       "kind": "ref",
+       "name": "BrowserProviderHosting"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "browser-provider-native-hosting-v1",
+      "constraints": [
+       "\"native\": the provider presents each page in its own native view. The daemon never sends a geometry Emulation.setDeviceMetricsOverride, never activates a target to recover stalled frames, and screencasts a target only while a frame viewer is attached. Absent or \"daemon\" keeps the original contract: the daemon sizes and screencasts every attached target."
+      ]
+     },
      "targets": {
       "type": {
        "kind": "array",
@@ -15297,7 +15326,8 @@
     "The lease is scoped to the trusted local control connection and is released on disconnect.",
     "The endpoint must be an explicit loopback ws URL with no credentials or fragment.",
     "Bearer authentication is optional and sends the token only in the CDP WebSocket upgrade Authorization header.",
-    "Each registration replaces that connection's complete target set; target ids are never journaled."
+    "Each registration replaces that connection's complete target set; target ids are never journaled.",
+    "All provider clients of one live registration must agree on hosting."
    ]
   },
   "get-browser-provider": {

@@ -189,7 +189,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             state.isUnresponsive = unresponsive
 
         case .mediaChanged(let media):
-            state.media = media
+            state.media = BrowserMediaState.settled(state.media, media)
 
         case .audioMutedChanged(let muted):
             state.isAudioMuted = muted
