@@ -10,13 +10,14 @@ import Observation
 public final class MinuteClock {
     public static let shared = MinuteClock()
 
-    /// The latest minute mark.
+    /// The time of the latest tick (launch, then each minute mark). Not
+    /// rounded: a Mac seen 3 days before launch reads "3d", not "2d".
     public private(set) var now: Date
     @ObservationIgnored private var ticker: Task<Void, Never>?
 
     /// `ticking: false` holds `now` (tests).
     public init(now: Date = Date(), ticking: Bool = true) {
-        self.now = Self.mark(now)
+        self.now = now
         if ticking { start() }
     }
 
@@ -32,7 +33,7 @@ public final class MinuteClock {
                 let next = Self.mark(Date()).addingTimeInterval(60)
                 try? await Task.sleep(for: .seconds(max(0.05, next.timeIntervalSinceNow)))
                 guard let self, !Task.isCancelled else { return }
-                self.now = Self.mark(Date())
+                self.now = Date()
             }
         }
     }

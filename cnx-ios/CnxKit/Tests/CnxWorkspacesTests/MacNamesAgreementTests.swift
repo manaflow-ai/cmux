@@ -51,8 +51,7 @@ import Testing
     }
 
     @Test func lastSeenIsExactAgainstTheSharedMinute() {
-        let clock = MinuteClock(now: Self.now.addingTimeInterval(30), ticking: false)
-        #expect(clock.now == Self.now)
+        let clock = MinuteClock(now: Self.now, ticking: false)
         let stamp = RelativeStamp(now: clock.now)
         #expect(stamp.presence(isOnline: false, lastSeenAt: Self.now.addingTimeInterval(-59)) == "Last seen just now")
         #expect(stamp.presence(isOnline: false, lastSeenAt: Self.now.addingTimeInterval(-60)) == "Last seen 1m ago")
