@@ -343,7 +343,9 @@ describe("untrusted repository", () => {
     const hooksDir = path.join(root, "hostile-hooks");
     fs.writeFileSync(hook, `#!/bin/sh\ntouch ${defaultMarker}\n`, { mode: 0o755 });
     fs.mkdirSync(hooksDir, { recursive: true });
-    fs.writeFileSync(path.join(hooksDir, "post-index-change"), `#!/bin/sh\ntouch ${configuredMarker}\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(hooksDir, "post-index-change"), `#!/bin/sh\ntouch ${configuredMarker}\n`, {
+      mode: 0o755,
+    });
     const stale = new Date("2001-01-01T00:00:00Z");
     try {
       // A clean tracked file with a new mtime: git rereads it, finds it unchanged and rewrites
