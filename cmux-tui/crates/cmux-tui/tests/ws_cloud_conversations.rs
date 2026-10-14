@@ -502,3 +502,7 @@ fn an_open_page_learns_that_the_app_signed_in() {
     assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
     assert_eq!(page.rpc(json!({"cmd":"cloud-session-status"}))["data"]["state"], "active");
 }
+
+/// Cloud conversations' attachments through the daemon (`cloud-attachments-v1`).
+#[path = "ws_cloud_conversations/attachments.rs"]
+mod attachments;

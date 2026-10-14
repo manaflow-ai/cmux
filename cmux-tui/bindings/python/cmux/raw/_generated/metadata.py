@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '63b0df7a776267c3d7bddccc9c36fd5efc7ad0a9122bdbb7882dbbfe3d20e8eb'
+IR_SHA256 = 'f6d4d6c7ce3551e88a1fab7946cf2f5f1ca98b8d8fce300184966138cf85baba'
 
 
 @dataclass(frozen=True)
@@ -479,6 +479,60 @@ COMMANDS = {
             'origin': CommandFieldMetadata(7, None),
             'reason': CommandFieldMetadata(None, 'close-reason-v1'),
             'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-attachment-link': CommandMetadata(
+        'cloud-attachment-link',
+        'local-admin',
+        12,
+        'cloud-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'hash': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'variant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-attachment-read': CommandMetadata(
+        'cloud-attachment-read',
+        'local-admin',
+        12,
+        'cloud-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'hash': CommandFieldMetadata(None, None),
+            'length': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'variant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-attachment-upload': CommandMetadata(
+        'cloud-attachment-upload',
+        'local-admin',
+        12,
+        'cloud-attachments-v1',
+        ('local-admin',),
+        None,
+        {
+            'byte_count': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'data': CommandFieldMetadata(None, None),
+            'duration_ms': CommandFieldMetadata(None, None),
+            'height': CommandFieldMetadata(None, None),
+            'mime_type': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'piece': CommandFieldMetadata(None, None),
+            'poster': CommandFieldMetadata(None, None),
+            'preview': CommandFieldMetadata(None, None),
+            'sha256': CommandFieldMetadata(None, None),
+            'upload': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-conversation-history': CommandMetadata(

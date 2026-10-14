@@ -147,6 +147,7 @@ mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
+mod cloud_attachments;
 mod bookmarks;
 mod browser_host_command;
 mod browser_profiles;
@@ -1691,6 +1692,10 @@ enum Command {
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
     ConversationAttachmentLink(conversation_attachments::LinkParams),
+    /// Cloud conversations' attachments (`cloud-attachments-v1`, server/cloud_attachments.rs).
+    CloudAttachmentUpload(conversation_attachments::UploadParams),
+    CloudAttachmentRead(conversation_attachments::ReadParams),
+    CloudAttachmentLink(conversation_attachments::LinkParams),
     ConversationRunAppend(conversation_runs::AppendParams),
     ConversationRuns(conversation_runs::RunsParams),
     ConversationRun(conversation_runs::RunParams),
@@ -3572,6 +3577,9 @@ fn handle_command_with_cancellation(
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),
+        Command::CloudAttachmentUpload(p) => cloud_attachments::put(mux, client, p),
+        Command::CloudAttachmentRead(p) => cloud_attachments::read(mux, client, p),
+        Command::CloudAttachmentLink(p) => cloud_attachments::link(mux, client, p),
         Command::ConversationRunAppend(p) => conversation_runs::append(mux, client, p),
         Command::ConversationRuns(p) => conversation_runs::runs(mux, client, p),
         Command::ConversationRun(p) => conversation_runs::run(mux, client, p),

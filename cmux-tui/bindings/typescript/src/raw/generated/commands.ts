@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 63b0df7a776267c3d7bddccc9c36fd5efc7ad0a9122bdbb7882dbbfe3d20e8eb. */
+/* cmux-tui mux protocol 12, IR f6d4d6c7ce3551e88a1fab7946cf2f5f1ca98b8d8fce300184966138cf85baba. */
 
 
 import type * as T from "./types.js";
@@ -351,6 +351,77 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
   "workspace"?: (T.Id) | null;
 }
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudAttachmentLinkRequest extends CmuxRequestBase {
+  cmd: "cloud-attachment-link";
+  "conversation": string;
+  "hash": string;
+  "name"?: (string) | null;
+  "variant"?: (string) | null;
+}
+export type CloudAttachmentLinkResult = {
+  "expires_in_ms": bigint;
+  "path": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudAttachmentReadRequest extends CmuxRequestBase {
+  cmd: "cloud-attachment-read";
+  "conversation": string;
+  "hash": string;
+  "length"?: (bigint) | null;
+  "offset"?: (bigint) | null;
+  "variant"?: (string) | null;
+}
+export type CloudAttachmentReadResult = {
+  "byte_count": bigint;
+  "data": string;
+  "eof": boolean;
+  "hash": string;
+  "mime_type": string;
+  "offset": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudAttachmentUploadRequest extends CmuxRequestBase {
+  cmd: "cloud-attachment-upload";
+  "byte_count"?: (bigint) | null;
+  "conversation"?: (string) | null;
+  "data"?: (string) | null;
+  "duration_ms"?: (bigint) | null;
+  "height"?: (number) | null;
+  "mime_type"?: (string) | null;
+  "name"?: (string) | null;
+  "offset"?: (bigint) | null;
+  "op": string;
+  "piece"?: (string) | null;
+  "poster"?: (T.JsonValue) | null;
+  "preview"?: (T.JsonValue) | null;
+  "sha256"?: (string) | null;
+  "upload"?: (string) | null;
+  "width"?: (number) | null;
+}
+export type CloudAttachmentUploadResult = {
+  "needs"?: (Array<string>) | null;
+  "received"?: (bigint) | null;
+  "stored"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+  "poster"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+}) | null;
+  "preview"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+}) | null;
+}) | null;
+  "upload"?: (string) | null;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudConversationHistoryRequest extends CmuxRequestBase {
@@ -2658,6 +2729,9 @@ export type CmuxRequest =
   | CloseTabsRequest
   | CloseTerminalRequest
   | CloseWorkspaceRequest
+  | CloudAttachmentLinkRequest
+  | CloudAttachmentReadRequest
+  | CloudAttachmentUploadRequest
   | CloudConversationHistoryRequest
   | CloudConversationOpRequest
   | CloudConversationRunRequest
@@ -3153,6 +3227,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "cloud-attachment-link": {
+    request: CloudAttachmentLinkRequest;
+    result: CloudAttachmentLinkResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-attachments-v1";
+    stream: null;
+  };
+  "cloud-attachment-read": {
+    request: CloudAttachmentReadRequest;
+    result: CloudAttachmentReadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-attachments-v1";
+    stream: null;
+  };
+  "cloud-attachment-upload": {
+    request: CloudAttachmentUploadRequest;
+    result: CloudAttachmentUploadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-attachments-v1";
     stream: null;
   };
   "cloud-conversation-history": {

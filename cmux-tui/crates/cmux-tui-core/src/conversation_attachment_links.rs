@@ -29,6 +29,9 @@ pub(crate) struct Link {
     pub piece: Piece,
     /// The display name for `Content-Disposition` (checked by the caller).
     pub name: Option<String>,
+    /// A cloud conversation's attachment: read through the cloud owner's
+    /// signed URL with the lease, never from this store.
+    pub cloud: bool,
     expires: Instant,
 }
 
@@ -63,6 +66,31 @@ impl ConversationStore {
     ) -> anyhow::Result<String> {
         // A zero-length read runs every check (participant, record, variant).
         self.attachment_read(actor, conversation, hash, piece, 0, 0)?;
+        self.insert_link(actor, conversation, hash, piece, name, false)
+    }
+
+    /// A link to a cloud conversation's attachment; the caller already had the
+    /// cloud owner sign a URL for it (the owner's access check).
+    pub(crate) fn attachment_cloud_link(
+        &mut self,
+        actor: &str,
+        conversation: &str,
+        hash: &str,
+        piece: Piece,
+        name: Option<String>,
+    ) -> anyhow::Result<String> {
+        self.insert_link(actor, conversation, hash, piece, name, true)
+    }
+
+    fn insert_link(
+        &mut self,
+        actor: &str,
+        conversation: &str,
+        hash: &str,
+        piece: Piece,
+        name: Option<String>,
+        cloud: bool,
+    ) -> anyhow::Result<String> {
         let now = Instant::now();
         if self.attachments.links.len() >= MAX_LINKS {
             self.attachments.drop_expired_links(now);
@@ -82,6 +110,7 @@ impl ConversationStore {
                 hash: hash.to_owned(),
                 piece,
                 name,
+                cloud,
                 expires: now + LINK_TTL,
             },
         );
