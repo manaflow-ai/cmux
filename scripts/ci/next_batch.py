@@ -388,8 +388,8 @@ def debounce_wait(at: dt.datetime, first_trigger: dt.datetime,
                   quiet: int = QUIET_SECONDS, hard_max: int = HARD_MAX_SECONDS) -> int:
     """Seconds to wait before dispatching.
 
-    Each new event cancels the waiting run (concurrency cancel-in-progress), so
-    a dispatch happens after `quiet` seconds without events, but never later
+    A newer event's run supersedes the waiting one (`superseded`), so a
+    dispatch happens after `quiet` seconds without events, but never later
     than `hard_max` after the first event since the last dispatch.
     """
     waited = int((at - first_trigger).total_seconds())
@@ -406,14 +406,33 @@ def first_trigger_since_dispatch(runs: list[dict], at: dt.datetime) -> dt.dateti
     return min(triggers, default=at)
 
 
+def superseded(runs: list[dict], run_id: int | str | None) -> bool:
+    """A newer pull_request or push run of the workflow exists, and it takes over the wait.
+    The older run then exits 0: a cancelled run would read red on its pull request."""
+    try:
+        mine = int(run_id or 0)
+    except ValueError:
+        return False
+    if not any(run.get("id") == mine for run in runs):
+        return False  # this run is not listed yet, so nothing newer is either
+    return any(run.get("event") in {"pull_request", "push"} and (run.get("id") or 0) > mine for run in runs)
+
+
 def cmd_debounce(args: argparse.Namespace) -> int:
     gh = GitHub(args.repo)
+    me = os.environ.get("GITHUB_RUN_ID")
     runs = gh.runs(WORKFLOW, "per_page=60")
+    if superseded(runs, me):
+        log("a newer event's run waits instead; nothing to do")
+        return 0
     at = now()
     first = first_trigger_since_dispatch(runs, at)
     wait = debounce_wait(at, first)
     log(f"first event since the last batch at {first.isoformat()}; waiting {wait}s for quiet")
     time.sleep(wait)
+    if superseded(gh.runs(WORKFLOW, "per_page=60"), me):
+        log("an event arrived during the wait; its run dispatches instead")
+        return 0
     gh.dispatch(WORKFLOW, BASE, {"mode": "batch", "reason": args.reason or "debounced events"})
     log("dispatched a batch")
     return 0
