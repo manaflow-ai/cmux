@@ -223,8 +223,10 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     assert_eq!(drain(&mut bad_session).await.1, "bad_request");
 
     // daemon never reaches the Chief owner's session.
-    let mut owner = link.open("daemon", serde_json::json!({"session": "cmux-chief-c39c6f72"})).await.unwrap();
-    assert_eq!(drain(&mut owner).await.1, "bad_request");
+    for session in ["cmux-chief-c39c6f72", "CMUX-CHIEF-c39c6f72", "chief"] {
+        let mut owner = link.open("daemon", serde_json::json!({"session": session})).await.unwrap();
+        assert_eq!(drain(&mut owner).await.1, "bad_request", "{session}");
+    }
 
     // chief: scoped to the owner's agent conversations, both ways.
     let mut chief = link.open("chief", serde_json::json!({})).await.unwrap();

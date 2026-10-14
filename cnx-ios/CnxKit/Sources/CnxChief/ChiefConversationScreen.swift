@@ -122,8 +122,17 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private var trailingWasAction = false
 
     private func takeOverHeader() {
-        let buttons = conversation.view.subviewsOfType(UIButton.self)
-        for button in buttons {
+        // The header: the view that holds the name button, up to the
+        // package's header class. Only its controls are touched.
+        guard let name = conversation.view.subviewsOfType(UIButton.self).first(where: { $0.accessibilityIdentifier == "conversation.header.name" }) else {
+            return
+        }
+        var header: UIView = name
+        while let parent = header.superview, parent !== conversation.view,
+              !String(describing: type(of: header)).contains("HeaderView") {
+            header = parent
+        }
+        for button in header.subviewsOfType(UIButton.self) {
             switch button.accessibilityIdentifier {
             case "conversation.header.name":
                 retarget(button)
@@ -138,7 +147,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
                     guard let self, self.trailingWasAction else { return }
                     self.presentSettings()
                 }, for: .touchUpInside)
-                button.accessibilityIdentifier = "conversation.header.trailing"
                 trailingButton = button
             default:
                 // The avatar's tap target: the one header button with a hint.
@@ -149,15 +157,17 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
                 }
             }
         }
-        headerTakenOver = buttons.contains { $0.accessibilityIdentifier == "conversation.header.name" }
+        headerTakenOver = true
     }
 
     private weak var trailingButton: UIButton?
 
     private func retarget(_ button: UIButton) {
+        var actions: [UIAction] = []
         button.enumerateEventHandlers { action, _, event, _ in
-            if event == .touchUpInside, let action { button.removeAction(action, for: .touchUpInside) }
+            if event == .touchUpInside, let action { actions.append(action) }
         }
+        for action in actions { button.removeAction(action, for: .touchUpInside) }
         button.addAction(UIAction { [weak self] _ in self?.presentSettings() }, for: .touchUpInside)
     }
 

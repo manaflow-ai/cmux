@@ -114,6 +114,9 @@ const RESOURCE_FIELDS: &[&str] = &["protocol", "type", "id", "operation", "param
 /// Events a phone receives, for conversations in scope only.
 const FORWARDED_EVENTS: &[&str] = &["conversation-changed", "conversation-typing"];
 
+/// Requests a phone may have waiting for a reply at once.
+pub const MAXIMUM_IN_FLIGHT: usize = 256;
+
 /// What a forwarded request's reply needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pending {
@@ -128,8 +131,10 @@ struct Scope {
     /// Conversations the phone may name: listed (or announced) by the owner
     /// and between the owner and agents only.
     allowed: HashSet<String>,
-    /// Replies to filter, by the request's `id` (as JSON text).
-    pending: HashMap<String, Pending>,
+    /// Every forwarded request waiting for its reply, by `id` (as JSON
+    /// text), with what its reply needs. An id is never reused while it
+    /// waits, so a reply cannot be taken for another request's.
+    in_flight: HashMap<String, Option<Pending>>,
 }
 
 /// The per-channel policy; clones share one scope (one per direction).
@@ -172,9 +177,28 @@ impl ChiefPolicy {
             return Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object"));
         };
         let id = object.get("id");
+        // Every request names itself, so its reply is matched to it alone.
+        let Some(key) = id.filter(|id| id.is_string() || id.is_u64()).map(Value::to_string) else {
+            return Verdict::Refuse(error_line(id, "bad_request", "a request needs a string or integer id"));
+        };
+        let busy = self.with_scope(|scope| {
+            if scope.in_flight.contains_key(&key) {
+                Some("this id is still waiting for its reply")
+            } else if scope.in_flight.len() >= MAXIMUM_IN_FLIGHT {
+                Some("too many requests waiting")
+            } else {
+                None
+            }
+        });
+        if let Some(why) = busy {
+            return Verdict::Refuse(error_line(id, "bad_request", why));
+        }
         if object.contains_key("protocol") {
             return match check_resource(&object) {
-                Ok(()) => Verdict::Forward,
+                Ok(()) => {
+                    self.with_scope(|scope| scope.in_flight.insert(key, None));
+                    Verdict::Forward
+                }
                 Err(why) => Verdict::Refuse(resource_refusal(id, &why)),
             };
         }
@@ -222,9 +246,7 @@ impl ChiefPolicy {
             "conversation-search" => Some(Pending::Search),
             _ => None,
         };
-        if let (Some(pending), Some(id)) = (pending, id) {
-            self.with_scope(|scope| scope.pending.insert(id.to_string(), pending));
-        }
+        self.with_scope(|scope| scope.in_flight.insert(key, pending));
         Verdict::Forward
     }
 
@@ -242,7 +264,9 @@ impl ChiefPolicy {
             // A v2 response carries an id; anything else is not for the phone.
             return None;
         };
-        let Some(pending) = self.with_scope(|scope| scope.pending.remove(&id)) else {
+        // Only replies to requests this phone sent, each once.
+        let pending = self.with_scope(|scope| scope.in_flight.remove(&id))?;
+        let Some(pending) = pending else {
             return Some(line.to_vec());
         };
         let Some(Value::Object(data)) = object.get_mut("data") else { return Some(line.to_vec()) };
@@ -253,12 +277,14 @@ impl ChiefPolicy {
                     .and_then(Value::as_array)
                     .map(|all| all.iter().filter(|summary| in_scope(summary)).cloned().collect())
                     .unwrap_or_default();
+                // The owner's whole list: the scope is exactly what it holds now.
                 self.with_scope(|scope| {
-                    for summary in &kept {
-                        if let Some(conversation) = summary.get("id").and_then(Value::as_str) {
-                            scope.allowed.insert(conversation.to_owned());
-                        }
-                    }
+                    scope.allowed = kept
+                        .iter()
+                        .filter_map(|summary| summary.get("id").and_then(Value::as_str))
+                        .filter(|conversation| plain_id(conversation, "conv_"))
+                        .map(str::to_owned)
+                        .collect();
                 });
                 data.insert("conversations".into(), Value::Array(kept));
             }
@@ -288,6 +314,10 @@ impl ChiefPolicy {
     /// (`change.kind:"conversation"`) joins or leaves the scope by its
     /// participants. Every other event (terminal, workspace, cloud) is dropped.
     fn filter_event(&self, event: &str, object: &Map<String, Value>) -> bool {
+        // Missed events: the phone refetches. It carries no conversation data.
+        if event == "overflow" {
+            return true;
+        }
         if !FORWARDED_EVENTS.contains(&event) {
             return false;
         }
@@ -634,8 +664,38 @@ mod tests {
             serde_json::from_slice(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap();
         assert_eq!(narrowed["data"]["hits"].as_array().unwrap().len(), 1);
         // Other replies pass untouched.
+        assert_eq!(policy.evaluate(br#"{"cmd":"ping","id":"m9"}"#), Verdict::Forward);
         let plain = br#"{"id":"m9","ok":true,"data":{}}"#;
         assert_eq!(policy.filter_reply(plain).unwrap(), plain.to_vec());
+    }
+
+    /// A reply is matched to one request: an id cannot wait twice, so a
+    /// second list (or a ping) cannot take the narrowed list's place.
+    #[test]
+    fn ids_are_never_reused_while_waiting() {
+        let policy = listed();
+        assert_eq!(policy.evaluate(br#"{"cmd":"ping","id":7}"#), Verdict::Forward);
+        assert!(matches!(policy.evaluate(br#"{"cmd":"conversation-list","id":7}"#), Verdict::Refuse(_)));
+        assert!(matches!(policy.evaluate(br#"{"cmd":"conversation-list"}"#), Verdict::Refuse(_)));
+        assert!(matches!(
+            policy.evaluate(br#"{"cmd":"conversation-list","id":{"x":1}}"#),
+            Verdict::Refuse(_)
+        ));
+        // The ping's reply frees the id; a reply nobody waits for is dropped.
+        assert!(policy.filter_reply(br#"{"id":7,"ok":true,"data":{}}"#).is_some());
+        assert!(policy.filter_reply(br#"{"id":7,"ok":true,"data":{"conversations":[]}}"#).is_none());
+        assert_eq!(policy.evaluate(br#"{"cmd":"conversation-list","id":7}"#), Verdict::Forward);
+        let unfiltered = serde_json::json!({"id": 7, "ok": true, "data": {"conversations": [
+            {"id": REMOTE, "participants": [{"id": "user_local", "kind": "human"}, {"id": "remote_ab", "kind": "human"}]}]}});
+        let narrowed: Value =
+            serde_json::from_slice(&policy.filter_reply(unfiltered.to_string().as_bytes()).unwrap()).unwrap();
+        assert!(narrowed["data"]["conversations"].as_array().unwrap().is_empty());
+        // A new list replaces the scope: CHIEF is no longer listed.
+        refused(
+            &policy,
+            serde_json::json!({"cmd": "conversation-snapshot", "id": 8, "conversation": CHIEF, "tail": 1}),
+        );
+        assert!(policy.filter_reply(br#"{"event":"overflow"}"#).is_some());
     }
 
     #[test]

@@ -51,7 +51,9 @@ public struct ChiefSettingsView: View {
                         .accessibilityIdentifier("chief.settings.done")
                 }
             }
-            .task { await load() }
+            // Loads again once Chief connects with the sheet open.
+            .task(id: session.control != nil) { await load() }
+            .onChange(of: session.title) { _, title in if let title, title != name { name = title } }
             // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
             .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
             .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }

@@ -89,10 +89,22 @@ enum LinePolicy {
 }
 
 impl LinePolicy {
-    fn evaluate(&self, line: &[u8]) -> Verdict {
+    /// The verdict, and for `Forward` the exact bytes to send: the daemon
+    /// lane sends the line as it came; the Chief lane sends the object it
+    /// checked, serialized again, so a duplicate key cannot mean one thing to
+    /// the filter and another to the owner.
+    fn evaluate(&self, line: &[u8]) -> (Verdict, Option<Vec<u8>>) {
         match self {
-            Self::Daemon(policy) => policy.evaluate(line),
-            Self::Chief(policy) => policy.evaluate(line),
+            Self::Daemon(policy) => (policy.evaluate(line), None),
+            Self::Chief(policy) => {
+                let verdict = policy.evaluate(line);
+                let canonical = matches!(verdict, Verdict::Forward)
+                    .then(|| {
+                        serde_json::from_slice::<Value>(line).ok().and_then(|v| serde_json::to_vec(&v).ok())
+                    })
+                    .flatten();
+                (verdict, canonical)
+            }
         }
     }
 
@@ -123,13 +135,20 @@ async fn daemon(
 ) -> Result<(), Refusal> {
     let named = args.get("session").and_then(Value::as_str);
     let session = named.unwrap_or(&config.default_session);
-    if !valid_session_name(session) || session.starts_with("cmux-chief-") {
+    // The Chief owner is reachable only through `chief` (the default macOS
+    // volume is case-insensitive, hence the lowercase test and the path check).
+    if !valid_session_name(session) || session.to_ascii_lowercase().starts_with("cmux-chief-") {
         return Err(Refusal::new("bad_request", "invalid session name"));
     }
     let path = match (named, &config.default_socket) {
         (None, Some(socket)) => socket.clone(),
         _ => config.tui_socket_dir.join(format!("{session}.sock")),
     };
+    if let Some(chief) = &config.chief_socket
+        && path.to_string_lossy().eq_ignore_ascii_case(&chief.to_string_lossy())
+    {
+        return Err(Refusal::new("bad_request", "invalid session name"));
+    }
     splice(&path, session, LinePolicy::Daemon(DaemonPolicy::new(&peer.device_id)), sender, receiver).await
 }
 
@@ -195,7 +214,11 @@ async fn splice(
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                match policy.evaluate(&line) {
+                let (verdict, canonical) = policy.evaluate(&line);
+                if let Some(canonical) = canonical {
+                    line = canonical;
+                }
+                match verdict {
                     Verdict::Forward => {
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {

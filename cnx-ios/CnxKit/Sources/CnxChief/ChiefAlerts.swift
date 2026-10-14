@@ -1,6 +1,9 @@
 import CmuxConversationCore
 import Foundation
 import UserNotifications
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// This phone's per-conversation Chief settings: Hide Alerts and Send Read
 /// Receipts. They belong to the phone, as in Messages, so they live in its
@@ -50,7 +53,10 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
 
     /// True while the Chief conversation is on screen (it shows the message itself).
     public var conversationVisible = false
+    /// False while the app is in the background, where an open Chief is not seen.
+    private var appActive = true
     private var installed = false
+    private var observers: [NSObjectProtocol] = []
 
     /// Shows Chief's alerts as banners while the app is in the foreground.
     /// Takes the delegate only when no one else has.
@@ -59,6 +65,17 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
         installed = true
         let center = UNUserNotificationCenter.current()
         if center.delegate == nil { center.delegate = self }
+        #if canImport(UIKit)
+        let notifications = NotificationCenter.default
+        observers = [
+            notifications.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { ChiefAlerts.shared.appActive = false }
+            },
+            notifications.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { ChiefAlerts.shared.appActive = true }
+            },
+        ]
+        #endif
     }
 
     /// The notification center exists only for an app bundle (not a test runner).
@@ -66,7 +83,7 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
 
     /// Posts an alert for `message` from Chief in `conversationID`.
     func notify(_ message: ConversationMessage, title: String, conversationID: String, preferences: ChiefPreferences) {
-        guard Self.canNotify, !conversationVisible, !preferences.muted(conversationID) else { return }
+        guard Self.canNotify, !(conversationVisible && appActive), !preferences.muted(conversationID) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = message.isUnsent ? String(localized: "Message unsent")

@@ -406,7 +406,10 @@ public final class LiveCoordinator {
     private func startChief(_ link: any MacLink) async {
         let session = ChiefSession.shared
         session.macName = self.link.target?.name
+        // A newer link (or none) took over while this one was opening: leave it be.
+        func current() -> Bool { (currentLink as AnyObject?) === (link as AnyObject) }
         func offline(_ reason: String) {
+            guard current() else { return }
             chiefStatus = reason
             session.status = reason
             if chiefLive || !(session.backend is ChiefOfflineBackend) {
@@ -434,6 +437,10 @@ public final class LiveCoordinator {
             guard hasChief else {
                 await channel.close(code: "eof", reason: "chief not started")
                 offline(ChiefDaemonBackend.notStarted)
+                return
+            }
+            guard current() else {
+                await channel.close(code: "eof", reason: "link replaced")
                 return
             }
             session.status = nil

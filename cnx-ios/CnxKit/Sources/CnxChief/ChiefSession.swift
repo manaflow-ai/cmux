@@ -82,6 +82,8 @@ public final class ChiefSession {
     /// The conversation the store shows, once connected.
     public var conversationID: String? { store.info?.id }
 
+    /// The conversation's name on the Mac (`title.set` from any device).
+    public private(set) var title: String?
     /// Hide Alerts, as the details page and Home's pin show it.
     public private(set) var isMuted = false
     public private(set) var sendsReadReceipts = true
@@ -122,6 +124,7 @@ public final class ChiefSession {
         if isTyping != typing { isTyping = typing }
         let connected = store.connection == .connected
         if isConnected != connected { isConnected = connected }
+        if title != store.info?.title { title = store.info?.title }
         let listState = store.info?.listState
         if isMuted != (listState?.muted ?? false) { isMuted = listState?.muted ?? false }
         if sendsReadReceipts != (listState?.sendReadReceipts ?? true) { sendsReadReceipts = listState?.sendReadReceipts ?? true }
@@ -152,7 +155,11 @@ public final class ChiefSession {
         let waiting = outbox
         outbox = []
         outboxStore.save(outbox)
-        for message in waiting { store.sendWhenConnected(message) }
+        // Not from inside the store's own change callback.
+        let store = store
+        Task { @MainActor in
+            for message in waiting { store.sendWhenConnected(message) }
+        }
     }
 
     /// Alerts for Chief's messages that arrived live (not the first page).
@@ -160,7 +167,9 @@ public final class ChiefSession {
         guard store.connection == .connected, let id = conversationID else { return }
         let newest = store.messages.compactMap(\.seq).max() ?? 0
         guard let seen = alertedSeq else {
-            alertedSeq = newest
+            // The store says connected before its first page lands: what
+            // that page brings is history, not news.
+            if newest > 0 { alertedSeq = newest }
             return
         }
         guard newest > seen else { return }
@@ -241,6 +250,7 @@ public struct ChiefOutbox: Sendable {
             })
         }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONEncoder().encode(items).write(to: file, options: [.atomic, .completeFileProtection])
+        // Readable after first unlock, so a message written on a locked phone is kept.
+        try? JSONEncoder().encode(items).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 }

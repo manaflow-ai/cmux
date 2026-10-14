@@ -348,7 +348,9 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             self.info = info
             absorb(summary)
             continuation?.yield(.connected(info: info, meID: identity.meID, lagged: lagged))
-            yieldReadState(lastRead: wire.readCursor(summary, of: identity.meID))
+            // With receipts off the Mac's cursor lags what this phone read.
+            let server = wire.readCursor(summary, of: identity.meID)
+            yieldReadState(lastRead: preferences.sendsReadReceipts(id) ? server : max(server, lastReadHere ?? 0))
         }
 
         private func absorb(_ summary: [String: Any]) {
