@@ -499,6 +499,7 @@
     "afterSeq": 1,
     "beforeSeq": 1,
     "limit": 1,
+    "maxBytes": 1,
     "kinds": 1
    }
   },
@@ -514,8 +515,10 @@
    "params": {
     "sessionId": 1,
     "limit": 1,
+    "maxBytes": 1,
     "kinds": 1,
-    "eventStream": 1
+    "eventStream": 1,
+    "visible": 1
    }
   },
   "mode_fields": null,
