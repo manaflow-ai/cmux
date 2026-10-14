@@ -4,7 +4,8 @@
 // `useDeviceChats` (no effect).
 import { useSyncExternalStore } from "react";
 
-export type DeviceChat = { key: string; harness: string; title?: string; updatedAt: number };
+/// `parent`: the chat whose agent started this one; such a chat folds under it, never on its own.
+export type DeviceChat = { key: string; harness: string; title?: string; updatedAt: number; parent?: string };
 
 let chats: DeviceChat[] = [];
 const listeners = new Set<() => void>();
@@ -22,6 +23,7 @@ export function setDeviceChats(value: unknown): void {
             harness: chat.harness,
             updatedAt,
             ...(typeof chat.title === "string" && chat.title ? { title: chat.title } : {}),
+            ...(typeof chat.parent === "string" && chat.parent ? { parent: chat.parent } : {}),
           },
         ];
       })

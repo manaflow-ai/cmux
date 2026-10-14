@@ -143,6 +143,28 @@ test("a lane shows once, by its name, not again by its transcript's first prompt
   expect(rows(page).map((row) => row.title)).toEqual(["cg-next-reds", "Fix the flaky upload test"]);
 });
 
+// A lane's child sessions, started from coordinator messages (Leo 2026-10-13: "Coordinator: ..."
+// rows at the top of Chats), fold under their parent: neither the child's acpmux session
+// (`spawnedBy`) nor its transcript in the device index (`parent`) is listed on its own.
+test("a chat another chat's agent started is not listed on its own", async () => {
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  setDeviceChats([
+    {
+      key: "claude-code:child-transcript",
+      harness: "claude-code",
+      title: "Coordinator: fix the reds",
+      updatedAt: T0,
+      parent: "claude-code:lane",
+    },
+    { key: "claude-code:another", harness: "claude-code", title: "Fix the flaky upload test", updatedAt: T0 - MINUTE },
+  ]);
+  const page = await mount("a", [
+    lane({}),
+    lane({ sessionId: "child", name: "Coordinator: land the PR", spawnedBy: "lane-1", updatedAt: T0 + 1 }),
+  ]);
+  expect(rows(page).map((row) => row.title)).toEqual(["cg-next-reds", "Fix the flaky upload test"]);
+});
+
 test("a chat whose last turn failed reads Failed; one that lost its agent reads Disconnected", async () => {
   const page = await mount("a", [
     lane({ sessionId: "failed", name: "continue", lastTurn: { status: "failed" }, indicator: "failed" }),
