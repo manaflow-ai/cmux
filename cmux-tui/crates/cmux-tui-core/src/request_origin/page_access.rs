@@ -130,7 +130,8 @@ const fn access(operation: Op) -> Access {
         | Op::HistoryVisitTitle
         | Op::HistoryVisitRemove
         | Op::HistoryVisitSummaries
-        | Op::HistoryVisitImport => Access::Denied(Denied::NotAllowed),
+        | Op::HistoryVisitImport
+        | Op::HistoryTrailRecord => Access::Denied(Denied::NotAllowed),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet
@@ -255,6 +256,7 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserDevicesRemoveCustom
         | Op::BrowserTabEmulate
         | Op::BrowserTabEmulateClear
+        | Op::BrowserTabSetProfile
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport

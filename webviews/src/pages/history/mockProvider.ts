@@ -39,8 +39,8 @@ function searchText(entry: HistoryEntry): string {
     .join(" ");
 }
 
-/** As the daemon's `history.clear`: pages, closed items, agents and commands clear; locations never do. */
-export const CLEARABLE_KINDS: readonly HistoryKind[] = ["page", "closed", "command", "agent"];
+/** As the daemon's `history.clear`: every kind clears (the daemon owns the trail, cx-hnmbt.12). */
+export const CLEARABLE_KINDS: readonly HistoryKind[] = ["page", "location", "closed", "command", "agent"];
 
 export function rangeStart(range: HistoryRange | undefined, now: number): number | undefined {
   switch (range ?? "all") {
