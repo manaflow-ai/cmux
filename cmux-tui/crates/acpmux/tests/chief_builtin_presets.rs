@@ -224,3 +224,52 @@ async fn any_env_a_client_sends_stays_the_persons_to_set() {
         assert_eq!(reason(&r), REASON, "{name} {env}: {r}");
     }
 }
+
+/// optchat-chief `paths::home_id`: FNV-1a (32 bit) of the path's bytes.
+fn home_id(home: &Path) -> String {
+    let mut hash: u32 = 0x811c_9dc5;
+    for b in home.as_os_str().as_encoded_bytes() {
+        hash ^= u32::from(*b);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    format!("{hash:08x}")
+}
+
+/// One acpmux per Chief home (hq-6d 2026-10-14): the Chiefs the daemon's
+/// supervisor starts live in `<Chief home>/c/<id tail>` and share the Chief
+/// home's acpmux. A built-in codex preset of such a Chief gets that Chief's
+/// own codex homes, never the default Chief's (two Chiefs never share a
+/// codex history); the default Chief's id keeps the Chief home.
+#[tokio::test]
+async fn each_chief_of_the_chief_home_gets_its_own_codex_homes() {
+    let d = Daemon::start("shared");
+    let mux = d.dir.join("mux");
+    let scout = mux.join("c").join("aaaa1111");
+    std::fs::create_dir_all(&scout).unwrap();
+    let mut chief = Rpc::connect(&d.socket).await;
+    for (home, root) in [(&scout, &scout), (&mux, &mux)] {
+        let id = home_id(home);
+        let turn = format!("optchat-chief-codex-{id}");
+        let r = chief
+            .call("_acpmux/presets", json!({"name": turn, "set": {"harness": "fcodex"}}))
+            .await;
+        assert!(r.get("error").is_none(), "{r}");
+        let env = stored_env(&mut chief, &turn).await;
+        assert_eq!(
+            env["CODEX_HOME"],
+            root.join("optchat/turn-codex").display().to_string(),
+            "{turn}: {env}"
+        );
+        let slot = format!("optchat-compact-{id}-slot-1");
+        let r = chief
+            .call("_acpmux/presets", json!({"name": slot, "set": {"harness": "fcodex"}}))
+            .await;
+        assert!(r.get("error").is_none(), "{r}");
+        let env = stored_env(&mut chief, &slot).await;
+        assert_eq!(
+            env["CODEX_HOME"],
+            root.join("optchat/compactor-codex/slot-1").display().to_string(),
+            "{slot}: {env}"
+        );
+    }
+}
