@@ -262,6 +262,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
             resolveStep: nextStep,
+            onStepDisplayed: { [weak self] step in self?.analyticsSession?.stepDisplayed(step) },
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
             posterHeadline: posterHeadline,
@@ -424,6 +425,7 @@ private struct CloudWelcomeAccountView: View {
     /// The controller's resolver, the one owner of the offered step; reading
     /// the account inside it during `body` keeps the view observing it.
     let resolveStep: @MainActor () -> CloudWelcomeNextStep
+    let onStepDisplayed: @MainActor (CloudWelcomeNextStep) -> Void
     let sliderShowsFeatureList: Bool
     let sliderListUsesDots: Bool
     let posterHeadline: String?
@@ -436,8 +438,9 @@ private struct CloudWelcomeAccountView: View {
     let onNext: (CloudWelcomeNextStep) -> Void
 
     var body: some View {
+        let step = resolveStep()
         CloudWelcomeView(
-            nextStep: resolveStep(),
+            nextStep: step,
             onNotNow: onNotNow,
             onNext: onNext,
             hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(
@@ -452,6 +455,7 @@ private struct CloudWelcomeAccountView: View {
             showsNewBadge: showsNewBadge,
             footerHasNotNow: footerHasNotNow
         )
+        .onChange(of: step) { _, displayed in onStepDisplayed(displayed) }
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.
             if accountFlow?.isAuthenticated == true {

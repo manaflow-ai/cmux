@@ -8582,7 +8582,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // operation must never fall through and create a local workspace.
             return performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: vmID)
         }
-        let created = performNewWorkspaceCreationAction(
+        return performNewWorkspaceCreationAction(
             initialSurface: .terminal,
             preferredTabManager: preferredTabManager,
             event: event,
@@ -8595,9 +8595,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ? manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
                 : nil
         )
-        // Only a workspace that was actually created counts toward activation.
-        if created { ProductAnalytics.app.reach(.firstWorkspace) }
-        return created
     }
 
     /// Creates a local workspace on this Mac, independent of the selected

@@ -30,7 +30,7 @@ saved insights in the same PR.
 | Concept | Value |
 | --- | --- |
 | `distinct_id` | Signed out: the install's anonymous PostHog id. Signed in: the Stack user id, the same id the server's billing and `cloud_vm_*` events use. |
-| Identity owner | `PostHogIdentityObserver` (manaflow-ai/cmux#20565) identifies on sign-in or restore and resets on sign-out. Product analytics does not call `identify` itself. |
+| Identity owner | `PostHogIdentityObserver` (#20565) identifies on sign-in or restore and resets on sign-out. Product analytics does not call `identify` itself. After a reset, `PostHogAnalytics` restores the product context super properties. |
 | Anonymous to signed in | The first `identify` from an anonymous state sends `$anon_distinct_id`, which merges pre-sign-in activity (first launch, first split, upgrade clicks) into the account. |
 | Sign-out | `cmux_signed_out` is captured when sign-out starts, before the reset, so it joins the account. |
 | `$groups.stack_team` | Not set by the Mac yet. A PostHog group lasts until `reset()`, so it belongs with the identity observer that owns reset (suggested on #20565). Server billing events already carry it. |

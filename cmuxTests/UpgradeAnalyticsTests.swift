@@ -200,6 +200,36 @@ struct UpgradeAnalyticsTests {
         #expect(order == ["cmux_cloud_button_clicked", "cmux_cloud_button_clicked", "cmux_cloud_welcome_shown"])
     }
 
+    @Test("a card that turns into Upgrade after the plan loads records the Upgrade impression once")
+    func welcomeUpgradeImpressionAfterPlanLoads() async throws {
+        let (analytics, sink, ledgerSuite) = TestAnalytics.make()
+        defer { TestAnalytics.remove(ledgerSuite) }
+        let suite = "UpgradeAnalyticsTests.planLoads.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var step = CloudWelcomeNextStep.openCloud
+        let controller = CloudWelcomeWindowController(
+            defaults: defaults,
+            nextStep: { step },
+            performNextStep: { _, _ in },
+            analytics: analytics,
+            now: { TestAnalytics.fixedNow }
+        )
+        defer { controller.dismiss() }
+        controller.present(over: nil, trigger: .newCloudWorkspace)
+        await analytics.drain()
+        #expect(sink.named("cmux_upgrade_prompt_shown").isEmpty)
+
+        step = .upgrade
+        controller.analyticsSession?.stepDisplayed(.upgrade)
+        controller.analyticsSession?.stepDisplayed(.upgrade)
+        controller.handleNotNow()
+        await analytics.drain()
+        #expect(sink.named("cmux_upgrade_prompt_shown").compactMap { $0["source"] } == [AnalyticsValue.string("mac_cloud_welcome")])
+        #expect(sink.named("cmux_cloud_welcome_shown").first?["next_step"] == .string("open_cloud"))
+        #expect(sink.named("cmux_cloud_welcome_closed").first?["next_step"] == .string("upgrade"))
+    }
+
     @Test("with telemetry off, no upgrade surface records anything")
     func optOut() async throws {
         let (analytics, sink, ledgerSuite) = TestAnalytics.make(enabled: false)

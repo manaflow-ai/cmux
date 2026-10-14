@@ -12,6 +12,7 @@ final class CloudWelcomeAnalyticsSession {
     /// The controller's step resolver, which the card also renders from.
     private let currentStep: @MainActor () -> CloudWelcomeNextStep
     private let shownAt: Date
+    private var recordedUpgradeImpression = false
     private(set) var isClosed = false
 
     init(
@@ -27,9 +28,16 @@ final class CloudWelcomeAnalyticsSession {
         self.shownAt = now()
         let step = currentStep()
         analytics.track(.cloudWelcomeShown(trigger: trigger, step: Self.step(step)))
-        if step == .upgrade {
-            analytics.track(.upgradeShown(.cloudWelcome))
-        }
+        stepDisplayed(step)
+    }
+
+    /// The card now offers `step`. A plan that loads after the card opened can
+    /// turn Open Cloud into Upgrade; the Upgrade impression is recorded the
+    /// first time it is on screen.
+    func stepDisplayed(_ step: CloudWelcomeNextStep) {
+        guard step == .upgrade, !recordedUpgradeImpression, !isClosed else { return }
+        recordedUpgradeImpression = true
+        analytics.track(.upgradeShown(.cloudWelcome))
     }
 
     /// A button closed the card. `step` is the step its primary button
