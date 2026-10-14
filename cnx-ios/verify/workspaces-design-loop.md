@@ -701,3 +701,49 @@ active pane. The app build used the `CnxFFI.xcframework` built for the same Rust
 permission card replaces it (`round3/ios26-dark/frames`, near the end). The status bar
 in the `ios26-*` walk recordings shows a "◂ Settings" back link from an earlier Settings
 launch on that simulator; the hero shots were taken on a fresh simulator without it.
+
+### Round 3 — design review
+
+Reviewed the 20 steps of all five `round3/` runs, the `ios26-dark` frames at the end of
+the walk, `check-13.txt` and the two hero shots. Paths are under
+`verify/evidence/2026-10-13/wsdesign/`.
+
+**Round 2 findings: all fixed.**
+
+1. Gutter and row pitch are back to round 1. Text starts at about 32 pt, and the MacBook
+   Pro line sits above the tab bar on the first screen (`round3/ios26-dark/01-list.png`,
+   `round3/ios27-light/01-list.png`).
+2. A swiped row has no fill; only "2h" stays beside Rename and Close, which is the
+   system's behavior (`round3/ios26-dark/12-swipe-close.png`).
+3. At AX sizes the swiped row scrolls to the top and the popover opens directly under
+   it, arrow on the row (`round3/ios26-ax/13-close-confirm.png`). At Large the popover
+   sits just below the row on iOS 26 and 27 (`round3/ios26-dark/13`). `check-13.txt`
+   passes in all five runs.
+- Nit: the New Workspace menu now closes with a tap, with no list shift in the frames.
+
+**Merge.** No visual regressions in mock mode: sections, status words, folds, filter
+menu (now "Online" / "Last seen 2h ago"), offline explanations, the pending row and the
+waiting card all match round 2. The cached, failed and loading states from
+`MacDataMachine` are not in these recordings. They are covered by `liveListStates`, and
+cached rows that never claim "is waiting" are the right call. Verify them visually in
+the first live dogfood.
+
+**The two knowns**
+
+- **The composer shows for one frame before the waiting card**
+  (`round3/ios26-dark/frames/f893.png`, "Reply to Codex", then the card from `f894`).
+  Acceptable for now: it is under 0.5 s, on the chat screen, not the list. Follow-up
+  for the chat owner: when the session opens with a pending request, start in the
+  action-bar state instead of swapping it in after the first layout.
+- **"◂ Settings" in the status bar** of the iOS 26 walks. Acceptable: it is the system's
+  return-to-app link left by an earlier launch on that simulator. It is not in the hero
+  shots or the iOS 27 runs.
+
+**Hero shots** (`round3/final-dark.png`, `round3/final-light.png`). Ready for the user.
+Clean status bar, Large type, nothing clipped, correct tints in both modes, and the screen
+answers the four questions at once: two workspaces need you (in words, on top), two are
+working, one is done, and the MacBook Pro is offline with its last-seen time. The black
+pill in the light shot is the Dynamic Island, not an artifact.
+
+**Verdict: SIGN OFF (final).** No open defects in the list. One follow-up outside it:
+the chat's first-frame composer.
