@@ -487,7 +487,7 @@ def page_html(name, base=""):
     body = "".join(f"<p style='height:40px;margin:0'>rj {name} row {i}</p>" for i in range(400)) if name == "tall" else ""
     act = ""
     if first and name == "tall":
-        act = f"setTimeout(function(){{window.scrollTo(0,{SCROLL});}},300);"
+        act = f"setTimeout(function(){{acted=1;window.scrollTo(0,{SCROLL});}},300);"
     # The history pages link on (a -> b -> c), for link-click navigation as a person's.
     nxt = {"hist-a": "hist-b", "hist-b": "hist-c"}.get(name)
     href = f"{nxt}.html" if opts.hist_file else f"/{nxt}"
@@ -507,9 +507,10 @@ def page_html(name, base=""):
     return f"""<!doctype html><html><head><title>rj {name}</title></head><body>
 <h1>rj {name}</h1>{link}{body}
 <script>
+var acted=0;
 function report(){{var p=location.pathname.replace(/^.*\\//,'/').replace(/\\.html$/,'');
 var probe=document.getElementById('probe'),ext=probe?(probe.complete&&probe.naturalWidth>0?1:0):-1,rd=-1;{read}
-new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&ext='+ext+'&rd='+rd+'&t='+Date.now();}}
+new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&ext='+ext+'&rd='+rd+'&s='+acted+'&t='+Date.now();}}
 {act}
 setInterval(report,1000); window.addEventListener('scroll',report); window.addEventListener('pageshow',report); report();
 </script></body></html>"""
@@ -528,6 +529,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 REPORTS[q.get("page", [""])[0]] = {"path": q.get("path", [""])[0], "scrollY": int(q.get("y", ["0"])[0]),
                                                    "history": int(q.get("h", ["0"])[0]), "ext": int(q.get("ext", ["-1"])[0]),
                                                    "read": int(q.get("rd", ["-1"])[0]),
+                                                   "self_scrolled": int(q.get("s", ["0"])[0]),
                                                    "at": time.time()}
             self.send_response(204)
             self.end_headers()
@@ -964,6 +966,9 @@ def snapshot(label):
         items["page[hist].history_length"] = fresh["hist"].get("history")
     if "tall" in fresh:
         items["page[tall].scrollY"] = fresh["tall"]["scrollY"]
+        # Whether this page itself ran the seed's scroll (1 only on the seeded load): a reopened
+        # page that ran it again (a cached copy of the seeded page) proves nothing about restore.
+        items["page[tall].self_scrolled"] = fresh["tall"].get("self_scrolled")
     # The agent chat: its acpmux record, its tab, and what its page shows.
     if AGENT:
         sid = AGENT["session"]
@@ -1089,6 +1094,10 @@ def compare(variant, before, after):
             # Against what was seeded, not the last reopen: a lost scroll must not pass the next variant.
             ok = abs(a - SCROLL) <= 40
             detail = f"{b} -> {a} (seeded {SCROLL})"
+        elif item == "page[tall].self_scrolled":
+            # Only the seeded load scrolls itself; every reopened one must get its scroll from restore.
+            ok = a == 0
+            detail = f"{b} -> {a} (the reopened page must not run the seed's own scroll)"
         elif item == "page[hist].history_length":
             seeded_length = SEEDED.get(item, 3)
             ok = a == seeded_length
