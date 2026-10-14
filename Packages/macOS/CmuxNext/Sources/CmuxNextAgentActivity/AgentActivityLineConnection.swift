@@ -182,7 +182,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
 
     /// Sends one request line and returns the first reply line, or throws
     /// after `deadline`.
-    static func oneShot(path: String, send: Data, deadline: Duration,
+    public static func oneShot(path: String, send: Data, deadline: Duration,
                         acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil) async throws -> Data {
         let connection = AgentActivityLineConnection(path: path, acceptsServer: acceptsServer)
         let once = OnceBox()

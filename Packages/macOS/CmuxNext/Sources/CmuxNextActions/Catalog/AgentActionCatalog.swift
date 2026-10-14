@@ -79,6 +79,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // scripts run that guide (and `cmux harness add|doctor`) directly.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // Agent Stats (webviews/src/pages/stats, hq#1920): this computer's agent work from its
+            // local session logs. A preview feature until styled (StatsHandlers), so it stays out of
+            // the main menu, where an unavailable action shows greyed out to everyone.
+            ActionDescriptor(
+                id: "stats.show",
+                title: String(localized: "action.stats.show", defaultValue: "Show Agent Stats", bundle: .module),
+                keywords: ["stats", "statistics", "usage", "agent", "activity", "streak", "insights", "dashboard"],
+                category: .agents, symbol: "chart.bar.xaxis", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
