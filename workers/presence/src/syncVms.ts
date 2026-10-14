@@ -319,11 +319,14 @@ async function applyReplace(
     if (delta !== null) deltas.push(delta);
   }
   // Ids the DO holds live but the observed list lacks left the list (destroyed,
-  // or a lost delete). Tombstone them at the observation time: a machine
-  // created after the list was read carries a newer clock and survives.
+  // or a lost delete). Tombstone them at the observation time. A record written
+  // shortly before that time survives: its transaction may have committed
+  // after the list read, and a later replace removes it if it really left.
   const existing = await listRecords<VmRecord | VmTombstonePayload>(storage, VMS_COLLECTION);
   for (const stored of existing) {
     if (stored.deleted || listed.has(stored.id)) continue;
+    const writtenAtMs = storedFreshness(stored);
+    if (writtenAtMs !== null && writtenAtMs > observedAtMs - VM_REPLACE_ABSENCE_GRACE_MS) continue;
     const delta = await applyDelete(storage, stored.id, observedAtMs, nowMs);
     if (delta !== null) deltas.push(delta);
   }
