@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { call } from "@orpc/server";
 
 import { billingEmailClaims, stripeSubscriptions } from "../db/schema";
 import { withAccountMutationLeaseSupport } from
@@ -50,6 +51,7 @@ mock.module("../db/client", () => ({
 }));
 
 const { GET } = await import("../app/api/billing/plan/route");
+const { billingRouter } = await import("../orpc/server/dashboard/billing");
 
 describe("billing plan route", () => {
   beforeEach(() => {
@@ -133,6 +135,17 @@ describe("billing plan route", () => {
 
     expect(response.teamPlanId).toBe("team");
     expect(response.teamBillingManagement).toBe("stripe");
+  });
+
+  test("the dashboard reports the Team subscription separately from the Free personal plan", async () => {
+    currentUser = planUser({ selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} } });
+    stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
+
+    const response = await call(billingRouter.current, undefined, {
+      context: { request: new Request("https://cmux.test/api/dashboard/rpc"), serverPrefetch: true },
+    });
+
+    expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "team" });
   });
 
   test("reports no Team management when team metadata has no Stripe row", async () => {
