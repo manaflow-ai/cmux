@@ -16,6 +16,8 @@ final class SidebarRegionView: NSView {
         var drawsLines: Bool
         /// Content height of each shown app section (none: draws nothing).
         var appHeights: [LayoutSectionID: CGFloat] = [:]
+        /// The label font's size (`SidebarStyle.titleFont`): label widths are measured with it.
+        var fontSize: CGFloat = 0
     }
 
     let region: SidebarRegion

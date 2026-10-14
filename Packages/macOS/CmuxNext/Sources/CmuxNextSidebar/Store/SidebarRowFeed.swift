@@ -1,6 +1,13 @@
 import Foundation
 import Observation
 
+/// Read by every row mapping of `SidebarRowFeed` under its observation;
+/// writing it fires (and so removes) that observation.
+@Observable
+fileprivate final class SidebarRowWatchCancel {
+    var epoch: UInt64 = 0
+}
+
 /// Row content observed one workspace at a time, so a status change of one
 /// workspace (agent status, OSC 7501, title, unread, progress, favicon) maps
 /// that one row again and never re-runs the structural sidebar pass.
@@ -29,13 +36,6 @@ public final class SidebarRowFeed {
     /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor).
     public typealias Make = () -> SidebarWorkspace
 
-    /// Read by every row mapping under its observation; writing it fires
-    /// (and so removes) that observation.
-    @Observable
-    private final class Cancel {
-        var epoch: UInt64 = 0
-    }
-
     private final class Entry {
         var make: Make
         var row: SidebarWorkspace
@@ -43,7 +43,7 @@ public final class SidebarRowFeed {
         var armed = false
         /// The armed observation's generation; a callback of an older one is stale.
         var generation: UInt64 = 0
-        let cancel = Cancel()
+        let cancel = SidebarRowWatchCancel()
         /// The pass that last named the row.
         var pass: UInt64
 
