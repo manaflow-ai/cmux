@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3. */
+/* cmux-tui mux protocol 12, IR 70e4f221b4cc30541db42e497e4ac735eb2e8751d5f4816b4e6a242a30284f7c. */
 
 
 import type * as T from "./types.js";
@@ -1687,6 +1687,7 @@ export interface NotifyRequest extends CmuxRequestBase {
 /** Protocol v12; authority: local-admin. */
 export interface PageCredentialRequest extends CmuxRequestBase {
   cmd: "page-credential";
+  "page"?: (string) | null;
 }
 export type PageCredentialResult = T.JsonValue;
 
