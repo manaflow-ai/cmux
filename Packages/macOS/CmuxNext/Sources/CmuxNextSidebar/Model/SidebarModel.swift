@@ -366,6 +366,7 @@ public final class SidebarModel {
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
         guard !locksReorder else { return false }
         let ids = orderedSelection
+        if isFiltering, let docDrag { return docDrag.keyboardMove(ids, up: direction == .up, model: self) }
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
         send(.reorder(ids, to: position))
         return true

@@ -63,7 +63,10 @@ enum SidebarDocWiring {
             case .pinned: SidebarDocStore.pinnedSection
             case .machine(let machine): machines.daemon(machine: machine.rawValue)?.store.registryID.flatMap { store.shown?.machineSections[$0] }
             }
-        }, begin: { store.acceptance(dragging: $0) }, drop: { store.move($0, to: $1, title: SidebarDocStore.moveTitle) })
+        }, begin: { store.acceptance(dragging: $0) }, drop: { store.move($0, to: $1, title: SidebarDocStore.moveTitle) }, adoptRef: { id in
+            guard let (workspace, daemon) = machines.workspace(id: id.rawValue), let ref = SidebarDocSections.ref(of: workspace, session: daemon.store.registryID) else { return nil }
+            return ["session_id": ref.sessionID, "workspace_id": ref.workspaceID, "workspace_key": workspace.key?.rawValue ?? workspace.id]
+        })
     }
 
     /// Sends a move intent as one document move. False: not a move, or the

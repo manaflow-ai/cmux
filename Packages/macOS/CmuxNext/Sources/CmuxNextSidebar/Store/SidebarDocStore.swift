@@ -95,8 +95,11 @@ public final class SidebarDocStore {
         let fresh = refs.filter { !adopting.contains($0) }
         guard isActive, !fresh.isEmpty, let remote else { return }
         adopting.formUnion(fresh)
-        // task-owner: one sidebar.adopt; its batch places the rows
-        Task { _ = try? await remote.adopt(fresh, key: Self.newKey()) }
+        // task-owner: one sidebar.adopt; its batch places the rows. A failed adopt is
+        // tried again on the next structural change.
+        Task { [weak self] in
+            if (try? await remote.adopt(fresh, key: Self.newKey())) == nil { self?.adopting.subtract(fresh) }
+        }
     }
 
     // MARK: Reading
@@ -139,6 +142,15 @@ public final class SidebarDocStore {
         }
     }
 
+    /// Sends reducer ops (`[{op: ...}]`, JSON objects) as one `sidebar.apply`:
+    /// group edits, adopt-then-move. `undoable` false (a collapse) puts no undo step.
+    public func send(ops: [[String: Any]], title: String, undoable: Bool = true) {
+        guard !ops.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ops) else { return }
+        send(.apply(data, key: Self.newKey()), title: title, undoable: undoable) { remote, key in
+            try await remote.apply(ops: data, key: key)
+        }
+    }
+
     /// Applies ops the daemon returned as an inverse (undo, then redo).
     private func apply(_ ops: Data, title: String) {
         send(.apply(ops, key: Self.newKey()), title: title) { remote, key in
@@ -146,7 +158,7 @@ public final class SidebarDocStore {
         }
     }
 
-    private func send(_ intent: SidebarMirrorIntent, title: String,
+    private func send(_ intent: SidebarMirrorIntent, title: String, undoable: Bool = true,
                       _ body: @escaping @MainActor (any SidebarDocRemote, String) async throws -> SidebarDocReply) {
         guard isActive, let mirror, let remote else { return onRefused(SidebarDocStrings.unavailable) }
         do {
@@ -165,7 +177,7 @@ public final class SidebarDocStore {
                 guard let self else { return }
                 // A no-op change echoes no batch: its intent must not stay pending.
                 if !reply.hasInverse { self.drop(key) }
-                if reply.hasInverse {
+                if undoable, reply.hasInverse {
                     let inverse = reply.inverse
                     self.onUndoable(title) { [weak self] in self?.apply(inverse, title: title) }
                 }

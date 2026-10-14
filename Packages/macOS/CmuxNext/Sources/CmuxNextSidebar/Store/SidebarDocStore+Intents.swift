@@ -9,20 +9,38 @@ extension SidebarDocStore {
     /// False: not a move (the older path handles it).
     public func handle(_ intent: SidebarIntent, model: SidebarModel, drag: SidebarDocDrag, pinTitle: String, unpinTitle: String) -> Bool {
         let title = Self.moveTitle
+        // A workspace the document does not place yet moves with its adopt in the same `sidebar.apply`.
+        var adopt: [[String: Any]] = []
         func items(_ ids: [WorkspaceID]) -> [String] {
-            let found = ids.compactMap { drag.item(.workspace($0)) }
-            return found.count == ids.count ? found : []
+            ids.compactMap { id in
+                if let item = drag.item(.workspace(id)) { return item }
+                guard let ref = drag.adoptRef(id) else { return nil }
+                adopt.append(["op": "adopt", "refs": [ref]])
+                return Self.adoptedID(SidebarDocWorkspaceRef(sessionID: ref["session_id"] as? String ?? "", workspaceID: ref["workspace_id"] as? String ?? ""))
+            }
+        }
+        func move(_ moving: [String], to target: SidebarDocTarget, title: String) {
+            guard !adopt.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
+                return self.move(moving, to: target, title: title)
+            }
+            send(ops: adopt + [["op": "move", "items": moving, "to": to]], title: title)
+        }
+        if let (ops, undoable) = groupOps(intent, items: items) {
+            send(ops: adopt + ops, title: Self.moveTitle, undoable: undoable)
+            return true
         }
         func layoutMove(_ moving: [String], _ section: LayoutSectionID, _ index: Int) {
             move(moving, to: SidebarDocDrag.target(section, index: index, moving: moving, layout: model.layout), title: title)
         }
         func setPinned(_ moving: [String], _ pinned: Bool) {
+            if !adopt.isEmpty { return send(ops: adopt + [["op": pinned ? "pin" : "unpin", "items": moving]], title: pinned ? pinTitle : unpinTitle) }
             if pinned { pin(moving, title: pinTitle) } else { unpin(moving, title: unpinTitle) }
         }
         switch intent {
         case .reorder(let ids, let position):
-            guard let target = drag.target(position, moving: items(ids), model: model) else { return false }
-            move(items(ids), to: target, title: title)
+            let moving = items(ids)
+            guard let target = drag.target(position, moving: moving, model: model) else { return false }
+            move(moving, to: target, title: title)
         case .reorderGroup(let group, let index):
             guard let section = model.sections.first(where: { $0.nodes.contains { $0.id == .group(group) } }),
                   let target = drag.target(DropPosition(section: section.id, index: index), moving: [group.rawValue], model: model) else { return false }
@@ -38,8 +56,6 @@ extension SidebarDocStore {
             layoutMove(items(ids), section, index)
         case .layout(.itemMove(let id, let section, let index)):
             layoutMove([id.rawValue], section, index)
-        case .toggleCollapse(.group):
-            model.apply(intent)
         default:
             return false
         }

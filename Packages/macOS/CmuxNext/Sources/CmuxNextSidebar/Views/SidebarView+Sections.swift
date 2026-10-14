@@ -32,6 +32,10 @@ extension SidebarView {
             // A drop gives the layout the order the band showed (R77).
             region.onReorder = { [weak self] subject, shown in
                 guard let self, let op = SidebarRegionReorder.op(for: subject, shown: shown, document: self.model.layout) else { return }
+                // On the document a band reorder is one sidebar.move (sidebar-v2 S5).
+                if let doc = self.model.docDrag, case let .itemMove(id, section, index) = op {
+                    return doc.drop([id.rawValue], SidebarDocDrag.target(section, index: index, moving: [id.rawValue], layout: self.model.layout))
+                }
                 self.model.send(.layout(op))
             }
         }

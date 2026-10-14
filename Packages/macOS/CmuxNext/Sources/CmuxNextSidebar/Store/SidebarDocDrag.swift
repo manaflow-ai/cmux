@@ -16,9 +16,13 @@ public struct SidebarDocDrag {
     public var begin: ([String]) -> [String: SidebarDocAcceptance]
     /// The drop: one move, one undo step.
     public var drop: ([String], SidebarDocTarget) -> Void
+    /// The adopt ref (`session_id`, `workspace_id`, `workspace_key`) of a workspace the document does not place yet.
+    public var adoptRef: (WorkspaceID) -> [String: String]?
 
     public init(item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
-                begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void) {
+                begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,
+                adoptRef: @escaping (WorkspaceID) -> [String: String]? = { _ in nil }) {
+        self.adoptRef = adoptRef
         self.item = item
         self.section = section
         self.begin = begin
@@ -82,6 +86,26 @@ public struct SidebarDocDrag {
     public static func target(_ section: LayoutSectionID, index: Int, moving: [String], layout: SidebarLayoutDocument) -> SidebarDocTarget {
         let siblings = layout.section(section)?.items.map(\.id.rawValue) ?? []
         return SidebarDocStore.target(section: section.rawValue, index: index, siblings: siblings, moving: Set(moving))
+    }
+
+    /// Keyboard reorder while the list is filtered: the selection moves next
+    /// to its visible neighbour above (`up`) or below, as one anchored move.
+    public func keyboardMove(_ ids: [WorkspaceID], up: Bool, model: SidebarModel) -> Bool {
+        guard let matches = model.filterMatches else { return false }
+        let moving = Set(ids)
+        let visible = model.sections.flatMap { section in section.nodes.flatMap { node in
+            node.workspaces.filter { matches.contains($0.id) || moving.contains($0.id) }.map { (section.id, node, $0.id) }
+        } }
+        guard let first = visible.firstIndex(where: { moving.contains($0.2) }),
+              let last = visible.lastIndex(where: { moving.contains($0.2) }) else { return false }
+        let neighbour = up ? visible[..<first].last : visible[(last + 1)...].first
+        guard let (sectionID, node, id) = neighbour, let section = section(sectionID), let anchor = item(.workspace(id)) else { return false }
+        let items = ids.compactMap { item(.workspace($0)) }
+        guard items.count == ids.count else { return false }
+        var parent: String?
+        if case .group(let group) = node { parent = group.id.rawValue }
+        drop(items, up ? SidebarDocTarget(section: section, parent: parent, before: anchor) : SidebarDocTarget(section: section, parent: parent, after: anchor))
+        return true
     }
 
     /// The list's drop look for `hit` (the gap or the highlighted group).
