@@ -197,6 +197,7 @@ pub(super) fn advertised_capabilities(
         crate::state::screens::SCREEN_GROUP_ICON_CAPABILITY,
         crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
+        crate::state::sidebar_doc_store::CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
