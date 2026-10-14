@@ -195,10 +195,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    under the default neutral accent), as the New Tab box does (newtab/screen.css). The prompt
    itself draws no ring (desktop.css, cx-ncc.57). */
 .acpmux-composer-box:focus-within {
-  --acpmux-card-ring: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 40%, var(--acpmux-composer-edge));
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--agent-accent, var(--agent-text)) 40%, var(--acpmux-composer-edge));
 }
 .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
-  --acpmux-card-ring: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
 }
 /* Under Increase Contrast the edge is already the text color, so the step above would not show:
    the box takes the shared focus ring, following its rounded corners. */
@@ -209,7 +209,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   }
 }
 .acpmux-composer[data-shell] .acpmux-composer-box {
-  --acpmux-card-ring: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
 }
 
 /* Queued prompts (ComposerQueue.tsx): the row's menu host stays out of the row's layout; a row

@@ -22,9 +22,9 @@
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
   --acpmux-strip-edge: var(--acpmux-composer-edge);
   box-shadow:
-    inset 0 .5px 0 var(--acpmux-strip-edge),
-    inset .5px 0 0 var(--acpmux-strip-edge),
-    inset -.5px 0 0 var(--acpmux-strip-edge);
+    inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge),
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
@@ -360,8 +360,8 @@
 }
 /* The composer is one material surface; the location strip on its top edge shares its fill and
    edge (.acpmux-composer-strip), so it cannot read as a second box over wallpaper. Its only edge is
-   the --acpmux-composer-edge hairline (styles.css), clear under appearance.borders = none: no drop
-   shadow, no rim (hq#1957 border hunt). */
+   the --acpmux-composer-edge hairline (styles.css), one device pixel (--cmux-hairline, #20481) and
+   clear under appearance.borders = none: no drop shadow (hq#1957 border hunt). */
 .acpmux-composer-box {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
 }
@@ -388,7 +388,7 @@
    clear under appearance.borders = none, and no shadow. The icon and title form
    one readable header, while coverage and request count stay secondary metadata. */
 .acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface {
-  border: .5px solid var(--acpmux-composer-edge);
+  border: var(--cmux-hairline, .5px) solid var(--acpmux-composer-edge);
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
   box-shadow: none;
@@ -436,8 +436,8 @@
 .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   border-radius: 0;
   box-shadow:
-    inset .5px 0 0 var(--acpmux-strip-edge),
-    inset -.5px 0 0 var(--acpmux-strip-edge);
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
 }
 
 /* The folder popover (FolderPopover.tsx): a search field over the folders, then New Worktree, Add
