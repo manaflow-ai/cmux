@@ -1,5 +1,6 @@
 public import AppKit
 public import AVFoundation
+import CmuxNextWakeups
 
 /// A video wallpaper behind a window's content (cx-14vdf): the file loops, muted, through
 /// `AVPlayerLayer`, filling the window as the art does. It plays only while someone can see it
@@ -9,7 +10,7 @@ public import AVFoundation
 ///   awake and the session is the active one;
 /// - not in Low Power Mode, and the thermal state is below serious;
 /// - looping motion is allowed (`Motion.animatesLoops`: Reduce Motion or animation speed "off"
-///   holds the first frame, which the art view below already shows as the poster).
+///   holds the frame it is on; before the first frame the art view below shows the poster).
 ///
 /// Every window showing one file shares one decoder (``BackdropVideoPlayers``), as idlesse found
 /// one decoder per display doubled the video decoder's load; a 0.5 s forward buffer keeps 4K
@@ -70,8 +71,8 @@ public final class BackdropVideoView: NSView {
         playerLayer.player = players.attach(url, viewer: ObjectIdentifier(self))
         readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
             let ready = layer.isReadyForDisplay
-            // main-proof: AVPlayerLayer reports readiness on the main thread
-            MainActor.assumeIsolated { self?.showFrames(ready) }
+            // AVFoundation may report readiness from its own threads: inline on main, a hop otherwise.
+            MainDelivery().run { self?.showFrames(ready) }
         }
         update()
     }
@@ -131,6 +132,7 @@ public final class BackdropVideoView: NSView {
             (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
             (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),
         ]
+        names.append((app, NSWindow.willCloseNotification, window))
         names += [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
                   NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification].map { (workspace, $0, nil) }
         observers = names.map { center, name, object in
@@ -144,6 +146,8 @@ public final class BackdropVideoView: NSView {
 
     private func note(_ name: Notification.Name) {
         switch name {
+        // A closed window keeps its views: hand the shared player back now, not when the view goes.
+        case NSWindow.willCloseNotification: return detach()
         case NSWorkspace.screensDidSleepNotification: screensAsleep = true
         case NSWorkspace.screensDidWakeNotification: screensAsleep = false
         case NSWorkspace.sessionDidResignActiveNotification: sessionInactive = true

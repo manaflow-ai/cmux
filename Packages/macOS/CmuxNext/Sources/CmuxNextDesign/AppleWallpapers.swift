@@ -61,7 +61,8 @@ public nonisolated struct AppleWallpapers: Sendable {
 
     /// Whether `path` is a shipped moving wallpaper with a light and a dark cut.
     public static func hasCuts(_ path: String) -> Bool {
-        isVideo(path) && (path.contains(" Light ") || path.contains(" Dark "))
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return isVideo(path) && (name.contains(" Light ") || name.contains(" Dark "))
     }
 
     /// The file a window plays for `path` in light or dark: a shipped wallpaper's cut for the
@@ -73,7 +74,10 @@ public nonisolated struct AppleWallpapers: Sendable {
 
     /// A shipped video's light or dark cut (`Sonoma Graphic Light Landscape.mov`).
     static func cut(_ path: String, dark: Bool) -> String {
-        dark ? path.replacingOccurrences(of: " Light ", with: " Dark ") : path.replacingOccurrences(of: " Dark ", with: " Light ")
+        // Only the file name: a folder named " Dark " is not a cut.
+        let url = URL(fileURLWithPath: path), name = url.lastPathComponent
+        let swapped = dark ? name.replacingOccurrences(of: " Light ", with: " Dark ") : name.replacingOccurrences(of: " Dark ", with: " Light ")
+        return url.deletingLastPathComponent().appendingPathComponent(swapped).path
     }
 
     /// A folder's entries, hidden ones included (`.wallpapers` is hidden).
