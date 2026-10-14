@@ -14,9 +14,10 @@ PTYs). Then:
           Measured: the app's CPU time per tick (proc_pid_rusage), the main-thread reply delay
           of a cheap main-actor debug call sampled every 50 ms (a stall shows as a slow reply),
           and, when the build serves `debug.sidebar_perf`, its counters.
-  scroll: `--scroll-steps` wheel events over the workspace list (`debug.sidebar_wheel`, one
-          event per call), down then up. Measured: each call's main-thread time, hitches
-          (calls over one 60 Hz frame, 16.7 ms), and the counters.
+  scroll: after the tick programs end, `--scroll-steps` calls of `debug.sidebar_wheel` over the
+          workspace list, down then up: mouse wheel (one line event per call) and trackpad (a
+          three-event pixel gesture per call). Measured: each call's main-thread time, hitches
+          (calls over one 60 Hz frame, 16.7 ms), the counters, and that the list moved.
 
 With counters (a build of the rows lane) it asserts: no structural rebuild and no list reload
 during the ticks; row configures stay at or under the row patches (one realized row per changed
@@ -221,27 +222,59 @@ def tick_phase(pid):
     print("ticks:", json.dumps(result), flush=True)
 
 
+def quiet():
+    """Waits until the tick programs have ended (the scroll is measured without them)."""
+    time.sleep(max(5, opts.seconds * 0.3))  # test script: the tick loops end a little after --seconds
+    if counters() is None:
+        return
+    deadline, last = time.monotonic() + 30, None
+    while time.monotonic() < deadline:  # bounded wait: no row patch for 2 s
+        now = counters().get("row_patches")
+        if now == last:
+            return
+        last = now
+        time.sleep(2)
+
+
+def realized_titles():
+    return [r.get("title") for r in workspace_rows() if r.get("view_frame")]
+
+
 def scroll_phase():
+    quiet()
+    # A mouse wheel (line steps, one event per call) and a trackpad (pixel steps, a
+    # three-event gesture per call, applied at once without smooth-scroll animation).
+    summary["scroll"] = scroll_mode("wheel", {"count": 1}, 3)
+    summary["scroll_trackpad"] = scroll_mode("trackpad", {"count": 3, "trackpad": True}, 40)
+
+
+def scroll_mode(label, params, step_dy):
     rows = [r for r in workspace_rows() if r.get("view_frame")]
     if not rows:
-        check(False, "scroll: a realized workspace row to scroll over")
-        return
+        check(False, f"scroll {label}: a realized workspace row to scroll over")
+        return {}
     frame = rows[len(rows) // 2]["window_frame"]  # {x, y, width, height}, window points from the top left
     point = {"x": frame["x"] + frame["width"] / 2, "y": frame["y"] + frame["height"] / 2}
+    before = realized_titles()
     counters(reset=True)
-    durations = []
-    for direction in (-3, 3):
-        for _ in range(opts.scroll_steps // 2):
-            ms, _ = timed_rpc("debug.sidebar_wheel", dict(point, dy=direction, count=1))
+    durations, moved = [], []
+    for direction in (-step_dy, step_dy):
+        for step in range(opts.scroll_steps // 2):
+            ms, reply = timed_rpc("debug.sidebar_wheel", dict(point, dy=direction, **params))
+            if step == 0:
+                print(f"{label} dy={direction}: {json.dumps(reply)[:200]}", flush=True)
             durations.append(ms)
-    result = {"steps": len(durations), "latency": latency_stats(durations)}
+        moved.append(realized_titles() != before)
+    result = {"calls": len(durations), "events_per_call": params["count"], "latency": latency_stats(durations), "moved_down": moved[0]}
+    check(moved[0], f"scroll {label}: the list scrolled (realized rows changed: {moved[0]})")
     after = counters()
     if after is not None:
         result["counters"] = after
-        check(after.get("list_reloads", 0) == 0, f"scroll: no list reload (list_reloads {after.get('list_reloads')})")
-        check(after.get("rebuilds", 0) == 0, f"scroll: no structural rebuild (rebuilds {after.get('rebuilds')})")
-    summary["scroll"] = result
-    print("scroll:", json.dumps(result), flush=True)
+        check(after.get("list_reloads", 0) == 0, f"scroll {label}: no list reload (list_reloads {after.get('list_reloads')})")
+        check(after.get("rebuilds", 0) == 0, f"scroll {label}: no structural rebuild (rebuilds {after.get('rebuilds')})")
+        check(after.get("scroll_realizes", 0) > 0, f"scroll {label}: rows realized while scrolling ({after.get('scroll_realizes')})")
+    print(f"scroll {label}:", json.dumps(result), flush=True)
+    return result
 
 
 def main():
