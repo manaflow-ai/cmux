@@ -14,12 +14,18 @@ use tokio::sync::mpsc;
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
+#[path = "hub_integration/lanes.rs"]
+mod lanes;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
+#[path = "hub_integration/prompt_provenance.rs"]
+mod prompt_provenance;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/restart.rs"]
+mod restart;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
@@ -626,83 +632,6 @@ async fn tags_rules_and_unread() {
     let v =
         c.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": null})).await.unwrap();
     assert_eq!(v["rules"], false);
-}
-
-#[tokio::test]
-async fn restart_marks_unknown_outcome() {
-    use acpmux::store::EventRecord;
-    let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
-    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let mut agents = BTreeMap::new();
-    agents.insert(
-        "fake".to_owned(),
-        HarnessProfile {
-            kind: Default::default(),
-            argv: vec!["python3".into(), fake.into()],
-            env: BTreeMap::new(),
-            description: None,
-            fallback: None,
-            family: None,
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        },
-    );
-    let mut cfg =
-        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
-    cfg.store.mode = StoreMode::Local;
-    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
-    let hub = Hub::new(cfg.clone(), store);
-    hold_person_key(&hub);
-    let (in_tx, in_rx) = mpsc::channel(64);
-    let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
-    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.become_person().await;
-    let s = c
-        .request(
-            method::SESSION_NEW,
-            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "crash"}}}),
-        )
-        .await
-        .unwrap();
-    let id = s["sessionId"].as_str().unwrap().to_owned();
-    c.request(
-        method::SESSION_PROMPT,
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
-    )
-    .await
-    .unwrap();
-    let last = hub.session_summary(&hub.resolve(&id).unwrap())["lastSeq"].as_u64().unwrap();
-    hub.shutdown_all().await;
-    drop(hub);
-    // Simulate a crash mid-turn: a turn_started with no turn_result.
-    let store2 = acpmux::store::open(&cfg.store, &dir).unwrap();
-    store2
-        .append(
-            &id,
-            &EventRecord {
-                seq: last + 1,
-                at: 0,
-                dir: "mux".into(),
-                kind: "turn_started".into(),
-                msg: json!({"prompt": "lost"}),
-                host_seq: None,
-            },
-        )
-        .unwrap();
-    let hub2 = Hub::new(cfg, store2);
-    let events = hub2.events(&id, last, 100).unwrap();
-    let final_kind = events.last().map(|e| e.kind.clone()).unwrap_or_default();
-    assert_eq!(
-        final_kind,
-        "turn_result",
-        "{:?}",
-        events.iter().map(|e| &e.kind).collect::<Vec<_>>()
-    );
-    assert_eq!(events.last().unwrap().msg["detail"], "outcome_unknown");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
@@ -1482,14 +1411,12 @@ mod adopt;
 #[cfg(unix)]
 mod preset_args;
 
-#[path = "hub_integration/lifecycle_fixes.rs"]
-mod lifecycle_fixes;
-
-#[path = "hub_integration/quit_spawn.rs"]
-mod quit_spawn;
-
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+#[path = "hub_integration/lifecycle_fixes.rs"]
+mod lifecycle_fixes;
+#[path = "hub_integration/quit_spawn.rs"]
+mod quit_spawn;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;

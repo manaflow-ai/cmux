@@ -514,7 +514,9 @@ export function ComposerPickers({
       )}
       {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
       <span className="acpmux-chips-spacer" aria-hidden="true" />
-      {modes.length === 0 && startModeName && <PendingChip kind="mode" label={startModeName} />}
+      {modes.length === 0 && startMode && startModeName && (
+        <PendingChip kind="mode" label={startModeName} modeId={startMode.modeId} />
+      )}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -558,7 +560,9 @@ export function ComposerPickers({
 
 /// A control the session has not reported yet, as this harness's chats last showed it: the real
 /// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
-function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }) {
+/// `modeId` is read from storage: only a string names a mode that may skip approvals.
+function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: string; modeId?: unknown }) {
+  const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return kind === "effort" ? (
     <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
       <span className="acpmux-picker-button">
@@ -567,7 +571,7 @@ function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }
       </span>
     </span>
   ) : (
-    <span className="acpmux-mode acpmux-access acpmux-chip-pending" aria-hidden="true">
+    <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
       <span className="acpmux-picker-button acpmux-access-trigger">
         <LockIcon />
         <span className="acpmux-mode-text">{label}</span>

@@ -54,6 +54,9 @@ public final class ChiefConversationOwner {
         return environment
     }
 
+    /// `start` ran and its connection loop runs (false: never started, or the launcher failed).
+    public var isRunning: Bool { runTask != nil }
+
     public func supports(_ capability: String) -> Bool {
         connection != nil && identity?.supports(capability) == true
     }

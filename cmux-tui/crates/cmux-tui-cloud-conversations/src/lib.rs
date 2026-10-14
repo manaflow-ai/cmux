@@ -10,6 +10,7 @@
 //! WebSocket seam. The cmux-tui binary installs the real backend
 //! (reqwest + tokio-tungstenite); tests install a scripted one.
 
+mod attachments;
 mod contract;
 mod error;
 mod service;
@@ -21,14 +22,19 @@ pub use contract::{
 };
 pub use error::CloudError;
 pub use service::{
-    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, RequestPermit,
-    ServiceOptions, TransportError, WireRecv,
+    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, RangeReply,
+    RequestPermit, ServiceOptions, TransportError, WireRecv,
 };
 pub use session::SessionParams;
 pub use stream::CloudEvent;
 
 /// The capability `identify` advertises when a cloud backend is installed.
 pub const CLOUD_CONVERSATIONS_CAPABILITY: &str = "cloud-conversations-v1";
+
+/// Advertised with `cloud-conversations-v1`: attachments of cloud
+/// conversations through the daemon (`cloud-attachment-upload`,
+/// `cloud-attachment-read`, `cloud-attachment-link`).
+pub const CLOUD_ATTACHMENTS_CAPABILITY: &str = "cloud-attachments-v1";
 
 #[cfg(feature = "test-support")]
 pub mod testing;

@@ -678,7 +678,7 @@
   width: min(100%, max(360px, 58%), 520px);
   border-inline-start: 1px solid var(--lg-line);
   background: var(--lg-solid);
-  box-shadow: -12px 0 32px -16px color-mix(in srgb, black 35%, transparent);
+  box-shadow: var(--elevation-2);
 }
 @media (prefers-reduced-motion: no-preference) {
   .lg-sheet {
@@ -1529,4 +1529,7 @@
   height: 100%;
   padding: 6px 8px;
   text-align: start;
+}
+.hc-lightbox-body {
+  display: contents;
 }

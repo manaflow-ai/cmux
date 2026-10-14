@@ -33,7 +33,7 @@ enum WindowProfiles {
     }
 
     static func visible(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
-        let membership = membership(machines)
+        guard let membership = membership(machines) else { return members } // no rooms: every member shows
         return members.filter { shows($0, profile: profile, machines: machines, membership: membership) }
     }
 

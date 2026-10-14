@@ -64,10 +64,13 @@ enum PersonalSidebar {
         let ordered = order(workspaces, rows: rows)
         let known = Set(groups.map(\.id))
         let byKey = Dictionary(ordered.map { (rowKey($0), $0) }, uniquingKeysWith: { first, _ in first })
+        // One pass each (O(n + groups)), not a scan of every workspace per group or of every group per row.
+        let membersByGroup = Dictionary(grouping: ordered.filter { rows[rowKey($0)]?.group != nil }) { rows[rowKey($0)]?.group }
+        let groupsAt = Dictionary(grouping: groups.filter { $0.topIndex != nil }) { $0.topIndex }
         var sections: [SidebarSection] = []
         var loose: [WorkspaceModel] = []
         func emit(_ group: WorkspaceGroupModel) {
-            let members = ordered.filter { rows[rowKey($0)]?.group == group.id }
+            let members = membersByGroup[group.id] ?? []
             // A group being deleted for losing its last member stays hidden (PersonalGroupLife.commit).
             guard !members.isEmpty || keepsEmptyGroups && !personal.endingGroups.contains(group.id) else { return }
             if !loose.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
@@ -75,7 +78,7 @@ enum PersonalSidebar {
             sections.append(SidebarSection(group: group, workspaces: members))
         }
         for (index, row) in all.enumerated() {
-            for group in groups where group.topIndex == index { emit(group) }
+            for group in groupsAt[index] ?? [] { emit(group) }
             if row.sessionID == session, let workspace = byKey[row.workspaceKey.rawValue],
                rows[rowKey(workspace)]?.group.map({ !known.contains($0) }) ?? true {
                 loose.append(workspace)

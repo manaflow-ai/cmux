@@ -2,7 +2,7 @@
 /// grey bars there, then its chips). A new chat draws it at once, before its session reports, and
 /// the session's own value replaces it in place. Per viewer; a missing or blocked store only leaves
 /// that place empty until the session reports. The access chip names the mode acpmux starts the chat
-/// in instead (harnessProfiles.ts `startMode`): the last chat's mode is not the next one's.
+/// in instead (`_acpmux/start_mode`, startMode.ts): the last chat's mode is not the next one's.
 export type LastChips = { effort?: string };
 
 const STORAGE_KEY = "cmux.acpmux.lastChips";
