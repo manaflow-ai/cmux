@@ -58,6 +58,9 @@ impl Hub {
             }
             other => other,
         };
+        // Until startup has read the login shell, PATH is the app's bare one and
+        // the catalog lacks every harness installed under the person's home.
+        self.wait_startup().await;
         let mut view = self.harnesses_view().await;
         let Some(cwd) = cwd.filter(|_| !remote) else { return Ok(view) };
         let cfg = self.config.read().await.clone();
