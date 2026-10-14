@@ -124,6 +124,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
                 group("settings.group.computerUse"),
+                // freeModel.enabled: the free cmux AI model agents use while signed out.
+                group("settings.group.freeModel"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.
