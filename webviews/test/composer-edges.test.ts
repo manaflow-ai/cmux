@@ -1,12 +1,13 @@
 // The composer card and the permission cards draw one quiet hairline and no glass (hq#1957, the
-// border hunt). #20303 gave the card a 0 8px 24px drop shadow and an inset text-color rim that
-// ignored appearance.borders = none, and the permission cards a .5px border plus a shadow:
-//   - no surface casts a drop shadow (every box-shadow layer is inset), the New Tab box included;
+// border hunt). #20303 gave the card an inset text-color rim that ignored appearance.borders = none,
+// and the permission cards a .5px border:
 //   - each keeps one thin Liquid Glass-like rim (Leo: don't strip it to zero): the composer card's
-//     resting edge is the --acpmux-composer-edge hairline, a permission card's a .5px border;
+//     resting edge is the --acpmux-composer-edge hairline (one inset layer), a permission card's a
+//     .5px border (no inset layer);
 //   - under appearance.borders = none (`data-borders="none"` on the root) neither surface draws
-//     a visible edge at rest: every shadow layer and border is clear. Focus still steps the card's
-//     edge toward the accent (composerStates.css): a focus state, not a border.
+//     a visible edge at rest: every inset layer and border is clear.
+// Their drop shadows are the shared elevation scale's, which subtle-elevation.test.ts owns; this
+// file reads only the edges (inset layers and borders).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -110,30 +111,8 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
       selector: ".acpmux-permission-surface",
     },
   ];
-  const newTab = { name: "New Tab box", entry: "agent-pane.new-tab", variant: "empty", selector: ".nt-box" };
-
-  test(`${newTab.name}: no drop shadow, focused or not`, async () => {
-    const page = await open(newTab.entry, newTab.variant, newTab.selector);
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    const resting = await page.evaluate(edges, newTab.selector);
-    await page.locator(".nt-field").first().focus();
-    const focused = await page.evaluate(edges, newTab.selector);
-    await page.close();
-    expect(resting.shadows.filter((layer) => !layer.inset)).toEqual([]);
-    expect(focused.shadows.filter((layer) => !layer.inset)).toEqual([]);
-  });
 
   for (const surface of surfaces) {
-    test(`${surface.name}: no drop shadow, focused or not`, async () => {
-      const page = await open(surface.entry, surface.variant, surface.selector);
-      const resting = await page.evaluate(edges, surface.selector);
-      await page.locator(`${surface.selector} textarea, ${surface.selector} button`).first().focus();
-      const focused = await page.evaluate(edges, surface.selector);
-      await page.close();
-      expect(resting.shadows.filter((layer) => !layer.inset)).toEqual([]);
-      expect(focused.shadows.filter((layer) => !layer.inset)).toEqual([]);
-    });
-
     test(`${surface.name}: appearance.borders = none draws no edge`, async () => {
       const page = await open(surface.entry, surface.variant, surface.selector);
       await page.evaluate(() => {
@@ -142,7 +121,7 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
       });
       const measured = await page.evaluate(edges, surface.selector);
       await page.close();
-      expect(measured.shadows.filter((layer) => layer.alpha > 0)).toEqual([]);
+      expect(measured.shadows.filter((layer) => layer.inset && layer.alpha > 0)).toEqual([]);
       expect(measured.border.width === 0 || measured.border.alpha === 0).toBe(true);
     });
   }
@@ -152,9 +131,9 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     const measured = await page.evaluate(edges, ".acpmux-composer-box");
     await page.close();
-    expect(measured.shadows).toHaveLength(1);
-    expect(measured.shadows[0]!.inset).toBe(true);
-    expect(measured.shadows[0]!.alpha).toBeGreaterThan(0);
+    const rims = measured.shadows.filter((layer) => layer.inset);
+    expect(rims).toHaveLength(1);
+    expect(rims[0]!.alpha).toBeGreaterThan(0);
   });
 
   test("permission card: one .5px hairline by default", async () => {
@@ -164,6 +143,6 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     expect(measured.border.width).toBeGreaterThan(0);
     expect(measured.border.width).toBeLessThanOrEqual(1);
     expect(measured.border.alpha).toBeGreaterThan(0);
-    expect(measured.shadows).toEqual([]);
+    expect(measured.shadows.filter((layer) => layer.inset)).toEqual([]);
   });
 });
