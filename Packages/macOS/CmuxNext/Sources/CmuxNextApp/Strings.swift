@@ -5,7 +5,6 @@ import Foundation
 enum Strings {
     static var appName: String { String(localized: "app.name", defaultValue: "cmux", bundle: .module) }
 
-    static var menuAbout: String { String(localized: "menu.app.about", defaultValue: "About cmux", bundle: .module) }
     static var menuHide: String { String(localized: "menu.app.hide", defaultValue: "Hide cmux", bundle: .module) }
     static var menuHideOthers: String { String(localized: "menu.app.hideOthers", defaultValue: "Hide Others", bundle: .module) }
     static var menuShowAll: String { String(localized: "menu.app.showAll", defaultValue: "Show All", bundle: .module) }
@@ -17,8 +16,10 @@ enum Strings {
     static var menuCopy: String { String(localized: "menu.edit.copy", defaultValue: "Copy", bundle: .module) }
     static var menuPaste: String { String(localized: "menu.edit.paste", defaultValue: "Paste", bundle: .module) }
     static var menuSelectAll: String { String(localized: "menu.edit.selectAll", defaultValue: "Select All", bundle: .module) }
+    static var menuFind: String { String(localized: "menu.edit.find", defaultValue: "Find", bundle: .module) }
     static var menuView: String { String(localized: "menu.view", defaultValue: "View", bundle: .module) }
     static var menuWindow: String { String(localized: "menu.window", defaultValue: "Window", bundle: .module) }
+    static var menuHelp: String { String(localized: "menu.help", defaultValue: "Help", bundle: .module) }
     static var menuDebug: String { String(localized: "menu.debug", defaultValue: "Debug", bundle: .module) }
     static var menuSidebarToggleIcon: String {
         String(localized: "menu.debug.sidebarToggleIcon", defaultValue: "Sidebar Toggle Icon", bundle: .module)

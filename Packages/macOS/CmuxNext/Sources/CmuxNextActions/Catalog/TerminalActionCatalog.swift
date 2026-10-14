@@ -38,12 +38,13 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
                 symbol: "paperclip", surfaces: [.palette, .keyboard], requires: [.terminalFocused], targets: [.pane],
                 cliName: "terminal attach-file-to-textbox"
             ),
+            // Types Ctrl-F into the terminal from the palette or a key the user binds: an escape hatch, no menu row.
             ActionDescriptor(
                 id: "sendCtrlFToTerminal",
                 title: String(localized: "action.sendCtrlFToTerminal", defaultValue: "Send Ctrl-F to Terminal", bundle: .module),
                 keywords: ["control", "key"], category: .terminal, symbol: "keyboard.badge.ellipsis",
-                surfaces: [.palette, .keyboard, .menu], requires: [.terminalFocused], targets: [.pane],
-                cliName: "terminal send-ctrl-f-to", mainMenu: .edit
+                surfaces: [.palette, .keyboard], requires: [.terminalFocused], targets: [.pane],
+                cliName: "terminal send-ctrl-f-to"
             ),
             ActionDescriptor(
                 id: "pasteLastScreenshot",
