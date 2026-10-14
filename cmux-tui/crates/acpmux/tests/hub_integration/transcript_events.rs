@@ -547,7 +547,7 @@ async fn history_page_cost() {
     let output = "x".repeat(900);
     let started = Instant::now();
     for turn in 0..3000 {
-        let mut push = |rec: EventRecord| store.append(&id, &rec).unwrap();
+        let push = |rec: EventRecord| store.append(&id, &rec).unwrap();
         seq += 1;
         push(mux(seq, "user_message", json!({"text": format!("Question {turn}")})));
         seq += 1;
