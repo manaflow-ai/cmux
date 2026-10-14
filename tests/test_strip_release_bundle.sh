@@ -62,9 +62,15 @@ xml = plistlib.dumps(table, fmt=plistlib.FMT_XML).decode("utf-8")
 open(f"{d}/Localizable.strings", "wb").write(b"\xff\xfe" + xml.encode("utf-16-le"))
 open(f"{d}/Binary.strings", "wb").write(plistlib.dumps(table, fmt=plistlib.FMT_BINARY))
 open(f"{d}/InfoPlist.strings", "wb").write('"CFBundleName" = "\u958b";\n'.encode("utf-8"))
+# A UTF-16 big-endian table that declares its real encoding converts too.
+declared = xml.replace('encoding="UTF-8"', 'encoding="UTF-16"')
+open(f"{d}/Declared.strings", "wb").write(b"\xfe\xff" + declared.encode("utf-16-be"))
+# An unreadable table is kept as it is instead of failing the release.
+open(f"{d}/Broken.strings", "wb").write(b"\xff\xfe" + "<?xml version".encode("utf-16-le") + b"\x00")
 PY
 cp "$STRINGS_DIR/Binary.strings" "$TMP_DIR/Binary.before"
 cp "$STRINGS_DIR/InfoPlist.strings" "$TMP_DIR/InfoPlist.before"
+cp "$STRINGS_DIR/Broken.strings" "$TMP_DIR/Broken.before"
 
 cat > "$TMP_DIR/tools/file" <<'EOF'
 #!/usr/bin/env bash
@@ -124,6 +130,10 @@ d = sys.argv[1]
 data = open(f"{d}/Localizable.strings", "rb").read()
 assert data.startswith(b"bplist00"), data[:16]
 assert plistlib.loads(data) == {"Open": "\u958b\u304f", "Quote": "\"%@\" & <tag>"}
+declared = open(f"{d}/Declared.strings", "rb").read()
+assert declared.startswith(b"bplist00"), declared[:16]
+assert plistlib.loads(declared) == plistlib.loads(data)
 PY
 cmp -s "$STRINGS_DIR/Binary.strings" "$TMP_DIR/Binary.before" || { echo "binary strings table changed" >&2; exit 1; }
 cmp -s "$STRINGS_DIR/InfoPlist.strings" "$TMP_DIR/InfoPlist.before" || { echo "text strings table changed" >&2; exit 1; }
+cmp -s "$STRINGS_DIR/Broken.strings" "$TMP_DIR/Broken.before" || { echo "unreadable strings table changed" >&2; exit 1; }

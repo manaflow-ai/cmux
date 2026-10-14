@@ -6,7 +6,8 @@ usage() {
 Usage: scripts/strip-release-bundle.sh <path-to-cmux.app>
 
 Strips cmux-owned Release Mach-O binaries before codesigning: executables fully,
-plug-ins and libraries down to their global symbols.
+plug-ins and libraries down to their global symbols. Compiled .strings tables
+under Contents/Resources become binary property lists.
 The dSYM UUID is preserved, so Sentry symbol upload continues to match crashes.
 EOF
 }
@@ -117,10 +118,27 @@ fi
 # with STRINGS_FILE_OUTPUT_ENCODING, and the project's binary setting does not
 # reach SwiftPM package targets, so the resource bundles' tables arrive as
 # UTF-16 XML (cmux NEXT: 2,109 files, 19.6 MiB; 9.5 MiB as binary). Foundation
-# reads both forms. Binary and old-style text tables stay as they are, and
-# nested code bundles, signed on their own, are skipped.
+# reads both forms. Binary, old-style text and unreadable tables stay as they
+# are (this only saves space), and nested code bundles, signed on their own,
+# are skipped.
 python3 -I - "$APP_PATH/Contents/Resources" <<'PY'
-import os, plistlib, sys
+import os, plistlib, sys, tempfile
+
+def table_of(data):
+    """The XML property list in data, or None (binary, old-style text, unreadable)."""
+    if data.startswith(b"bplist"):
+        return None
+    try:
+        return plistlib.loads(data, fmt=plistlib.FMT_XML)
+    except Exception:
+        pass
+    # Xcode's UTF-16 copy keeps the UTF-8 declaration, which expat refuses.
+    if data[:2] not in (b"\xff\xfe", b"\xfe\xff"):
+        return None
+    try:
+        return plistlib.loads(data.decode("utf-16").encode("utf-8"), fmt=plistlib.FMT_XML)
+    except Exception:
+        return None
 
 root = sys.argv[1]
 count = before = after = 0
@@ -134,13 +152,15 @@ for dirpath, dirnames, filenames in os.walk(root):
             continue
         with open(path, "rb") as f:
             data = f.read()
-        text = data.decode("utf-16") if data[:2] in (b"\xff\xfe", b"\xfe\xff") else data.decode("utf-8", "replace")
-        if not text.lstrip().startswith(("<?xml", "<!DOCTYPE plist", "<plist")):
+        table = table_of(data)
+        if table is None:
+            text = data.lstrip(b"\xef\xbb\xbf\xff\xfe").replace(b"\x00", b"").lstrip()
+            if text.startswith((b"<?xml", b"<!DOCTYPE", b"<plist")):
+                print(f"warning: kept unreadable XML strings table as is: {path}", file=sys.stderr)
             continue
-        table = plistlib.loads(text.encode("utf-8"))
         binary = plistlib.dumps(table, fmt=plistlib.FMT_BINARY)
-        tmp = path + ".tmp"
-        with open(tmp, "wb") as f:
+        fd, tmp = tempfile.mkstemp(dir=dirpath, prefix=".strings-")
+        with os.fdopen(fd, "wb") as f:
             f.write(binary)
         os.chmod(tmp, os.stat(path).st_mode & 0o7777)
         os.replace(tmp, path)
