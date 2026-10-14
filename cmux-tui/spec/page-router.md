@@ -78,6 +78,7 @@ map each one to its owner, so the same v2 envelope works on every host:
 
 | namespace | owner | read | mutation |
 | --- | --- | --- | --- |
+| `agent_session` | `agent_session.trust` (the folder trust of a chat of this machine, `agent-session-trust` in commands.md; Unix socket only) | `agent_session.trust.get` | `agent_session.trust.set` (page `agent`: `gesture`) |
 | `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get` | `apps.set`, `apps.install`, `apps.uninstall`, `apps.grant.set` (page `apps`: `confirm`); `apps.hidden.set`, `apps.grant.revoke` (page `apps`: `gesture`) |
 
 The installed-app panels (cx-hnmbt.13): `apps.grants.get {app}` answers `{app, sandboxed, scopes:
