@@ -6,6 +6,10 @@ public struct AgentLifecycleAssignment: Sendable, Equatable {
     public let surfaceId: String
     /// The sidebar lifecycle status key.
     public let agentKey: String
+    /// The session whose reduced state owns `phase`, when the producer
+    /// supplied a native session identity. Clears and sessionless producers
+    /// leave this nil.
+    public let sessionID: String?
     /// The combined phase to apply, or `nil` to clear the entry.
     public let phase: AgentLifecyclePhase?
 
@@ -15,9 +19,15 @@ public struct AgentLifecycleAssignment: Sendable, Equatable {
     ///   - surfaceId: The surface UUID string as recorded on journal events.
     ///   - agentKey: The sidebar lifecycle status key.
     ///   - phase: The combined phase to apply, or `nil` to clear.
-    public init(surfaceId: String, agentKey: String, phase: AgentLifecyclePhase?) {
+    public init(
+        surfaceId: String,
+        agentKey: String,
+        phase: AgentLifecyclePhase?,
+        sessionID: String? = nil
+    ) {
         self.surfaceId = surfaceId
         self.agentKey = agentKey
+        self.sessionID = sessionID
         self.phase = phase
     }
 }

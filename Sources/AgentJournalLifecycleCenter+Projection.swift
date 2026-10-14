@@ -43,7 +43,11 @@ extension AgentJournalLifecycleCenter {
             assignment: AgentLifecycleAssignment(
                 surfaceId: surfaceId,
                 agentKey: canonical.agentKey,
-                phase: phase
+                phase: phase,
+                sessionID: state.combinedSessionKey(
+                    surfaceId: surfaceId,
+                    agentKey: canonical.agentKey
+                )
             ),
             workspaceHint: canonical.draft.workspaceId,
             activity: AgentLifecycleActivity.classify(
@@ -54,6 +58,8 @@ extension AgentJournalLifecycleCenter {
         )
     }
 
+    /// Folds the journal and returns startup-safe assignments with session
+    /// ownership attached to each surviving lifecycle entry.
     static func reduceStartupReplay(
         store: AgentJournalStore,
         aliases: AgentJournalAliasResolver,
@@ -103,7 +109,15 @@ extension AgentJournalLifecycleCenter {
         for (surfaceId, byAgent) in startup.phases {
             for (agentKey, phase) in byAgent {
                 assignments.append(
-                    AgentLifecycleAssignment(surfaceId: surfaceId, agentKey: agentKey, phase: phase)
+                    AgentLifecycleAssignment(
+                        surfaceId: surfaceId,
+                        agentKey: agentKey,
+                        phase: phase,
+                        sessionID: state.combinedSessionKey(
+                            surfaceId: surfaceId,
+                            agentKey: agentKey
+                        )
+                    )
                 )
             }
         }
@@ -217,7 +231,8 @@ extension AgentJournalLifecycleCenter {
             owner.setAgentLifecycle(
                 key: assignment.agentKey,
                 panelId: panelId,
-                lifecycle: Self.lifecycle(for: phase)
+                lifecycle: Self.lifecycle(for: phase),
+                sessionID: assignment.sessionID
             )
         } else {
             owner.clearAgentLifecycle(key: assignment.agentKey, panelId: panelId)
