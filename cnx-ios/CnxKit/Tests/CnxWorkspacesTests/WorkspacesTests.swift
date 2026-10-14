@@ -42,7 +42,9 @@ import SwiftUI
         let closed = await source.close("t-zsh")
         #expect(!closed)
         #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
-        #expect(source.notice?.contains("tab is busy") == true)
+        // One short line; the Mac's reason goes to the log, not the toast.
+        #expect(source.notice?.hasPrefix("Couldn't close") == true)
+        #expect(source.notice?.contains("tab is busy") == false)
     }
 
     @Test func aRefusedNewTabAddsNothing() async {
@@ -52,7 +54,8 @@ import SwiftUI
         let id = await source.createTab(source.newTabOptions.first { $0.id == "terminal" }!)
         #expect(id == nil)
         #expect(source.tabs.count == 3)
-        #expect(source.notice?.contains("no pane") == true)
+        #expect(source.notice?.hasPrefix("Couldn't open a terminal on") == true)
+        #expect(source.notice?.contains("no pane") == false)
     }
 
     @Test func withoutAMacNoTabsAreMade() async {

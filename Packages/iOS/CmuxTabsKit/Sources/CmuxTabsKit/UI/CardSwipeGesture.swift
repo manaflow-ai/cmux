@@ -10,13 +10,21 @@ import UIKit
 final class CardSwipeState {
     /// Horizontal offset per card key.
     private(set) var offsets: [String: CGFloat] = [:]
-    /// Opacity per card key (fly-off fades, Reduce Motion crossfades).
+    /// Opacity per card key (Reduce Motion crossfades).
     private(set) var opacities: [String: Double] = [:]
+    /// Lift scale per card key (1.09 while dragged).
+    private(set) var scales: [String: CGFloat] = [:]
 
     func offset(_ key: String) -> CGFloat { offsets[key] ?? 0 }
     func opacity(_ key: String) -> Double { opacities[key] ?? 1 }
+    func scale(_ key: String) -> CGFloat { scales[key] ?? 1 }
 
-    func track(_ key: String, translation: CGFloat) {
+    private func spring(_ s: ZoomSpring) -> Animation { .spring(response: s.response, dampingFraction: s.damping) }
+
+    func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
+        if !reduceMotion, scales[key] == nil {
+            withAnimation(spring(CardSwipe.lift)) { scales[key] = CardSwipe.liftScale }
+        }
         var t = Transaction()
         t.disablesAnimations = true
         withTransaction(t) {
@@ -25,21 +33,20 @@ final class CardSwipeState {
         }
     }
 
-    /// Release: fly off and close, or spring back. `close` runs at once (the
-    /// fly-off is 2-3 frames, so the reflow follows right after it, as in
-    /// Safari) and reports whether the host closed the tab; until then the
-    /// card's slot stays (no reflow). Refused: the card comes back at its
-    /// slot. With Reduce Motion nothing slides after release: the card
-    /// fades out where it is, or reappears at its slot with a 0.18 s fade.
+    /// Release: keep going left and close, or spring back. `close` runs at
+    /// once and reports whether the host closed the tab; until then the
+    /// card's slot stays (no reflow). Refused: the card comes back. With
+    /// Reduce Motion nothing slides after release: the card fades out where
+    /// it is, or reappears at its slot with a 0.18 s fade.
     func release(_ key: String, velocity: CGFloat, card: CGRect, reduceMotion: Bool, close: @escaping () async -> Bool) {
         let offset = offsets[key] ?? 0
         if CardSwipe.commits(offset: offset, velocity: velocity, cardWidth: card.width) {
             if reduceMotion {
                 withAnimation(.easeInOut(duration: CardSwipe.reduceMotionFade)) { opacities[key] = 0 }
             } else {
-                withAnimation(.easeOut(duration: CardSwipe.flyOffDuration)) {
-                    offsets[key] = CardSwipe.flyOffOffset(cardMinX: card.minX, cardWidth: card.width)
-                    opacities[key] = 0
+                let target = CardSwipe.flyOffOffset(cardMinX: card.minX, cardWidth: card.width)
+                withAnimation(.linear(duration: CardSwipe.flyOffDuration(distance: target - offset, velocity: velocity))) {
+                    offsets[key] = target
                 }
             }
             Task { [weak self] in
@@ -48,6 +55,7 @@ final class CardSwipeState {
                 if closed {
                     self.offsets[key] = nil
                     self.opacities[key] = nil
+                    self.scales[key] = nil
                 } else {
                     self.comeBack(key, reduceMotion: reduceMotion)
                 }
@@ -59,22 +67,25 @@ final class CardSwipeState {
 
     func cancel(_ key: String, reduceMotion: Bool) { comeBack(key, reduceMotion: reduceMotion) }
 
-    /// Back to the card's slot: the snap-back spring, or (Reduce Motion) a
-    /// 0.18 s fade in at the slot with no movement.
+    /// Back to the card's slot: the snap-back and settle springs, or (Reduce
+    /// Motion) a 0.18 s fade in at the slot with no movement.
     private func comeBack(_ key: String, reduceMotion: Bool) {
         if reduceMotion {
             var t = Transaction()
             t.disablesAnimations = true
             withTransaction(t) {
                 offsets[key] = 0
+                scales[key] = nil
                 opacities[key] = 0
             }
             withAnimation(.easeInOut(duration: CardSwipe.reduceMotionFade)) { opacities[key] = 1 }
         } else {
-            let s = CardSwipe.snapBack
-            withAnimation(.spring(response: s.response, dampingFraction: s.damping)) {
+            withAnimation(spring(CardSwipe.snapBack)) {
                 offsets[key] = 0
                 opacities[key] = 1
+            }
+            withAnimation(spring(CardSwipe.settle)) { scales[key] = 1 } completion: { [weak self] in
+                if self?.offsets[key] == 0 { self?.scales[key] = nil }
             }
         }
     }

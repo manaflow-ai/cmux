@@ -214,6 +214,14 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 source.resumeLiveContent(id)
             }
         }
+        // A tab that becomes active on the settled grid (the active one was
+        // closed) is offered as a static card too, so it rides the reflow
+        // with the other cards instead of appearing as the live page.
+        .onChange(of: activeID) { old, new in
+            guard zoomState.phase == .overview, let new, new != staticCardID else { return }
+            if let old, old == staticCardID { source.resumeLiveContent(old) }
+            staticCardID = source.showStaticCard(for: new) ? new : nil
+        }
         .onAppear {
             zoomDriver.onSettle = { phase in
                 if phase == .page {
@@ -308,6 +316,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .modifier(GridFollowOffset(origin: CGPoint(x: g.rect.minX + (chrome.swiping ? chrome.swipeOffset : 0), y: g.rect.minY),
                                    scroll: phase == .overview ? gridScroll : nil))
         .opacity(asCard ? 0 : phase == .overview ? (activeID.map { cardSwipes.opacity($0) } ?? 1) : 1)
+        // On the settled grid this is the active card: it moves with the
+        // grid's reflow (a closed tab, the lone-tab layout) instead of jumping.
+        .animation(phase == .overview ? theme.motion.resolve(theme.motion.reflow) : nil, value: tabs.map(\.id))
         .accessibilityHidden(!settled)
         .tabsKitStatusBarStyle(overviewVisible ? nil : activeTab?.statusBarStyle)
     }

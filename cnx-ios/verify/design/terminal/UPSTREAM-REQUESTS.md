@@ -208,3 +208,25 @@ Evidence: terminal round 3 recordings (`/tmp/cnx-term-impl-tools/r3/`, relaunch 
 the pill start from the page's declared `colorScheme`, so it never renders light over a dark terminal.
 
 **Default:** unchanged (today's adaptive behavior) when the host declares nothing.
+
+## U6. A compact notice toast that never covers the title or Back
+
+**Today:** `TabsScreen` draws `source.notice` as a glass toast at the top of the page
+(`UI/TabsView.swift`, `if let notice = source.notice`), at `safeTop + 8`, full width less 24 pt
+margins, with no line limit. A long notice (a live user report: "Couldn't open a new Claude Chat on
+Aziz's MacBook Pro: cwd is refused: a remote WebSocket connection may use only a known project or a
+configured webRoots folder") wrapped to four lines over the workspace title and the Back button,
+and stayed 5 s. cnx-ios now sends one short line (`TabNotice`) and clears it after 4 s, but the
+placement still covers the page's top chrome while it shows.
+
+**Ask:**
+
+1. Place the toast where it covers no control: below the title pill / top bar, or just above the
+   bottom toolbar (as Safari's and Photos' transient messages do).
+2. Cap it at 2 lines (`lineLimit(2)`, tail truncation) and a compact size (footnote or subheadline).
+3. Optional: let the host set the lifetime (`TabsDataSource.noticeLifetime`, default 5 s) and attach
+   an optional "Details" action (`TabsKitNotice(text:details:)`), so a host can offer the technical
+   reason without putting it in the toast.
+
+**Default:** unchanged until a client opts in, or the new placement applies to every client if the
+owner prefers (a notice over Back is never wanted).
