@@ -25,8 +25,7 @@ extension WorkspaceRowView {
             timeLabel.stringValue = timeText ?? ""
         }
         let corner = style == .corner
-        rowBadge.glyphSide = corner ? SidebarStyle.dotSize + Metrics.space1 : SidebarStyle.statusGlyphSize
-        rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked)
+        rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked, look: corner ? .corner : .stack)
         rowBadge.toolTip = Self.badgeSummary(badges)
     }
 
@@ -45,16 +44,16 @@ extension WorkspaceRowView {
     /// `cy`; returns the new trailing edge.
     func layoutRowBadge(style: SidebarRowBadgeStyle, trailing: CGFloat, cy: CGFloat) -> CGFloat {
         guard !rowBadge.isHidden else { return trailing }
-        let side = rowBadge.discSide, scale = window?.backingScaleFactor ?? 2
-        func snapped(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        // Whole points, so each glyph in its cell lands on the pixel grid at 1x and 2x.
+        let side = rowBadge.cellSide
         if style == .stack {
             let width = rowBadge.preferredWidth
-            rowBadge.frame = NSRect(x: snapped(trailing - width), y: snapped(cy - side / 2), width: width, height: side)
+            rowBadge.frame = NSRect(x: (trailing - width).rounded(.down), y: (cy - side / 2).rounded(), width: width, height: side)
             return rowBadge.frame.minX - Metrics.space2
         }
-        // The disc's center sits a quarter of a glyph inside the icon's bottom-right corner.
-        let inset = rowBadge.glyphSide / 4, box = icon.frame
-        rowBadge.frame = NSRect(x: snapped(box.maxX - inset - side / 2), y: snapped(box.maxY - inset - side / 2),
+        // The glyph's center sits a quarter of a glyph inside the icon's bottom-right corner.
+        let inset = RowBadgeView.glyphSide / 4, box = icon.frame
+        rowBadge.frame = NSRect(x: (box.maxX - inset - side / 2).rounded(), y: (box.maxY - inset - side / 2).rounded(),
                                 width: side, height: side)
         return trailing
     }

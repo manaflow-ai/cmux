@@ -262,7 +262,7 @@ final class WorkspaceRowView: SidebarRowView {
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil
             paintFill(fill)
-            rowBadge.ringColor = Self.badgeBackdrop(fill)
+            (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }

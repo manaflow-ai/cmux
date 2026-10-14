@@ -76,6 +76,12 @@ import Testing
 
     @Test func theCornerBadgeSaysTheMostUrgentState() throws {
         let sidebar = Self.sidebar()
+        // Readable at 1x (coordinator 2026-10-14: the i, shield and bubble were not): a 10 pt
+        // glyph on whole points, so the static glyphs' pixel art lands on the pixel grid.
+        let badge = try Self.cornerBadge(Self.row(sidebar, Self.failing))
+        let frame = try Self.row(sidebar, Self.failing).convert(badge.bounds, from: badge)
+        #expect(frame.width == 10 && frame.height == 10)
+        #expect(frame.minX == frame.minX.rounded() && frame.minY == frame.minY.rounded(), "off the pixel grid: \(frame)")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.agent)).state == .success, "unread: the blue dot")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.terminal)).state == .success, "unread: the blue dot")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.failing)).state == .error, "an error outranks unread")
@@ -100,9 +106,12 @@ import Testing
         let glyphs = Self.visible(StatusIndicatorView.self, in: stack.view).map(\.frame).sorted { $0.minX < $1.minX }
         #expect(glyphs.count == 3)
         for (left, right) in zip(glyphs, glyphs.dropFirst()) {
-            #expect(right.minX > left.minX && right.minX < left.maxX, "glyphs overlap: \(left) \(right)")
+            // Whole glyphs (none hides another), on one center line ...
+            #expect(right.minX >= left.maxX, "a glyph is covered: \(left) \(right)")
             #expect(abs(right.midY - left.midY) < 0.5, "glyphs share a center line")
         }
+        // ... in chips that overlap like avatars.
+        #expect(stack.view.preferredWidth < 3 * stack.view.cellSide)
         #expect(stack.view.toolTip?.contains(Strings.unreadCount(3)) == true)
         #expect(stack.view.toolTip?.contains(Strings.statusMore(1)) == true)
     }
