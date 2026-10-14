@@ -75,3 +75,56 @@ fn workspace_name_source_named_creation_is_user_owned() {
     );
     assert!(refused.is_err(), "an automatic name replaced a chosen one");
 }
+
+fn open_registry_mux(root: &Path, session: &str) -> Arc<Mux> {
+    Mux::from_workspace_registry(
+        session.into(),
+        SurfaceOptions::default(),
+        crate::workspace_registry::WorkspaceRegistry::open(root, session).unwrap(),
+        crate::mux::ProviderWorkspaceState::default(),
+        true,
+    )
+    .unwrap()
+}
+
+/// An automatic name set through v1 `rename-workspace` is stored as auto, so
+/// after a daemon restart the namer may still replace it.
+#[test]
+fn workspace_name_source_v1_auto_rename_survives_restart() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-workspace-name-restart-{}",
+        crate::resource::WorkspacePublicId::random().unwrap()
+    ));
+    let session = "workspace-name-restart";
+    let mux = open_registry_mux(&root, session);
+    let key = mux.create_empty_workspace(None, None, None).unwrap().key;
+    let (_, generation) = mux.registry_identity();
+    run_json_command(
+        &mux,
+        json!({
+            "cmd":"rename-workspace", "key":key, "name":"Fix Login", "source":"auto",
+            "expected_generation":generation, "expected_name_revision":"0",
+        }),
+    )
+    .unwrap();
+    mux.shutdown();
+    drop(mux);
+
+    {
+        let registry = crate::workspace_registry::WorkspaceRegistry::open(&root, session).unwrap();
+        let stored = registry.snapshot().unwrap();
+        let workspace = stored.workspaces.iter().find(|workspace| workspace.key == key).unwrap();
+        assert_eq!(workspace.name, "Fix Login");
+        assert_eq!(workspace.name_source, crate::resource_name::NameSource::Auto);
+        assert_eq!(workspace.name_revision, 1);
+    }
+
+    let mux = open_registry_mux(&root, session);
+    let restored = listed(&mux, &key);
+    assert_eq!(restored["name"], "Fix Login");
+    assert_eq!(restored["name_source"], "auto", "{restored}");
+    assert_eq!(restored["name_revision"], "1", "{restored}");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
