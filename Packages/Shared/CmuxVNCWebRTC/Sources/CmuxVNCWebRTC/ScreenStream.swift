@@ -477,9 +477,12 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     private var lastButtons: UInt8 = 0
     private var offered = false
     private var isOpen = false
+    /// TURN relay only (ICE transport policy `relay`): for checking the relay path. Off by default.
+    private let relayOnly: Bool
 
-    public init(pairing: VNCPairing) {
+    public init(pairing: VNCPairing, relayOnly: Bool = false) {
         self.pairing = pairing
+        self.relayOnly = relayOnly
     }
 
     /// Connects; returns when the input channel is open (video follows).
@@ -488,7 +491,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// coming back does not touch the running stream.
     public func connect() async throws {
         let ice = try await SignalSocket.iceServers(pairing)
-        let link = try VNCPeerLink(iceServers: ice, preferStreamRelays: false)
+        let link = try VNCPeerLink(iceServers: ice, relayOnly: relayOnly, preferStreamRelays: false)
         lock.withLock { self.link = link }
         let opened = OpenSignal()
         let peerTask = Task { [weak self] in

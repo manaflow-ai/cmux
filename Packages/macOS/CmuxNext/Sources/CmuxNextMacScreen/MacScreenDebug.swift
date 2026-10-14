@@ -16,6 +16,7 @@ import CmuxScreenKit
 /// - `connect` {tab?}: presses Connect on tabs that ask first (stands in for the person).
 /// - `share` {enabled}: switches Share This Mac (stands in for the person);
 ///   `link_file` writes this Mac's link there (0600).
+/// - `relay_only` {enabled, tab?}: TURN relay only for the tabs' sessions (reconnects them).
 /// - `forget` {name}: forgets the saved Macs with that name.
 extension MacScreenPages {
     /// Registers `debug.mac_screen` (development builds; nothing in Release).
@@ -68,6 +69,12 @@ extension MacScreenPages {
                 }.value
             }
             return hostState
+        case "relay_only":
+            // The DEV relay switch, per tab (all Mac tabs without `tab`).
+            guard let enabled = params["enabled"]?.boolValue else { return ["error": "enabled required"] }
+            let panes = tabs.compactMap(\.pane)
+            for pane in panes { pane.setRelayOnly(enabled) }
+            return ["switched": .number(Double(panes.count))]
         case "forget":
             guard let name = params["name"]?.stringValue else { return ["error": "name required"] }
             let matches = store.macs.filter { $0.name == name }
@@ -98,6 +105,7 @@ extension MacScreenPages {
         row["gate"] = .string("\(pane.model.gate)")
         row["card"] = pane.model.card.map { .string("\($0)") } ?? .null
         row["has_frame"] = .bool(pane.model.hasFrame)
+        row["relay_only"] = .bool(pane.model.relayOnly)
         row["captures_keyboard"] = .bool(pane.model.capturesKeyboard)
         row["displays"] = .array(pane.model.displays.map { .string("\(Int($0.width))x\(Int($0.height))") })
         row["current_display"] = .number(Double(pane.model.currentDisplay))

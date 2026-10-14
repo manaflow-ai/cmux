@@ -78,6 +78,9 @@ public final class ScreenSession {
     @ObservationIgnored private var reconnectAttempts = 0
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
     public var isStream: Bool { pairing?.isStream == true }
+    /// Screen streams use the TURN relay only (ICE policy `relay`), to check
+    /// the relay path; applies from the next `connect()`. Off by default.
+    @ObservationIgnored public var relayOnly = false
     /// An app's own identifier for what this session opened (a saved host),
     /// so it can keep the session's preferences afterwards.
     @ObservationIgnored public var hostID: UUID?
@@ -185,7 +188,7 @@ public final class ScreenSession {
     // MARK: Stream
 
     private func connectStream(_ pairing: VNCPairing) {
-        let viewer = ScreenStreamViewer(pairing: pairing)
+        let viewer = ScreenStreamViewer(pairing: pairing, relayOnly: relayOnly)
         stream = viewer
         viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
         viewer.onDisplays = { [weak self] message in

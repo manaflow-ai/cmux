@@ -27,6 +27,8 @@ public final class MacScreenPaneModel {
     public internal(set) var hasFrame = false
     /// The screen has the keyboard (control mode).
     public internal(set) var capturesKeyboard = false
+    /// DEV builds: the stream uses the TURN relay only (checks the relay path).
+    public internal(set) var relayOnly = false
 
     init(session: ScreenSession?, name: String, gate: Gate) {
         self.session = session
@@ -79,6 +81,13 @@ public final class MacScreenPane {
     public init(name: String, pairing: VNCPairing, preferences: ScreenPreferences, confirmed: Bool) {
         let session = ScreenSession(title: name, pairing: pairing, preferences: preferences)
         model = MacScreenPaneModel(session: session, name: name, gate: confirmed ? .open : .confirm)
+        #if DEBUG
+        // DEV builds only: CMUX_NEXT_MAC_SCREEN_RELAY_ONLY=1 starts every Mac Screen session relay-only.
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_MAC_SCREEN_RELAY_ONLY"] == "1" {
+            session.relayOnly = true
+            model.relayOnly = true
+        }
+        #endif
         let sink = MacScreenInputSink(session: session)
         inputSink = sink
         view = MacScreenPaneView(model: model)
@@ -140,6 +149,9 @@ public final class MacScreenPane {
             self?.handlers.preferencesChanged(session.preferences)
         }
         actions.refresh = { session.refresh() }
+        #if DEBUG
+        actions.setRelayOnly = { [weak self] on in self?.setRelayOnly(on) }
+        #endif
         actions.sendKeys = { shortcut in session.tap(shortcut.key, modifiers: shortcut.modifiers) }
         actions.focusScreen = { [weak self] in self?.focus() }
         observePhase(session)
@@ -204,6 +216,17 @@ public final class MacScreenPane {
     #if DEBUG
     /// The Connect button, for `debug.mac_screen` (stands in for the person).
     public func debugConfirm() { view.chrome.actions.confirm() }
+
+    /// DEV builds: TURN relay only from now on; a running or starting stream reconnects to apply it.
+    public func setRelayOnly(_ on: Bool) {
+        guard let session, session.relayOnly != on else { return }
+        session.relayOnly = on
+        model.relayOnly = on
+        switch session.phase {
+        case .connected, .connecting: if !stoppedByPerson, model.gate == .open { session.connect() }
+        case .failed, .ended: break
+        }
+    }
     #endif
 
     public func focus() {
