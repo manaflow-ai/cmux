@@ -7439,7 +7439,11 @@
         "screen_group",
         "closed",
         "workspace_status",
-        "window_record"
+        "window_record",
+        "sidebar_layout",
+        "sidebar_item",
+        "sidebar_section",
+        "sidebar_doc"
       ]
     },
     "StateEntitySnapshot": {
@@ -7480,6 +7484,22 @@
         {
           "kind": "ref",
           "name": "WindowRecordSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarItemSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarSectionSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarDocChange"
         }
       ],
       "constraints": [
@@ -9772,6 +9792,214 @@
       },
       "extra": false
     },
+    "SidebarSectionSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Tagged by type: machine {session_id}, pinned, custom, app {contribution}, builtin."
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "shows_title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "region": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "top, middle or bottom (a newer value is kept)."
+        },
+        "look": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "arrangement": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "list, inline or grid."
+        },
+        "columns": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "max_rows": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "order": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Fractional order key among the region's sections."
+        },
+        "keeps_closed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Pinned and custom sections keep a closed workspace (drawn dimmed) and an empty group."
+        },
+        "extra": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Explicit forward-compatible data (a newer client's keys, an item's stored label, ...). Unknown sibling fields remain forbidden."
+        }
+      },
+      "extra": false
+    },
+    "SidebarItemSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "parent": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The group item it is in."
+        },
+        "order": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Fractional order key among its siblings."
+        },
+        "body": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Tagged by type: workspace {ref {session_id, workspace_id, extra?}}, group {name, color?, icon?, collapsed, profile?}, builtin {id}, app {id}, url {url, title?}, tab {ref}, room {id}, saved_group {id}, ref {kind, value}."
+        },
+        "shows_label": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "span": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "extra": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Explicit forward-compatible data (a newer client's keys, an item's stored label, ...). Unknown sibling fields remain forbidden."
+        }
+      },
+      "extra": false
+    },
+    "SidebarDocChange": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The document revision after the change."
+        },
+        "previous_revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The document revision before it; a client at another revision refetches with sidebar.get."
+        },
+        "idempotency_key": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The key of the sidebar.* request, null for a change the daemon made (an old write followed, a close)."
+        }
+      },
+      "extra": false
+    },
     "SidebarDocMutation": {
       "kind": "object",
       "fields": {
@@ -9813,7 +10041,7 @@
             "kind": "array",
             "items": {
               "kind": "ref",
-              "name": "JsonValue"
+              "name": "SidebarSectionSnapshot"
             }
           },
           "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, columns?, max_rows?, room?, order, keeps_closed}; unknown keys are kept."
@@ -9824,7 +10052,7 @@
             "kind": "array",
             "items": {
               "kind": "ref",
-              "name": "JsonValue"
+              "name": "SidebarItemSnapshot"
             }
           },
           "description": "Items in display order: {id, section, parent?, order, body, shows_label, span?}; unknown keys are kept."
@@ -23738,7 +23966,7 @@
                 "name": "JsonValue"
               }
             },
-            "description": "Reducer ops, each tagged by op (move, pin, unpin, item.add, item.remove, item.update, section.add, section.update, section.move, section.remove, group.create, group.update, group.ungroup, adopt, item.put, item.delete, section.put, section.delete), applied atomically. The inverse a mutation returns is such a list (undo); the inverse of an inverse is the redo."
+            "description": "Reducer ops, each tagged by op (move, pin, unpin, item.add, item.remove, item.update, section.add, section.update, section.move, section.remove, group.create, group.update, group.ungroup, adopt, close {refs}: a closed workspace leaves a machine section and stays in Pinned and custom sections, item.put, item.delete, section.put, section.delete), applied atomically. The inverse a mutation returns is such a list (undo); the inverse of an inverse is the redo."
           }
         },
         "extra": false,
