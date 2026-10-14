@@ -693,15 +693,25 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.avatar: {
         const id = str(params, "participant", 80);
-        const cloud = this.cloud.hasParticipant(id);
-        if (!(await this.capable(AVATARS_CAPABILITY, cloud ? this.daemon : this.local))) return { avatar: null };
-        const found = cloud
-          ? await this.cloud.read("cloud-participant-avatar-get", { participant_id: id })
-          : await this.local.operation<Json>("participant.avatar.get", {
-              machine: "current",
-              session: "current",
-              participant_id: id,
-            });
+        const fromCloud = async () =>
+          (await this.capable(AVATARS_CAPABILITY, this.daemon))
+            ? await this.cloud.read<Json>("cloud-participant-avatar-get", { participant_id: id })
+            : null;
+        // A Cloud person or Chief is known here only once a Cloud conversation naming them was read
+        // (the list renders first), so a picture the local owner does not have is asked of Cloud too.
+        const known = this.cloud.hasParticipant(id);
+        let found: Json | null = known
+          ? await fromCloud()
+          : (await this.capable(AVATARS_CAPABILITY, this.local))
+            ? await this.local.operation<Json>("participant.avatar.get", {
+                machine: "current",
+                session: "current",
+                participant_id: id,
+              })
+            : null;
+        if (!found?.avatar && id !== LOCAL_USER && !known) {
+          found = (await fromCloud().catch(() => null)) ?? found;
+        }
         const avatar = (found?.avatar ?? null) as Json | null;
         return {
           avatar: avatar

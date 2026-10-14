@@ -141,6 +141,20 @@ extension DaemonLauncher {
         // Once per launcher: the bundled build serves the capability, so a second owner without it
         // is not ours to restart again (no loop).
         guard handoff.begin(bundled: "capability:\(capability)", pid: identity.pid) else { return false }
+        return await requestHandoff(identity: identity, using: connection)
+    }
+
+    /// The running owner does not verify this app's install key (an older build or `cmux chief`
+    /// started it without one): hand it off once per launcher, the same way, so the next `ensure`
+    /// starts it with the key on stdin. Only a launcher that holds a key (an unsigned build); the
+    /// caller decides when a restart is safe. False when the daemon refused.
+    public func handOffForInstallKey(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
+        guard configuration.installKey != nil,
+              handoff.begin(bundled: "install-key", pid: identity.pid) else { return false }
+        return await requestHandoff(identity: identity, using: connection)
+    }
+
+    private func requestHandoff(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
         do {
             let reply = try await connection.request(
                 ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))

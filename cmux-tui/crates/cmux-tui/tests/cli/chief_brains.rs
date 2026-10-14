@@ -9,7 +9,8 @@ use super::*;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// Records the start (`n`), its env, argv and pid in `$MUX_HOME`, then runs
+/// Records the start (`n`), its env, the `claude` its PATH finds, argv and
+/// pid in `$MUX_HOME`, then runs
 /// until SIGTERM. The first start exits 0 at once when the Chief home had
 /// an `exit-first` file before its pid file was written.
 const STUB: &str = r#"#!/bin/sh
@@ -19,6 +20,7 @@ echo "$n" > "$MUX_HOME/starts"
 quit=0
 if [ "$n" = 1 ] && [ -e "$CMUX_CHIEF_HOME/exit-first" ]; then quit=1; fi
 env > "$MUX_HOME/env.$n"
+command -v claude > "$MUX_HOME/claude.$n" 2>/dev/null
 echo "$@" > "$MUX_HOME/argv.$n"
 echo "$$" > "$MUX_HOME/pid.tmp" && mv "$MUX_HOME/pid.tmp" "$MUX_HOME/pid.$n"
 if [ "$quit" = 1 ]; then exit 0; fi
@@ -243,6 +245,10 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
 /// optchat-chief daemon.rs `names_from_env`), not the app's "Chief", so two
 /// Chiefs never show as two "Chief" rows. A rename reaches the next start:
 /// the brain restarts with the new name.
+///
+/// One cmux MCP server per Chief turn (hq-6d 2026-10-14): acpmux gives every
+/// agent chat its own `cmux mcp serve`, so a brain gets no
+/// `CMUX_MCP_COMMAND`, also from an app that still passes `mcp_command`.
 #[test]
 fn each_chief_brain_is_titled_with_its_own_name() {
     use std::os::unix::fs::PermissionsExt;
@@ -258,7 +264,8 @@ fn each_chief_brain_is_titled_with_its_own_name() {
         "executable": stub,
         "home": chief_home,
         "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
-                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false",
+                "mcp_command": "/opt/cmux-test/bin/cmux"},
     })
     .to_string();
     let mut owned = HeadlessServer::start_with_options(
@@ -279,6 +286,8 @@ fn each_chief_brain_is_titled_with_its_own_name() {
     };
     assert_eq!(title(&scout_home, 1).as_deref(), Some("Scout"));
     assert_eq!(title(&ops_home, 1).as_deref(), Some("Ops"));
+    let env = env_of(&scout_home.join("env.1"));
+    assert!(!env.contains_key("CMUX_MCP_COMMAND"), "{env:?}");
 
     let renamed = chief_cli(server, &["edit", &scout, "--name", "Scout Two", "--json"], "");
     assert_success(&renamed);
@@ -293,4 +302,60 @@ fn each_chief_brain_is_titled_with_its_own_name() {
     let _ = owned.child.wait();
     wait_gone(renamed_pid, "after daemon shutdown");
     wait_gone(ops_pid, "after daemon shutdown");
+}
+
+/// A Chief's brain finds the harnesses the person's login shell finds
+/// (hq-6d P1 2026-10-14, "acpmux has no harness named claude"): the brain
+/// and its own acpmux start from an empty environment, and a claude that is
+/// not in one of the fixed tool directories (Homebrew elsewhere, nvm, a
+/// login-shell PATH) was not found. The app passes its captured login PATH
+/// once (`app.path`); the brain's PATH has it after the bundle's `bin`.
+#[test]
+fn a_chief_brain_finds_claude_on_the_persons_login_path() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbp");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    // claude only in a directory outside every fixed tool directory.
+    let tools = files.join("login-tools");
+    fs::create_dir_all(&tools).unwrap();
+    let claude = tools.join("claude");
+    fs::write(&claude, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    // A relative entry is dropped (a file planted in a project never runs).
+    let login_path = format!(".:relative/bin:{}:/usr/bin:/bin", tools.display());
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false",
+                "path": login_path},
+    })
+    .to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-path",
+        None,
+        None,
+        &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str())],
+    );
+    let server = &owned;
+    let scout = make_chief(server, "Scout", "Researcher");
+    let scout_home = brain_dir(&chief_home, &scout);
+    let pid: i32 = wait_file(&scout_home.join("pid.1")).parse().unwrap();
+    let found = fs::read_to_string(scout_home.join("claude.1")).unwrap_or_default();
+    let path = env_of(&scout_home.join("env.1")).get("PATH").cloned().unwrap_or_default();
+    assert_eq!(found.trim(), claude.display().to_string(), "PATH={path}");
+    assert!(path.starts_with("/opt/cmux-test/bin:"), "the bundle's bin stays first: {path}");
+    assert!(path.split(':').all(|d| d.starts_with('/')), "absolute entries only: {path}");
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    wait_gone(pid, "after daemon shutdown");
 }

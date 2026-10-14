@@ -390,6 +390,8 @@ pub enum ResourceOperation {
     AgentMessageList,
     #[serde(rename = "agent.message.mark")]
     AgentMessageMark,
+    #[serde(rename = "agent.message.release")]
+    AgentMessageRelease,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
