@@ -41,7 +41,8 @@ struct HomeChiefControl {
         let files = HomeChiefFiles(muxHome: muxHome)
         let services = services
         guard isCloud else {
-            return HomeChiefLocalEngine(files: files, connection: { [weak services] in services?.home.connection })
+            return HomeChiefLocalEngine(files: files, connection: { [weak services] in services?.home.connection },
+                                        startBrain: { [weak services] in services?.home.brain.ensure() ?? false })
         }
         let conversation = conversation
         let muxHome = muxHome

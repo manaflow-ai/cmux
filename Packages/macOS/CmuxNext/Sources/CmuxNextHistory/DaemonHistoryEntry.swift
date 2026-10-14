@@ -1,40 +1,43 @@
-import CmuxNextHistory
-import Foundation
+public import Foundation
 
 /// One entry of the daemon's merged history (`history.entries.list`; serde snake_case of
 /// cmux-history's `HistoryEntry`, times as the catalog's decimal strings). Nonisolated, so
 /// `DaemonHistoryClient.decode` builds it off the main actor.
-nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
-    var id: String
-    var kind: HistoryEntry.Kind
-    var atMS: Double
-    var title: String
-    var detail: String?
-    var machine: String?
-    var workspace: String?
-    var available: Bool
-    var current: Bool?
-    var running: Bool?
-    var url: String?
-    var profile: String?
-    var closedKind: String?
-    var cwd: String?
-    var command: String?
-    var exitCode: Int?
-    var sessionID: String?
-    var provider: String?
+public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
+    public var id: String
+    public var kind: HistoryEntry.Kind
+    public var atMS: Double
+    public var title: String
+    public var detail: String?
+    public var machine: String?
+    public var workspace: String?
+    public var available: Bool
+    public var current: Bool?
+    public var running: Bool?
+    public var url: String?
+    public var profile: String?
+    public var closedKind: String?
+    public var cwd: String?
+    public var command: String?
+    public var exitCode: Int?
+    public var sessionID: String?
+    public var provider: String?
+    /// Location rows: the window of the step and the place as recorded (cx-hnmbt.12).
+    public var window: String?
+    public var location: HistoryTrailLocation?
 
     enum CodingKeys: String, CodingKey {
         case id, kind, title, detail, machine, workspace, available, current, running, url, profile, cwd, command, provider
+        case window, location
         case atMS = "at_ms"
         case closedKind = "closed_kind"
         case exitCode = "exit_code"
         case sessionID = "session_id"
     }
 
-    var time: Date { Date(timeIntervalSince1970: atMS / 1_000) }
+    public var time: Date { Date(timeIntervalSince1970: atMS / 1_000) }
 
-    init(from decoder: any Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         kind = try c.decode(HistoryEntry.Kind.self, forKey: .kind)
@@ -54,9 +57,11 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         exitCode = try c.decodeCatalogNumberIfPresent(forKey: .exitCode).map { Int($0) }
         sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID)
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        window = try c.decodeIfPresent(String.self, forKey: .window)
+        location = try c.decodeIfPresent(HistoryTrailLocation.self, forKey: .location)
     }
 
-    init(id: String, kind: HistoryEntry.Kind, atMS: Double, title: String, available: Bool) {
+    public init(id: String, kind: HistoryEntry.Kind, atMS: Double, title: String, available: Bool) {
         self.id = id
         self.kind = kind
         self.atMS = atMS
@@ -64,16 +69,16 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         self.available = available
     }
 
-    /// The app's entry for the restore paths (history.open, palette pages). Locations are nil: the
-    /// app owns the trail and reads its own entries.
-    @MainActor func historyEntry() -> HistoryEntry? {
-        // The daemon leaves a closed terminal with no name, URL or directory untitled; the app
-        // localizes the default.
-        let title = kind == .closed && self.title.isEmpty ? Strings.untitledTerminal : self.title
+    /// The app's entry for the restore paths (history.open, palette pages). A location comes from the
+    /// daemon's trail (`location` and `window`); the caller marks whether its tab is reachable.
+    /// `untitled`: the app's localized title of a closed terminal the daemon left untitled.
+    public func historyEntry(untitled: String) -> HistoryEntry? {
+        let title = kind == .closed && self.title.isEmpty ? untitled : self.title
         let payload: HistoryEntry.Payload
         switch kind {
         case .location:
-            return nil
+            guard let location = trailLocation else { return nil }
+            payload = .location(location, isCurrent: current == true)
         case .page:
             guard let url else { return nil }
             payload = .page(url: url, profile: profile ?? "default")
@@ -102,16 +107,16 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
     }
 }
 
-nonisolated struct DaemonHistoryList: Decodable, Sendable {
-    var entries: [DaemonHistoryEntry]
+public nonisolated struct DaemonHistoryList: Decodable, Sendable {
+    public var entries: [DaemonHistoryEntry]
 }
 
 /// `history.visit.summaries` row: the omnibox seed of a browser profile.
-nonisolated struct DaemonVisitSummary: Decodable, Sendable, Equatable {
-    var url: String
-    var title: String?
-    var visitCount: Int
-    var lastVisitMS: Double
+public nonisolated struct DaemonVisitSummary: Decodable, Sendable, Equatable {
+    public var url: String
+    public var title: String?
+    public var visitCount: Int
+    public var lastVisitMS: Double
 
     enum CodingKeys: String, CodingKey {
         case url, title
@@ -119,14 +124,14 @@ nonisolated struct DaemonVisitSummary: Decodable, Sendable, Equatable {
         case lastVisitMS = "last_visit_ms"
     }
 
-    init(url: String, title: String?, visitCount: Int, lastVisitMS: Double) {
+    public init(url: String, title: String?, visitCount: Int, lastVisitMS: Double) {
         self.url = url
         self.title = title
         self.visitCount = visitCount
         self.lastVisitMS = lastVisitMS
     }
 
-    init(from decoder: any Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         url = try c.decode(String.self, forKey: .url)
         title = try c.decodeIfPresent(String.self, forKey: .title)
@@ -149,5 +154,13 @@ nonisolated extension KeyedDecodingContainer {
     func decodeCatalogNumberIfPresent(forKey key: Key) throws -> Double? {
         guard contains(key), try !decodeNil(forKey: key) else { return nil }
         return try decodeCatalogNumber(forKey: key)
+    }
+}
+
+nonisolated extension DaemonHistoryEntry {
+    /// A location row's place as the app's location.
+    public var trailLocation: HistoryLocation? {
+        guard kind == .location, let location else { return nil }
+        return location.historyLocation(window: window ?? "")
     }
 }

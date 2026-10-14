@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85.
+// cmux-tui mux protocol 12, IR c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -479,6 +479,9 @@ pub struct CloseWorkspaceRequest {
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
+    /// Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_empty: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2753,19 +2756,26 @@ pub struct SelectWorkspaceRequest {
 pub type SelectWorkspaceResult = T::EmptyResult;
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
-    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub text: Optional<String>,
 }
 
 #[rustfmt::skip]
-pub type SendResult = T::EmptyResult;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SendResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub queued: Option<bool>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3798,6 +3808,9 @@ impl CmuxClient {
         if !request.expected_revision.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
         }
+        if request.if_empty.is_some() {
+            self.require_capability_field("close-workspace", "close-workspace-if-empty-v1")?;
+        }
         if !request.key.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
             self.require_capability_field("close-workspace", "workspace-registry-v1")?;
@@ -4665,6 +4678,9 @@ impl CmuxClient {
     pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_capability_field("send", "terminal-input-while-creating-v1")?;
         }
         self.execute(&SEND_METADATA, &request)
     }
