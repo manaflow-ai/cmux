@@ -69,7 +69,8 @@ extension SidebarView {
     /// Gives the three regions their sections: the band above the list,
     /// the band below it without the footer section, and the footer section
     /// alone (when it is in the band below).
-    func updateBands() {
+    /// `reloadsList` false: the caller reloads the list right after (one reload for the rows and the blocks).
+    func updateBands(reloadsList: Bool = true) {
         let width = bounds.width
         var hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
         // `sidebar.showProfileControl` off (cx-wab7m): the profile button draws in no band.
@@ -104,7 +105,7 @@ extension SidebarView {
             aboveRegion.update(content(model.transientTopSection.map { [$0] } ?? []), width: width)
             if list.blocks != blocks {
                 list.blocks = blocks
-                list.reload(animated: true)
+                if reloadsList { list.reload(animated: true) }
             }
         } else {
             aboveRegion.update(content(shownAbove), width: width)

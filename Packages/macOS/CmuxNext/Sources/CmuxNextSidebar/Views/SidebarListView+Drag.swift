@@ -8,6 +8,7 @@ extension SidebarListView {
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
         abandonSettle()
+        endLanding()
         guard displayed.row(for: press.key) != nil else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>
@@ -258,6 +259,8 @@ extension SidebarListView {
 
     /// The card is in its slot and the model shows it: the rows under it show and the card goes, in one transaction.
     func finishLand(_ drag: Drag, then: (@MainActor () -> Void)?) {
+        // Ended already (a new drag or a detach ended the flight; the card's own completion comes after).
+        guard drag.lift.superview != nil else { return }
         defer { then?() }
         if landing === drag { landing = nil }
         drag.landsOnModel = false
@@ -270,12 +273,20 @@ extension SidebarListView {
                 view.alphaValue = 1
             }
             drag.heldViews = []
-            suppressed.subtract(drag.hiddenKeys.union(drag.heldKeys))
-            for key in drag.hiddenKeys.union(drag.heldKeys) { rowViews[key]?.alphaValue = 1 }
+            // A drag running now keeps its own hidden rows (it may have grabbed the held item through the card).
+            let shown = drag.hiddenKeys.union(drag.heldKeys).subtracting(self.drag?.hiddenKeys ?? [])
+            suppressed.subtract(shown)
+            for key in shown { rowViews[key]?.alphaValue = 1 }
             drag.heldKeys = []
         }
         updateHover()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
+    }
+
+    /// A new drag starts while a card still flies (the card takes no pointer: the held item can be grabbed
+    /// through it): the old card ends where it is and its held views show, before the new drag hides its own.
+    func endLanding() {
+        if let landing { finishLand(landing, then: landing.landingThen) }
     }
 
     /// A new drag starts while a drop still settles: the old card finishes where it is.
@@ -312,9 +323,15 @@ extension SidebarListView {
         let released = drag.heldKeys.subtracting(keys).subtracting(drag.hiddenKeys)
         suppressed.subtract(released)
         suppressed.formUnion(keys)
+        // A view held before that no longer draws the item: a row shows again only if it still draws a row the
+        // layout shows and nothing else hides (a recycled or fading view keeps its own state, a fade-out runs on);
+        // a tile stays held and shows when the card goes.
+        var kept: [NSView] = []
         Motion.withoutAnimation {
             for view in drag.heldViews where view.isDescendant(of: self) && !views.contains(where: { $0 === view }) {
-                view.layer?.removeAnimation(forKey: "opacity")
+                guard let row = view as? SidebarRowView else { kept.append(view); continue }
+                guard rowViews[row.key] === row, displayed.row(for: row.key) != nil, !suppressed.contains(row.key),
+                      view.layer?.animation(forKey: "opacity") == nil else { continue }
                 view.alphaValue = 1
             }
             for view in views {
@@ -322,7 +339,7 @@ extension SidebarListView {
                 view.alphaValue = 0
             }
         }
-        drag.heldViews = views
+        drag.heldViews = views + kept
         drag.heldKeys = keys
         return frame
     }

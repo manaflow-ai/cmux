@@ -153,6 +153,11 @@ final class SidebarListView: NSView {
     private var occlusionObserver: (any NSObjectProtocol)?
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
+        if newWindow == nil, let landing { finishLand(landing, then: landing.landingThen) }
+    }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.

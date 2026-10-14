@@ -28,7 +28,7 @@ def covered(frame, card):
 
 
 def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
-    worst, worst_at, jumps, block_worst = 0.0, None, [], 0.0
+    worst, worst_at, jumps, block_worst, raw_worst = 0.0, None, [], 0.0, 0.0
     for a, b in zip(frames, frames[1:]):
         for key, fb in b["views"].items():
             fa = a["views"].get(key)
@@ -36,7 +36,11 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
                 continue
             # A step per 120 Hz frame: a display frame that came late (a gap of n frames) may move n frames' worth.
             frames_spanned = max(1.0, (b["t"] - a["t"]) * 1000 / FRAME_MS)
-            step = max(abs(fb[0] - fa[0]), abs(fb[1] - fa[1]), abs(fb[3] - fa[3])) / frames_spanned
+            raw = max(abs(fb[0] - fa[0]), abs(fb[1] - fa[1]), abs(fb[3] - fa[3]))
+            step = raw / frames_spanned
+            # The undivided step across a late frame (more than 2 frames apart), reported beside the per-frame one.
+            if frames_spanned > 2:
+                raw_worst = max(raw_worst, raw)
             if key.startswith("block("):
                 block_worst = max(block_worst, abs(fb[3] - fa[3]) / frames_spanned)
             if step > worst:
@@ -57,17 +61,30 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
         last = lifted[-1]
         after = [f for f in frames if f["t"] > last["t"] and dropped_key in f["views"] and drawn(f["views"][dropped_key])]
         if after:
-            card, item = last["lift"], rect(after[0]["views"][dropped_key])
-            # The dropped item's whole block: views hidden under the card that show with it (a group's members).
-            for key, view in after[0]["views"].items():
-                before = last["views"].get(key)
-                if key != dropped_key and drawn(view) and before is not None and not drawn(before) and not key.startswith(("block(", "item:")):
-                    x0, y0 = min(item[0], view[0]), min(item[1], view[1])
-                    item = [x0, y0, max(item[0] + item[2], view[0] + view[2]) - x0, max(item[1] + item[3], view[1] + view[3]) - y0]
+            card, shown = last["lift"], after[0]["views"]
+            # The landing target: the dropped item with the dragged views that show after the drop, then the rows
+            # hidden under the card that show with them right below or above (a group's visible members).
+            keys = [dropped_key] + [k for k in sorted(dragged) if k != dropped_key and k in shown and drawn(shown[k])]
+
+            def union(ks):
+                rs = [rect(shown[k]) for k in ks]
+                x0, y0 = min(r[0] for r in rs), min(r[1] for r in rs)
+                return [x0, y0, max(r[0] + r[2] for r in rs) - x0, max(r[1] + r[3] for r in rs) - y0]
+            item = union(keys)
+            grew = True
+            while grew:
+                grew = False
+                for key, view in shown.items():
+                    before = last["views"].get(key)
+                    if key in keys or key.startswith(("block(", "item:")) or not drawn(view) or before is None or drawn(before):
+                        continue
+                    if view[1] <= item[1] + item[3] + 4 and view[1] + view[3] >= item[1] - 4:
+                        keys.append(key)
+                        item, grew = union(keys), True
             meet = max(abs(card[i] - item[i]) for i in range(4))
-            drift = max((max(abs(b["views"][dropped_key][i] - a["views"][dropped_key][i]) for i in range(4))
-                         for a, b in zip(after, after[1:]) if dropped_key in a["views"] and dropped_key in b["views"]), default=0)
-            settle = {"key": dropped_key, "card_meets_item_pt": round(meet, 2), "item_max_step_after_pt": round(drift, 2),
+            drift = max((max(abs(b["views"][k][i] - a["views"][k][i]) for i in range(4))
+                         for k in keys for a, b in zip(after, after[1:]) if k in a["views"] and k in b["views"]), default=0)
+            settle = {"key": dropped_key, "keys": keys, "card_meets_item_pt": round(meet, 2), "item_max_step_after_pt": round(drift, 2),
                       "ok": meet < SETTLE_PT and drift <= 0.5}
     # The echo: every model revision change after the release (the optimistic model, then the daemon's batch).
     # The release: the first settling frame (document drops), else the frame after the card's last pointer-driven move
@@ -100,7 +117,7 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
                 if key not in frames[i]["views"] and key not in dragged and (fa[4] if len(fa) > 4 else 1) > 0.02 and not covered(fa, card):
                     pops.append({"key": key, "t": round(frames[i]["t"] - frames[0]["t"], 3), "kind": "vanishes"})
         echo = {"revision_changes": len(changes), "kinks": kinks[:10], "pops": pops[:10], "ok": not kinks and not pops}
-    result = {"frames": len(frames), "cadence_ms": round(cadence, 2), "max_step_pt": round(worst, 1), "max_step_at": worst_at, "jumps": jumps[:20],
+    result = {"frames": len(frames), "cadence_ms": round(cadence, 2), "max_step_pt": round(worst, 1), "raw_max_step_pt": round(raw_worst, 1), "max_step_at": worst_at, "jumps": jumps[:20],
               "jump_count": len(jumps), "block_height_max_step_pt": round(block_worst, 1), "drag_work_p95_ms": round(p95, 2),
               "frame_gaps_over_1_5x": sum(1 for g in gaps if g > 1.5 / hz), "settle": settle, "echo": echo, "refused": refused,
               "dragged": sorted(dragged)}
