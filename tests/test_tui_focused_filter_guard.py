@@ -321,3 +321,20 @@ def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
             "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"
         )
+
+
+DOGFOOD_MACOS_RUNNER = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+    "vars.CI_DOGFOOD_MACOS_RUNNER || 'blacksmith-6vcpu-macos-15' }}"
+)
+
+
+def test_release_path_dogfood_artifacts_stay_off_the_shared_side_lane() -> None:
+    """The workflow_dispatch dogfood build takes CI_DOGFOOD_MACOS_RUNNER (or Blacksmith) on
+    every attempt, never the owned minis' side label."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["build-artifacts"]
+    assert job["name"] == "release-path dogfood artifacts"
+    assert job["with"]["macos_runner"] == DOGFOOD_MACOS_RUNNER
+    assert job["with"]["macos_retry_runner"] == DOGFOOD_MACOS_RUNNER
+    assert "CI_SIDE_LANE_RUNNER" not in str(job["with"])
