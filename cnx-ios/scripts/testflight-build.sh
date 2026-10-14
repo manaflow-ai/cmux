@@ -44,7 +44,12 @@
 #   CNX_BUILDS_ROOT     output root (default ~/cnx-ios-builds)
 #   CNX_XCFRAMEWORK     use this CnxFFI.xcframework instead of the cache or a build
 #
-# Credentials: App Store Connect calls use only the shared profile
+#   CNX_CI_ASC=1        CI only (.github/workflows/cnx-ios-testflight.yml): App Store
+#                       Connect credentials come from ASC_KEY_ID, ASC_ISSUER_ID and
+#                       ASC_PRIVATE_KEY_PATH (the release environment's key) instead
+#                       of the local asc profile; the app record is still checked.
+#
+# Credentials: locally, App Store Connect calls use only the shared profile
 # "cmux-shared Team Key" (key RUML2V4CW7) via `asc --strict-auth`. altool needs
 # the key as a file: it is copied from the asc keychain item into a private
 # temp directory for the one call and removed on exit; it is never printed.
@@ -112,7 +117,15 @@ if [[ -n "$from_archive" ]]; then
   build_number=$(plutil -extract CFBundleVersion raw "$from_archive/Products/Applications/CnxApp.app/Info.plist")
 fi
 
-asc_() { asc --profile "$asc_profile" --strict-auth "$@"; }
+ci_asc=${CNX_CI_ASC:-0}
+if [[ $ci_asc == 1 ]]; then
+  [[ -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" && -f "${ASC_PRIVATE_KEY_PATH:-}" ]] \
+    || { echo "error: CNX_CI_ASC=1 needs ASC_KEY_ID, ASC_ISSUER_ID and ASC_PRIVATE_KEY_PATH" >&2; exit 2; }
+  asc_key_id=$ASC_KEY_ID asc_issuer=$ASC_ISSUER_ID
+  asc_() { asc "$@"; }
+else
+  asc_() { asc --profile "$asc_profile" --strict-auth "$@"; }
+fi
 log() { printf '\n==> %s\n' "$*"; }
 die() { echo "error: $*" >&2; exit 1; }
 json() { python3 -I -c "$1" 2>/dev/null; }  # reads one JSON document on stdin (asc may append warnings)
@@ -134,7 +147,7 @@ trap 'rm -rf "$private"' EXIT
 max_marketing="not checked (--no-asc)" max_build="not checked (--no-asc)"
 if [[ $no_asc == 0 ]]; then
 log "App Store Connect: profile, app record"
-asc_ auth status --validate --output json | json '
+[[ $ci_asc == 1 ]] || asc_ auth status --validate --output json | json '
 import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 ok=d.get("profile")=="cmux-shared Team Key" and any(
@@ -217,7 +230,7 @@ if [[ $unsigned == 0 ]]; then
 import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 print(next(b["id"] for b in d["data"] if b["attributes"]["identifier"]=="dev.cmux.app.internal"))' \
-    | xargs -I{} asc --profile "$asc_profile" --strict-auth bundle-ids profiles list --id {} --output json | CNX_PROFILE_NAME="$profile_name" json '
+    | { read -r bid; asc_ bundle-ids profiles list --id "$bid" --output json; } | CNX_PROFILE_NAME="$profile_name" json '
 import json,os,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 p=[p for p in d["data"] if p["attributes"]["name"]==os.environ["CNX_PROFILE_NAME"]
@@ -444,6 +457,9 @@ if [[ $unsigned == 0 ]]; then
   # altool reads the API key from a file: copy it out of the asc keychain item
   # into the private temp dir for this call only.
   write_p8() {
+    if [[ $ci_asc == 1 ]]; then
+      cp "$ASC_PRIVATE_KEY_PATH" "$private/AuthKey_$asc_key_id.p8"; chmod 600 "$private/AuthKey_$asc_key_id.p8"; return
+    fi
     security find-generic-password -s asc -a "asc:credential:$asc_profile" -w 2>/dev/null \
       | python3 -I -c '
 import json,sys,re

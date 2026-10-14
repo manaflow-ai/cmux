@@ -63,7 +63,7 @@ settings:
     # uploaded to cmux INTERNAL (TestFlight orders builds by it first);
     # testflight-build.sh checks this against App Store Connect. The build
     # number (CURRENT_PROJECT_VERSION) is stamped per upload by that script.
-    MARKETING_VERSION: 1.1.0
+    MARKETING_VERSION: 1.2.0
     CURRENT_PROJECT_VERSION: "1"
   configs:
     Release:
