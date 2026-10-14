@@ -106,13 +106,20 @@ const REPLY_TO_FIELDS: &[&str] = &["message_id", "part_index"];
 /// answers them only on the owner's trusted connection, which this is.
 const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
     ("chief.engine.get", &["machine", "session"]),
-    ("chief.engine.set", &["machine", "session", "harness", "model", "effort", "speed", "compactor_speed"]),
+    (
+        "chief.engine.set",
+        &["machine", "session", "harness", "model", "effort", "speed", "compactor_speed", "avatar"],
+    ),
     ("chief.stop", &["machine", "session", "name"]),
 ];
 const RESOURCE_FIELDS: &[&str] = &["protocol", "type", "id", "operation", "params", "idempotency_key"];
 
 /// Events a phone receives, for conversations in scope only.
 const FORWARDED_EVENTS: &[&str] = &["conversation-changed", "conversation-typing"];
+
+/// The Chief's avatar text after a `chief.engine.set {avatar}` (the phone's
+/// chat header). It names no conversation and carries only that text.
+const CHIEF_PROFILE_EVENT: &str = "chief-profile-changed";
 
 /// Requests a phone may have waiting for a reply at once.
 pub const MAXIMUM_IN_FLIGHT: usize = 256;
@@ -349,6 +356,10 @@ impl ChiefPolicy {
         // Missed events: the phone refetches. It carries no conversation data.
         if event == "overflow" {
             return true;
+        }
+        if event == CHIEF_PROFILE_EVENT {
+            return object.keys().all(|k| k == "event" || k == "avatar")
+                && object.get("avatar").is_some_and(|a| a.is_null() || a.is_string());
         }
         if !FORWARDED_EVENTS.contains(&event) {
             return false;
@@ -615,7 +626,7 @@ mod tests {
             serde_json::json!({"protocol": "cmux.protocol/2", "type": "request", "id": "m17", "operation": "chief.engine.get",
                 "params": {"machine": "current", "session": "current"}}),
             serde_json::json!({"protocol": "cmux.protocol/2", "type": "request", "id": "m18", "operation": "chief.engine.set",
-                "params": {"machine": "current", "session": "current", "model": "opus", "effort": "high"},
+                "params": {"machine": "current", "session": "current", "model": "opus", "effort": "high", "avatar": "AB"},
                 "idempotency_key": "cnx-ios-chief-engine-1"}),
             serde_json::json!({"protocol": "cmux.protocol/2", "type": "request", "id": "m19", "operation": "chief.stop",
                 "params": {"machine": "current", "session": "current"}, "idempotency_key": "cnx-ios-chief-stop-1"}),
@@ -770,6 +781,13 @@ mod tests {
             serde_json::json!({"cmd": "conversation-snapshot", "id": 8, "conversation": CHIEF, "tail": 1}),
         );
         assert!(policy.filter_reply(br#"{"event":"overflow"}"#).is_some());
+        // The Chief's avatar reaches the phone; anything more on it does not.
+        assert!(policy.filter_reply(br#"{"event":"chief-profile-changed","avatar":"AB"}"#).is_some());
+        assert!(policy.filter_reply(br#"{"event":"chief-profile-changed","avatar":null}"#).is_some());
+        assert!(
+            policy.filter_reply(br#"{"event":"chief-profile-changed","avatar":"x","path":"/etc"}"#).is_none()
+        );
+        assert!(policy.filter_reply(br#"{"event":"chief-profile-changed","avatar":{"x":1}}"#).is_none());
     }
 
     #[test]
