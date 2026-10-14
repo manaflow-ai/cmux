@@ -43,7 +43,28 @@ pub(super) fn handle_connection_frame(
         {
             return keep_open;
         }
-        return origin_gate::handle_resource_line(mux, client, message, request, writer);
+        // Debug timing marks of a resource create, from the arrival of its
+        // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
+        let trace_label = request.as_ref().ok().and_then(|envelope| match envelope.operation {
+            ResourceOperation::WorkspaceCreate => Some("resource:workspace.create"),
+            ResourceOperation::TabCreateTerminal => Some("resource:tab.create_terminal"),
+            ResourceOperation::PaneSplit => Some("resource:pane.split"),
+            ResourceOperation::PaneCreate => Some("resource:pane.create"),
+            ResourceOperation::WorkspaceEnsureHome => Some("resource:workspace.ensure_home"),
+            _ => None,
+        });
+        let traced = trace_label
+            .and_then(|label| crate::debug_spans::Trace::start(label, Instant::now()))
+            .is_some_and(|trace| {
+                crate::debug_spans::install(Some(trace));
+                true
+            });
+        let keep_open = origin_gate::handle_resource_line(mux, client, message, request, writer);
+        if traced {
+            crate::debug_spans::mark("reply.sent");
+            crate::debug_spans::finish(crate::debug_spans::take());
+        }
+        return keep_open;
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
         return keep_open;

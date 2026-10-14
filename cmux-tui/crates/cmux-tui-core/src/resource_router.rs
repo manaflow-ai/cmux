@@ -247,7 +247,9 @@ fn dispatch_resource_request(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
+    crate::debug_spans::mark("router.dispatch");
     browser_engine::refuse_without_provider(mux, &request)?;
+    crate::debug_spans::mark("router.provider_checked");
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),
