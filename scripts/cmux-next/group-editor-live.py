@@ -121,11 +121,20 @@ def editor_window(main_id):
     return None
 
 
-def right_click_window_point(main, x_pt, y_pt):
-    """A real right-click at window points from the top-left (debug.sidebar_rows' frame space)."""
+def right_click_window_point(main, x_pt, y_pt, label):
+    """A right-click at window points from the top-left (debug.sidebar_rows' frame space): first a real
+    window-server click (cua-driver), then, if no editor opened, the in-app event path (debug.mouse)."""
     state = cua("get_window_state", {"pid": opts.pid, "window_id": main["window_id"], "include_screenshot": False})
     scale = state.get("screenshot_scale") or 1
-    return cua("right_click", {"pid": opts.pid, "window_id": main["window_id"], "x": round(x_pt * scale), "y": round(y_pt * scale)})
+    reply = cua("right_click", {"pid": opts.pid, "window_id": main["window_id"], "x": round(x_pt * scale), "y": round(y_pt * scale)})
+    print(f"{label}: cua right_click at {x_pt:.0f},{y_pt:.0f} pt (scale {scale}): {str(reply)[:200]}", flush=True)
+    found = wait(lambda: editor_window(main["window_id"]), 4)
+    if found:
+        return found, "cua-driver"
+    print(f"{label}: windows after the cua click: {[(w.get('window_id'), w.get('title'), w.get('bounds')) for w in windows()]}", flush=True)
+    rpc("debug.mouse", {"x": x_pt, "y": y_pt, "action": "click", "button": "right"}, timeout=5)
+    found = wait(lambda: editor_window(main["window_id"]), 4)
+    return found, ("debug.mouse" if found else None)
 
 
 def element(tree, role, pattern):
@@ -150,11 +159,10 @@ def sidebar_group_checks(main):
         return check("A group to edit", GROUP, [r.get("key") for r in rows()], False)
     header_row_ref = header_row
     f = header_row_ref["window_frame"]
-    right_click_window_point(main, f["x"] + f["width"] * 0.35, f["y"] + f["height"] / 2)
-    found = wait(lambda: editor_window(main["window_id"]), 5)
+    found, path = right_click_window_point(main, f["x"] + f["width"] * 0.35, f["y"] + f["height"] / 2, "sidebar header")
     shot("sidebar-editor-open")
     check("Right-click on a group header opens the group editor (name field)", "an editor window with a text field",
-          bool(found), bool(found))
+          f"opened by {path}", bool(found))
     if not found:
         return
     win, tree = found
@@ -175,8 +183,7 @@ def sidebar_group_checks(main):
     closed = wait(lambda: not editor_window(main["window_id"]), 5)
     check("Escape closes the editor", "no editor window", bool(closed), bool(closed))
     f = header(group)["window_frame"]
-    right_click_window_point(main, f["x"] + f["width"] * 0.35, f["y"] + f["height"] / 2)
-    again = wait(lambda: editor_window(main["window_id"]), 5)
+    again, _ = right_click_window_point(main, f["x"] + f["width"] * 0.35, f["y"] + f["height"] / 2, "sidebar header again")
     check("Return renamed the group (the reopened editor's name field)", RENAMED, bool(again) and RENAMED in again[1], bool(again) and RENAMED in again[1])
     if again:
         cua("press_key", {"pid": opts.pid, "window_id": again[0], "key": "escape"})
@@ -190,13 +197,12 @@ def tab_group_checks(main):
     panes = [p for w in ((rpc("debug.pane_chrome") or {}).get("windows") or []) for p in (w.get("panes") or []) if p.get("pill")]
     if not panes:
         return check("A tab strip with a group chip", "a pane with a tab pill", rpc("debug.pane_chrome"), False)
-    strip, pill = panes[0]["strip"], panes[0]["pill"]
+    (sx, sy, sw, sh), (px, py, pw, ph) = panes[0]["strip"], panes[0]["pill"]
     # The chip sits at the strip's start, before its first tab.
-    x = (strip["x"] + pill["x"]) / 2 if pill["x"] - strip["x"] > 24 else strip["x"] + 16
-    right_click_window_point(main, x, pill["y"] + pill["height"] / 2)
-    found = wait(lambda: editor_window(main["window_id"]), 5)
+    x = (sx + px) / 2 if px - sx > 24 else sx + 16
+    found, path = right_click_window_point(main, x, py + ph / 2, "tab chip")
     shot("tab-editor-open")
-    check("Right-click on a tab group chip opens the group editor", "an editor window with a text field", bool(found), bool(found))
+    check("Right-click on a tab group chip opens the group editor", "an editor window with a text field", f"opened by {path}", bool(found))
     if found:
         cua("press_key", {"pid": opts.pid, "window_id": found[0], "key": "escape"})
 
