@@ -252,7 +252,8 @@ extension DockSplitStore {
     @discardableResult
     func setDockPanelCustomTitle(
         panelId: UUID,
-        title: String?
+        title: String?,
+        origin: String? = nil
     ) -> Bool {
         guard let tabId = surfaceId(forPanelId: panelId),
               let panel = panels[panelId] else {
@@ -281,7 +282,8 @@ extension DockSplitStore {
                 paneId: bonsplitController.paneId(containing: tabId)?.id,
                 previousTitle: previousCustomTitle,
                 title: currentCustomTitle,
-                titleSource: Workspace.CustomTitleSource.user.rawValue
+                titleSource: Workspace.CustomTitleSource.user.rawValue,
+                origin: origin
             )
         }
         return true

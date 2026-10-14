@@ -70,7 +70,7 @@ extension TerminalController {
         let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         v2MainSync {
             let panelID = workspace.controlTabTarget(for: surfaceID)?.panelID ?? surfaceID
-            _ = workspace.setPanelCustomTitle(panelId: panelID, title: title.isEmpty ? nil : title)
+            _ = workspace.setPanelCustomTitle(panelId: panelID, title: title.isEmpty ? nil : title, renameOrigin: "mobile")
         }
         return .ok([
             "workspace_id": workspace.id.uuidString,

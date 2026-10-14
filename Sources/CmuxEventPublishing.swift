@@ -342,8 +342,10 @@ extension CmuxEventBus {
     /// A tab's custom title was set, replaced or cleared. Published by the
     /// shared title action, so a name typed into the tab, sent over the socket,
     /// chosen by an agent hook or mirrored from a daemon all report the same
-    /// way; `titleSource` says which of those owns the new title. A Dock tab
-    /// in a window Dock carries the window id instead of a workspace id.
+    /// way; `titleSource` says which of those owns the new title, and `origin`
+    /// names the entry point that asked (`ui`, `socket`, `agent`, `mobile`)
+    /// when the caller knows it. A Dock tab in a window Dock carries the
+    /// window id instead of a workspace id.
     func publishSurfaceRenamed(
         workspaceId: UUID?,
         windowId: UUID? = nil,
@@ -351,7 +353,8 @@ extension CmuxEventBus {
         paneId: UUID?,
         previousTitle: String?,
         title: String?,
-        titleSource: String
+        titleSource: String,
+        origin: String?
     ) {
         publish(
             name: "surface.renamed",
@@ -366,7 +369,8 @@ extension CmuxEventBus {
                 "pane_id": paneId?.uuidString ?? NSNull(),
                 "previous_title": previousTitle ?? NSNull(),
                 "title": title ?? NSNull(),
-                "title_source": titleSource
+                "title_source": titleSource,
+                "origin": origin ?? NSNull()
             ]
         )
     }

@@ -58,6 +58,23 @@ final class SurfaceRenamedEventTests: XCTestCase {
         XCTAssertTrue(body["previous_title"] is NSNull, "a first rename has no previous custom title")
         XCTAssertEqual(body["title"] as? String, "Build logs")
         XCTAssertEqual(body["title_source"] as? String, "user")
+        XCTAssertTrue(body["origin"] is NSNull, "a caller that names no entry point reports a null origin")
+    }
+
+    func testEntryPointsReportTheirOrigin() throws {
+        let workspace = Workspace()
+        defer { for panel in workspace.panels.values { panel.close() } }
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertTrue(workspace.setPanelCustomTitle(panelId: panelId, title: "Typed in", renameOrigin: "ui"))
+        let typed = try payload(of: try XCTUnwrap(nextEvent()))
+        XCTAssertEqual(typed["origin"] as? String, "ui")
+        XCTAssertEqual(typed["title_source"] as? String, "user")
+
+        XCTAssertTrue(workspace.setPanelCustomTitle(panelId: panelId, title: "cmux rename-tab", renameOrigin: "socket"))
+        let sent = try payload(of: try XCTUnwrap(nextEvent()))
+        XCTAssertEqual(sent["origin"] as? String, "socket")
+        XCTAssertEqual(sent["title_source"] as? String, "user", "the socket rename is still a user-owned title")
     }
 
     func testRepeatingTheSameTitlePublishesNothing() throws {

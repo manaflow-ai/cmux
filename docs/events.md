@@ -323,14 +323,23 @@ Surface and pane:
 
 ### surface.renamed
 
-`source` is `workspace.title`. The payload carries `surface_id`, `pane_id`,
-`previous_title`, `title` (null when the custom title was cleared) and
-`title_source`: `user` for a name typed into the tab or set over the socket,
-`auto` for agent auto-naming, `remote` for a name mirrored from a cmux-tui
-daemon. A tab projecting a Cloud terminal reports `remote`, because the daemon
-owns that name and the local edit lands through reconciliation. Titles applied
-while a session is restored or a layout is created are part of that creation
-and do not publish. A socket rename still produces `surface.action` as well.
+`source` is `workspace.title`. The envelope carries `workspace_id`,
+`surface_id` and `pane_id` as usual (a tab in a window Dock has `window_id`
+instead of `workspace_id`). The payload repeats `surface_id` and `pane_id`,
+like `surface.focused`, and adds:
+
+| Field | Meaning |
+| --- | --- |
+| `previous_title` | The custom title before the change, or null. |
+| `title` | The new custom title, or null when it was cleared. |
+| `title_source` | Who owns the new title: `user`, `auto` (agent auto-naming) or `remote` (a cmux-tui daemon). |
+| `origin` | The entry point that asked, when known: `ui` (tab strip, palette, context menu), `socket`, `agent`, `mobile`; null otherwise. |
+
+A tab projecting a Cloud terminal reports `title_source: remote` even for a
+name typed into it, because the daemon owns that name and the local edit lands
+through reconciliation. Titles applied while a session is restored or a layout
+is created are part of that creation and do not publish. A socket rename still
+produces `surface.action` as well.
 
 Workspace selection payloads include `previous_workspace_id`, `index`, and
 `tab_count`. Surface selection payloads include `previous_surface_id`, `pane_id`,
