@@ -18,13 +18,9 @@ enum RemoteLocalhostHandlers {
 
     private static func set(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let raw = invocation["localhost"]?.stringValue ?? ""
-        let choice: Bool?
-        switch raw {
-        case "machine": choice = true
-        case "thisMac": choice = false
-        case "setting": choice = nil
-        default: throw ActionFailure.invalidTarget(RefusalStrings.unknownLocalhostChoice(raw))
-        }
+        // machine: the workspace's machine; thisMac: this Mac; setting: follow the setting (nil).
+        let choices: [String: Bool?] = ["machine": true, "thisMac": false, "setting": nil]
+        guard let choice = choices[raw] else { throw ActionFailure.invalidTarget(RefusalStrings.unknownLocalhostChoice(raw)) }
         let (model, _) = try context.workspace(invocation)
         guard let qualified = WindowProfiles.qualified(model.id, machines: context.services.machines) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
