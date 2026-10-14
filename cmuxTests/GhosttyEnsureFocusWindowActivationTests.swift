@@ -15,6 +15,11 @@ private final class StageManagerRightSidebarResponder: NSView, FeedKeyboardFocus
     override var acceptsFirstResponder: Bool { true }
 }
 
+private final class EnsureFocusMiniaturizedTestWindow: NSWindow {
+    var miniaturizedForTesting = true
+    override var isMiniaturized: Bool { miniaturizedForTesting }
+}
+
 @MainActor
 @Suite("Window activation", .serialized)
 struct GhosttyEnsureFocusWindowActivationTests {
@@ -58,6 +63,31 @@ struct GhosttyEnsureFocusWindowActivationTests {
             targetWindow: targetWindow,
             applicationIsActive: false
         ))
+    }
+
+    @Test(arguments: [false, true])
+    func blocksDeferredActivationForMiniaturizedWindow(hasMainWindow: Bool) {
+        let manager = TabManager()
+        let targetWindow = EnsureFocusMiniaturizedTestWindow()
+
+        func allowsActivation() -> Bool {
+            shouldAllowEnsureFocusWindowActivation(
+                activeTabManager: manager,
+                targetTabManager: manager,
+                keyWindow: nil,
+                mainWindow: hasMainWindow ? targetWindow : nil,
+                targetWindow: targetWindow,
+                applicationIsActive: true
+            )
+        }
+
+        // Minimizing the last window leaves the app active. Deferred terminal
+        // focus must respect that choice even while window ownership is retained.
+        #expect(!allowsActivation())
+
+        // A user restore makes normal terminal focus recovery available again.
+        targetWindow.miniaturizedForTesting = false
+        #expect(allowsActivation())
     }
 
     @Test
