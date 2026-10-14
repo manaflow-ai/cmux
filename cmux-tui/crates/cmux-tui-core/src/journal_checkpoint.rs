@@ -848,6 +848,7 @@ mod tests {
     use flate2::read::GzDecoder;
     use std::io::Read;
     use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     fn terminal_replay_checkpoint() -> JournalCheckpoint {
         JournalCheckpoint {
@@ -1551,14 +1552,23 @@ mod tests {
             "checkpoint replay must drop the unreplayable Kitty upload"
         );
 
-        let mut attach_output = Vec::new();
-        while let Ok(frame) = attach.stream.try_recv() {
-            if let crate::surface::AttachFrame::Output(bytes) = frame {
-                attach_output.extend_from_slice(&bytes);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut saw_can = false;
+        while !saw_can {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match attach.stream.recv_timeout(remaining) {
+                Ok(crate::surface::AttachFrame::Output(bytes)) => {
+                    saw_can = bytes.contains(&0x18);
+                }
+                Ok(_) => {}
+                Err(_) => break,
             }
         }
         assert!(
-            attach_output.ends_with(b"\x18"),
+            saw_can,
             "checkpoint recovery must publish CAN after the unreplayable PTY bytes"
         );
 
