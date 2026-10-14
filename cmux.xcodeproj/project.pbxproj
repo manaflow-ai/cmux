@@ -637,6 +637,8 @@
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"-lc++",
+					"-Xlinker",
+					"-no_exported_symbols",
 					"-framework",
 					Metal,
 					"-framework",

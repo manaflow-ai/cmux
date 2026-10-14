@@ -105,7 +105,7 @@ class AppSymbolMapTest(unittest.TestCase):
             exe.chmod(0o755)
             self.strip(app)
             symbols = read_map(app / "Contents/Resources/cmux-symbols.bin")
-            self.assertEqual(symbols, {SLICE_UUID: [(0x1000, "_$s4cmux3AppV3runyyF"), (0x1400, "_main")]})
+            self.assertEqual(symbols, {SLICE_UUID: [(0x1000, "$s4cmux3AppV3runyyF"), (0x1400, "main")]})
 
             # The second strip pass (nightly nn-strip-again) sees no names and keeps the map.
             before = (app / "Contents/Resources/cmux-symbols.bin").read_bytes()
