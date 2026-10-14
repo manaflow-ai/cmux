@@ -165,9 +165,7 @@ import Testing
             func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
             return views(card).compactMap(\.layer).flatMap(animated)
         }
-        // Synchronous from here to the reset: the override is process-wide.
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
+        card.scrubber.reduceMotionOverride = true
         card.configure(Self.track())
         card.isHidden = false
         card.layoutSubtreeIfNeeded()

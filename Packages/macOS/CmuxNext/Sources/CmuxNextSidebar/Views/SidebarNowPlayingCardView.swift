@@ -155,6 +155,10 @@ final class SidebarNowPlayingScrubber: NSView {
     let fill = CALayer()
     /// The position a drag shows until the source reports again.
     private var dragged: TimeInterval?
+    /// Pins Reduce Motion for this scrubber only (tests), instead of the
+    /// process-wide `Motion.reduceMotionOverride`, which leaks into every
+    /// test that runs alongside.
+    var reduceMotionOverride: Bool?
     private let formatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.minute, .second]
@@ -216,7 +220,8 @@ final class SidebarNowPlayingScrubber: NSView {
         fill.bounds = CGRect(x: 0, y: 0, width: width * position / duration, height: bar)
         guard dragged == nil, nowPlaying.isPlaying, nowPlaying.rate > 0, window != nil, width > 0, position < duration else { return }
         let remaining = (duration - position) / nowPlaying.rate
-        fill.add(Self.progress(from: fill.bounds.width, to: width, over: remaining, glides: Motion.animatesMovement), forKey: Self.progressKey)
+        let glides = reduceMotionOverride.map { !$0 } ?? Motion.animatesMovement
+        fill.add(Self.progress(from: fill.bounds.width, to: width, over: remaining, glides: glides), forKey: Self.progressKey)
     }
 
     /// The fill running to the end of the track: a linear glide, or (Reduce
