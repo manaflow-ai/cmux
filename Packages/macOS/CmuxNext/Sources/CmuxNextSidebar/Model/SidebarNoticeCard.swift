@@ -27,6 +27,11 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
             self.title = title
             self.prominent = prominent
         }
+
+        /// A menu item from an owner's (id, title) list (the tip's and the update cards' x menus).
+        public init(_ item: (id: String, title: String)) {
+            self.init(id: item.id, title: item.title)
+        }
     }
 
     public var id: String
