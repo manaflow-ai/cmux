@@ -24,6 +24,9 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
+    static let npDiag: Void = { NSApplication.shared.finishLaunching() }()
+    init() { _ = Self.npDiag }
+
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
     /// An 8 pt square of color, as PNG.
