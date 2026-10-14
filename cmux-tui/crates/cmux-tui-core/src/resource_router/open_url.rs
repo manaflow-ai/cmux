@@ -352,7 +352,8 @@ fn frontend_created_before(
     steps: &StepKeys,
     workspace: &WorkspacePublicId,
 ) -> Result<Option<Value>, ResourceError> {
-    let surface = mux.keyed_frontend_browser_tab(&steps.create).map_err(resource_operation_error)?;
+    let surface =
+        mux.keyed_frontend_browser_tab(&steps.create).map_err(resource_operation_error)?;
     let Some(surface) = surface else { return Ok(None) };
     let Some((tab, browser)) = browser_page(mux, &surface) else { return Ok(None) };
     let place = mux.with_state(|state| {
