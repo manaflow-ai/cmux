@@ -78,12 +78,19 @@ describe("account token eligibility", () => {
       expect(response.products).toHaveLength(3);
     });
 
-    test("the App Store app sells in Production and to App Review in the Sandbox", async () => {
+    test("the App Store app sells in Production, and in the Sandbox only to allowlisted accounts", async () => {
+      const env = { ...production, APPLE_IAP_SANDBOX_ACCOUNT_EMAILS: "review@example.com" };
+      const reviewer = { ...user, primaryEmail: "Review@example.com" };
       for (const environment of ["Production", "Sandbox", null] as const) {
-        const response = await appleAccountTokenResponse(user, app("com.cmux.app", environment), deps({ env: production }));
+        const response = await appleAccountTokenResponse(reviewer, app("com.cmux.app", environment), deps({ env }));
         expect(response).toMatchObject({ eligible: true, reason: null });
         expect(response.products).toHaveLength(3);
       }
+      const tester = { ...user, primaryEmail: "tester@example.com" };
+      expect(await appleAccountTokenResponse(tester, app("com.cmux.app", "Sandbox"), deps({ env })))
+        .toMatchObject(unavailable);
+      expect(await appleAccountTokenResponse(tester, app("com.cmux.app", "Production"), deps({ env })))
+        .toMatchObject({ eligible: true, reason: null });
     });
 
     test("other deployments sell to every Sandbox build", async () => {

@@ -551,7 +551,7 @@ describe("dashboard billing screen", () => {
   for (const [billing, message] of [
     ["cancelled", "Your plan will cancel at the end of the current billing period."],
     ["resumed", "Your plan has been resumed and will renew normally."],
-    ["nosub", "No active Stripe subscription was found for this account."],
+    ["nosub", "No active web subscription was found for this account."],
     ["error", "Billing could not be updated. Try again shortly."],
   ] as const) {
     test(`renders ${billing} banner`, async () => {

@@ -286,6 +286,37 @@ export async function vmGoLimitCopy(
 }
 
 /**
+ * Localized copy for a used-up Pro or Max allowance. The reset date is the
+ * end of the billing period, shown as a UTC calendar date.
+ */
+export async function vmPlanBudgetCopy(
+  locale: Locale,
+  values: {
+    readonly resource: "compute" | "storage";
+    readonly planId: "pro" | "max";
+    readonly included: number;
+    readonly used: number;
+    readonly requested: number;
+    readonly resetsAt: Date;
+  },
+): Promise<VmRequiresProCopy> {
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.planBudget",
+  }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  const resetDate = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(values.resetsAt);
+  const plan = values.planId === "max" ? "Max" : "Pro";
+  const args = { plan, included: values.included, used: values.used, requested: values.requested, resetDate };
+  const upgrade = values.planId === "pro" ? "Upgrade" : "";
+  return {
+    title: t(`${values.resource}Title`, args),
+    message: t(`${values.resource}Message`, args),
+    action: t(`${values.resource}Action${upgrade}`, args),
+  };
+}
+
+/**
  * The localized sentence naming the machines an active-VM limit counted, or
  * "" when there are none. It is appended to the plan sentence, so it starts
  * with a space.

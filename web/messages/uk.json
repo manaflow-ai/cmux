@@ -114,6 +114,16 @@
       "shapeMessage": "Go підтримує 2 vCPU, 4 GiB оперативної пам’яті та 16 GiB диска.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "Обчислювальний ліміт {plan} вичерпано",
+      "computeMessage": "Тариф {plan} використав {included} обчислювальних годин за цей розрахунковий період. Обчислювальна година — це 1 vCPU з 2 ГБ пам'яті протягом однієї години. Машини знову можна буде запустити {resetDate}.",
+      "computeAction": "Призупинені машини зберігають свої файли. Зверніться до підтримки, якщо вам потрібно більше обчислень до {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Ліміт диска {plan} вичерпано",
+      "storageMessage": "Тариф {plan} включає {included} ГБ диска на всі збережені машини. Збережені машини займають {used} ГБ, а цьому запиту потрібно {requested} ГБ.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Недостатньо ресурсів Cloud VM",
       "memoryMessage": "Ваші ВМ уже використовують {used} з {pool} ГБ RAM. Цій ВМ потрібно {requested} ГБ.",

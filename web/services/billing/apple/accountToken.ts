@@ -39,7 +39,11 @@ export type AppleAccountTokenResponse = {
   readonly products: readonly { readonly productId: string; readonly planId: PersonalPlanId }[];
 };
 
-export type AppleAccountUser = ProReconcileUser & BillingTeamUserLike & { readonly id: string };
+export type AppleAccountUser = ProReconcileUser & BillingTeamUserLike & {
+  readonly id: string;
+  /** The signed-in account's primary email; production Sandbox purchases need it on the allowlist. */
+  readonly primaryEmail?: string | null;
+};
 
 export type AppleAccountTokenDependencies = {
   readonly store: Pick<AppleIapStore, "accountTokenForUser">;
@@ -94,12 +98,18 @@ export function requestedStoreKitEnvironment(header: string | null): SignedApple
  * builds always buy in the Sandbox and App Store builds in Production, so an
  * app that did not say which applies is assumed Sandbox unless it is the App
  * Store bundle. Selling a purchase that grants nothing would show a completed
- * purchase with no plan.
+ * purchase with no plan. In production a Sandbox purchase grants only for an
+ * allowlisted account email, so every other TestFlight tester sees no
+ * products instead of a purchase that grants nothing.
  */
-function purchasesGrant(app: AppleAccountTokenApp, env: Record<string, string | undefined>): boolean {
+function purchasesGrant(
+  app: AppleAccountTokenApp,
+  accountEmail: string | null | undefined,
+  env: Record<string, string | undefined>,
+): boolean {
   if (!app.bundleId) return false;
   const environment = app.storeKitEnvironment ?? (app.bundleId === APP_STORE_BUNDLE_ID ? "Production" : "Sandbox");
-  return appleEnvironmentGrantsEntitlement({ environment, bundleId: app.bundleId }, env);
+  return appleEnvironmentGrantsEntitlement({ environment, bundleId: app.bundleId, accountEmail }, env);
 }
 
 /** `POST /api/billing/apple/account-token`. */
@@ -118,7 +128,7 @@ export async function appleAccountTokenResponse(
   const reason = ineligibleReason({
     stripeActive,
     teamBilled,
-    purchasesGrant: purchasesGrant(app, deps.env ?? process.env),
+    purchasesGrant: purchasesGrant(app, user.primaryEmail, deps.env ?? process.env),
   });
   const plans: PersonalPlanId[] = goEnabled ? ["go", "pro", "max"] : ["pro", "max"];
   const { bundleId } = app;

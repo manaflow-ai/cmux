@@ -654,9 +654,13 @@ describe("Apple entitlement policy", () => {
     expiresAt: new Date(NOW.getTime() + DAY), gracePeriodExpiresAt: null,
   };
 
-  test("production grants Sandbox purchases only for the App Store bundle (App Review)", () => {
-    const production = { VERCEL_ENV: "production" };
-    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, production)).toBe(true);
+  test("production grants Sandbox purchases only for the App Store bundle and allowlisted accounts", () => {
+    const production = { VERCEL_ENV: "production", APPLE_IAP_SANDBOX_ACCOUNT_EMAILS: "review@example.com, Lawrence@Example.com" };
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "review@example.com" }, production)).toBe(true);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "lawrence@example.com" }, production)).toBe(true);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "tester@example.com" }, production)).toBe(false);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, production)).toBe(false);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta", accountEmail: "review@example.com" }, production)).toBe(false);
     expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta" }, production)).toBe(false);
     expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, { ...production, APPLE_IAP_SANDBOX_ENTITLEMENTS: "none" })).toBe(false);
     expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta" }, {})).toBe(true);

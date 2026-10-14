@@ -114,6 +114,16 @@
       "shapeMessage": "Go admite 2 vCPU, 4 GiB de RAM y 16 GiB de disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "Cuota de cómputo de {plan} agotada",
+      "computeMessage": "Tu plan {plan} ha usado sus {included} horas de cómputo de este período de facturación. Una hora de cómputo es 1 vCPU con 2 GB de memoria durante una hora. Tus máquinas podrán iniciarse de nuevo el {resetDate}.",
+      "computeAction": "Las máquinas en pausa conservan sus archivos. Contacta con soporte si necesitas más cómputo antes del {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Cuota de disco de {plan} agotada",
+      "storageMessage": "Tu plan {plan} incluye {included} GB de disco entre todas las máquinas guardadas. Las máquinas guardadas usan {used} GB y esta solicitud necesita {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "No hay suficientes recursos de Cloud VM",
       "memoryMessage": "Tus VMs ya usan {used} de {pool} GB de RAM. Esta VM necesita {requested} GB.",
