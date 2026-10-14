@@ -14,9 +14,9 @@ import QuartzCore
 /// open, in slots that are always reserved, so nothing moves. Hover and a
 /// drop take tonal steps over the bar's color. Type and glyphs scale with the row height
 /// (the sidebar density setting). No member count: a collapsed group shows
-/// its members' activity and unread total. The name opens the group editor;
-/// the more button and a right-click show the group's full menu (cx-a9h6);
-/// the chevron and the rest of the row collapse.
+/// its members' activity and unread total. The name and the more button open
+/// the group editor (cx-rcby, Lawrence 2026-10-08); a right-click shows the
+/// group's full menu (cx-a9h6); the chevron and the rest of the row collapse.
 final class GroupHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = NSImageView()
@@ -29,7 +29,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
-    /// The more button (the pack's three-dot action.more): the group's full menu, as a right-click (cx-a9h6).
+    /// The more button (the pack's three-dot action.more): the group editor, as a click on the
+    /// name (cx-rcby, Lawrence 2026-10-08); its More Group Actions row has the full menu.
     let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
@@ -53,8 +54,9 @@ final class GroupHeaderRowView: SidebarRowView {
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
     /// The group editor is open for this group.
     var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// Shows the group's full menu: VoiceOver's More Group Actions (the editor's last row).
     var onMore: (() -> Void)?
-    /// Opens the group editor (name and color); VoiceOver's Edit action.
+    /// Opens the group editor (name, color and actions): the more button and VoiceOver's Edit action.
     var onEdit: (() -> Void)?
     var onAdd: (() -> Void)?
 
@@ -67,7 +69,7 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         [glyph, name, pin, chevron, activity, badge, addButton, moreButton].forEach(addSubview)
-        moreButton.onPress = { [weak self] in self?.onMore?() }
+        moreButton.onPress = { [weak self] in self?.onEdit?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
         // The + and more show only on hover; VoiceOver reaches the editor and the menu here always.
         setAccessibilityCustomActions([
@@ -75,7 +77,7 @@ final class GroupHeaderRowView: SidebarRowView {
                 self?.onEdit?()
                 return self?.onEdit != nil
             },
-            NSAccessibilityCustomAction(name: GroupEditorStrings.more) { [weak self] in
+            NSAccessibilityCustomAction(name: GroupEditorStrings.moreActions) { [weak self] in
                 self?.onMore?()
                 return self?.onMore != nil
             },

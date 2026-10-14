@@ -8,6 +8,7 @@ import type { AgentPaneVariant } from "../format";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
+import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -27,6 +28,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   addPseudoLocales(strings);
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
+  resetSummaryCards();
   if (state.mockHarnesses)
     (globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses = state.mockHarnesses;
   const snapshot = structuredClone(state.snapshot);
