@@ -258,6 +258,13 @@ final class GhosttyTerminalView: UIView {
         }
     }
 
+    /// The renderer's last frame (what is on screen), scaled to at most
+    /// `maxPixelWidth`; nil before the first frame.
+    func snapshot(maxPixelWidth: CGFloat? = nil) -> UIImage? {
+        guard let cg = GhosttySnapshot.image(of: self, maxPixelWidth: maxPixelWidth) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
     /// Reads the visible rows' text on the output queue (in order with the
     /// output), then calls back on the main actor.
     func readVisibleLines(_ done: @escaping @MainActor ([String], (cols: Int, rows: Int)) -> Void) {
@@ -570,6 +577,13 @@ struct TerminalTextReader {
 /// DEBUG `CMUX_NEXT_TERMINAL_MEMORY=1`: logs live Ghostty surfaces to stderr.
 @MainActor
 struct TerminalMemory {
+    static func trace(_ line: String) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_MEMORY"] == "1" else { return }
+        FileHandle.standardError.write(Data((line + "\n").utf8))
+        #endif
+    }
+
     static func log() {
         #if DEBUG
         guard ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_MEMORY"] == "1" else { return }

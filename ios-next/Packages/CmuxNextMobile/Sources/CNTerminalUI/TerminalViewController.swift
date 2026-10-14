@@ -192,6 +192,12 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     var onVisibilityChange: ((Bool) -> Void)?
     var isOnScreen: Bool { visible }
 
+    /// The live renderer's frame, cropped to what the screen shows (the
+    /// card when the terminal closes).
+    func snapshot(maxPixelWidth: CGFloat) -> UIImage? {
+        terminalView.snapshot(maxPixelWidth: maxPixelWidth)
+    }
+
     /// The visible rows' text (for the card when the terminal closes).
     func visibleLines(_ done: @escaping @MainActor ([String], (cols: Int, rows: Int)) -> Void) {
         terminalView.readVisibleLines(done)

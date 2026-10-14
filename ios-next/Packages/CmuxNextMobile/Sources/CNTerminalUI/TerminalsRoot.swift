@@ -13,6 +13,7 @@ public struct TerminalsRoot: View {
     @State private var model: TerminalListModel
     @State private var path: [TerminalRoute] = []
     @State private var showCards = false
+    @State private var autoCardsShown = false
 
     public init(connection: HostConnection) {
         self.connection = connection
@@ -68,6 +69,14 @@ public struct TerminalsRoot: View {
             }
             .refreshable { await model.reload() }
             #if DEBUG
+            .task(id: model.terminals.count) {
+                // DEBUG harness: open the cards as soon as terminals are listed.
+                if ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_CARDS_AUTO"] == "1", !model.terminals.isEmpty,
+                   !autoCardsShown {
+                    autoCardsShown = true
+                    showCards = true
+                }
+            }
             .fullScreenCover(isPresented: $showCards) {
                 TerminalCardsDemo(connection: connection, terminals: model.terminals)
             }

@@ -46,12 +46,29 @@ public final class TerminalThumbnails {
     /// Terminals open full screen: their card comes from the open view when
     /// it closes; no off-screen surface parses them meanwhile.
     @ObservationIgnored private var suspended: Set<String> = []
+    /// The light/dark style each card image was drawn in.
+    @ObservationIgnored private var imageStyles: [String: UIUserInterfaceStyle] = [:]
 
-    public init(connection: HostConnection, maxLive: Int = 8, refreshInterval: Duration = .milliseconds(500)) {
+    /// Card width in pixels (images are rendered at this width).
+    public var cardPixelWidth: CGFloat { (cardSize.width * min(UIScreen.main.scale, 2)).rounded() }
+
+    @ObservationIgnored private var pushTask: Task<Void, Never>?
+
+    public init(connection: HostConnection, maxLive: Int = 6, refreshInterval: Duration = .milliseconds(500)) {
         self.connection = connection
         self.maxLive = maxLive
         self.refreshInterval = refreshInterval
+        // Cards follow grid changes (a resize, the Mac's window) like the
+        // live view does, so their layout matches.
+        pushTask = Task { [weak self, connection] in
+            for await push in connection.pushes() {
+                guard case .terminalUpdated(let t) = push else { continue }
+                self?.live[t.id]?.gridChanged(cols: t.cols, rows: t.rows)
+            }
+        }
     }
+
+    isolated deinit { pushTask?.cancel() }
 
     /// Keeps these terminals live (attached and re-rendered on output).
     /// Others beyond `maxLive` are detached, oldest first. Cards render at
@@ -72,23 +89,56 @@ public final class TerminalThumbnails {
             for t in live.values { t.stop() }
             live.removeAll()
         }
-        for id in terminalIds where !suspended.contains(id) {
+        let mirrored = connection.hostInfo?.supports(.terminalMirror) ?? false
+        let wanted = terminalIds.filter { !suspended.contains($0) }
+        for id in wanted {
             order.removeAll { $0 == id }
             order.append(id)
-            if live[id] == nil, live.count < maxLive || evictOldest(keeping: terminalIds), let client = connection.client {
-                let headless = HeadlessTerminal(terminalId: id, client: client, interval: refreshInterval) { [weak self] lines, grid in
-                    self?.render(id, lines: lines, grid: grid)
-                }
-                live[id] = headless
-                headless.start()
-            } else if restyled {
-                live[id]?.requestRender()
+        }
+        if restyled { for t in live.values { t.restyle(self.style, page: pageSize) } }
+        // Every visible card gets an image: cards without one go first and may
+        // take the slot of a live card that already has an image (that card
+        // keeps its last image and rotates back in later).
+        // A card drawn in the other appearance needs a new image too.
+        let needImage = wanted.filter { live[$0] == nil && (images[$0] == nil || imageStyles[$0] != self.style) }
+        let haveImage = wanted.filter { live[$0] == nil && !needImage.contains($0) }
+        TerminalMemory.trace("thumbnails show \(terminalIds.count) ids, need \(needImage.count), live \(live.count), client \(connection.client != nil)")
+        for id in needImage + haveImage {
+            guard let client = connection.client else { break }
+            if live.count >= maxLive {
+                let victims = order.filter { live[$0] != nil && images[$0] != nil && imageStyles[$0] == self.style && !needImage.contains($0) }
+                guard needImage.contains(id), let victim = victims.first(where: { !wanted.contains($0) }) ?? victims.first else { continue }
+                live.removeValue(forKey: victim)?.stop()
             }
+            let headless = HeadlessTerminal(terminalId: id, client: client, interval: refreshInterval, mirrored: mirrored,
+                                            style: self.style, page: pageSize) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .image(let image, let drawnStyle):
+                    self.images[id] = image
+                    self.imageStyles[id] = drawnStyle
+                    self.lastLines[id] = nil
+                case .text(let lines, let grid):
+                    self.render(id, lines: lines, grid: grid)
+                case .ended:
+                    self.images[id] = TerminalCardRenderer.endedImage(size: self.cardSize, style: self.style)
+                    self.imageStyles[id] = self.style
+                }
+            }
+            live[id] = headless
+            headless.start()
         }
-        while live.count > maxLive, let oldest = order.first(where: { live[$0] != nil && !terminalIds.contains($0) }) {
+        while live.count > maxLive, let oldest = order.first(where: { live[$0] != nil && !wanted.contains($0) }) {
             live.removeValue(forKey: oldest)?.stop()
-            order.removeAll { $0 == oldest }
         }
+    }
+
+    /// The page a card shows, in points (the screen's width, the card's
+    /// aspect) and the scale that makes it `cardPixelWidth` pixels wide.
+    private var pageSize: (size: CGSize, scale: CGFloat) {
+        let width = max(1, UIScreen.main.bounds.width)
+        let aspect = cardSize.height / max(1, cardSize.width)
+        return (CGSize(width: width, height: (width * aspect).rounded()), cardPixelWidth / width)
     }
 
     /// Frees one live surface not in `keeping` (least recently shown).
@@ -111,6 +161,14 @@ public final class TerminalThumbnails {
         if let lines, let grid { render(terminalId, lines: lines, grid: grid) }
     }
 
+    /// The full-screen terminal closed with this frame of its renderer.
+    public func resume(_ terminalId: String, image: UIImage) {
+        suspended.remove(terminalId)
+        images[terminalId] = image
+        imageStyles[terminalId] = style
+        lastLines[terminalId] = nil
+    }
+
     /// Detaches every live terminal; images stay until replaced.
     public func stopAll() {
         for t in live.values { t.stop() }
@@ -127,6 +185,7 @@ public final class TerminalThumbnails {
 
     private func render(_ id: String, lines: [String], grid: (cols: Int, rows: Int)) {
         lastLines[id] = (lines, grid)
+        imageStyles[id] = style
         images[id] = TerminalCardRenderer.image(lines: lines, cols: grid.cols, size: cardSize, style: style)
     }
 
@@ -140,8 +199,11 @@ public final class TerminalThumbnails {
     /// The light/dark style of the app's key window (its override included).
     private var windowStyle: UIUserInterfaceStyle {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        let window = windows.first(where: \.isKeyWindow) ?? windows.first
-        let style = window?.traitCollection.userInterfaceStyle ?? UITraitCollection.current.userInterfaceStyle
+        // The app's own override (Settings > Appearance) if any, else the
+        // system's appearance.
+        let content = windows.filter { $0.windowLevel == .normal && !$0.isHidden }
+        let override = content.map(\.overrideUserInterfaceStyle).first { $0 != .unspecified }
+        let style = override ?? UIScreen.main.traitCollection.userInterfaceStyle
         return style == .dark ? .dark : .light
     }
 
@@ -151,7 +213,8 @@ public final class TerminalThumbnails {
         for window in windows where observedWindows[ObjectIdentifier(window)] == nil {
             observedWindows[ObjectIdentifier(window)] = window.registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
                 [weak self] (_: UIWindow, _: UITraitCollection) in
-                self?.systemStyleChanged()
+                // Read the new appearance after UIKit finished applying it.
+                Task { @MainActor in self?.systemStyleChanged() }
             }
         }
     }
@@ -162,6 +225,8 @@ public final class TerminalThumbnails {
         guard resolved != style else { return }
         style = resolved
         redrawAll()
+        // Live cards draw again in the new theme; others when next shown.
+        for t in live.values { t.restyle(resolved, page: pageSize) }
     }
 }
 
@@ -188,6 +253,26 @@ public struct TerminalThumbnail: View {
 /// Draws a grid's text into a card image (top-anchored, scaled so every
 /// column fits the card's width).
 struct TerminalCardRenderer {
+    /// A card for a terminal that no longer exists on the Mac.
+    static func endedImage(size requested: CGSize, style: UIUserInterfaceStyle) -> UIImage {
+        let size = CGSize(width: min(max(requested.width, 1), 1024), height: min(max(requested.height, 1), 2048))
+        let traits = UITraitCollection(userInterfaceStyle: style == .dark ? .dark : .light)
+        let background = CNTheme.shared.palette.terminalBackground.resolvedColor(with: traits)
+        let secondary = CNTheme.shared.palette.textSecondary.resolvedColor(with: traits)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            background.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            let text = TerminalText.endedTitle as NSString
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: secondary, .paragraphStyle: paragraph,
+            ]
+            let box = CGRect(x: 8, y: size.height * 0.4, width: size.width - 16, height: size.height * 0.2)
+            text.draw(in: box, withAttributes: attributes)
+        }
+    }
+
     static func image(lines: [String], cols: Int, size requested: CGSize, style: UIUserInterfaceStyle) -> UIImage {
         // Cards are small: never draw an empty, non-finite or huge bitmap.
         let size = CGSize(width: requested.width.isFinite ? min(max(requested.width, 1), 1024) : 180,
@@ -219,16 +304,34 @@ struct TerminalCardRenderer {
     }
 }
 
-/// One terminal parsed off screen for its card: a Ghostty surface that is
-/// never drawn, fed by its own attach stream.
+/// One terminal rendered off screen for its card: a Ghostty surface with its
+/// real Metal renderer, laid out like the page (screen width, card aspect)
+/// at card resolution, fed by its own attach stream; the card image is the
+/// renderer's presented frame (same pixels as the live terminal). Text is
+/// the fallback when no frame is available.
 @MainActor
 final class HeadlessTerminal {
     let terminalId: String
     let client: HostClient
     let interval: Duration
-    let onLines: ([String], (cols: Int, rows: Int)) -> Void
+    let mirrored: Bool
+    let onResult: (CardResult) -> Void
 
-    private let view = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+    enum CardResult {
+        case image(UIImage, UIUserInterfaceStyle)
+        case text([String], (cols: Int, rows: Int))
+        /// The terminal is gone on the Mac.
+        case ended
+    }
+
+    private let view: UIView
+    private var style: UIUserInterfaceStyle
+    private var page: (size: CGSize, scale: CGFloat)
+    private var fontSize: Double = TerminalFontSize.stored
+    private var fitPasses = 0
+    private var lastCellWidth: Double = 0
+    private var appliedFont: Double?
+    private var gridGeneration: UInt64 = 0
     private var ref: SurfaceRef?
     /// One serial parser queue for every off-screen surface.
     static let parserQueue = DispatchQueue(label: "cmux.next.terminal.thumbnails", qos: .utility)
@@ -242,11 +345,16 @@ final class HeadlessTerminal {
     private var rendering = false
     private var stopped = false
 
-    init(terminalId: String, client: HostClient, interval: Duration, onLines: @escaping ([String], (cols: Int, rows: Int)) -> Void) {
+    init(terminalId: String, client: HostClient, interval: Duration, mirrored: Bool, style: UIUserInterfaceStyle,
+         page: (size: CGSize, scale: CGFloat), onResult: @escaping (CardResult) -> Void) {
         self.terminalId = terminalId
         self.client = client
         self.interval = interval
-        self.onLines = onLines
+        self.mirrored = mirrored
+        self.style = style
+        self.page = page
+        self.onResult = onResult
+        view = UIView(frame: CGRect(origin: .zero, size: page.size))
     }
 
     func start() {
@@ -254,15 +362,15 @@ final class HeadlessTerminal {
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_IOS
         config.platform = ghostty_platform_u(ios: ghostty_platform_ios_s(uiview: Unmanaged.passUnretained(view).toOpaque()))
-        config.scale_factor = 1
-        config.font_size = 8
+        config.scale_factor = Double(page.scale)
+        config.font_size = Float(fontSize)
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         guard let surface = ghostty_surface_new(app.app, &config) else { return }
-        ghostty_surface_set_occlusion(surface, false)
-        // Never drawn: keep its drawable tiny (the locked grid is independent).
-        ghostty_surface_set_content_scale(surface, 1, 1)
-        ghostty_surface_set_size(surface, 64, 64)
+        // Drawn (never shown): the page at card resolution.
+        ghostty_surface_set_occlusion(surface, true)
         ref = SurfaceRef(surface)
+        applyStyle()
+        applySize()
         Self.liveCount += 1
         TerminalMemory.log()
         let client = self.client
@@ -285,6 +393,8 @@ final class HeadlessTerminal {
                     self.feed(bytes)
                 }
             } catch {
+                TerminalMemory.trace("thumbnail \(id): attach failed: \(error)")
+                if let rpc = error as? RPCError, rpc.code == .notFound, let self, !self.stopped { self.onResult(.ended) }
                 return
             }
         }
@@ -315,10 +425,79 @@ final class HeadlessTerminal {
         renderIfIdle()
     }
 
+    /// A light/dark or card size change: new theme and drawable, then a frame.
+    func restyle(_ style: UIUserInterfaceStyle, page: (size: CGSize, scale: CGFloat)) {
+        self.style = style
+        self.page = page
+        view.frame = CGRect(origin: .zero, size: page.size)
+        applyStyle()
+        applySize()
+        requestRender()
+    }
+
+    private func applyStyle() {
+        guard let ref, let app = try? GhosttyApp.shared() else { return }
+        ghostty_surface_set_color_scheme(ref.surface, style == .dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+        ghostty_surface_update_config(ref.surface, app.config(for: style == .dark ? .dark : .light))
+        applyFontSize()
+    }
+
+    private func applySize() {
+        guard let ref, let px = GhosttyTerminalView.drawablePixels(page.size, scale: page.scale) else { return }
+        ghostty_surface_set_content_scale(ref.surface, Double(page.scale), Double(page.scale))
+        ghostty_surface_set_size(ref.surface, px.width, px.height)
+    }
+
+    private func applyFontSize() {
+        guard let ref else { return }
+        let action = "set_font_size:\(fontSize)"
+        _ = action.withCString { ghostty_surface_binding_action(ref.surface, $0, UInt(action.utf8.count)) }
+    }
+
+    /// A Mac-owned grid: the text size at which every column fits the page
+    /// width, like the live view (down to its 7 pt floor).
+    private func fitMirrorFont() {
+        guard mirrored, fitPasses < 8, let ref else { return }
+        // Ghostty reports how many columns fit the view at the current size
+        // (with its own pixel rounding), even with a locked grid.
+        let size = ghostty_surface_size(ref.surface)
+        let fits = Int(size.columns)
+        guard fits > 0, size.cell_width_px > 0 else { return }
+        // The report lags a font change by a frame: wait for a new cell width.
+        if appliedFont != nil, Double(size.cell_width_px) == lastCellWidth { return }
+        lastCellWidth = Double(size.cell_width_px)
+        fitPasses += 1
+        var next = fontSize
+        if fits < grid.cols {
+            // Every Mac column fits the card (cards are scaled pages, never
+            // panned; at card resolution they may go below the live 7 pt).
+            next = max(3, ((fontSize * Double(fits) / Double(grid.cols)) * 4).rounded(.down) / 4)
+            if next >= fontSize { next = max(3, fontSize - 0.25) }
+        } else if fits > grid.cols + 2, fontSize < TerminalFontSize.stored, appliedFont == nil {
+            next = min(TerminalFontSize.stored, ((fontSize * Double(grid.cols) / Double(fits + 1)) * 4).rounded(.down) / 4)
+        }
+        if next != fontSize {
+            fontSize = next
+            appliedFont = next
+            applyFontSize()
+            requestRender()
+        }
+    }
+
+    func gridChanged(cols: Int, rows: Int) {
+        guard (cols, rows) != (grid.cols, grid.rows) else { return }
+        setGrid(cols: cols, rows: rows)
+        requestRender()
+    }
+
     private func setGrid(cols: Int, rows: Int) {
         guard let ref, let c = UInt16(exactly: cols), let r = UInt16(exactly: rows), c > 0, r > 0 else { return }
         grid = (cols, rows)
-        queue.async { _ = ghostty_surface_set_grid(ref.surface, c, r, 1) }
+        fitPasses = 0
+        appliedFont = nil
+        gridGeneration += 1
+        let generation = gridGeneration
+        queue.async { _ = ghostty_surface_set_grid(ref.surface, c, r, generation) }
     }
 
     private func feed(_ bytes: Data) {
@@ -337,17 +516,49 @@ final class HeadlessTerminal {
         guard dirty, !rendering, !stopped, let ref else { return }
         dirty = false
         rendering = true
-        let grid = self.grid
+        // After the output queued so far was parsed.
         queue.async {
-            let lines = Self.readLines(ref.surface, cols: grid.cols, rows: grid.rows)
             Task { @MainActor [weak self] in
                 guard let self, !self.stopped else { return }
-                self.onLines(lines, grid)
+                self.fitMirrorFont()
+                let before = GhosttySnapshot.frameID(of: self.view)
+                ghostty_surface_refresh(ref.surface)
+                ghostty_surface_draw(ref.surface)
+                await self.deliverFrame(ref, after: before)
                 do { try await Task.sleep(for: self.interval) } catch {}
                 self.rendering = false
                 self.renderIfIdle()
             }
         }
+    }
+
+    /// The presented frame once Ghostty has set it (a few main-actor turns
+    /// at most), else the text of the visible rows.
+    private func deliverFrame(_ ref: SurfaceRef, after previous: (UInt32, UInt32)?) async {
+        // Ghostty presents on its renderer thread: wait (bounded) for a frame
+        // that is not the one shown before this draw.
+        for _ in 0..<12 {
+            await Task.yield()
+            if stopped { return }
+            if let id = GhosttySnapshot.frameID(of: view), previous.map({ $0 != id }) ?? true,
+               let cg = GhosttySnapshot.image(of: view) {
+                TerminalMemory.trace("thumbnail \(terminalId): frame \(cg.width)x\(cg.height) style=\(style == .dark ? "dark" : "light")")
+                onResult(.image(UIImage(cgImage: cg), style))
+                return
+            }
+            do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+        }
+        if let cg = GhosttySnapshot.image(of: view) {
+            TerminalMemory.trace("thumbnail \(terminalId): stale frame (no new frame in time)")
+            onResult(.image(UIImage(cgImage: cg), style))
+            return
+        }
+        TerminalMemory.trace("thumbnail \(terminalId): no frame, text fallback")
+        let grid = self.grid
+        let lines = await withCheckedContinuation { (c: CheckedContinuation<[String], Never>) in
+            queue.async { c.resume(returning: Self.readLines(ref.surface, cols: grid.cols, rows: grid.rows)) }
+        }
+        if !stopped { onResult(.text(lines, grid)) }
     }
 
     /// The viewport's rows as text (output queue only), within the grid the

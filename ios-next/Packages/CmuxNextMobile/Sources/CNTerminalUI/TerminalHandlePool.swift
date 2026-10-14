@@ -109,9 +109,14 @@ public final class TerminalHandlePool {
             thumbnails.suspend(id)
         } else {
             // The card shows the screen as it was when the terminal closed.
-            handle.model.controller?.visibleLines { [weak self] lines, grid in
-                self?.thumbnails.resume(id, lines: lines, grid: grid)
-            } ?? thumbnails.resume(id)
+            // The card shows the live renderer's last frame (same pixels).
+            if let image = handle.model.controller?.snapshot(maxPixelWidth: thumbnails.cardPixelWidth) {
+                thumbnails.resume(id, image: image)
+            } else {
+                handle.model.controller?.visibleLines { [weak self] lines, grid in
+                    self?.thumbnails.resume(id, lines: lines, grid: grid)
+                } ?? thumbnails.resume(id)
+            }
         }
         enforceRendererCap()
     }

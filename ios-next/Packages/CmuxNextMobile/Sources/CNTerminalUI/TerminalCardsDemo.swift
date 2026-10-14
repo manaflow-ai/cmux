@@ -79,6 +79,28 @@ struct TerminalCardsDemo: View {
         }
         // `.unspecified`: the thumbnails follow the app's light/dark themselves.
         .onAppear { thumbnails.show(terminals.map(\.id), cardSize: card) }
+        .task {
+            // DEBUG harness (no UI driver on some build hosts):
+            // CMUX_NEXT_TERMINAL_CARDS_SCRIPT="<send>~<open index>" types
+            // <send> ("_" for spaces) and Return into the first terminal, then opens card <index> at 8 s
+            // and closes it at 14 s, for card-vs-live screenshots.
+            guard let script = ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_CARDS_SCRIPT"] else { return }
+            let parts = script.split(separator: "~", omittingEmptySubsequences: false).map(String.init)
+            if let first = terminals.first, let client = connection.client, let send = parts.first, !send.isEmpty {
+                let r = try? await client.attachTerminal(first.id, cols: first.cols, rows: first.rows)
+                if let r {
+                    try? client.sendTerminalInput(streamId: r.streamId, Data((send.replacingOccurrences(of: "_", with: " ") + "\r").utf8))
+                    try? await Task.sleep(for: .seconds(1))
+                    try? await client.detachTerminal(streamId: r.streamId)
+                }
+            }
+            let index = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+            try? await Task.sleep(for: .seconds(8))
+            guard terminals.indices.contains(index) else { return }
+            open = TerminalHandle(connection: connection, terminalId: terminals[index].id, accessoryPlacement: .external)
+            try? await Task.sleep(for: .seconds(6))
+            open = nil
+        }
         .onDisappear { thumbnails.stopAll() }
     }
 }
