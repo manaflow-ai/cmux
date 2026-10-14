@@ -14,10 +14,16 @@ PTYs). Then:
           Measured: the app's CPU time per tick (proc_pid_rusage), the main-thread reply delay
           of a cheap main-actor debug call sampled every 50 ms (a stall shows as a slow reply),
           and, when the build serves `debug.sidebar_perf`, its counters.
-  scroll: after the tick programs end, `--scroll-steps` calls of `debug.sidebar_wheel` over the
-          workspace list, down then up: mouse wheel (one line event per call) and trackpad (a
-          three-event pixel gesture per call). Measured: each call's main-thread time, hitches
-          (calls over one 60 Hz frame, 16.7 ms), the counters, and that the list moved.
+  scroll: in the window that lists the perf rows (`debug.sidebar_rows` window id; every scroll call
+          names it, so the probe and the wheel use one window): a hit probe, a mouse-wheel check
+          (`debug.sidebar_wheel`, line events) and a real trackpad gesture (`debug.mouse` scroll
+          with phases, 60 events/s, `--gesture-events` down and back up), once with the tick
+          programs stopped and once with them running. Measured: display frame intervals
+          (`debug.frames` p50/p95/p99/max, missed vsyncs), xctrace Animation Hitches for the app
+          (unless --no-trace), the counters, and that the list moved (realized rows changed).
+  --profile: an xctrace Time Profiler recording of the tick window: main-thread top frames, and
+          the frames of main-thread busy runs over 30 ms (the long replies). Also `debug.hangs`
+          (the watchdog's stall records with their stacks) for the tick window.
 
 With counters (a build of the rows lane) it asserts: no structural rebuild and no list reload
 during the ticks; row configures stay at or under the row patches (one realized row per changed
@@ -25,7 +31,7 @@ row) and are not 0 when a ticking row is on screen; no list reload during the sc
 without `debug.sidebar_perf` (the base) is measured only. Writes summary-<label>.json to --out
 and exits 1 when an assertion fails.
 """
-import argparse, json, os, socket, statistics, subprocess, sys, threading, time
+import argparse, json, os, shutil, socket, statistics, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
 parser = argparse.ArgumentParser()
@@ -38,6 +44,10 @@ parser.add_argument("--tick-ms", type=int, default=250)
 parser.add_argument("--seconds", type=float, default=20)
 parser.add_argument("--scroll-steps", type=int, default=120)
 parser.add_argument("--pid", type=int, help="the app's pid (default: found from the tag's app path)")
+parser.add_argument("--gesture-events", type=int, default=300, help="trackpad events per direction (60 per second)")
+parser.add_argument("--profile", action="store_true", help="Time Profiler of the tick window (main-thread stall frames)")
+parser.add_argument("--no-trace", action="store_true", help="no Animation Hitches recording of the scroll")
+parser.add_argument("--skip-create", action="store_true", help="use the perf workspaces an earlier run made")
 opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -107,9 +117,22 @@ def counters(reset=False):
     return None if not isinstance(reply, dict) or "error" in reply else reply
 
 
-def workspace_rows():
+def workspace_rows(window=None):
     windows = (rpc("debug.sidebar_rows", timeout=120) or {}).get("windows") or []
-    return [r for w in windows for r in w.get("rows") or [] if str(r.get("key", "")).startswith("workspace")]
+    return [r for w in windows if window is None or w.get("window") == window
+            for r in w.get("rows") or [] if str(r.get("key", "")).startswith("workspace")]
+
+
+def perf_window():
+    """The id of the window whose sidebar shows the most perf rows (the app can hold more windows;
+    `debug.sidebar_wheel` and `debug.mouse` default to the first one, which may not list them)."""
+    windows = (rpc("debug.sidebar_rows", timeout=120) or {}).get("windows") or []
+    def shown(w):
+        return sum(1 for r in w.get("rows") or [] if str(r.get("title") or "").startswith("perf-") and r.get("view_frame"))
+    best = max(windows, key=shown, default=None)
+    summary["windows"] = [{"window": w.get("window"), "perf_rows_realized": shown(w), "rows": len(w.get("rows") or [])} for w in windows]
+    check(best is not None and shown(best) > 0, f"a window shows perf rows ({summary['windows']})")
+    return best.get("window") if best and shown(best) > 0 else None
 
 
 def percentile(values, p):
@@ -129,6 +152,7 @@ def make_workspaces():
     have = {r.get("title") for r in workspace_rows()}
     empty = [f"perf-{i:04d}" for i in range(opts.count - opts.ticking) if f"perf-{i:04d}" not in have]
     ticking = [f"perf-tick-{i:02d}" for i in range(opts.ticking) if f"perf-tick-{i:02d}" not in have]
+    rpc("debug.hangs", {"clear": True})
     start = time.monotonic()
     with ThreadPoolExecutor(max_workers=8) as pool:
         # The ticking ones first, so they list near the top, where the window shows rows.
@@ -145,6 +169,15 @@ def make_workspaces():
         time.sleep(2)
     summary["listed"] = shown
     check(shown >= opts.count, f"the sidebar lists {shown} of {opts.count} perf workspaces")
+    # Window membership while 1,000 workspaces arrive: no stall in reconcileMembership (it was
+    # O(n^2) in WindowRegistry.owner(of:)), and the registry stays consistent.
+    hangs = hang_records(rpc("debug.hangs", {}))
+    membership = [h for h in hangs if any("reconcileMembership" in f or "WindowRegistry" in f for f in h["frames"])]
+    summary["create_hangs"] = hangs[:12]
+    check(not membership, f"create: no main-thread stall in window membership ({[h['ms'] for h in membership]})")
+    windows = rpc("debug.windows") or {}
+    summary["windows_consistent"] = windows.get("consistent")
+    check(windows.get("consistent") is not False, f"create: window invariants hold ({(windows.get('problems') or [])[:3]})")
 
 
 def ticking_terminals():
@@ -180,32 +213,184 @@ def sampler(stop, out):
         stop.wait(0.05)
 
 
-def tick_phase(pid):
-    terms = ticking_terminals()
-    summary["ticking_terminals"] = len(terms)
-    check(len(terms) >= min(opts.ticking, 1), f"{len(terms)} ticking terminals")
-    summary["visible_ticking_rows"] = visible_ticking()
-    ticks_each = int(opts.seconds * 1000 / opts.tick_ms)
+def start_ticks(terms, seconds):
+    """Starts each ticking terminal's OSC 7501 loop for `seconds` (it ends by itself, then idle)."""
+    ticks_each = int(seconds * 1000 / opts.tick_ms)
     interval = opts.tick_ms / 1000
     loop = (f"i=0; while [ $i -lt {ticks_each} ]; do if [ $((i % 2)) = 0 ]; then s=working; else s=idle; fi; "
             f"printf '\\033]7501;state=%s\\033\\\\' $s; sleep {interval}; i=$((i + 1)); done; printf '\\033]7501;state=idle\\033\\\\'\n")
-    time.sleep(3)  # test script: let the creates settle before the measured window
-    base = counters(reset=True)
-    cpu0 = cpu_ns(pid)
-    stop, samples = threading.Event(), []
-    thread = threading.Thread(target=sampler, args=(stop, samples))
-    thread.start()
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda term: cli("terminal", term, "write", "--text", loop), terms))
+    return ticks_each
+
+
+class Trace:
+    """An xctrace recording attached to the app for the `with` body. `seconds` is the measured window;
+    the recording also covers the 4 s attach wait before it and 2 s after it."""
+
+    def __init__(self, pid, name, seconds, template):
+        self.path = os.path.join(opts.out, "traces", f"{opts.label}-{name}.trace")
+        self.pid, self.seconds, self.template, self.proc = pid, int(seconds) + 6, template, None
+
+    def __enter__(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        if os.path.exists(self.path):
+            shutil.rmtree(self.path)
+        self.proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", self.template, "--attach", str(self.pid),
+                                      "--time-limit", f"{self.seconds}s", "--output", self.path, "--no-prompt"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        time.sleep(4)  # test script: the recorder attaches before the measured window
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            out, _ = self.proc.communicate(timeout=self.seconds + 240)
+        except subprocess.TimeoutExpired:
+            self.proc.terminate()
+            out = "timeout"
+        if self.proc.returncode != 0:
+            print(f"xctrace {self.template} exit {self.proc.returncode}: {(out or '')[-300:]}", flush=True)
+        return False
+
+
+def export_table(trace, schema):
+    import xml.etree.ElementTree as ET
+    xml = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                          f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True, text=True).stdout
+    root = ET.fromstring(xml)
+    ids = {}
+
+    def resolve(element):
+        ref = element.get("ref")
+        if ref is not None:
+            return ids.get(ref, element)
+        if element.get("id") is not None:
+            ids[element.get("id")] = element
+        for child in element:
+            resolve(child)
+        return element
+
+    for row in root.iter("row"):
+        yield [(child.tag, resolve(child)) for child in row], ids
+
+
+GENERIC = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNextEvent", "CFRunLoopRun", "__CFRunLoop",
+           "_CFRunLoopRun", "-[NSApplication(NSEvent) _nextEventMatchingEventMask", "_BlockUntilNextEventMatchingListInMode",
+           "ReceiveNextEventCommon", "RunCurrentEventLoopInMode", "_dispatch_main_queue", "__CFRUNLOOP", "_dispatch_", "?",
+           "_DPSBlockUntilNextEventMatchingListInMode", "-[NSApplication(NSEventRouting)", "withExtendedLifetime",
+           "__debug_main_executable_dylib_entry_point", "CmuxNextApp.main()", "closure #1 in CmuxNextApp.main()",
+           "partial apply for closure #1 in CmuxNextApp.main()", "swift_job_run", "swift::runJobInEstablishedExecutorContext")
+
+
+def top(counter, total, limit):
+    return [{"frame": n[:220], "samples": c, "pct": round(100.0 * c / total, 1) if total else 0}
+            for n, c in sorted(counter.items(), key=lambda kv: -kv[1]) if not n.startswith(GENERIC)][:limit]
+
+
+def main_thread_profile(trace):
+    """Main-thread Time Profiler samples: top inclusive and leaf frames, and the frames of busy runs
+    (consecutive main-thread samples, gap under 3 ms) longer than 30 ms: what a slow reply waited for."""
+    samples = []
+    try:
+        for cells, ids in export_table(trace, "time-profile"):
+            thread = next((n for t, n in cells if t == "thread"), None)
+            if thread is None or "Main Thread" not in (thread.get("fmt") or ""):
+                continue
+            when = next((n for t, n in cells if t == "sample-time"), None)
+            bt = next((n for t, n in cells if t in ("backtrace", "tagged-backtrace")), None)
+            if bt is not None and bt.tag != "backtrace":
+                bt = next(iter(bt.iter("backtrace")), bt)
+            frames = [ids.get(f.get("ref"), f).get("name") or "?" for f in bt.iter("frame")] if bt is not None else []
+            samples.append((int(when.text) if when is not None and (when.text or "").isdigit() else 0, frames))
+    except Exception as error:  # noqa: BLE001 (export failures are reported, the run goes on)
+        return {"error": f"export: {error}"}
+    samples.sort(key=lambda s: s[0])
+    inclusive, leaf, runs = {}, {}, []
+    current = []
+    for when, frames in samples:
+        if frames:
+            leaf[frames[0]] = leaf.get(frames[0], 0) + 1
+        for name in set(frames):
+            inclusive[name] = inclusive.get(name, 0) + 1
+        if current and when - current[-1][0] > 3_000_000:
+            runs.append(current)
+            current = []
+        current.append((when, frames))
+    if current:
+        runs.append(current)
+    long_runs = [r for r in runs if (r[-1][0] - r[0][0]) / 1e6 >= 30]
+    stall = {}
+    for run in long_runs:
+        for _, frames in run:
+            for name in set(frames):
+                stall[name] = stall.get(name, 0) + 1
+    stall_samples = sum(len(r) for r in long_runs)
+    return {"main_samples": len(samples), "top_inclusive": top(inclusive, len(samples), 50), "top_leaf": top(leaf, len(samples), 25),
+            "busy_runs_over_30ms": len(long_runs),
+            "busy_run_ms": sorted((round((r[-1][0] - r[0][0]) / 1e6, 1) for r in long_runs), reverse=True)[:20],
+            "stall_samples": stall_samples, "stall_top_inclusive": top(stall, stall_samples, 50)}
+
+
+def hitches(trace, pid):
+    """Animation Hitches rows for the app: count and durations."""
+    durations, rows = [], 0
+    try:
+        for cells, _ in export_table(trace, "hitches"):
+            process = next((n for t, n in cells if t == "process"), None)
+            if process is None or f"({pid})" not in (process.get("fmt") or ""):
+                continue
+            rows += 1
+            duration = next((n for t, n in cells if t == "duration"), None)
+            if duration is not None and (duration.text or "").isdigit():
+                durations.append(int(duration.text) / 1e6)
+    except Exception as error:  # noqa: BLE001
+        return {"error": f"export: {error}"}
+    return {"hitches": rows, "p50_ms": percentile(durations, 50), "p95_ms": percentile(durations, 95),
+            "max_ms": round(max(durations), 2) if durations else None, "total_ms": round(sum(durations), 1)}
+
+
+def hang_records(reply):
+    out = []
+    for record in (reply or {}).get("records") or []:
+        frames = [f for f in record.get("frames") or [] if "cmux" in f.lower() or "Cmux" in f][:10]
+        out.append({"ms": round(record.get("duration_ms", 0), 1), "frames": frames or (record.get("frames") or [])[:10]})
+    return sorted(out, key=lambda r: -r["ms"])
+
+
+def tick_phase(pid):
+    terms = ticking_terminals()
+    summary["terms"] = terms
+    summary["ticking_terminals"] = len(terms)
+    check(len(terms) >= min(opts.ticking, 1), f"{len(terms)} ticking terminals")
+    summary["visible_ticking_rows"] = visible_ticking()
+    time.sleep(3)  # test script: let the creates settle before the measured window
+    base = counters(reset=True)
+    rpc("debug.hangs", {"clear": True})
+    cpu0 = cpu_ns(pid)
+    stop, samples = threading.Event(), []
+    trace = Trace(pid, "ticks-time-profile", opts.seconds + 1, "Time Profiler") if opts.profile else None
+    if trace:
+        trace.__enter__()
+    thread = threading.Thread(target=sampler, args=(stop, samples))
+    thread.start()
+    ticks_each = start_ticks(terms, opts.seconds)
     time.sleep(opts.seconds + 1)  # test script: the measured window is the ticks themselves
     stop.set()
     thread.join()
     cpu1 = cpu_ns(pid)
+    hangs = rpc("debug.hangs", {})
+    if trace:
+        trace.__exit__(None, None, None)
     ticks = ticks_each * len(terms)
-    result = {"ticks": ticks, "latency": latency_stats(samples)}
+    # With --profile the app CPU includes Time Profiler sampling: compare CPU only between runs alike.
+    result = {"ticks": ticks, "latency": latency_stats(samples), "hangs": hang_records(hangs)[:12], "profiled": opts.profile,
+              "hang_count": (hangs or {}).get("count"), "hang_max_ms": (hangs or {}).get("max_ms")}
     if cpu0 is not None and cpu1 is not None:
         result["app_cpu_ms"] = round((cpu1 - cpu0) / 1e6, 1)
         result["app_cpu_us_per_tick"] = round((cpu1 - cpu0) / 1e3 / max(ticks, 1), 1)
+    if trace and os.path.exists(trace.path):
+        result["profile"] = main_thread_profile(trace.path)
+        result["trace"] = os.path.relpath(trace.path, opts.out)
     after = counters()
     if base is not None and after is not None:
         result["counters"] = after
@@ -219,11 +404,17 @@ def tick_phase(pid):
             check(after.get("row_configures", 0) > 0, f"ticks: {visible} visible ticking rows were configured")
         result["expected_configures_visible"] = ticks_each * visible
     summary["ticks"] = result
-    print("ticks:", json.dumps(result), flush=True)
+    printable = {k: v for k, v in result.items() if k != "profile"}
+    print("ticks:", json.dumps(printable)[:3000], flush=True)
+    if result.get("profile"):
+        prof = result["profile"]
+        print("ticks profile: main samples", prof.get("main_samples"), "busy runs >30ms", prof.get("busy_run_ms"), flush=True)
+        for entry in (prof.get("stall_top_inclusive") or [])[:30]:
+            print(f"  stall {entry['pct']:5.1f}% {entry['frame'][:160]}", flush=True)
 
 
 def quiet():
-    """Waits until the tick programs have ended (the scroll is measured without them)."""
+    """Waits until the tick programs have ended."""
     time.sleep(max(5, opts.seconds * 0.3))  # test script: the tick loops end a little after --seconds
     if counters() is None:
         return
@@ -236,55 +427,113 @@ def quiet():
         time.sleep(2)
 
 
-def realized_titles():
-    return [r.get("title") for r in workspace_rows() if r.get("view_frame")]
+def realized_titles(window):
+    return [r.get("title") for r in workspace_rows(window) if r.get("view_frame")]
 
 
-def scroll_phase():
-    quiet()
-    # A mouse wheel (line steps, one event per call) and a trackpad (pixel steps, a
-    # three-event gesture per call, applied at once without smooth-scroll animation).
-    summary["scroll"] = scroll_mode("wheel", {"count": 1}, 3)
-    summary["scroll_trackpad"] = scroll_mode("trackpad", {"count": 3, "trackpad": True}, 40)
-
-
-def scroll_mode(label, params, step_dy):
-    rows = [r for r in workspace_rows() if r.get("view_frame")]
+def probe_point(window):
+    """A point over the workspace list of `window` whose hit view is a workspace row or the list."""
+    rows = [r for r in workspace_rows(window) if r.get("view_frame") and (r.get("window_frame") or {}).get("y", -1) > 0]
     if not rows:
-        check(False, f"scroll {label}: a realized workspace row to scroll over")
-        return {}
-    # Realized rows reach past the visible list (the realization margin): a row in the middle
-    # of them can sit under the footer band, whose item rows take the wheel. So probe rows from
-    # the top of the list down: the first point whose hit view is a workspace row or the list
-    # (a title label in a row passes the wheel up to the list); a zero-delta event moves nothing.
+        return None, []
     picks = [rows[i] for i in sorted({min(2, len(rows) - 1), len(rows) // 4, len(rows) // 3, len(rows) // 2})]
     candidates = [{"x": f["x"] + dx, "y": f["y"] + f["height"] / 2}
                   for f in (r["window_frame"] for r in picks)  # {x, y, width, height}, window points from the top left
                   for dx in (f["width"] / 2, 4, f["width"] - 6)]
-    hits = [(c, (rpc("debug.sidebar_wheel", dict(c, dy=0, count=1)) or {}).get("hit")) for c in candidates]
+    hits = [(c, (rpc("debug.sidebar_wheel", dict(c, window=window, dy=0, count=1)) or {}).get("hit")) for c in candidates]
     point = next((c for c, hit in hits if hit and ("WorkspaceRow" in hit or "SidebarList" in hit)), None) \
-        or next((c for c, hit in hits if hit and "SidebarItemRowView" not in hit), candidates[0])
-    print(f"scroll {label}: probe hits {[hit for _, hit in hits]}", flush=True)
-    before = realized_titles()
+        or next((c for c, hit in hits if hit and "SidebarItemRowView" not in hit), None)
+    return point, [hit for _, hit in hits]
+
+
+def scroll_to_top(window, point):
+    for _ in range(3):
+        rpc("debug.mouse", dict(point, window=window, action="scroll", dy=100000, phase="began"))
+        rpc("debug.mouse", dict(point, window=window, action="scroll", dy=0, phase="ended"))
+
+
+def gesture(window, point, events, dy):
+    """One trackpad gesture: `events` scroll events at 60 per second; per-event RPC times."""
+    times = []
+    phases = ["began"] + ["changed"] * (events - 2) + ["ended"]
+    for phase in phases:
+        t0 = time.perf_counter()
+        ms, _ = timed_rpc("debug.mouse", dict(point, window=window, action="scroll", dy=dy, phase=phase))
+        times.append(ms)
+        rest = 1 / 60 - (time.perf_counter() - t0)
+        if rest > 0:
+            time.sleep(rest)  # 60 events per second, as a trackpad sends them
+    return times
+
+
+def scroll_mode(pid, window, label, terms):
+    point, probe = probe_point(window)
+    print(f"scroll {label}: window {window} probe hits {probe}", flush=True)
+    check(point is not None, f"scroll {label}: a probe point in window {window} hits the workspace list ({probe})")
+    if point is None:
+        return {"probe": probe}
+    result = {"window": window, "point": point, "probe": probe}
+    # The mouse wheel path (`debug.sidebar_wheel`, line events) in the same window.
+    scroll_to_top(window, point)
+    before = realized_titles(window)
     counters(reset=True)
-    durations, moved = [], []
-    for direction in (-step_dy, step_dy):
-        for step in range(opts.scroll_steps // 2):
-            ms, reply = timed_rpc("debug.sidebar_wheel", dict(point, dy=direction, **params))
-            if step == 0:
-                print(f"{label} dy={direction}: {json.dumps(reply)[:200]}", flush=True)
-            durations.append(ms)
-        moved.append(realized_titles() != before)
-    result = {"calls": len(durations), "events_per_call": params["count"], "latency": latency_stats(durations), "moved_down": moved[0]}
-    check(moved[0], f"scroll {label}: the list scrolled (realized rows changed: {moved[0]})")
+    wheel = [timed_rpc("debug.sidebar_wheel", dict(point, window=window, dy=-5, count=1)) for _ in range(40)]
+    result["wheel_routes"] = sorted({r for _, reply in wheel for r in (reply or {}).get("routes") or []})
+    deadline = time.monotonic() + 3
+    wheel_moved = realized_titles(window) != before
+    while not wheel_moved and time.monotonic() < deadline:  # bounded wait: AppKit's smooth-scroll animation of line events
+        time.sleep(0.2)
+        wheel_moved = realized_titles(window) != before
+    # Informational: right after a scroll-to-top gesture, line wheel events posted at once sometimes
+    # do not move the list (mac26, no ticks); the measured path is the trackpad gesture below.
+    result["wheel_moved"] = wheel_moved
+    print(f"{'info' if wheel_moved else 'note'} scroll {label}: the mouse wheel moved the list: {wheel_moved}", flush=True)
+    # The trackpad gesture, measured.
+    scroll_to_top(window, point)
+    time.sleep(1)
+    before = realized_titles(window)
+    seconds = opts.gesture_events * 2 / 60 + 2
+    if terms:
+        start_ticks(terms, seconds + 8)
+        time.sleep(1)
+    counters(reset=True)
+    trace = None if opts.no_trace else Trace(pid, f"scroll-{label}-hitches", opts.gesture_events / 60 + 1, "Animation Hitches")
+    if trace:
+        trace.__enter__()
+    rpc("debug.frames", {"action": "start"})
+    down = gesture(window, point, opts.gesture_events, -60.0)
+    moved = realized_titles(window) != before
+    if trace:
+        trace.__exit__(None, None, None)
+    up = gesture(window, point, opts.gesture_events, 60.0)
+    frames = rpc("debug.frames", {"action": "stop"})
+    result.update({"frames": frames, "event_rpc": latency_stats(down + up), "moved_down": moved})
+    if trace and os.path.exists(trace.path):
+        result["hitches"] = hitches(trace.path, pid)
+        result["hitches_trace"] = os.path.relpath(trace.path, opts.out)
+    check(moved, f"scroll {label}: the trackpad gesture moved the list (realized rows changed: {moved})")
     after = counters()
     if after is not None:
         result["counters"] = after
-        check(after.get("list_reloads", 0) == 0, f"scroll {label}: no list reload (list_reloads {after.get('list_reloads')})")
         check(after.get("rebuilds", 0) == 0, f"scroll {label}: no structural rebuild (rebuilds {after.get('rebuilds')})")
+        if not terms:
+            check(after.get("list_reloads", 0) == 0, f"scroll {label}: no list reload (list_reloads {after.get('list_reloads')})")
         check(after.get("scroll_realizes", 0) > 0, f"scroll {label}: rows realized while scrolling ({after.get('scroll_realizes')})")
+    if terms:
+        quiet()
     print(f"scroll {label}:", json.dumps(result), flush=True)
     return result
+
+
+def scroll_phase(pid):
+    quiet()
+    window = perf_window()
+    summary["scroll_window"] = window
+    if window is None:
+        return
+    terms = summary.get("terms") or []
+    summary["scroll"] = scroll_mode(pid, window, "no-ticks", [])
+    summary["scroll_ticking"] = scroll_mode(pid, window, "ticking", terms)
 
 
 def main():
@@ -293,9 +542,10 @@ def main():
     summary["has_counters"] = counters() is not None
     pid = app_pid()
     summary["pid"] = pid
-    make_workspaces()
+    if not opts.skip_create:
+        make_workspaces()
     tick_phase(pid)
-    scroll_phase()
+    scroll_phase(pid)
     summary["failures"] = failures
     os.makedirs(opts.out, exist_ok=True)
     path = os.path.join(opts.out, f"summary-{opts.label}.json")
