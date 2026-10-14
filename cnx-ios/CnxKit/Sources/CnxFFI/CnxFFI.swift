@@ -441,6 +441,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -719,7 +735,8 @@ public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt6
 public protocol LinkHandleProtocol: AnyObject, Sendable {
     
     /**
-     * Close the link, its transport and its signaling socket.
+     * Close the link and its transport. The signaling socket stays warm
+     * for the next dial (`reset_warm_state` closes it).
      */
     func close() 
     
@@ -738,6 +755,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * Round-trip one ping; milliseconds.
      */
     func ping() async throws  -> UInt32
+    
+    /**
+     * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
+     * `link_ready`, ...), each in milliseconds since `connect` was called.
+     * Marks recorded later (the first ping, `first_pong`) appear as they come.
+     */
+    func timings()  -> [TimingMark]
     
     func transport()  -> Transport
     
@@ -799,7 +823,8 @@ open class LinkHandle: LinkHandleProtocol, @unchecked Sendable {
 
     
     /**
-     * Close the link, its transport and its signaling socket.
+     * Close the link and its transport. The signaling socket stays warm
+     * for the next dial (`reset_warm_state` closes it).
      */
 open func close()  {try! rustCall() {
     uniffi_cnx_ffi_fn_method_linkhandle_close(
@@ -864,6 +889,19 @@ open func ping()async throws  -> UInt32  {
             liftFunc: FfiConverterUInt32.lift,
             errorHandler: FfiConverterTypeCnxError_lift
         )
+}
+    
+    /**
+     * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
+     * `link_ready`, ...), each in milliseconds since `connect` was called.
+     * Marks recorded later (the first ping, `first_pong`) appear as they come.
+     */
+open func timings() -> [TimingMark]  {
+    return try!  FfiConverterSequenceTypeTimingMark.lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_timings(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
 open func transport() -> Transport  {
@@ -1184,6 +1222,63 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * One step of a dial, `millis` after `connect` was called.
+ */
+public struct TimingMark: Equatable, Hashable {
+    public var name: String
+    public var millis: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, millis: Double) {
+        self.name = name
+        self.millis = millis
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TimingMark: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTimingMark: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TimingMark {
+        return
+            try TimingMark(
+                name: FfiConverterString.read(from: &buf), 
+                millis: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TimingMark, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterDouble.write(value.millis, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTimingMark_lift(_ buf: RustBuffer) throws -> TimingMark {
+    return try FfiConverterTypeTimingMark.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTimingMark_lower(_ value: TimingMark) -> RustBuffer {
+    return FfiConverterTypeTimingMark.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
@@ -1667,6 +1762,31 @@ fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
         }
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
+    typealias SwiftType = [TimingMark]
+
+    public static func write(_ value: [TimingMark], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTimingMark.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TimingMark] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TimingMark]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTimingMark.read(from: &buf))
+        }
+        return seq
+    }
+}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
 
@@ -1761,6 +1881,46 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
             errorHandler: FfiConverterTypeCnxError_lift
         )
 }
+/**
+ * Warm what the next `connect` to this service, team and device needs:
+ * fetch the ICE servers (unless cached) and open the signaling socket
+ * (or, when one is open, check that it still answers). Call at launch,
+ * on foreground and after sign-in, before the user asks for a Mac. Never
+ * fails: the dial redoes whatever could not be warmed. Returns the steps.
+ */
+public func prewarm(baseUrl: String, token: String, teamId: String, deviceId: String)async  -> [TimingMark]  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_func_prewarm(FfiConverterString.lower(baseUrl),FfiConverterString.lower(token),FfiConverterString.lower(teamId),FfiConverterString.lower(deviceId)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cnx_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTimingMark.lift,
+            errorHandler: nil
+            
+        )
+}
+/**
+ * Forget every warm socket and cached ICE server (sign-out, account switch).
+ */
+public func resetWarmState()async   {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_func_reset_warm_state(
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_void,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_void,
+            freeFunc: ffi_cnx_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: nil
+            
+        )
+}
 
 private enum InitializationResult {
     case ok
@@ -1786,6 +1946,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_func_connect_with_options() != 14347) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_func_prewarm() != 62590) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_func_reset_warm_state() != 30596) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_method_channelhandle_close() != 24044) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1798,7 +1964,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_method_channelhandle_send() != 45754) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cnx_ffi_checksum_method_linkhandle_close() != 59622) {
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_close() != 65297) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_is_closed() != 33391) {
@@ -1811,6 +1977,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_ping() != 28685) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_timings() != 18369) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_transport() != 40852) {

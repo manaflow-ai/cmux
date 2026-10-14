@@ -34,7 +34,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     chips
                         .id("top")
                     if store.visibleItems.isEmpty {
-                        emptyState
+                        if store.syncState == .connecting {
+                            connectingState
+                        } else {
+                            emptyState
+                        }
                     }
                     LazyVStack(spacing: 0) {
                         ForEach(store.visibleItems) { item in
@@ -180,6 +184,18 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .padding(.top, 8)
             .transition(.offset(y: -12).combined(with: .opacity))
         }
+    }
+
+    /// No events known yet and the Mac has not answered: not "Nothing yet".
+    private var connectingState: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+            Text("Connecting to your Mac…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 160)
+        .accessibilityIdentifier("feed.connecting")
     }
 
     private var emptyState: some View {

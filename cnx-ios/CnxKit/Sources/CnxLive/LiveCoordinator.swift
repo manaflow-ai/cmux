@@ -71,6 +71,14 @@ public final class LiveCoordinator {
     @ObservationIgnored private var previouslyOnline: Set<String>?
     /// A team the user picked in the sidebar: discovery leaves it while it is empty.
     @ObservationIgnored private var pinnedTeamID: String?
+    /// What this account last saw (restored at launch, saved as it changes).
+    @ObservationIgnored private let snapshots: LiveSnapshotStore
+    @ObservationIgnored private var snapshot: LiveSnapshot?
+    @ObservationIgnored private var snapshotSavePending = false
+    /// The team whose registration, Macs and presence are running or done.
+    @ObservationIgnored private var startedTeamID: String?
+    /// The Mac whose data and connection state the link last fed.
+    @ObservationIgnored private var dataMacID: String?
     /// How often discovery looks while the active team has no online Mac, and otherwise.
     static let waitingPoll: Duration = .seconds(4)
     static let idlePoll: Duration = .seconds(30)
@@ -88,8 +96,11 @@ public final class LiveCoordinator {
         relayOnly: Bool = false,
         dialer: any MacLinkDialer,
         feedStore: FeedStore = .shared,
+        snapshots: LiveSnapshotStore = .standard,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
+        ConnectTimeline.shared.mark("coordinator_start")
+        self.snapshots = snapshots
         self.store = store
         self.api = api
         self.identity = identity
@@ -112,7 +123,11 @@ public final class LiveCoordinator {
         feedStore.replaceAll(archive.load())
         feedStore.onItemsChange = { [weak self] _ in self?.scheduleFeedSave(archive) }
         feedStore.actions = feed
+        feedStore.syncState = .connecting
         store.workspaces = []
+        store.tracksMacData = true
+        store.macData = [:]
+        store.macConnection = [:]
         store.teamDataState = .loading
         link.onLink = { [weak self] link in self?.linkChanged(link) }
         workspaces.onTree = { [weak self] tree in self?.apply(tree) }
@@ -130,6 +145,64 @@ public final class LiveCoordinator {
             return self.acpmux.source(sessionID: session, summary: summary)
         }
         observeLink()
+        restoreSnapshot()
+    }
+
+    // MARK: Warm start
+
+    /// Launch with a snapshot: show the space, its Macs and their last-known
+    /// workspaces (marked cached), warm the signaling socket, and dial the
+    /// Mac this phone last reached, all before Stack's team list or the
+    /// service's Mac list answers. Registration, Macs and presence start at
+    /// once in the background and correct anything that changed.
+    private func restoreSnapshot() {
+        guard let snapshot = snapshots.load(accountID: userID) else { return }
+        self.snapshot = snapshot
+        store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
+        store.activeTeamID = snapshot.teamID
+        var workspaces: [Workspace] = []
+        for mac in snapshot.macs {
+            guard let saved = snapshot.workspaces[mac.id] else { continue }
+            workspaces += saved.workspaces
+            store.handleMacData(.restored(count: saved.workspaces.count, savedAt: saved.savedAt), macID: mac.id)
+        }
+        store.workspaces = workspaces
+        store.teamDataState = .loaded
+        ConnectTimeline.shared.mark("snapshot_restored", detail: "\(workspaces.count) workspaces")
+        // The link device was registered in this space when the snapshot was
+        // saved (registration is an upsert and survives), so the socket and
+        // the dial need not wait for it.
+        registeredTeamID = snapshot.teamID
+        link.prewarm(baseURL: api.baseURL, teamID: snapshot.teamID, deviceID: identity.link)
+        retarget()
+        startedTeamID = snapshot.teamID
+        teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
+    }
+
+    /// Saves what the phone sees now (coalesced to one write per main-queue turn).
+    private func scheduleSnapshotSave() {
+        guard !snapshotSavePending else { return }
+        snapshotSavePending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            snapshotSavePending = false
+            saveSnapshot()
+        }
+    }
+
+    private func saveSnapshot() {
+        guard let team = store.activeTeam, registeredTeamID == team.id else { return }
+        var saved = snapshot?.teamID == team.id ? snapshot?.workspaces ?? [:] : [:]
+        let macIDs = Set(team.macs.map(\.id))
+        saved = saved.filter { macIDs.contains($0.key) }
+        for mac in team.macs where store.macData[mac.id]?.source == .live {
+            saved[mac.id] = .init(workspaces: store.workspaces.filter { $0.macID == mac.id && !store.isPending($0.id) }, savedAt: Date())
+        }
+        let next = LiveSnapshot(teamID: team.id, teamName: team.name, macs: team.macs,
+                                linkedMacID: link.target?.macID ?? snapshot?.linkedMacID, workspaces: saved)
+        guard next != snapshot else { return }
+        snapshot = next
+        snapshots.save(next, accountID: userID)
     }
 
     // MARK: Teams
@@ -157,7 +230,8 @@ public final class LiveCoordinator {
     public func activeTeamChanged(byUser: Bool = false) {
         let teamID = store.activeTeamID
         if byUser { pinnedTeamID = teamID }
-        guard !teamID.isEmpty, teamID != registeredTeamID else { return }
+        guard !teamID.isEmpty, teamID != registeredTeamID, teamID != startedTeamID else { return }
+        startedTeamID = teamID
         teamTask?.cancel()
         presence?.stop()
         presence = nil
@@ -167,14 +241,26 @@ public final class LiveCoordinator {
         teamTask = Task { [weak self] in await self?.startTeam(teamID) }
     }
 
-    private func startTeam(_ teamID: String) async {
+    /// Registers both device ids, then loads the Macs and starts presence.
+    /// `warm`: the link is already dialing in this team from the snapshot,
+    /// so nothing on screen is reset while this runs.
+    private func startTeam(_ teamID: String, warm: Bool = false) async {
         do {
-            try await api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID)
-            try await api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID)
+            // Both registrations at once (one round trip, not two).
+            async let linkDevice: Void = api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID)
+            async let presenceDevice: Void = api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID)
+            try await linkDevice
+            if !warm {
+                // The link device is registered: warm its socket while the rest loads.
+                link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+            }
+            try await presenceDevice
+            ConnectTimeline.shared.mark("registered")
             guard !Task.isCancelled, store.activeTeamID == teamID else { return }
             registeredTeamID = teamID
             let macs = try await api.macs(teamID: teamID)
             guard !Task.isCancelled, store.activeTeamID == teamID else { return }
+            ConnectTimeline.shared.mark("macs_loaded", detail: "\(macs.count)")
             applyMacs(macs, teamID: teamID)
             store.teamDataState = .loaded
             log.info("team \(teamID, privacy: .private) registered, \(macs.count, privacy: .public) Macs")
@@ -186,17 +272,19 @@ public final class LiveCoordinator {
         } catch {
             guard !Task.isCancelled else { return }
             log.error("team start failed: \(String(describing: error), privacy: .public)")
-            store.teamDataState = .failed
+            // A warm start keeps its cached list; the retry below catches up.
+            if !warm { store.teamDataState = .failed }
             // Try again on its own (the list's Retry also works).
             do { try await clock.sleep(for: .seconds(5)) } catch { return }
-            guard store.activeTeamID == teamID, registeredTeamID == nil else { return }
-            await startTeam(teamID)
+            guard store.activeTeamID == teamID, registeredTeamID == nil || warm else { return }
+            await startTeam(teamID, warm: warm)
         }
     }
 
     /// Retry after a failed team load (the Workspaces Retry button).
     public func retry() {
         registeredTeamID = nil
+        startedTeamID = nil
         activeTeamChanged()
     }
 
@@ -219,12 +307,14 @@ public final class LiveCoordinator {
     private func applyMacs(_ macs: [LiveAPI.Mac], teamID: String) {
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate) }, teamID: teamID)
         retarget()
+        scheduleSnapshotSave()
     }
 
     /// Dials the selected Mac (remembered per team), else the first online one.
     private func retarget() {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cnx.live.mac.\(team.id)")
+            ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
         let mac = LinkMachine.target(in: team.macs, remembered: remembered, current: link.target?.macID)
         link.send(.target(mac.map { LinkMachine.Target(macID: $0.id, name: $0.name, isOnline: $0.isOnline) }))
     }
@@ -290,7 +380,15 @@ public final class LiveCoordinator {
         presence?.stop()
         presence = nil
         registeredTeamID = nil
+        startedTeamID = nil
         link.send(.target(nil))
+        let link = link
+        Task { await link.resetWarmState() }
+    }
+
+    /// Sign-out: forget every account's snapshot on this device.
+    public static func forgetSnapshots(_ snapshots: LiveSnapshotStore = .standard) {
+        snapshots.removeAll()
     }
 
     // MARK: Prefs and invites
@@ -327,6 +425,11 @@ public final class LiveCoordinator {
     /// App foreground: probe or redial the link and the presence socket.
     public func foreground() {
         log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
+        // The first activation is the launch itself, already being measured.
+        if ConnectTimeline.shared.sinceProcessStart > 5 { ConnectTimeline.shared.begin("foreground") }
+        if let teamID = registeredTeamID {
+            link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+        }
         presence?.kick()
         if discoveryTask != nil { startDiscovery() }
         link.send(.foreground)
@@ -348,17 +451,24 @@ public final class LiveCoordinator {
             }
             return
         }
+        // Workspaces first, and the chats and Feed alongside: each channel
+        // opens without waiting for the other (an open costs no round trip).
         Task { [weak self] in
             guard let self else { return }
             do {
                 let daemon = try await link.openChannel(service: "daemon", args: [:])
+                ConnectTimeline.shared.mark("daemon_channel_open")
                 await self.workspaces.bind(daemon, macID: macID)
             } catch {
                 log.error("daemon channel: \(String(describing: error), privacy: .public)")
             }
+        }
+        Task { [weak self] in
+            guard let self else { return }
             do {
                 let channel = try await link.openChannel(service: "acpmux", args: [:])
                 await self.acpmux.bind(channel)
+                if self.acpmux.isReady { self.feed.store.syncState = .live }
             } catch {
                 log.error("acpmux channel: \(String(describing: error), privacy: .public)")
             }
@@ -428,6 +538,9 @@ public final class LiveCoordinator {
             AgentSessionDirectory.shared.invalidate(id: tabID)
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
+        store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
+        ConnectTimeline.shared.mark("workspaces_live", detail: "\(tree.workspaces.count) workspaces")
+        scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.
         if acpmux.isReady { feed.hydrate(Array(acpmux.sessions.values)) }
     }
@@ -468,9 +581,39 @@ public final class LiveCoordinator {
         }
     }
 
+    /// Feeds the targeted Mac's data and connection state from the link phase.
+    private func updateMacState(_ phase: LinkMachine.Phase, target: LinkMachine.Target?) {
+        if let old = dataMacID, old != target?.macID {
+            store.handleMacData(.disconnected(at: Date()), macID: old)
+            store.macConnection[old] = nil
+        }
+        dataMacID = target?.macID
+        guard let macID = target?.macID else { return }
+        switch phase {
+        case .idle:
+            break
+        case .macOffline:
+            store.handleMacData(.offline, macID: macID)
+            store.macConnection[macID] = nil
+        case .connecting:
+            if store.macData[macID]?.source == .live { store.handleMacData(.disconnected(at: Date()), macID: macID) }
+            store.handleMacData(.connecting, macID: macID)
+            if store.macConnection[macID] == nil || store.macConnection[macID] == .connected {
+                store.macConnection[macID] = .connecting
+            }
+        case .connected:
+            store.macConnection[macID] = .connected
+        case .waiting(_, _, let reason, _):
+            store.handleMacData(.failed(reason), macID: macID)
+            store.macConnection[macID] = .failed(reason)
+        }
+        scheduleSnapshotSave()
+    }
+
     private func phaseChanged() {
         let phase = link.phase
         let target = link.target
+        updateMacState(phase, target: target)
         var status = store.macLinkStatus
         status = [:]
         if let target, let line = phase.statusLine(macName: target.name) { status[target.macID] = line }
@@ -503,8 +646,10 @@ public final class LiveCoordinator {
                     self?.banner = .reconnecting(to: name)
                 }
             }
-        case .waiting(let transport, _, _, _):
-            banner = .failed("Can't reach \(name) over \(transport.displayName)")
+        case .waiting(let transport, _, let reason, _):
+            // An offline Mac is not a connection failure.
+            banner = reason == LinkController.reason(LinkError(code: "offline", message: ""))
+                ? .macOffline(name) : .failed("Can't reach \(name) over \(transport.displayName)")
         }
     }
 }

@@ -35,13 +35,16 @@ import Testing
     @Test func failuresBackOffAndRetry() {
         var machine = LinkMachine(transport: .webRTC)
         _ = machine.handle(.target(mac))
-        #expect(machine.handle(.dialFailed(generation: 1, reason: "ICE timed out")) == [.scheduleRetry(generation: 2, after: .seconds(1))])
-        #expect(machine.phase == .waiting(.webRTC, attempt: 1, reason: "ICE timed out", retryIn: .seconds(1)))
+        // The first failure retries at once and shows nothing (a reset signaling socket).
+        #expect(machine.handle(.dialFailed(generation: 1, reason: "signaling reset")) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 2))
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
+        #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
         #expect(machine.phase.statusLine(macName: "Studio") == "WebRTC failed: ICE timed out · retrying in 1 s")
-        #expect(machine.handle(.retryDue(generation: 2)) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
-        #expect(machine.handle(.dialFailed(generation: 3, reason: "x")) == [.scheduleRetry(generation: 4, after: .seconds(2))])
+        #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
+        #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
-        #expect(machine.handle(.retryDue(generation: 2)) == [])
+        #expect(machine.handle(.retryDue(generation: 3)) == [])
     }
 
     @Test func transportSwitchRedialsAndIgnoresLateResult() {
@@ -54,7 +57,8 @@ import Testing
         #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
         // Switching while waiting redials immediately with the new transport.
         _ = machine.handle(.dialFailed(generation: 2, reason: "x"))
-        #expect(machine.handle(.transport(.webRTC)) == [.close, .dial(generation: 4, macID: "m1", transport: .webRTC)])
+        _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
+        #expect(machine.handle(.transport(.webRTC)) == [.close, .dial(generation: 5, macID: "m1", transport: .webRTC)])
     }
 
     @Test func relayOnlyChangeRedials() {
@@ -73,9 +77,12 @@ import Testing
         _ = machine.handle(.target(mac))
         _ = machine.handle(.dialSucceeded(generation: 1, path: .relay))
         #expect(machine.handle(.foreground) == [.probe(generation: 1)])
-        #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.close, .scheduleRetry(generation: 2, after: .seconds(1))])
+        // A dead link redials at once.
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        _ = machine.handle(.dialFailed(generation: 2, reason: "x"))
+        _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
         // Foreground while waiting dials now instead of waiting out the timer.
-        #expect(machine.handle(.foreground) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
+        #expect(machine.handle(.foreground) == [.dial(generation: 5, macID: "m1", transport: .wireGuard)])
     }
 
     @Test func sameTargetKeepsLinkAndNilTargetCloses() {
@@ -130,7 +137,7 @@ struct MockDialer: MacLinkDialer {
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
         for _ in 0..<200 { if case .waiting = controller.phase { break }; await Task.yield() }
-        guard case .waiting(.webRTC, 1, let reason, _) = controller.phase else {
+        guard case .waiting(.webRTC, 2, let reason, _) = controller.phase else {
             Issue.record("expected waiting, got \(controller.phase)")
             return
         }
@@ -237,10 +244,12 @@ struct MockDialer: MacLinkDialer {
     @Test func listsAfterSubscribeAndRelistsOnEvents() async throws {
         let lists = Counter()
         let link = MockMacLink { _, data in
-            let object = try! JSONSerialization.jsonObject(with: data.dropLast()) as! [String: Any]
+            // The setup arrives as one write of several lines.
+            var out: [Data] = []
+            for line in data.split(separator: 0x0A) {
+            let object = try! JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
             let id = object["id"] as! String
             let cmd = object["cmd"] as! String
-            var out: [Data] = []
             switch cmd {
             case "list-workspaces":
                 let n = lists.increment()
@@ -251,6 +260,7 @@ struct MockDialer: MacLinkDialer {
                 out.append(Data(#"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#.utf8))
             default:
                 out.append(Data(#"{"id":"\#(id)","ok":true,"data":{}}"#.utf8))
+            }
             }
             return out.map { $0 + Data([0x0A]) }
         }
@@ -273,7 +283,9 @@ struct MockDialer: MacLinkDialer {
     /// (surface 11), or refuses `new-workspace` like the phone policy.
     static func daemon(refuse: Bool, seen: CommandLog) -> MockMacLink {
         MockMacLink { _, data in
-            let object = try! JSONSerialization.jsonObject(with: data.dropLast()) as! [String: Any]
+            // The connect setup arrives as one write of several lines.
+            data.split(separator: 0x0A).map { request -> Data in
+            let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
             let cmd = object["cmd"] as! String
             seen.append(cmd, object["name"] as? String)
@@ -296,7 +308,8 @@ struct MockDialer: MacLinkDialer {
             default:
                 line = #"{"id":"\#(id)","ok":true,"data":{}}"#
             }
-            return [Data(line.utf8) + Data([0x0A])]
+            return Data(line.utf8) + Data([0x0A])
+            }
         }
     }
 

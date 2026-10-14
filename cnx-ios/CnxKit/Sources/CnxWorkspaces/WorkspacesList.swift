@@ -180,7 +180,11 @@ public struct WorkspacesList: View {
 
     @ViewBuilder private var loaded: some View {
         let layout = WorkspaceListLayout(scope: scope, macs: macs, workspaces: store.workspaces, sort: sort, showsOffline: showsOffline)
-        if let mac = scopedMac, layout.isEmpty {
+        if let mac = scopedMac, layout.isEmpty, let pending = pendingState(mac) {
+            // The Mac has not answered yet (or could not be reached): never
+            // "No workspaces" until it says so.
+            pending
+        } else if let mac = scopedMac, layout.isEmpty {
             if mac.isOnline {
                 let canCreate = target != nil
                 EmptyState(
@@ -210,7 +214,7 @@ public struct WorkspacesList: View {
                 message: "Wake a Mac or open cmux on it to see its workspaces.",
                 secondaryTitle: "Show offline Macs", secondary: { showsOffline = true }
             )
-        } else if scope == .all && layout.isEmpty, let target {
+        } else if scope == .all && layout.isEmpty, let target, onlineMacsAnsweredEmpty {
             EmptyState(
                 symbol: "macwindow",
                 title: "No workspaces yet",
@@ -235,8 +239,10 @@ public struct WorkspacesList: View {
                         }
                         rows(section, stamp: stamp)
                     } header: {
+                        let status = store.macStatusLine(section.mac, presence: stamp.presence(isOnline: section.mac.isOnline, lastSeenAt: section.mac.lastSeenAt))
                         MacSectionHeader(mac: section.mac,
-                                         presence: stamp.presence(isOnline: section.mac.isOnline, lastSeenAt: section.mac.lastSeenAt),
+                                         presence: status.text,
+                                         dot: status.dot,
                                          count: section.workspaces.count,
                                          link: store.macLinkStatus[section.mac.id],
                                          reconnect: reconnect.map { reconnect in { reconnect(section.mac.id) } })
@@ -285,6 +291,17 @@ public struct WorkspacesList: View {
                     row
                 }
             }
+            .onAppear {
+                // verify/fast-connect.md: the moment a live row is on screen.
+                let phase = store.macDataPhase(section.mac.id)
+                ConnectTimeline.shared.mark(phase == .live ? "workspace_row_live" : "workspace_row_cached")
+            }
+            .onChange(of: store.macDataPhase(section.mac.id) == .live) { _, live in
+                if live { ConnectTimeline.shared.mark("workspace_row_live") }
+            }
+            // Last-known rows while the Mac has not answered on this link.
+            .opacity(store.macDataPhase(section.mac.id).isStale ? 0.55 : 1)
+            .animation(theme.motion.smooth.animation, value: store.macDataPhase(section.mac.id).isStale)
             .listRowBackground(theme.colors.bg.color)
             .listRowInsets(EdgeInsets(top: 0, leading: theme.metrics.sideMargin - WorkspaceRow.gutter, bottom: 0, trailing: 16))
             .alignmentGuide(.listRowSeparatorLeading) { _ in theme.metrics.sideMargin }
@@ -306,6 +323,62 @@ public struct WorkspacesList: View {
     }
 
     @ViewBuilder private func emptySectionContent(_ mac: MacDevice, spacer: Bool) -> some View {
+        switch store.macDataPhase(mac.id) {
+        case .loading:
+            SkeletonList(rows: 2, leadingSquare: nil)
+                .accessibilityLabel("Loading workspaces on \(mac.name)")
+        case .failed, .idle:
+            Text(store.macDataPhase(mac.id) == .idle ? "Not connected" : "Can't connect to \(mac.name)")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+                .lineLimit(2)
+            if spacer { Spacer(minLength: 8) }
+            if mac.isOnline, let reconnect {
+                Button("Retry") { reconnect(mac.id) }
+                    .buttonStyle(.borderless)
+                    .font(theme.type.rowSubtitle.weight(.medium))
+                    .foregroundStyle(theme.colors.label)
+                    .fixedSize()
+            }
+        case .cached:
+            Text("No workspaces when last connected")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+                .opacity(0.55)
+        default:
+            answeredEmptyContent(mac, spacer: spacer)
+        }
+    }
+
+    /// Whether every online Mac answered with no workspaces (the only time
+    /// the list as a whole may say so).
+    private var onlineMacsAnsweredEmpty: Bool {
+        macs.filter(\.isOnline).allSatisfy { store.macDataPhase($0.id).isEmpty }
+    }
+
+    /// One Mac chosen with nothing on screen: what to show while its list is
+    /// unknown, or nil once it answered (or is offline).
+    private func pendingState(_ mac: MacDevice) -> AnyView? {
+        switch store.macDataPhase(mac.id) {
+        case .loading:
+            return AnyView(ScrollView { SkeletonList(rows: 6, leadingSquare: nil).padding(.top, 8) }
+                .scrollDisabled(true)
+                .accessibilityIdentifier("workspaces.loading.mac"))
+        case .failed, .idle:
+            return AnyView(EmptyState(
+                symbol: "bolt.horizontal.circle",
+                title: "Can't connect to \(mac.name)",
+                message: "\(mac.name) is online, but this iPhone couldn't reach it yet.",
+                primaryTitle: reconnect == nil ? nil : "Retry",
+                primary: reconnect.map { reconnect in { reconnect(mac.id) } }
+            )
+            .accessibilityIdentifier("workspaces.failed.mac"))
+        default:
+            return nil
+        }
+    }
+
+    @ViewBuilder private func answeredEmptyContent(_ mac: MacDevice, spacer: Bool) -> some View {
             Text(mac.isOnline ? "No workspaces" : "No workspaces seen")
                 .font(theme.type.rowSubtitle)
                 .foregroundStyle(theme.colors.label2)
@@ -500,6 +573,8 @@ struct NewWorkspaceButton: View {
 struct MacSectionHeader: View {
     let mac: MacDevice
     let presence: String
+    /// Green only while this phone is connected (live mode).
+    var dot: MacStatusLine.Dot? = nil
     var count: Int = 0
     /// The live link line for this Mac, when the app dials it.
     var link: String?
@@ -530,9 +605,18 @@ struct MacSectionHeader: View {
         .animation(theme.motion.snappy.animation, value: link)
     }
 
+    private var dotState: StatusDot.State {
+        switch dot ?? (mac.isOnline ? .connected : .offline) {
+        case .connected: .online
+        case .connecting: .busy
+        case .failed: .error
+        case .offline: .offline
+        }
+    }
+
     private var row: some View {
         HStack(spacing: 8) {
-            StatusDot(mac.isOnline ? .online : .offline, size: 7)
+            StatusDot(dotState, size: 7)
             Text(mac.name)
                 .font(theme.type.rowSubtitle.weight(.semibold))
                 .foregroundStyle(mac.isOnline ? theme.colors.label : theme.colors.label2)

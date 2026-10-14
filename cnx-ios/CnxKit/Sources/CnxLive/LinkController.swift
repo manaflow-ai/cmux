@@ -1,3 +1,4 @@
+import class CnxModel.ConnectTimeline
 import CnxTransport
 import Foundation
 import Observation
@@ -31,6 +32,10 @@ public final class LinkController {
     /// How often a live link is pinged, and how long a ping may take.
     nonisolated static let heartbeat: Duration = .seconds(15)
     nonisolated static let probeTimeout: Duration = .seconds(8)
+    /// After a foreground a link that does not answer within this is redialed:
+    /// a phone back from the background must not wait 8 s on a dead link.
+    nonisolated static let foregroundProbeTimeout: Duration = .milliseconds(2000)
+    @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
 
     public init(
@@ -47,11 +52,29 @@ public final class LinkController {
     }
 
     public var target: LinkMachine.Target? { machine.target }
+
+    /// Warms the next dial in `teamID` (signaling socket, ICE servers); logs the steps.
+    public func prewarm(baseURL: URL, teamID: String, deviceID: String) {
+        let dialer = dialer
+        let accessToken = accessToken
+        Task {
+            guard let token = try? await accessToken(false) else { return }
+            let steps = await dialer.prewarm(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
+            guard !steps.isEmpty else { return }
+            ConnectTimeline.shared.mark("prewarmed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+        }
+    }
+
+    /// Sign-out: forget warm sockets and cached servers.
+    public func resetWarmState() async {
+        await dialer.resetWarmState()
+    }
     public var transport: TransportKind { machine.transport }
     public var relayOnly: Bool { machine.relayOnly }
 
     public func send(_ event: LinkMachine.Event) {
         let effects = machine.handle(event)
+        quickProbe = event == .foreground && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
             phase = machine.phase
@@ -86,16 +109,25 @@ public final class LinkController {
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
             refreshTokenNextDial = false
+            ConnectTimeline.shared.mark("dial_start", detail: transport.rawValue)
             dialTask = Task { [weak self] in
                 do {
                     let token = try await accessToken(forceRefresh)
+                    ConnectTimeline.shared.mark("token_ready")
                     let link = try await dialer.dial(endpoint, transport: transport, accessToken: token)
+                    if let timed = link as? any TimedMacLink {
+                        let steps = timed.timings.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " ")
+                        ConnectTimeline.shared.mark("link_connected", detail: steps)
+                    } else {
+                        ConnectTimeline.shared.mark("link_connected")
+                    }
                     guard let self, !Task.isCancelled, generation == self.machine.generation else {
                         await link.close()
                         return
                     }
                     self.adopt(link, generation: generation)
                 } catch {
+                    log.error("dial failed: \(String(describing: error), privacy: .public)")
                     if "\(error)".contains("401") { self?.refreshTokenNextDial = true }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
@@ -110,9 +142,11 @@ public final class LinkController {
         case .probe(let generation):
             guard let link else { return }
             let clock = clock
+            let timeout = quickProbe ? Self.foregroundProbeTimeout : Self.probeTimeout
+            quickProbe = false
             Task { [weak self] in
                 // The ping races a timeout: a frozen Mac never answers.
-                let result = await Self.race(timeout: Self.probeTimeout, clock: clock) { try await link.ping() }
+                let result = await Self.race(timeout: timeout, clock: clock) { try await link.ping() }
                 guard let self else { return }
                 switch result {
                 case .success(let rtt):
@@ -142,6 +176,7 @@ public final class LinkController {
                     }
                     self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
                 case .disconnected(let reason):
+                    log.info("link dropped: \(reason, privacy: .public)")
                     self.send(.linkDropped(generation: generation, reason: reason))
                 case .idle, .connecting:
                     break

@@ -24,9 +24,18 @@ public struct FFIMacLinkDialer: MacLinkDialer {
             throw error.linkError
         }
     }
+
+    public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        await CnxFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+            .map { ($0.name, $0.millis) }
+    }
+
+    public func resetWarmState() async {
+        await CnxFFI.resetWarmState()
+    }
 }
 
-final class FFIMacLink: MacLink, @unchecked Sendable {
+final class FFIMacLink: TimedMacLink, @unchecked Sendable {
     let transport: TransportKind
     let states: AsyncStream<LinkState>
     private let handle: LinkHandle
@@ -47,6 +56,10 @@ final class FFIMacLink: MacLink, @unchecked Sendable {
         } catch let error as CnxError {
             throw error.linkError
         }
+    }
+
+    var timings: [(String, Double)] {
+        handle.timings().map { ($0.name, $0.millis) }
     }
 
     func ping() async throws -> UInt32 {
