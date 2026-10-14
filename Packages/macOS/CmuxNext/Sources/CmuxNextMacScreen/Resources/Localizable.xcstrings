@@ -11922,6 +11922,137 @@
         }
       }
     },
+    "macScreen.toolbar.releaseHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ يحرّر لوحة المفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ oslobađa tastaturu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ frigiver tastaturet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ gibt die Tastatur frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃⌥⎋ releases the keyboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ libera el teclado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ libère le clavier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ rilascia la tastiera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋でキーボードを解放"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ ដោះលែងក្ដារចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋로 키보드 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ frigjør tastaturet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ zwalnia klawiaturę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ libera o teclado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ освобождает клавиатуру"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ ปล่อยแป้นพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ klavyeyi bırakır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ звільняє клавіатуру"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ trả lại bàn phím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ 释放键盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃⌥⎋ 釋放鍵盤"
+          }
+        }
+      }
+    },
     "macScreen.toolbar.sendKeys": {
       "extractionState": "manual",
       "localizations": {

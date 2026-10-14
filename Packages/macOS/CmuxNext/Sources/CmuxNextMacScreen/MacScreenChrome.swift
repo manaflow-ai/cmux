@@ -114,12 +114,15 @@ struct MacScreenToolbar: View {
             Text(model.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
             if let session = model.session, model.isLive, session.preferences.showStats {
                 Text(statsLine(session)).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                    .fixedSize()
                     .accessibilityIdentifier("macScreen.stats")
             }
             Spacer(minLength: 8)
             if model.capturesKeyboard {
-                Text(L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release"))
+                Label(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), systemImage: "keyboard")
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    .layoutPriority(-1)
+                    .help(L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release"))
             }
             if let session = model.session, model.gate == .open {
                 controls(session)
