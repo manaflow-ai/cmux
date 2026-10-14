@@ -36,11 +36,17 @@ use serde_json::{Value, json};
 struct Intent {
     key: String,
     ops: Vec<Op>,
+    /// Undoes this intent on the shown document (the reducer's inverse).
+    inverse: Vec<Op>,
 }
 
 #[derive(Default)]
 pub struct Mirror {
     confirmed: Doc,
+    /// `confirmed` with every pending intent applied, kept in step: a batch
+    /// undoes the pending intents (newest first, by their inverses), applies
+    /// its rows, and replays them, so no call copies the document.
+    shown: Doc,
     loaded: bool,
     pending: Vec<Intent>,
     next_local: u64,
@@ -70,37 +76,46 @@ impl Mirror {
         Mirror { local_prefix: format!("itm_{:016x}", hasher.finish()), ..Mirror::default() }
     }
 
-    /// The confirmed document with every pending intent replayed. An
-    /// intent that no longer applies is skipped (and dropped by the caller).
-    fn shown(&mut self) -> (Doc, Vec<String>) {
-        let mut doc = self.confirmed.clone();
+    /// Undo every pending intent on the shown document: it is the
+    /// confirmed document again.
+    fn unwind(&mut self) {
+        for intent in self.pending.iter().rev() {
+            reduce::apply_rows(&mut self.shown, &intent.inverse);
+        }
+        self.shown.revision = self.confirmed.revision;
+    }
+
+    /// Apply the pending intents again; drop (and return) the ones that no
+    /// longer apply.
+    fn replay(&mut self) -> Vec<String> {
         let mut failed = Vec::new();
         // Stored intents carry every id they add (see `apply_intent`).
         let mut mint = String::new;
-        for intent in &self.pending {
-            match reduce::apply(&doc, &intent.ops, &mut mint) {
-                Ok(outcome) => doc = outcome.doc,
-                Err(_) => failed.push(intent.key.clone()),
+        let shown = &mut self.shown;
+        self.pending.retain_mut(|intent| {
+            match reduce::apply_in_place(shown, &intent.ops, &mut mint) {
+                Ok(applied) => {
+                    intent.inverse = applied.inverse;
+                    true
+                }
+                Err(_) => {
+                    failed.push(intent.key.clone());
+                    false
+                }
             }
-        }
-        (doc, failed)
-    }
-
-    fn prune(&mut self) -> Vec<String> {
-        let (_, failed) = self.shown();
-        self.pending.retain(|intent| !failed.contains(&intent.key));
+        });
         failed
     }
 
     pub fn load(&mut self, input: &[u8]) -> Value {
-        let mut doc: Doc = match serde_json::from_slice(input) {
+        let doc: Doc = match serde_json::from_slice(input) {
             Ok(doc) => doc,
             Err(e) => return error(e),
         };
-        doc.normalize();
+        self.shown = doc.clone();
         self.confirmed = doc;
         self.loaded = true;
-        let dropped = self.prune();
+        let dropped = self.replay();
         json!({"ok": true, "revision": self.confirmed.revision.to_string(), "dropped": dropped})
     }
 
@@ -131,6 +146,7 @@ impl Mirror {
             .map(str::to_string);
         // The intent this batch confirms or refuses goes in every case: a
         // stale or gapped batch still says the daemon decided it.
+        self.unwind();
         let mut dropped = Vec::new();
         if let Some(key) = &key
             && self.pending.iter().any(|intent| intent.key == *key)
@@ -138,8 +154,14 @@ impl Mirror {
             self.pending.retain(|intent| intent.key != *key);
             dropped.push(key.clone());
         }
+        let done = |mirror: &mut Mirror, mut dropped: Vec<String>, result: Value| {
+            dropped.extend(mirror.replay());
+            let mut result = result;
+            result["dropped"] = json!(dropped);
+            result
+        };
         if batch["rejected"] == true {
-            return json!({"ok": true, "dropped": dropped});
+            return done(self, dropped, json!({"ok": true}));
         }
         let (revision, previous) = if markers.is_empty() {
             (decimal(own("revision")), decimal(own("previous_revision")))
@@ -150,18 +172,18 @@ impl Mirror {
             )
         };
         let Some(revision) = revision else {
-            return json!({"ok": true, "ignored": true, "dropped": dropped});
+            return done(self, dropped, json!({"ok": true, "ignored": true}));
         };
         if !self.loaded {
-            return json!({"refetch": true, "dropped": dropped});
+            return done(self, dropped, json!({"refetch": true}));
         }
         if revision <= self.confirmed.revision {
-            return json!({"ok": true, "stale": true, "dropped": dropped});
+            return done(self, dropped, json!({"ok": true, "stale": true}));
         }
         if previous.unwrap_or(revision - 1) != self.confirmed.revision {
-            return json!({"refetch": true, "dropped": dropped});
+            return done(self, dropped, json!({"refetch": true}));
         }
-        let mut doc = self.confirmed.clone();
+        let mut rows = Vec::new();
         for change in &changes {
             let resource = change["resource"].as_str().unwrap_or_default();
             let id = change["id"].as_str().unwrap_or_default().to_string();
@@ -169,28 +191,26 @@ impl Mirror {
                 ("state_upsert", "sidebar_item") => {
                     match serde_json::from_value::<Item>(change["value"].clone()) {
                         Ok(item) => Op::ItemPut { item },
-                        Err(e) => return error(e),
+                        Err(e) => return done(self, dropped, error(e)),
                     }
                 }
                 ("state_upsert", "sidebar_section") => {
                     match serde_json::from_value::<Section>(change["value"].clone()) {
                         Ok(section) => Op::SectionPut { section },
-                        Err(e) => return error(e),
+                        Err(e) => return done(self, dropped, error(e)),
                     }
                 }
                 ("state_delete", "sidebar_item") => Op::ItemDelete { id },
                 ("state_delete", "sidebar_section") => Op::SectionDelete { id },
                 _ => continue,
             };
-            if let Err(refusal) = reduce::apply_one(&mut doc, &op, &mut String::new) {
-                return error(refusal);
-            }
+            rows.push(op);
         }
-        doc.normalize();
-        doc.revision = revision;
-        self.confirmed = doc;
-        dropped.extend(self.prune());
-        json!({"ok": true, "revision": revision.to_string(), "dropped": dropped})
+        reduce::apply_rows(&mut self.confirmed, &rows);
+        reduce::apply_rows(&mut self.shown, &rows);
+        self.confirmed.revision = revision;
+        self.shown.revision = revision;
+        done(self, dropped, json!({"ok": true, "revision": revision.to_string()}))
     }
 
     pub fn apply_intent(&mut self, input: &[u8]) -> Value {
@@ -220,15 +240,19 @@ impl Mirror {
                 *slot = Some(format!("{}_{}", self.local_prefix, self.next_local));
             }
         }
-        let (doc, _) = self.shown();
         let mut mint = String::new;
-        match reduce::apply(&doc, &ops, &mut mint) {
-            Ok(outcome) => {
+        match reduce::apply_in_place(&mut self.shown, &ops, &mut mint) {
+            Ok(applied) => {
                 // The ops with their minted ids: send these to the daemon,
                 // so the echo and the inverse name the same items.
                 let stamped = serde_json::to_value(&ops).unwrap_or(Value::Null);
-                self.pending.push(Intent { key: intent.idempotency_key, ops });
-                json!({"ok": true, "ops": stamped, "inverse": outcome.inverse})
+                let inverse = applied.inverse.clone();
+                self.pending.push(Intent {
+                    key: intent.idempotency_key,
+                    ops,
+                    inverse: applied.inverse,
+                });
+                json!({"ok": true, "ops": stamped, "inverse": inverse})
             }
             Err(reason) => refusal(reason.as_str()),
         }
@@ -239,8 +263,7 @@ impl Mirror {
             Ok(request) => request,
             Err(e) => return error(e),
         };
-        let (doc, _) = self.shown();
-        self.rows = view::view(&doc, &request);
+        self.rows = view::view(&self.shown, &request);
         json!(self.rows)
     }
 
@@ -255,7 +278,6 @@ impl Mirror {
             Ok(Items::List(items) | Items::Object { items }) => items,
             Err(e) => return error(e),
         };
-        let (doc, _) = self.shown();
-        json!(accept::drag_begin(&doc, &self.rows, &items))
+        json!(accept::drag_begin(&self.shown, &self.rows, &items))
     }
 }
