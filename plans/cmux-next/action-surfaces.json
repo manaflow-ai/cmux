@@ -27369,7 +27369,7 @@
     "A submenu takes its label, else its action's title, without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
     "A separator shows only after a shown row and before another shown row: runs collapse to one, and leading and trailing separators drop.",
     "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It shows by the same visible_when as every row, and only when its action is bound and enabled (otherwise it is left out, not disabled).",
-    "A choices row with choices.trailer ends its submenu with that action under trailer.label, on the same target, after a separator when there are values. With a trailer the row shows even when it has no values (Move to Group > New Group).",
+    "A choices row with choices.trailer ends its submenu with that action under its own title, on the same target, after a separator when there are values. With a trailer the row shows even when it has no values (Move Workspace to Group > Move Workspace to New Group).",
     "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus)."
   ],
   "context_menus" : {
@@ -34870,7 +34870,7 @@
             "target_kind" : "workspace-group",
             "trailer" : {
               "id" : "workspace.moveToNewGroup",
-              "label" : "New Group"
+              "title_from" : "action"
             }
           },
           "enabled_when" : "can_perform",
