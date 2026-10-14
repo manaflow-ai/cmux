@@ -23,11 +23,10 @@ also an item {title, author, pr} (newest first; pr from a "(#1234)" suffix)
 for the update card's "What's changed" popover; older notes without items
 still decode, and the app then reads the PR from each subject.
 
-The notes also carry "summary": at most SUMMARY_LIMIT user-facing lines
-{group, title} (group new / fixed / changed) from the same commit subjects,
-with internal commits (ci, test, refactor, docs, chore, red tests, lint and
-fleet work) left out. The update cards show its first lines, and `appcast`
-writes the same lines as plain text into the build's appcast <description>.
+The notes carry "userNotes": editorial lines {area, title, prs} from merged
+PR bodies' optional Release note: line. Legacy PRs are assessed by a bounded
+publish-time summarizer; if unavailable, only explicit notes are shown.
+"summary" is the same news for older update cards. Raw titles stay in changes.
 
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
@@ -169,7 +168,7 @@ def whats_new_digest(args):
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
     try:
         import digest, validate
-        document = digest.build(args.short, args.date, args.head, args.since)
+        document = digest.build(args.short, args.date[:10], args.head, args.since)
     except (ImportError, ValueError, subprocess.CalledProcessError) as error:
         print(f"whats-new digest skipped: {error}", file=sys.stderr)
         return None
@@ -202,19 +201,25 @@ def write_community_summary(digest, args):
 
 
 def build(args):
+    from editorial_notes import build_news
     span = rev_range(args.since, args.head)
     commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
     commits = [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:MAX_CHANGES]
     changes = [subject for subject, _ in commits]
     items = [change_item(subject, author) for subject, author in commits]
+    members = set(git("log", "--no-merges", "--format=%H", span).splitlines()[:MAX_CHANGES])
+    news = build_news(items, members)
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     for path in sorted(set(p for p in added if p.endswith(".md"))):
         highlights.append(parse_highlight(path, git("show", f"{args.head}:{path}")))
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.
-    notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
-             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
+    notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date[:10], "head": args.head,
+             "highlights": highlights, "changes": changes, "items": items, "userNotes": news,
+             "summary": [{"group": "changed", "title": line["title"]} for line in news[:SUMMARY_LIMIT]]}
+    if "T" in args.date:
+        notes["publishedAt"] = args.date
     digest = whats_new_digest(args)
     if digest is not None:
         notes["whatsNew"] = digest
@@ -227,10 +232,14 @@ def build(args):
 
 
 def appcast(args):
-    """Writes the build's short changelog into its item in every published appcast."""
+    """Use explicit PR notes until the separately signed editorial digest arrives."""
+    from editorial_notes import build_news
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci"))
     from nightly_release_notes import update_appcasts
-    lines = summarize_changes(commit_subjects(args.since, args.head))
+    members = set(git("log", "--no-merges", "--format=%H", rev_range(args.since, args.head)).splitlines()[:MAX_CHANGES])
+    items = [change_item(subject, "") for subject in commit_subjects(args.since, args.head)]
+    news = build_news(items, members, summarize=False)
+    lines = [{"group": "changed", "title": line["title"]} for line in news[:SUMMARY_LIMIT]]
     text = summary_text(lines) or "Maintenance and internal improvements."
     update_appcasts(Path(args.appcasts), args.build, text, tuple(args.feeds))
     print(text)
@@ -245,6 +254,8 @@ def index(args):
             builds = json.load(f).get("builds", [])
     entry = {"build": notes["build"], "shortVersion": notes["shortVersion"], "date": notes["date"],
              "highlights": len(notes["highlights"])}
+    if notes.get("publishedAt"):
+        entry["publishedAt"] = notes["publishedAt"]
     if re.fullmatch(r"[0-9a-f]{40}", notes.get("head") or ""):
         entry["head"] = notes["head"]
     builds = [entry] + [b for b in builds if b.get("build") != notes["build"]]

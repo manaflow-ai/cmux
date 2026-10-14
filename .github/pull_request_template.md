@@ -16,6 +16,13 @@ The contributor verification ladder suggests the first useful check for each kin
 https://github.com/manaflow-ai/cmux/blob/main/docs/contributor-verification.md
 -->
 
+<!-- Optional nightly news in user words, one line. An area prefix is optional.
+Release note: Browser: Browser profiles can only be deleted by you.
+Release note: none explicitly hides an internal change. Without this line, a
+publish-time summarizer may propose a note for a user-visible change; raw titles
+remain in All changes. Remove these examples before filling the line below. -->
+Release note: <!-- leave blank to let publication propose a candidate -->
+
 ## Changelog
 
 <!--

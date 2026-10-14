@@ -92,12 +92,14 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
         if let highlights = notes?.highlights, !highlights.isEmpty {
             return (.highlights, "en", highlights.map { Item(id: $0.id, title: $0.title, summary: Self.oneLine($0.body), category: .new) })
         }
-        if let summary = notes?.summary, !summary.isEmpty {
-            let items = summary.enumerated().map { index, line in
-                Item(id: "summary-\(index)", title: line.title, summary: nil, category: Category(group: line.group))
+        if let news = notes?.userNotes {
+            let items = news.enumerated().map { index, line in
+                Item(id: "summary-\(index)", title: line.title, summary: nil, category: .improved)
             }
             return (.summary, "en", items)
         }
+        // A legacy signed summary was guessed from commit subjects.
+        if notes != nil { return (.none, "en", []) }
         if let lines = appcast?.lines, !lines.isEmpty {
             let items = lines.enumerated().map { index, line -> Item in
                 let (category, title) = Self.categorized(line)

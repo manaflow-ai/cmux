@@ -10,6 +10,7 @@ export interface IndexEntry {
   build: string;
   shortVersion: string;
   date: string;
+  publishedAt?: string;
   highlights: number;
 }
 
@@ -66,6 +67,23 @@ export interface SummaryLine {
   title: string;
 }
 
+export type ReleaseArea =
+  | "agent-chat"
+  | "browser"
+  | "sidebar"
+  | "terminal"
+  | "workspaces"
+  | "settings"
+  | "updates"
+  | "general";
+
+/** Editorial news only. Raw commit subjects never enter this list. */
+export interface UserNote {
+  area: ReleaseArea;
+  title: string;
+  prs: number[];
+}
+
 /** One change of a build: its title, author and pull request (the provider fills these from the
     commit subjects when older notes carry none, `ReleaseNotes.changeItems`). */
 export interface ChangeItem {
@@ -78,6 +96,8 @@ export interface ReleaseNotes {
   build: string;
   shortVersion: string;
   date: string;
+  publishedAt?: string;
+  userNotes?: UserNote[];
   highlights: Highlight[];
   changes: string[];
   items?: ChangeItem[];

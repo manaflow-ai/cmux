@@ -12,6 +12,7 @@ import type { KeyboardEvent } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView } from "./model";
+import { buildLabel } from "./buildLabel";
 import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, type PartsContext } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes } from "./types";
@@ -50,6 +51,10 @@ function SpanSection({ s, fresh, ctx }: { s: ChangelogSnapshot; fresh: IndexEntr
   const pending = fresh.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
   const view = mergedView(loaded, ctx.strings.language);
   const span = s.span!;
+  const label = (version: string, fallback: string) => {
+    const build = s.builds.find((b) => b.shortVersion === version);
+    return build ? buildLabel(build, ctx.strings.language) : ctx.strings.t(fallback);
+  };
   return (
     <section className="clj-section clj-span" data-testid="changelog.sinceLastUpdate" aria-labelledby="clj-span-title">
       <h1 className="clj-title" id="clj-span-title">
@@ -58,12 +63,14 @@ function SpanSection({ s, fresh, ctx }: { s: ChangelogSnapshot; fresh: IndexEntr
       <div className="cl-builds">
         {span.from ? (
           <>
-            <span className="cl-build">{span.from}</span>
+            <span className="cl-build" title={span.from}>
+              {label(span.from, "changelog.page.previousBuild")}
+            </span>
             <span aria-hidden="true"> → </span>
           </>
         ) : null}
-        <span className="cl-build" data-testid="changelog.updatedTo">
-          {span.to}
+        <span className="cl-build" data-testid="changelog.updatedTo" title={span.to}>
+          {label(span.to, "changelog.page.thisUpdate")}
         </span>
       </div>
       <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} />
@@ -112,7 +119,7 @@ function DaySection({
           <span className="cl-installed">{ctx.strings.t("changelog.page.current")}</span>
         )}
       </div>
-      <BuildNumbers builds={builds} />
+      <BuildNumbers builds={builds} language={ctx.strings.language} />
       <SectionBody view={view} pending={pending} ctx={ctx} />
     </section>
   );

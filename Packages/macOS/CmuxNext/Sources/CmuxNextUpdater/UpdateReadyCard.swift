@@ -60,7 +60,10 @@ nonisolated public struct UpdateReadyNotes: Equatable, Sendable {
     public init(version: String?, notes: ReleaseNotes?, fullNotesURL: URL?, limit: Int = UpdateReadyNotes.shownChanges) {
         headline = version.map(UpdaterStrings.downloadedHeadline) ?? UpdaterStrings.downloadedHeadlineNoVersion
         keepsRunning = UpdaterStrings.keepsRunning
-        let all = notes?.changeItems ?? []
+        // Raw commit subjects remain behind All changes, including older builds.
+        let all = notes?.userNotes?.map { note in
+            ReleaseNotes.ChangeItem(title: note.title, pr: note.prs.first)
+        } ?? []
         changes = Array(all.prefix(max(0, limit)))
         whatsChangedTitle = changes.isEmpty ? nil : UpdaterStrings.whatsChanged
         moreCount = all.count - changes.count
@@ -70,7 +73,7 @@ nonisolated public struct UpdateReadyNotes: Equatable, Sendable {
         } else if moreCount > 0 {
             moreTitle = UpdaterStrings.moreChanges(moreCount)
         } else {
-            moreTitle = notes == nil ? UpdaterStrings.releaseNotes : nil
+            moreTitle = UpdaterStrings.seeAllChanges
         }
     }
 }

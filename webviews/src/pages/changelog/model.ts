@@ -1,18 +1,30 @@
 // One release as the page shows it (cx-urd.61): an optional hero (the release's lead change, with
-// its media and action) and the rest grouped New / Improved / Fixed / Security, then the raw
+// its media and action) and the rest grouped by product area, then the raw
 // commit subjects. The notes carry up to three sources, best first: the release's What's New
-// document, the human highlights, the short summary lines. Pure: no DOM, no state.
+// document, the human highlights, the editorial PR notes. Pure: no DOM, no state.
 import type {
   ChangeItem,
   Highlight,
   IndexEntry,
   LocalizedText,
   ReleaseNotes,
+  ReleaseArea,
   WhatsNewCategory,
   WhatsNewEntry,
 } from "./types";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
+
+export const AREA_ORDER: readonly ReleaseArea[] = [
+  "agent-chat",
+  "browser",
+  "sidebar",
+  "terminal",
+  "workspaces",
+  "settings",
+  "updates",
+  "general",
+];
 
 export interface MediaRef {
   /** Per color scheme; a highlight's single picture serves both. */
@@ -25,6 +37,8 @@ export interface MediaRef {
 export interface ReleaseItem {
   id: string;
   category: WhatsNewCategory;
+  area?: ReleaseArea;
+  prs?: number[];
   title: string;
   summary: string;
   media?: MediaRef;
@@ -35,7 +49,7 @@ export interface ReleaseItem {
 
 export interface ReleaseView {
   hero?: ReleaseItem;
-  groups: { category: WhatsNewCategory; items: ReleaseItem[] }[];
+  groups: { area: ReleaseArea; items: ReleaseItem[] }[];
   /** Every change (titles with their pull requests), shown folded. */
   changes: ChangeItem[];
   /** Every change the release lists (hero and groups), for counts. */
@@ -96,13 +110,6 @@ function fromHighlight(highlight: Highlight): ReleaseItem {
   };
 }
 
-function summaryCategory(group: string): WhatsNewCategory {
-  if (group === "fixed") return "fixed";
-  if (group === "new") return "new";
-  if (group === "security") return "security";
-  return "improved";
-}
-
 /** The lead change: the first New with media, else any item with media. A change without a
     picture stays a row: a paragraph-long headline would outweigh the list (2026-10-12 review). */
 function pickHero(items: ReleaseItem[]): ReleaseItem | undefined {
@@ -120,16 +127,24 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
     seen.add(highlight.title.toLowerCase());
     items.push(fromHighlight(highlight));
   }
-  for (const [index, line] of (notes.summary ?? []).entries()) {
+  // Older `summary` lines were guessed from commit subjects. They stay out of news.
+  for (const [index, line] of (notes.userNotes ?? []).entries()) {
     if (seen.has(line.title.toLowerCase())) continue;
     seen.add(line.title.toLowerCase());
-    items.push({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" });
+    items.push({
+      id: `news-${index}`,
+      category: "improved",
+      area: line.area,
+      prs: line.prs,
+      title: line.title,
+      summary: "",
+    });
   }
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
-  const groups = CATEGORY_ORDER.map((category) => ({
-    category,
-    items: rest.filter((i) => i.category === category),
+  const groups = AREA_ORDER.map((area) => ({
+    area,
+    items: rest.filter((i) => (i.area ?? "general") === area),
   })).filter((g) => g.items.length > 0);
   return { hero, groups, changes: changeItems(notes), count: items.length };
 }
@@ -145,10 +160,12 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
   const views = notes.map((n) => releaseView(n, language));
   const items: ReleaseItem[] = [];
   const seen = new Set<string>();
+  const seenPRs = new Set<number>();
   const add = (item: ReleaseItem | undefined) => {
     const key = item?.title.trim().toLowerCase();
-    if (!item || !key || seen.has(key)) return;
+    if (!item || !key || seen.has(key) || item.prs?.some((pr) => seenPRs.has(pr))) return;
     seen.add(key);
+    item.prs?.forEach((pr) => seenPRs.add(pr));
     items.push(item);
   };
   for (const view of views) {
@@ -157,9 +174,9 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
   }
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
-  const groups = CATEGORY_ORDER.map((category) => ({
-    category,
-    items: rest.filter((i) => i.category === category),
+  const groups = AREA_ORDER.map((area) => ({
+    area,
+    items: rest.filter((i) => (i.area ?? "general") === area),
   })).filter((g) => g.items.length > 0);
   const changeSeen = new Set<string>();
   const changes = views
