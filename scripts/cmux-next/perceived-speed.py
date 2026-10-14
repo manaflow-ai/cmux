@@ -43,16 +43,22 @@ AREA = 0.0005
 QUIET = 0.25
 SCALE = 4
 
-# How a person opens each surface. "prep" runs first and is not measured; "after" closes it.
+# How a person opens each surface. Every run starts from the same place: the base workspace (the
+# bottom one, made at the start of `run`) selected, through actions (not measured). "prep" steps run
+# next, unmeasured; "key" or "action" is the measured trigger; "after" closes what it opened (a page
+# with no tabs, such as Settings, is left by the next run's reset). A step is a key [key, modifiers]
+# or {"action": id}. Cmd-N puts a workspace at the top, so Cmd-1 switches to the newest one.
+RESET = [{"action": "workspace.selectLast"}]
 SURFACES = {
     "new-tab": {"key": ["t", ["command"]], "after": ["w", ["command"]]},
     "new-workspace": {"key": ["n", ["command"]], "after": ["w", ["command"]]},
-    "settings": {"key": [",", ["command"]], "after": ["w", ["command"]]},
-    "palette": {"key": ["p", ["command", "shift"]], "after": ["escape", []]},
-    "terminal": {"action": "newTab.ofKind", "args": {"kind": "terminal"}, "after": ["w", ["command"]]},
-    "browser": {"action": "newTab.ofKind", "args": {"kind": "browser"}, "after": ["w", ["command"]]},
-    "whats-new": {"action": "updates.whatsNew", "after": ["w", ["command"]]},
-    "workspace-switch": {"prep": ["n", ["command"]], "key": ["1", ["command"]], "after": None},
+    "settings": {"key": [",", ["command"]], "after": None},
+    "palette": {"action": "commandPalette", "after": ["escape", []]},
+    "terminal": {"key": ["`", ["control"]], "after": ["w", ["command"]]},
+    "browser": {"key": ["l", ["command", "shift"]], "after": ["w", ["command"]]},
+    "whats-new": {"action": "updates.whatsNew", "after": None},
+    "workspace-switch": {"prep": [["n", ["command"]], {"action": "workspace.selectLast"}], "key": ["1", ["command"]],
+                         "after": ["w", ["command"]]},
 }
 
 
@@ -169,20 +175,24 @@ class App:
         return self.call("debug.key", {"key": key, "modifiers": modifiers})
 
 
+def step(app, spec):
+    if isinstance(spec, dict):
+        return app.call("action.run", {"id": spec["action"], **({"args": spec["args"]} if spec.get("args") else {})})
+    return app.key(*spec)
+
+
 def run_surface(app, name, spec, folder, seconds, lead):
-    if spec.get("prep"):
-        app.key(*spec["prep"])
-        time.sleep(1.5)
+    for prep in RESET + list(spec.get("prep") or []):
+        step(app, prep)
+        time.sleep(0.8)
+    time.sleep(0.7)
     reply = app.call("debug.window_record", {"dir": folder, "seconds": seconds})
     if not isinstance(reply, dict) or reply.get("error"):
         return {"error": f"debug.window_record: {reply}"}
     started = time.monotonic()
     time.sleep(lead)
     trigger = time.monotonic() - started
-    if "key" in spec:
-        app.key(*spec["key"])
-    else:
-        app.call("action.run", {"id": spec["action"], **({"args": spec["args"]} if spec.get("args") else {})})
+    step(app, spec["key"] if "key" in spec else spec)
     time.sleep(seconds - lead + 0.8)
     with open(os.path.join(folder, "meta.json"), "w") as f:
         json.dump({"surface": name, "trigger": trigger, "spec": spec}, f)
@@ -261,11 +271,19 @@ def main():
         print(table(opts.outs))
         return 0
     app = App(opts.socket)
+    app.key("n", ["command"])  # the base workspace every run starts from
+    time.sleep(1.5)
     for name in opts.surface or sorted(SURFACES):
         for n in range(opts.runs):
             folder = os.path.join(os.path.abspath(opts.out), f"{name}-{n + 1}")
             os.makedirs(folder, exist_ok=True)
-            print(name, n + 1, json.dumps(run_surface(app, name, SURFACES[name], folder, opts.seconds, opts.lead)), flush=True)
+            try:
+                result = run_surface(app, name, SURFACES[name], folder, opts.seconds, opts.lead)
+            except OSError as error:  # the app quit (a DEBUG main-thread watchdog stop) or stopped answering
+                print(name, n + 1, json.dumps({"error": f"app socket: {error}"}), flush=True)
+                print(table([opts.out]))
+                return 1
+            print(name, n + 1, json.dumps(result), flush=True)
     print(table([opts.out]))
     return 0
 
