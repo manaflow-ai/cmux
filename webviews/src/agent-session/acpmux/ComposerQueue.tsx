@@ -7,7 +7,7 @@
 // ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
@@ -53,11 +53,6 @@ export function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
-  // Laid over the transcript's foot, but never over a question waiting for an answer: the list's
-  // height is the chat's --acpmux-queue-space, which the permission panel keeps clear (hq #1893).
-  const reserve = useCallback((node: HTMLOListElement | null) => {
-    list.current = node;
-  }, []);
   useEffect(() => {
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
@@ -70,31 +65,6 @@ export function ComposerQueue({
       setEditing(undefined);
     }
   }, [queue, editing, onLost]);
-  // The space stays while the list redraws and goes with the list: cleared at every change, the
-  // transcript's own layout pass could run between the clear and the next set, read the taller
-  // view and scroll its followed reply back by a row (agent-pane-chat-column.test.ts under load).
-  const spaced = useRef<HTMLElement | null>(null);
-  useLayoutEffect(() => {
-    const node = list.current;
-    const chat = node?.closest<HTMLElement>(".acpmux-main") ?? null;
-    if (!node || !chat) {
-      spaced.current?.style.removeProperty("--acpmux-queue-space");
-      spaced.current = null;
-      return;
-    }
-    spaced.current = chat;
-    const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight}px`);
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    update();
-    return () => observer.disconnect();
-  }, [queue, leaving]);
-  useLayoutEffect(
-    () => () => {
-      spaced.current?.style.removeProperty("--acpmux-queue-space");
-    },
-    [],
-  );
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
@@ -278,7 +248,7 @@ export function ComposerQueue({
     </>
   );
   return (
-    <ol ref={reserve} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
+    <ol ref={list} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
       {paused && (
         <li className="acpmux-queue-paused">
           <span>{t("composer.queuePaused")}</span>
