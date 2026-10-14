@@ -237,10 +237,13 @@ pub(super) fn session_events(
                 }
                 opened = true;
             }
-            Some("stream_item") if opened && frame["stream_id"] == plan.params["stream_id"] => {
-                if on_wake(Some(&frame["item"])) {
-                    return Ok(());
-                }
+            // An item the caller does not stop on keeps the stream open.
+            Some("stream_item")
+                if opened
+                    && frame["stream_id"] == plan.params["stream_id"]
+                    && on_wake(Some(&frame["item"])) =>
+            {
+                return Ok(());
             }
             Some("stream_end") if opened => return Ok(()),
             _ => {}

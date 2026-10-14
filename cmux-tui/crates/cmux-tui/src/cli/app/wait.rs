@@ -108,7 +108,7 @@ fn waiting_for(method: &str, params: &Value) -> String {
 pub(in crate::cli) fn notes(
     what: &str,
     template: &'static str,
-    timeout: std::time::Duration,
+    timeout: Duration,
     output: OutputMode,
 ) -> Progress {
     Progress::start(what, template, Some(timeout).filter(|timeout| *timeout >= LONG_WAIT), output)
