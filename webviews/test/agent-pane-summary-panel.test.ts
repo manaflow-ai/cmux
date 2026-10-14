@@ -4,7 +4,8 @@
 //   transcript leaves it; its first row opens a terminal or a browser beside the chat;
 // - hiding it (its close button) is one choice, kept for the next page, until the header's
 //   summary button shows it again;
-// - the chat menu offers New terminal and New browser beside New side chat;
+// - the chat menu offers New terminal and New browser beside New side chat, and all of it fits a
+//   window with room for it;
 // - a narrow pane makes it a popover under that button, closed at first, closed again by a click
 //   in the transcript or Escape.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
@@ -171,6 +172,11 @@ await requireBrowserLane("agent-pane-summary-panel.test.ts", async () => {
     const at = names.indexOf("New terminal");
     expect(at).toBeGreaterThan(-1);
     expect(names[at + 1]).toBe("New browser");
+    // The longer menu still shows its last group (Archive, Close) without scrolling when the
+    // window has room for it.
+    const popup = await box(page, ".acpmux-chat-menu-popover");
+    const last = (await items.last().boundingBox()) ?? { y: 0, height: 0 };
+    expect(last.y + last.height).toBeLessThanOrEqual(popup.y + popup.height);
     await context.close();
   });
 
