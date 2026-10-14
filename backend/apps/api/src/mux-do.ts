@@ -1,4 +1,4 @@
-import type { Domain, Principal } from "@cmux/ownership"
+import type { Domain, OwnerFrame, Principal } from "@cmux/ownership"
 import { mux } from "@cmux/home-core"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
@@ -27,6 +27,23 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
 
   protected maySubscribe(head: mux.MuxHead, principal: Principal): boolean {
     return this.allowed(head, principal)
+  }
+
+  /**
+   * A committed wake (a new queue row, not a duplicate) also goes to the chief's Durable Object brain
+   * (chief-brain/brain-do.ts), where CHIEF_BRAIN_ENABLED is "1". The brain answers only when its owner
+   * turned it on; otherwise it returns at once. Delivery is best effort: the wake row stays in the
+   * queue until the brain (or a brain host) acks it.
+   */
+  protected afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
+    if (op !== "mux.wake" || this.env.CHIEF_BRAIN_ENABLED !== "1") return
+    const result = frames.find((f) => f.t === "result") as { value?: mux.WakeItem | null; replayed?: boolean } | undefined
+    const head = this.boundEngine?.currentState
+    const item = result?.value
+    if (!item || result?.replayed || !head?.agent || !head.owner_user) return
+    const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(head.agent))
+    const wake = { agent: head.agent, owner: head.owner_user, conversation: item.conversation, seq: item.seq, reason: item.reason }
+    this.ctx.waitUntil(brain.wake(wake).then(() => undefined, (e: unknown) => console.warn(JSON.stringify({ msg: "chief_brain.wake_failed", agent: head.agent, error: String(e).slice(0, 200) }))))
   }
 
   /** mux.queue: the head (cursors and pending counts); wake rows come with the snapshot. */
