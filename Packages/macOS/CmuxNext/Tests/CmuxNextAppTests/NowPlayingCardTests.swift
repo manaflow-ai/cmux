@@ -24,6 +24,24 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
+    nonisolated(unsafe) static var npRing: [(UInt64, UInt)] = []
+    static let npDiag: Void = {
+        npRing.reserveCapacity(4096)
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.allActivities.rawValue, true, 0) { _, activity in
+            if NowPlayingCardTests.npRing.count >= 4000 { NowPlayingCardTests.npRing.removeFirst(2000) }
+            NowPlayingCardTests.npRing.append((DispatchTime.now().uptimeNanoseconds, activity.rawValue))
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        atexit {
+            let ring = NowPlayingCardTests.npRing.suffix(40)
+            let last = ring.last?.0 ?? 0
+            let now = DispatchTime.now().uptimeNanoseconds
+            let lines = ring.map { "\(Double(Int64($0.0) - Int64(last)) / 1e6)ms act=\($0.1)" }
+            FileHandle.standardError.write(Data(("NPDIAG atexit +\(Double(now - last) / 1e6)ms after last activity\n" + lines.joined(separator: "\n") + "\n").utf8))
+        }
+    }()
+    init() { _ = Self.npDiag }
+
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
     /// An 8 pt square of color, as PNG.
