@@ -142,10 +142,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     public var body: some View {
         let stamp = MessagesStamp()
         List {
-            HomeSearchField(query: $query)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
             if showsChief {
                 PinnedGrid(session: session)
                     .listRowInsets(EdgeInsets())
@@ -214,8 +210,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.colors.bg.color.ignoresSafeArea())
-        // No visible title (user feedback): the search field and Chief's pin
-        // sit right under the toolbar. The title still names the screen for
+        // Workspaces' search: the native drawer, revealed by a pull-down.
+        .cnxPullDownSearch(text: $query)
+        // No visible title (user feedback): Chief's pin sits right under the
+        // toolbar. The title still names the screen for
         // VoiceOver and the back menu.
         .navigationTitle("Conversations")
         .navigationBarTitleDisplayMode(.inline)
@@ -256,57 +254,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 }
 
-/// The always-visible search field under the large title. iOS 27 collapses
-/// a large title to inline when `.searchable` uses an always-shown drawer
-/// (and hides any other drawer until pulled), so a list row keeps both the
-/// large title and the field on iOS 26 and 27 alike.
-struct HomeSearchField: View {
-    @Binding var query: String
-    @FocusState private var focused: Bool
-    /// Body's line height, scaled with the text size (22 pt at Large).
-    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
-
-    /// 36 pt, or taller when the text needs it (SPEC 1.3).
-    private var height: CGFloat { max(36, lineHeight + 14) }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(theme.colors.label2.color)
-                    .accessibilityHidden(true)
-                TextField("Search", text: $query)
-                    .focused($focused)
-                    .submitLabel(.search)
-                    .autocorrectionDisabled()
-                if !query.isEmpty {
-                    Button { query = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(theme.colors.label3.color)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear")
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: height)
-            .background(theme.colors.surfaceRaised.color, in: .capsule)
-            if focused {
-                Button("Cancel") {
-                    query = ""
-                    focused = false
-                }
-                .foregroundStyle(theme.colors.label.color)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-        }
-        .animation(theme.motion.smooth.animation, value: focused)
-        .padding(.horizontal, 16)
-        .padding(.top, 2)
-        .padding(.bottom, 6)
-    }
-}
-
 /// Messages' pinned conversations: a grid of large avatars with names, a
 /// preview (or typing) bubble above an avatar with something new.
 struct PinnedGrid: View {
@@ -317,7 +264,7 @@ struct PinnedGrid: View {
             pin
                 .frame(maxWidth: .infinity)
                 // The bubble rides above the avatar: room for it, so it
-                // keeps clear of the search field at every size (F3).
+                // keeps clear of the bar and the search drawer at every size (F3).
                 .padding(.top, showsBubble ? 14 + bubbleClearance : 14)
                 .padding(.bottom, 10)
                 .contentShape(.rect)
@@ -349,7 +296,7 @@ struct PinnedGrid: View {
     private var showsBubble: Bool { session.isTyping || showsPreview }
 
     /// Extra top room while a bubble shows, growing with the text (the
-    /// search field does too). Measured round 2: 10 pt left 8 pt at Large
+    /// search drawer above does too). Measured round 2: 10 pt left 8 pt at Large
     /// and 4 pt at AX5; scaled, capped at 18 pt, it leaves at least 6 pt at
     /// every size (R2-7).
     @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10

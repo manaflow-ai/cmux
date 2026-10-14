@@ -263,6 +263,10 @@ extension FeedItem {
                 withAnimation(.cnxSmooth) { store.decline(id) }
             }
             return [decline, answer]
+        case .needsInput:
+            // Answered in the terminal: the decision is opening it.
+            let answer = FeedSwipeAction(id: "answer", title: "Open", systemImage: "terminal", tint: FeedSwipeTint.read, action: open)
+            return [done, answer]
         default:
             return [done, read]
         }

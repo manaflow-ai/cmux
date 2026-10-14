@@ -70,6 +70,9 @@ def running_rig_apps():
         pid = re.search(r"\bpid = (\d+)", entry)
         if not bundle or not pid or not RIG_BUNDLE.search(bundle.group(1)):
             continue
+        # A quit app whose daemons outlive it is listed "exited-with-subordinates": not running.
+        if "exited" in entry:
+            continue
         path = re.search(r'bundle path="([^"]+)"', entry)
         apps.append((int(pid.group(1)), bundle.group(1), path.group(1) if path else "?"))
     return apps

@@ -465,6 +465,8 @@ struct ShellView: View {
         }
         .onAppear {
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
+            // On the model SwiftUI keeps (init also builds throwaway ones).
+            FeedRouting.shared.openTerminal = { [weak shell] item in shell?.openTerminal(item) }
         }
         .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
             shell.attach(live: live)
