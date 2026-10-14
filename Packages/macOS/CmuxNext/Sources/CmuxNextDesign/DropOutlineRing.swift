@@ -22,9 +22,10 @@ public nonisolated struct DropOutlineTunables {
     public static var all: [TunableDescriptor] { [width.descriptor, color.descriptor, fillOpacity.descriptor] }
 }
 
-/// A rounded border exactly inside a drop rect, no fill (tab-dnd, Lawrence
+/// A rounded border exactly inside a drop rect (tab-dnd, Lawrence
 /// 2026-10-04: "id rather just draw the border around where it will be
-/// dropped"). It moves between rects with a Core Animation spring
+/// dropped"), with an optional fill of the same color (`fillOpacity`; the
+/// layout overlay asks for classic's 0.25). It moves between rects with a Core Animation spring
 /// (`Motion.set`): the compositor draws every frame and the main thread
 /// runs no frame clock. Reduce Motion snaps. Add `layer` to a flipped,
 /// layer-backed view; rects are in that view's coordinates.

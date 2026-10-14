@@ -195,7 +195,7 @@ public nonisolated enum DropZoneGeometry {
     public static func classicPaneHighlight(body: CGRect, zone: PaneDropZone, padding: CGFloat = 4) -> CGRect {
         let (x, y, w, h) = (body.minX, body.minY, body.width, body.height)
         let rect: CGRect = switch zone {
-        case .center: body.insetBy(dx: padding, dy: padding)
+        case .center: CGRect(x: x + padding, y: y + padding, width: w - padding * 2, height: h - padding * 2)
         case .left: CGRect(x: x + padding, y: y + padding, width: body.midX - x - padding, height: h - padding * 2)
         case .right: CGRect(x: body.midX, y: y + padding, width: body.maxX - body.midX - padding, height: h - padding * 2)
         case .top: CGRect(x: x + padding, y: y + padding, width: w - padding * 2, height: body.midY - y - padding)
