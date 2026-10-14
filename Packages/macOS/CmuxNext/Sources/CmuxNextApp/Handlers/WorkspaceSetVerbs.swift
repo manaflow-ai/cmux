@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
 
@@ -36,7 +37,7 @@ enum WorkspaceSetVerbs {
         for workspace in members {
             try WorkspaceStructureHandlers.duplicate(context, workspace, browsers: true) { id in
                 guard let ids = copies.add(id), !ids.isEmpty else { return }
-                bridge.groupFlow.newGroup(of: ids.map(SidebarWorkspaceID.init), name: name, byUser: false)
+                bridge.groupFlow.newGroup(of: ids.map { SidebarWorkspaceID($0) }, name: name, byUser: false)
             }
         }
     }

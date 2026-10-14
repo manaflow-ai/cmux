@@ -196,7 +196,8 @@ try:
     capture = rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette-close-all.png")}, timeout=30)
     check("error" not in (capture or {"error": 1}), "the palette shows the query", capture)
     shot("palette-window")
-    rpc("debug.key", {"key": "return"}, timeout=10)
+    # Return in the open palette: its submit key action, run as a person's gesture.
+    print("submit:", json.dumps(rpc("debug.toast", {"perform": "paletteKey.submit"}))[:200], flush=True)
     asked = wait(lambda: next((d for d in dialogs() if "sleep" in json.dumps(d)), None), 10)
     check(bool(asked), "Return in the palette runs Close All Workspaces, which asks (sleep runs)", dialogs())
     shot("confirm-dialog")
@@ -253,13 +254,12 @@ try:
     before = window_ids()
     action("newWindow")
     made = wait(lambda: next((w for w in window_ids() if w not in before), None), 30)
-    # No window argument: the active window (the one just opened).
     replies = mcp([init, {"jsonrpc": "2.0", "method": "notifications/initialized"},
                    {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                    "params": {"name": "app_workspace_close_all", "arguments": {"confirm": True}}}])
+                    "params": {"name": "app_workspace_close_all", "arguments": {"window": made or "", "confirm": True}}}])
     print("mcp call:", json.dumps(replies.get(3))[:300], flush=True)
     check(not ((replies.get(3) or {}).get("result") or {}).get("isError", True), "MCP app_workspace_close_all runs", replies.get(3))
-    check(bool(made) and bool(wait(lambda: made not in window_ids(), 15)), "MCP close-all closes the active window's workspaces (and the window)",
+    check(bool(made) and bool(wait(lambda: made not in window_ids(), 15)), "MCP close-all (window argument) closes that window's workspaces and the window",
           (made, window_ids()))
     action("newWindow")
     wait(lambda: len(window_ids()) >= 2, 30)
