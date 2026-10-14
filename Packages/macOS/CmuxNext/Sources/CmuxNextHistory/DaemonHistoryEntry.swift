@@ -157,7 +157,7 @@ nonisolated extension KeyedDecodingContainer {
     }
 }
 
-extension DaemonHistoryEntry {
+nonisolated extension DaemonHistoryEntry {
     /// A location row's place as the app's location.
     public var trailLocation: HistoryLocation? {
         guard kind == .location, let location else { return nil }
