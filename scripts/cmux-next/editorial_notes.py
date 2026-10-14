@@ -96,7 +96,9 @@ def semantic_tokens(title):
             if len(token) > len(suffix) + 3 and token.endswith(suffix):
                 token = token[:-len(suffix)]
                 break
-        tokens.append(token)
+        token = {"delet": "delete", "profil": "profile", "be": ""}.get(token, token)
+        if token:
+            tokens.append(token)
     return set(tokens)
 
 
