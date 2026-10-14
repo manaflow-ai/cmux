@@ -41,8 +41,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
             cache[key] = data
             return PageResource(data: data, mimeType: "image/png")
         }
-        guard request.prefix == Self.prefix, request.path.count == 1,
-              let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id),
+        guard request.prefix == Self.prefix, let id = Self.backdropID(request), let selection = BackdropSelection(id: id),
               allowed.contains(id) || userImages?.contains(selection) == true else { return nil }
         if let data = cache[id] { return PageResource(data: data, mimeType: "image/png") }
         // Art reads its bundled thumbnail, so works that are not downloaded yet still show. A file
@@ -57,6 +56,15 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         guard let data else { return nil }
         cache[id] = data
         return PageResource(data: data, mimeType: "image/png")
+    }
+
+    /// The id of a `backdrop/<id>` request, read before percent decoding: a macOS wallpaper's id
+    /// (`system:/System/Library/…`) carries its slashes as `%2F`, which `request.path` is split on.
+    private static func backdropID(_ request: PageResourceRequest) -> String? {
+        let components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.percentEncodedPath
+            .split(separator: "/") ?? []
+        guard components.count == 2, components[0] == prefix else { return nil }
+        return components[1].removingPercentEncoding
     }
 
     /// A PNG at most 240 pixels wide of the image file at `url`, decoded by ImageIO at that size.

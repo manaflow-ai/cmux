@@ -213,7 +213,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                   {tile(choice.id, choice.title, t("settingsWindow.backdropPicker.notDownloaded"))}
                   <button
                     type="button"
-                    className="link-button backdrop-get"
+                    className="link-button row-help backdrop-get"
                     onClick={() => void store.openWallpaperSettings()}
                   >
                     {t("settingsWindow.backdropPicker.getInSystemSettings")}

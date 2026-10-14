@@ -926,7 +926,6 @@ mark {
 .backdrop-cell {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -934,11 +933,10 @@ mark {
 }
 
 .backdrop-get {
+  align-self: flex-start;
+  max-width: 100%;
   padding: 0;
-  color: var(--muted-text);
-  font-size: var(--text-detail);
   text-align: left;
-  white-space: normal;
 }
 
 /* Choose Image… (cx-t2x.8): an empty tile with a plus. */
