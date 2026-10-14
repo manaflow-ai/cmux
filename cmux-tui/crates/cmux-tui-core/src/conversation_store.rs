@@ -732,7 +732,13 @@ pub enum ConversationEvent {
     /// state: no rev, and `subscribe` delivers it only to connections whose
     /// principal is `participant` (never the remote relay or
     /// `conversation.events`).
-    Inbox { conversation: String, participant: String, state: inbox::InboxState },
+    Inbox {
+        conversation: String,
+        participant: String,
+        pinned: bool,
+        pin_position: Option<u64>,
+        marked_unread: bool,
+    },
 }
 
 impl ConversationEvent {
@@ -753,16 +759,16 @@ impl ConversationEvent {
                 "on": on,
             }),
             Self::Draft { item, .. } => item.clone(),
-            Self::Inbox { conversation, participant, state } => {
+            Self::Inbox { conversation, participant, pinned, pin_position, marked_unread } => {
                 let mut value = json!({
                     "event": "conversation-inbox-changed",
                     "conversation": conversation,
                     "participant": participant,
+                    "pinned": pinned,
+                    "marked_unread": marked_unread,
                 });
-                if let (Value::Object(fields), Ok(Value::Object(state))) =
-                    (&mut value, serde_json::to_value(state))
-                {
-                    fields.extend(state);
+                if let Some(position) = pin_position {
+                    value["pin_position"] = json!(position);
                 }
                 value
             }

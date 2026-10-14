@@ -295,7 +295,9 @@ pub(super) fn inbox_op(mux: &Mux, client: u64, params: InboxOpParams) -> anyhow:
             Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Inbox {
                 conversation: conversation.clone(),
                 participant: actor.clone(),
-                state: *state,
+                pinned: state.pinned,
+                pin_position: state.pin_position,
+                marked_unread: state.marked_unread,
             })))
         },
     )?;
