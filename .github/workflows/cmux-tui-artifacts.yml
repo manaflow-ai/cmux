@@ -811,7 +811,12 @@ jobs:
     # The build legs' route: the owned side lane on attempt 1, the PR pool on a
     # rerun. Every same-repo branch push runs this job, so naming the PR pool
     # here queued them on Blacksmith at its cap while the minis had room.
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the
+    # reserved promote runners that also run cmux-next.yml's Release compile:
+    # these tests gate the nightly-next promotion, so they never wait for the
+    # shared side pool. Clearing the variable rolls it back. The fork gate
+    # stays first (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
