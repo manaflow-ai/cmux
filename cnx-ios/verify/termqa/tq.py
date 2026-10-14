@@ -277,7 +277,7 @@ def paste_composer(text, send=True):
 
 def max_item(text):
     import re
-    nums = [int(m) for m in re.findall(r"(?m)^\s*(\d{1,4})\. ", text)]
+    nums = [int(m) for m in re.findall(r"(?m)^\s*(\d{1,4})\.(?:\s|$)", text)]
     return max(nums) if nums else None
 
 
@@ -313,7 +313,12 @@ def motion_stats(video, start=None, dur=None, bottom=0.8):
                        + (["--start", str(start)] if start is not None else []) + (["--dur", str(dur)] if dur else []),
                        capture_output=True, text=True)
     lines = r.stdout.strip().splitlines()
-    shifts = [(float(l.split()[0][:-1]), int(l.split()[2][:-2])) for l in lines if " shift " in l]
+    import re
+    shifts = []
+    for l in lines:
+        m = re.match(r"\s*([\d.]+)s\s+shift\s+([+-]?[\d.]+)", l)
+        if m:
+            shifts.append((float(m.group(1)), float(m.group(2))))
     return {"summary": lines[-1] if lines else r.stderr[-300:], "down": [x for x in shifts if x[1] > 0],
             "moves": len(shifts)}
 
@@ -405,7 +410,7 @@ def lifecycle(tag):
     v = rec_start(f"{tag}-lifecycle")
     s.home(); time.sleep(15)
     s.launch(BUNDLE, terminate=False); time.sleep(6)
-    res["after_background"] = compare_bottom(4)
+    res["after_background"] = compare_bottom(8)
     s.tap_q(label="Tabs", kind="Button"); time.sleep(2)
     c = [e for e in s.find(kind="Button") if (e.label or "").startswith("e2e-t2")]
     if c:
@@ -416,10 +421,10 @@ def lifecycle(tag):
     if c:
         s.tap_el(c[0])
     time.sleep(5)
-    res["after_tab_switch"] = compare_bottom(4)
+    res["after_tab_switch"] = compare_bottom(8)
     rsh('pkill -9 -f "cnx-e2e-604fc689.app/Contents/Resources/bin/cnx-hostd"')
     time.sleep(12)
-    res["after_link_drop"] = compare_bottom(4)
+    res["after_link_drop"] = compare_bottom(8)
     rec_stop()
     res["motion"] = motion_stats(v, start=1.5)
     return res

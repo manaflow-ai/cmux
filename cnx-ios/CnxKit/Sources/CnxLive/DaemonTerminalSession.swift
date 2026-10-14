@@ -228,7 +228,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // The replay rebuilds the screen and scrollback. The reset also
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
-            log.notice("surface \(self.surface, privacy: .public): mirror reset for an attach (everAttached \(self.everAttached, privacy: .public))")
+            log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
             setAlternate(false)
             handler?(.output(Data("\u{1B}c".utf8)))
             let held = heldEvents ?? []
@@ -308,7 +308,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 overruled = nil
             }
         case .resetMirror(let alternate):
-            log.notice("surface \(self.surface, privacy: .public): mirror reset for a resized event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
+            log.notice("surface \(self.surface, privacy: .public): mirror reset cause=resized-event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
             setAlternate(alternate)
             handler?(.output(Data("\u{1B}c".utf8)))
         case .detached(let reason):
@@ -361,6 +361,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 switch next {
                 case .size(let columns, let rows):
                     cmd = "resize-surface"
+                    log.notice("surface \(surface, privacy: .public): resize-surface sent \(columns, privacy: .public)x\(rows, privacy: .public) cause=\(self.everAttached && self.attachRetries == 0 ? "requested" : "attach", privacy: .public)")
                     reply = try await client.request(cmd, params: ["surface": surface, "cols": columns, "rows": rows])
                 }
                 if let error = Self.error(in: reply) {

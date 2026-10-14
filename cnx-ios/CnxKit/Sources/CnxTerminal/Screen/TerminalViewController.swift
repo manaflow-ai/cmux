@@ -551,13 +551,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // and replays for one tab open (termqa D9).
         switch resizeSettle.measured(.init(columns: columns, rows: rows)) {
         case .sendNow(let size):
-            sendResize(size, why: "first size")
+            sendResize(size, why: "first")
         case .wait:
             settleTask?.cancel()
             settleTask = Task { @MainActor [weak self] in
                 try? await ContinuousClock().sleep(for: TerminalResizeSettle.settle)
                 guard let self, !Task.isCancelled, let size = self.resizeSettle.settled() else { return }
-                self.sendResize(size, why: "held \(TerminalResizeSettle.settle)")
+                self.sendResize(size, why: "settled")
             }
         case .nothing:
             if resizeSettle.pending == nil { settleTask?.cancel() }
@@ -565,7 +565,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
-        sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) (\(why, privacy: .public); TUI \(self.model.isTUI, privacy: .public))")
+        sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
     }
 
@@ -692,7 +692,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .output(let data):
             let isReset = data == Self.mirrorReset
             if isReset {
-                sizingLog.notice("mirror reset (the session's replay follows)")
+                sizingLog.notice("mirror reset cause=session-reset (the session's replay follows)")
                 freezeLastFrame()
                 // The rows being read are rebuilt from the replay: back to the
                 // prompt once it is laid out (user report 2026-10-14).
