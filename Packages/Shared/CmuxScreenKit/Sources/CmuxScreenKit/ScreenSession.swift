@@ -248,6 +248,17 @@ public final class ScreenSession {
         }
     }
 
+    /// Connects again under the reconnect policy: a failed attempt retries
+    /// with backoff before the error shows. For a change that needs a new
+    /// connection (the relay setting), where the host may still be dropping
+    /// the old one.
+    public func reconnect() {
+        reconnectTask?.cancel()
+        reconnectAttempts = 0
+        isReconnecting = true
+        connect()
+    }
+
     /// The app came back to the foreground: a stream that dropped while it
     /// was suspended reconnects right away.
     public func resumeIfNeeded() {

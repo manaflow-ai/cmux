@@ -216,11 +216,15 @@ public final class MacScreenPane {
     /// now on; a running or starting stream reconnects to apply it.
     public func setRelayOnly(_ on: Bool) {
         guard let session, session.relayOnly != on else { return }
-        // Only a running stream (or one coming back) reconnects; a new or stopped tab just takes the setting.
-        let running = session.stream != nil || session.isReconnecting
+        // A running, returning or failed stream reconnects on the new path (with
+        // retries: the host may still be dropping the old connection); a new tab,
+        // or one the person disconnected, just takes the setting.
+        var failed = false
+        if case .failed = session.phase { failed = true }
+        let running = session.stream != nil || session.isReconnecting || failed
         session.relayOnly = on
         model.relayOnly = on
-        if running, !stoppedByPerson { session.connect() }
+        if running, !stoppedByPerson { session.reconnect() }
     }
     #endif
 
