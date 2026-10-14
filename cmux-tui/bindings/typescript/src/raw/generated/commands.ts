@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6. */
+/* cmux-tui mux protocol 12, IR 63b0df7a776267c3d7bddccc9c36fd5efc7ad0a9122bdbb7882dbbfe3d20e8eb. */
 
 
 import type * as T from "./types.js";
@@ -493,6 +493,19 @@ export interface ConversationAgentTokenRequest extends CmuxRequestBase {
 export type ConversationAgentTokenResult = {
   "participant": string;
   "token": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationAttachmentLinkRequest extends CmuxRequestBase {
+  cmd: "conversation-attachment-link";
+  "conversation": string;
+  "hash": string;
+  "name"?: (string) | null;
+  "variant"?: (string) | null;
+}
+export type ConversationAttachmentLinkResult = {
+  "expires_in_ms": bigint;
+  "path": string;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -2663,6 +2676,7 @@ export type CmuxRequest =
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
   | ConversationAgentTokenRequest
+  | ConversationAttachmentLinkRequest
   | ConversationAttachmentReadRequest
   | ConversationAttachmentUploadRequest
   | ConversationBindRequest
@@ -3283,6 +3297,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-attachment-link": {
+    request: ConversationAttachmentLinkRequest;
+    result: ConversationAttachmentLinkResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "ws-attachments-v1";
     stream: null;
   };
   "conversation-attachment-read": {

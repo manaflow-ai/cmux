@@ -5,11 +5,14 @@
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
+import { AttachmentService } from "./attachmentService";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, threadOf } from "./model";
 import { RunBook } from "./runs";
 import {
   HomeOps,
+  type HomeAttachment,
+  type HomeAttachmentSupport,
   type HomeConversation,
   type HomeEventBatch,
   type HomeHistory,
@@ -53,6 +56,8 @@ export interface PendingSend {
   key: string;
   conversation: string;
   text: string;
+  /** Files the message names, already stored by the owner. */
+  attachments?: readonly HomeAttachment[];
   threadRoot?: string;
   replyTo?: string;
   createdAt: number;
@@ -97,6 +102,8 @@ export interface HomeSnapshot {
   /** Participants typing or writing a reply, by conversation (every conversation, not only the
    * open one): a Chief's row shows it as working. */
   activity: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Which owners take files through this host (asked once at start; absent until it answers). */
+  fileSupport?: HomeAttachmentSupport;
   error?: string;
 }
 
@@ -122,10 +129,14 @@ export class HomeChannelsStore {
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
 
+  /** Uploads and reads of attachments through this store's client (none without a client). */
+  readonly attachments: AttachmentService | undefined;
+
   constructor(
     private readonly client: PageClient | null,
     private readonly carry: PendingCarry = new PendingCarry(),
   ) {
+    this.attachments = client ? new AttachmentService(client) : undefined;
     this.snapshot = {
       connection: client ? "connecting" : "offline",
       loading: client !== null,
@@ -162,6 +173,7 @@ export class HomeChannelsStore {
   }
 
   private async begin(client: PageClient): Promise<void> {
+    void this.attachments?.support().then((fileSupport) => this.set({ fileSupport }));
     try {
       this.stops.push(
         await subscribePageStreams(client, {
@@ -411,16 +423,22 @@ export class HomeChannelsStore {
    * or any reply: threads nest without a limit). Optimistic: the message shows at once as pending
    * and the composer clears; the owner's event replaces it. Resolves false only when nothing was
    * sent (no conversation, empty text). */
-  async send(text: string, thread?: string, parent?: string): Promise<boolean> {
+  async send(
+    text: string,
+    thread?: string,
+    parent?: string,
+    attachments?: readonly HomeAttachment[],
+  ): Promise<boolean> {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
-    if (!this.client || !conversation || !trimmed) return false;
+    if (!this.client || !conversation || (!trimmed && !attachments?.length)) return false;
     const pending: PendingSend = {
       key: this.key("send"),
       conversation,
       text: trimmed,
       createdAt: Date.now(),
       failed: false,
+      ...(attachments?.length ? { attachments } : {}),
       ...(thread ? { threadRoot: thread } : {}),
       ...(parent ? { replyTo: parent } : {}),
     };
@@ -448,6 +466,7 @@ export class HomeChannelsStore {
       await this.client.call(HomeOps.send, {
         conversation: pending.conversation,
         text: pending.text,
+        attachments: pending.attachments,
         threadRoot: pending.threadRoot,
         replyTo: pending.replyTo,
         idempotencyKey: pending.key,

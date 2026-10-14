@@ -89,7 +89,9 @@ export default defineConfig({
           CHIEF_BRAIN_CLAUDE_URL: "https://claude.test/api/claude-david",
           CHIEF_BRAIN_CLAUDE_REFRESH_URL: "https://auth.test/api/v1/auth/sessions/current/refresh",
           CHIEF_BRAIN_CLAUDE_STACK_AUTH: JSON.stringify({ accessToken: fakeJwt(1), refreshToken: "test-refresh-token-not-real" }),
-          CHIEF_BRAIN_CLAUDE_OWNERS: [testUser("brain-claude-ok"), testUser("brain-claude-fail")].join(","),
+          CHIEF_BRAIN_CLAUDE_OWNERS: testUser("brain-claude-ok"),
+          // The second allowed owner comes from the no-deploy list (a secret on staging).
+          CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA: testUser("brain-claude-fail"),
           CHIEF_BRAIN_FALLBACK_MODEL: "fake",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
