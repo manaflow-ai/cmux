@@ -77,7 +77,10 @@ final class ShellModel {
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
         self.mockMode = mockMode
         #if DEBUG
-        let mock = MockWorkspaceCreationBackend()
+        // `-cnx-mock-create-delay <seconds>` holds mock creations open, so
+        // the list's pending row can be seen (verify/record-wsdesign.sh).
+        let delay = UserDefaults.standard.double(forKey: "cnx-mock-create-delay")
+        let mock = delay > 0 ? MockWorkspaceCreationBackend(latency: .seconds(delay)) : MockWorkspaceCreationBackend()
         mockCreation = mock
         offlineCreation = mockMode ? mock : UnavailableWorkspaceCreationBackend()
         #else

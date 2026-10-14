@@ -146,12 +146,24 @@ public final class AppStore {
         return workspaces.filter { macIDs.contains($0.macID) }
     }
 
-    /// The tab a workspace opens to: the last one used on this device, else its first tab.
+    /// The tab a workspace opens to: the last one used on this device, else
+    /// the tab on screen on the Mac, else its first tab.
     public func openingTab(for workspace: Workspace) -> WorkspaceTab? {
         if let id = lastTabByWorkspace[workspace.id], let tab = workspace.tabs.first(where: { $0.id == id }) {
             return tab
         }
+        if let id = workspace.activeTabID, let tab = workspace.tabs.first(where: { $0.id == id }) {
+            return tab
+        }
         return workspace.tabs.first
+    }
+
+    /// When this device last opened each workspace (this session): "Done"
+    /// stays cleared until the workspace has newer activity.
+    public private(set) var seenAt: [String: Date] = [:]
+
+    public func markSeen(_ workspaceID: String, at date: Date = Date()) {
+        seenAt[resolvedWorkspaceID(workspaceID)] = date
     }
 
     /// Records the tab on screen in a workspace (every activation).

@@ -56,8 +56,12 @@ struct WorkspacesScreen: View {
     let shell: ShellModel
 
     var body: some View {
+        list
+    }
+
+    private var list: some View {
         @Bindable var shell = shell
-        NavigationStack(path: $shell.workspacesPath) {
+        return NavigationStack(path: $shell.workspacesPath) {
             WorkspacesList(
                 store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
                 reconnect: shell.live.map { live in

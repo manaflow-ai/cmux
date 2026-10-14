@@ -60,6 +60,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case subagent(AgentSubagentChange)
     /// An update from a subagent's own session (`_meta.acpmux.subagent`).
     case subagentUpdate(subagentID: String, ACPSessionUpdate)
+    /// Several records applied as one change (a replayed history), so no
+    /// half-replayed state (a past turn still "Working") is ever on screen.
+    case batch([AgentSessionEvent])
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:

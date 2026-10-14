@@ -219,6 +219,41 @@ struct MockDialer: MacLinkDialer {
         #expect(second.workspaces[0].lastActivityAt == earlier)
     }
 
+    @Test func tabsCarryTheirAgentStateAndTheMacsActiveTab() throws {
+        var agents = AgentStates()
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude")
+        agents.pending["sess-1"] = true
+        let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        let ws = tree.workspaces[0]
+        // The terminal runs Claude; the conversation tab has an open permission.
+        #expect(ws.tabs.map(\.agentStatus) == [.working, .waiting, nil])
+        #expect(ws.tabs[0].harness == "claude")
+        // The active screen's active pane's tab.
+        #expect(ws.activeTabID == "s7")
+        #expect(tree.workspaces[1].activeTabID == nil)
+        var blocked = AgentStates()
+        blocked.bySurface[7] = AgentState(state: "blocked", agent: "claude")
+        #expect(try DaemonTree(reply: Self.reply, macID: "m", agents: blocked).workspaces[0].tabs[1].agentStatus == .waiting)
+    }
+
+    @Test func activityTimesComeOnlyFromEvents() throws {
+        let start = Date(timeIntervalSince1970: 1000)
+        let first = try DaemonTree(reply: Self.reply, macID: "m", now: start)
+        // First sight is not an activity time.
+        #expect(!first.workspaces[0].hasActivityTime)
+        #expect(first.workspaces[0].lastActivityAt == start)
+        let event = Date(timeIntervalSince1970: 2000)
+        let second = try DaemonTree(reply: Self.reply, macID: "m", previous: first.workspaces, activity: [9: event],
+                                    now: Date(timeIntervalSince1970: 3000))
+        #expect(second.workspaces[0].hasActivityTime)
+        #expect(second.workspaces[0].lastActivityAt == event)
+        #expect(!second.workspaces[1].hasActivityTime)
+        // A known time is kept when no newer event arrives.
+        let third = try DaemonTree(reply: Self.reply, macID: "m", previous: second.workspaces, now: Date(timeIntervalSince1970: 4000))
+        #expect(third.workspaces[0].hasActivityTime)
+        #expect(third.workspaces[0].lastActivityAt == event)
+    }
+
     @Test func errorReplyThrows() {
         let reply = Data(#"{"id":"m1","ok":false,"error":"list-workspaces is not available to a phone","error_code":"forbidden"}"#.utf8)
         #expect(throws: DaemonReplyError(message: "list-workspaces is not available to a phone", code: "forbidden")) {
