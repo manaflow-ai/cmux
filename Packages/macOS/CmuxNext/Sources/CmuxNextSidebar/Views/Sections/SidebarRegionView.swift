@@ -82,10 +82,11 @@ final class SidebarRegionView: NSView {
     private var animatesFrames = false
     /// Frames go to their place on the drag's additive spring (`springShow`); a new view is placed at once.
     private var springsFrames = false
-    private var cardLayers: [CALayer] = []
+    /// Card backgrounds by section: a card keeps its layer (and its spring) when sections are added, removed or reordered.
+    private var cardLayers: [LayoutSectionID: CALayer] = [:]
     /// Section lines (lines looks), or under `appearance.borders = none`
-    /// the tonal step: every other section a shade lighter.
-    private var lineLayers: [CALayer] = []
+    /// the tonal step: every other section a shade lighter. By key (the section below a line, or `tone:<section>`).
+    private var lineLayers: [String: CALayer] = [:]
     private var drawsLines = true
 
     init(region: SidebarRegion) {
@@ -281,30 +282,44 @@ final class SidebarRegionView: NSView {
         PointerHover.refresh(in: window)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let oldCards = min(cardLayers.count, layoutResult.cards.count)
-        while cardLayers.count > layoutResult.cards.count { cardLayers.removeLast().removeFromSuperlayer() }
-        while cardLayers.count < layoutResult.cards.count {
+        // Cards and lines are matched by section, not by position: a section added above another
+        // keeps that one's card on its spring instead of moving a neighbour's card into its place.
+        let cards = Dictionary(zip(layoutResult.cardSections, layoutResult.cards), uniquingKeysWith: { a, _ in a })
+        for (id, card) in cardLayers where cards[id] == nil {
+            card.removeFromSuperlayer()
+            cardLayers[id] = nil
+        }
+        for (id, frame) in cards {
+            if let card = cardLayers[id] {
+                if springsFrames { SidebarDragSpring.move(card, to: frame) } else { card.frame = frame }
+                continue
+            }
             let card = CALayer()
             card.cornerCurve = .continuous
-            layer?.insertSublayer(card, at: 0)
-            cardLayers.append(card)
-        }
-        for (index, (card, frame)) in zip(cardLayers, layoutResult.cards).enumerated() {
-            if springsFrames, index < oldCards { SidebarDragSpring.move(card, to: frame) } else { card.frame = frame }
             card.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
+            layer?.insertSublayer(card, at: 0)
+            card.frame = frame
+            cardLayers[id] = card
         }
         drawsLines = Borders.drawsLines
-        let lineFrames = drawsLines ? layoutResult.separators
-            : content.look.separatesSections ? layoutResult.sectionFrames.enumerated().filter { $0.offset % 2 == 1 }.map(\.element) : []
-        let oldLines = min(lineLayers.count, lineFrames.count)
-        while lineLayers.count > lineFrames.count { lineLayers.removeLast().removeFromSuperlayer() }
-        while lineLayers.count < lineFrames.count {
+        let lineFrames: [(String, CGRect)] = drawsLines ? Array(zip(layoutResult.separatorKeys, layoutResult.separators))
+            : content.look.separatesSections
+            ? zip(layoutResult.sectionIDs, layoutResult.sectionFrames).enumerated().filter { $0.offset % 2 == 1 }.map { ("tone:" + $0.element.0.rawValue, $0.element.1) }
+            : []
+        let lines = Dictionary(lineFrames, uniquingKeysWith: { a, _ in a })
+        for (key, line) in lineLayers where lines[key] == nil {
+            line.removeFromSuperlayer()
+            lineLayers[key] = nil
+        }
+        for (key, frame) in lines {
+            if let line = lineLayers[key] {
+                if springsFrames { SidebarDragSpring.move(line, to: frame) } else { line.frame = frame }
+                continue
+            }
             let line = CALayer()
             layer?.insertSublayer(line, at: 0)
-            lineLayers.append(line)
-        }
-        for (index, (line, frame)) in zip(lineLayers, lineFrames).enumerated() {
-            if springsFrames, index < oldLines { SidebarDragSpring.move(line, to: frame) } else { line.frame = frame }
+            line.frame = frame
+            lineLayers[key] = line
         }
         CATransaction.commit()
         needsDisplay = true
@@ -352,12 +367,13 @@ final class SidebarRegionView: NSView {
         performWithTheme {
             // A tiles card takes the next tonal step so it reads as its own
             // shelf above the session list, not one more card.
-            for (index, card) in cardLayers.enumerated() {
-                let fill = layoutResult.tiledCards.contains(index) ? Palette.selectionFill : Palette.hoverFill
+            let tiled = Set(layoutResult.tiledCards.compactMap { layoutResult.cardSections.indices.contains($0) ? layoutResult.cardSections[$0] : nil })
+            for (id, card) in cardLayers {
+                let fill = tiled.contains(id) ? Palette.selectionFill : Palette.hoverFill
                 card.backgroundColor = fill.cgColor
             }
             let lineColor = drawsLines ? Palette.separator : Palette.hoverFill.withAlphaComponent(Palette.hoverFill.alphaComponent * 0.6)
-            for line in lineLayers { line.backgroundColor = lineColor.cgColor }
+            for line in lineLayers.values { line.backgroundColor = lineColor.cgColor }
         }
     }
 

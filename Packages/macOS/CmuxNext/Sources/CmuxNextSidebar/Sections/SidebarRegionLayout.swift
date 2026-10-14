@@ -78,11 +78,18 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
     public var cards: [CGRect]
     /// Indices into `cards` of tiles sections, which take a stronger step.
     public var tiledCards: Set<Int> = []
+    /// The section of each card, in `cards` order (a view keeps a card's layer by its section).
+    public var cardSections: [LayoutSectionID] = []
     /// Lines between sections (lines looks).
     public var separators: [CGRect]
+    /// The key of each line, in `separators` order: the section below it (`leadingSeparatorKey` for the first line).
+    public var separatorKeys: [String] = []
+    public static let leadingSeparatorKey = "leading"
     /// Each shown section's full-width frame, in order (the tonal step
     /// under `appearance.borders = none`).
     public var sectionFrames: [CGRect]
+    /// The section of each frame, in `sectionFrames` order.
+    public var sectionIDs: [LayoutSectionID] = []
     public var height: CGFloat
     /// Height of the first `maxRows` rows of each section (the content a
     /// pinned region shows before it scrolls), summed.
@@ -110,11 +117,13 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         var capped = y
         if m.leadingSeparator, look.separatesSections {
             result.separators.append(CGRect(x: 0, y: (y - m.lineWidth) / 2, width: width, height: m.lineWidth))
+            result.separatorKeys.append(leadingSeparatorKey)
         }
         for (index, section) in shown.enumerated() {
             if index > 0 {
                 if look.separatesSections {
                     result.separators.append(CGRect(x: 0, y: y + (m.sectionGap - m.lineWidth) / 2, width: width, height: m.lineWidth))
+                    result.separatorKeys.append(section.id.rawValue)
                 }
                 y += m.sectionGap
                 capped += m.sectionGap
@@ -160,8 +169,10 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 y += m.cardPadding
                 if tiled { result.tiledCards.insert(result.cards.count) }
                 result.cards.append(CGRect(x: x, y: top, width: innerWidth, height: y - top))
+                result.cardSections.append(section.id)
             }
             result.sectionFrames.append(CGRect(x: 0, y: top, width: width, height: y - top))
+            result.sectionIDs.append(section.id)
             capped += sectionCapped
             if tiled {
                 y += m.sectionGap
