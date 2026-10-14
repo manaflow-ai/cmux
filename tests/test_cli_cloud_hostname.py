@@ -62,10 +62,17 @@ class CloudHostnameTests(unittest.TestCase):
             str(root / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/RemoteClientDeviceName.swift"),
             "-o", str(temporary / "libCmuxFoundation.dylib"),
         ], check=True, capture_output=True)
+        subprocess.run([
+            "xcrun", "swiftc", "-swift-version", "6", "-warnings-as-errors",
+            "-emit-library", "-emit-module", "-module-name", "CmuxCloudMachines",
+            "-emit-module-path", str(temporary / "CmuxCloudMachines.swiftmodule"),
+            str(root / "Packages/macOS/CmuxCloudMachines/Sources/CmuxCloudMachines/CloudTuiDeviceStore.swift"),
+            "-o", str(temporary / "libCmuxCloudMachines.dylib"),
+        ], check=True, capture_output=True)
         fixture = temporary / "cloud-hostname"
         subprocess.run([
             "xcrun", "swiftc", "-swift-version", "6", "-warnings-as-errors",
-            "-I", str(temporary), "-L", str(temporary), "-lCmuxFoundation",
+            "-I", str(temporary), "-L", str(temporary), "-lCmuxFoundation", "-lCmuxCloudMachines",
             "-Xlinker", "-rpath", "-Xlinker", str(temporary),
             str(root / "Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiClientPaths.swift"),
             str(root / "tests/fixtures/CloudHostnameFixture.swift"), "-o", str(fixture),

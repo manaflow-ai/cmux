@@ -1,5 +1,5 @@
 import CmuxCore
-import CmuxCloudTui
+import CmuxCloudMachines
 import CmuxFoundation
 import Foundation
 
@@ -78,14 +78,14 @@ extension CMUXCLI {
 
     // MARK: - local state
 
-    private static var vmTuiClientPaths: CloudTuiClientPaths {
-        CloudTuiClientPaths()
+    private static var vmTuiDeviceStore: CloudTuiDeviceStore {
+        CloudTuiDeviceStore(home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
     }
 
     /// Per-Mac cmux-tui client state (device key, known daemons), separate from any
     /// interactive `cmux-tui` the person uses so machines never share identity.
     static func vmTuiClientStateDir() -> URL {
-        vmTuiClientPaths.stateDir
+        vmTuiDeviceStore.stateDir
     }
 
     /// The client bundled beside this CLI (`Contents/Resources/bin/cmux-tui`, installed by
@@ -280,7 +280,7 @@ extension CMUXCLI {
         client: SocketClient
     ) throws -> VMTuiOpenResult {
         let startedAt = Date()
-        let known = Self.vmTuiClientPaths.loadDevices()[vmId]
+        let known = Self.vmTuiDeviceStore.loadDevices()[vmId]
         // Probe the local client before asking the app for connection data. Its
         // WireGuard capability is mandatory for every Cloud VM route.
         let clientPath = locateCmuxTuiClient()
@@ -323,8 +323,8 @@ extension CMUXCLI {
             }
         }
         // Later opens reuse the private route with no control-plane call.
-        Self.vmTuiClientPaths.saveAttachState(
-            deviceFingerprint: known?.deviceFingerprint ?? CloudTuiClientPaths.carrierDeviceMarker,
+        Self.vmTuiDeviceStore.saveAttachState(
+            deviceFingerprint: known?.deviceFingerprint ?? CloudTuiDeviceStore.carrierDeviceMarker,
             route: route,
             for: vmId
         )
