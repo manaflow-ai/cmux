@@ -542,9 +542,9 @@ export class AcpmuxDirectClient {
   /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
   /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
   private queuedSends = new Set<string>();
-  /// The steer the agent has not read yet: its row, and the reply that was streaming when it went
-  /// (that reply's rest still streams above it; a later message means the agent read the steer).
-  private waitingSteer?: { rowId: string; promptId?: string };
+  /// The steers the agent has not read yet, by row (the reply that was streaming when one went
+  /// still streams above it; a later message means the agent read them).
+  private waitingSteers: { rowId: string; promptId?: string }[] = [];
   /// Prompts sent now to an agent that cannot steer (acpmux `queue_order` `next`): each stops the
   /// turn and runs next, so its row reads as sent now.
   private sentNow = new Set<string>();
@@ -848,7 +848,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
     this.queuedSends.clear();
-    this.waitingSteer = undefined;
+    this.waitingSteers = [];
     this.sentNow.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
@@ -1343,6 +1343,7 @@ export class AcpmuxDirectClient {
     const inFlight = new Set(this.optimisticPromptRows.values());
     // Those rows keep their place in the order.
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
+    this.waitingSteers = [];
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
@@ -1492,10 +1493,10 @@ export class AcpmuxDirectClient {
         // message's text starts below (cx-f51kv). Without message ids that end cannot be told.
         if (msg.steer !== true || !this.streamingAssistantMessageId) this.endAssistantSegment();
         this.streamingActivity = undefined;
-        // A newer prompt means any steer before it was read.
-        this.landSteer();
+        // A newer prompt means any steer before it was read; a second steer can come in the same step.
+        if (msg.steer !== true) this.landSteer();
         const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
-        if (steer === "waiting") this.waitingSteer = { rowId: `user-${event.seq}`, promptId };
+        if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
@@ -1727,13 +1728,15 @@ export class AcpmuxDirectClient {
   }
 
   /// Closes the assistant text being streamed, so later text starts a new row below.
-  /// The waiting steer was read: its row says so.
+  /// The waiting steers (or the one `promptId` names) were read: their rows say so.
   private landSteer(promptId?: string): void {
-    const waiting = this.waitingSteer;
-    if (!waiting || (promptId !== undefined && waiting.promptId !== promptId)) return;
-    this.waitingSteer = undefined;
-    const row = this.rows.get(waiting.rowId);
-    if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
+    const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
+    if (!read.length) return;
+    this.waitingSteers = this.waitingSteers.filter((waiting) => !read.includes(waiting));
+    for (const waiting of read) {
+      const row = this.rows.get(waiting.rowId);
+      if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
+    }
   }
 
   private endAssistantSegment(): void {
@@ -1898,6 +1901,7 @@ export class AcpmuxDirectClient {
     // A prompt behind the shown chat's running turn waits in the queue: it shows there from the
     // send on, never first as a transcript bubble that acpmux's `queued` record then moves.
     const waits = !steer && shown === sessionId && this.turnOpen;
+    const generation = this.selectionGeneration;
     if (waits)
       this.queue = [...this.queue.filter((entry) => entry.id !== promptId), queuedEntry(promptId, text, false)];
     else this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
@@ -1921,18 +1925,26 @@ export class AcpmuxDirectClient {
       });
       accept();
       // A steer's answer comes once the agent read it (Claude Code's `steered`) or its turn ended.
-      if (steer && this.selectedSessionId === sessionId && this.waitingSteer?.promptId === promptId) {
+      if (
+        steer &&
+        this.selectedSessionId === sessionId &&
+        this.waitingSteers.some((waiting) => waiting.promptId === promptId)
+      ) {
         this.landSteer(promptId);
         this.emit();
       }
-      // Ran or withdrawn: what it held for its bubble is done with.
+      // Ran or withdrawn: what it held for its bubble and queue row is done with.
+      if (this.queue.some((entry) => entry.id === promptId))
+        this.queue = this.queue.filter((entry) => entry.id !== promptId);
       this.queuedSends.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
       this.promptAccepts.delete(promptId);
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
-      if (queued || waits) {
+      // Only into the chat it was sent in, still shown: its Retry sends there.
+      const here = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+      if (here && (queued || waits)) {
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
         this.optimisticPromptRows.set(promptId, rowId);
         this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
