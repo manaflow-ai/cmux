@@ -233,12 +233,7 @@ impl Hub {
                 Err(_) => return Ok(()),
             }
         };
-        self.start_mode_check(caller, &family, &start).map(|_| ()).map_err(|mut e| {
-            if let Some(d) = e.data.as_mut() {
-                d["debug"] = json!({"where": "pre", "fits": start.preset_fits, "approved": start.preset_approved});
-            }
-            e
-        })
+        self.start_mode_check(caller, &family, &start).map(|_| ())
     }
 
     /// Whether a client that is not the person may start a session of
@@ -352,14 +347,6 @@ impl Hub {
         } else {
             self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), &start)
         };
-        // DEBUG(temporary): why a fitting preset start is refused.
-        let checked = checked.map_err(|mut e| {
-            let a = s.applied.lock().unwrap_or_else(|e| e.into_inner());
-            let dbg = json!({"fits": start.preset_fits, "approved": start.preset_approved,
-                "bound": bound, "resolved": a.preset_resolved, "spawned": a.preset_spawned});
-            if let Some(d) = e.data.as_mut() { d["debug"] = dbg; }
-            e
-        });
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
                 Ok(_) => {
