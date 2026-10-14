@@ -170,6 +170,8 @@
   border-radius: 12px;
   background: var(--agent-page-bg);
   color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
   box-shadow: 0 16px 44px color-mix(in srgb, black 28%, transparent);
 }
 .acpmux-pdf-viewer-bar {
@@ -180,7 +182,8 @@
   padding: 0 10px 0 14px;
   border-bottom: 0.5px solid var(--agent-border);
 }
-.acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; }
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; font-weight: var(--weight-emphasis); }
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-count { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 .acpmux-pdf-viewer-preview {
   display: grid;
   place-items: center;

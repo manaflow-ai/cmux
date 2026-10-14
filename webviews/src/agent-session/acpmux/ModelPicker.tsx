@@ -768,7 +768,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     onAddAgent();
                   }}
                 >
-                  <span aria-hidden="true" className="text-heading leading-none">
+                  <span aria-hidden="true" className="text-title leading-none">
                     +
                   </span>
                 </button>
@@ -783,7 +783,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 type="search"
                 // The picker opens with focus here; its row shows the focus, not a ring inside it.
                 data-focus-ring="none"
-                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
+                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-body text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
                 aria-label={searchText}
                 aria-autocomplete="list"
                 aria-controls={`${menuId}-models`}

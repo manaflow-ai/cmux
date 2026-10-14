@@ -220,7 +220,7 @@
   padding: 6px 8px 2px;
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .ui-separator {

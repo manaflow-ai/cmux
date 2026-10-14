@@ -104,7 +104,18 @@
   color: color-mix(in srgb, currentColor 55%, transparent);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
+}
+/* A menu's shortcut column and its search field use the type scale where the host loads no ui.css (the
+   agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
+:where(.ui-menu-shortcut) {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+:where(.ui-field) {
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
 :where(.ui-separator) {
   height: 1px;
