@@ -2322,7 +2322,17 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
     retry_route = jobs["build"]["with"]["macos_retry_runner"]
     daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
     assert "vars.CI_SIDE_LANE_RUNNER" in build_route
-    assert daemon == build_route, daemon
+    # cx-km8nz: the daemon tests gate the nightly-next promotion, so attempt 1
+    # of a feat-cmux-next push takes the reserved promote runners, after the
+    # fork gate; otherwise the build legs' route.
+    fork_gate = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+    promote = (
+        "vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && "
+        "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
+        "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "
+    )
+    assert fork_gate in build_route
+    assert daemon == build_route.replace(fork_gate, fork_gate + promote, 1), daemon
     assert "github.run_attempt == 1" in daemon
     assert retry_route.split("|| ", 1)[1] in daemon  # a rerun falls back to the PR pool
 
