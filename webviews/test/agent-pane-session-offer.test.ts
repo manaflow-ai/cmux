@@ -65,14 +65,17 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     kind,
     msg,
   });
-  /// acpmux's EventFilter::matches for the attach's kinds (`transcript` holds both offer kinds).
+  /// acpmux's EventFilter::matches for the attach's kinds (`transcript` holds both offer kinds,
+  /// the turn's records and the agent's output).
   const passes = (rec: Record_) =>
     !wanted ||
     wanted.some((k) =>
       k === "all" || k === "mux"
         ? rec.dir === "mux"
         : k === "transcript"
-          ? rec.dir === "mux" && ["user_message", "session_offer", "session_offer_decision"].includes(rec.kind)
+          ? rec.dir === "in" ||
+            (rec.dir === "mux" &&
+              ["user_message", "session_offer", "session_offer_decision", "turn_end", "turn_result"].includes(rec.kind))
           : k === rec.kind,
     );
 
@@ -143,10 +146,25 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(experiment: "on" | "off"): Promise<Page> {
+  async function openChat(experiment: "on" | "off", turnEnded = false): Promise<Page> {
     calls = [];
     seq = 0;
     history = [record("user_message", { text: "Add the upload endpoint" }), record("session_offer", offer)];
+    // The agent answered after its offer, and its turn ended: the turn's work folds away.
+    if (turnEnded) {
+      const update = {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Offered a parallel chat." },
+      };
+      history.push(
+        {
+          ...record("agent_message_chunk", { method: "session/update", params: { sessionId: SESSION, update } }),
+          dir: "in",
+        },
+        record("turn_end", { stopReason: "end_turn" }),
+        record("turn_result", { status: "completed", stopReason: "end_turn" }),
+      );
+    }
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.addInitScript(
       (arm) => localStorage.setItem("cmux.experiments", JSON.stringify({ "session-offer": arm })),
@@ -202,6 +220,14 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       );
       expect(await page.locator(".acpmux-session-offer-title").first().innerText()).toBe(offer.title);
       expect(await chip(page).getByRole("button", { name: "Start" }).count()).toBe(0);
+      await page.close();
+    });
+
+    test("an offer made during a turn stays out of the turn's fold once it ends", async () => {
+      const page = await openChat("on", true);
+      await page.getByText("Offered a parallel chat.").waitFor({ timeout: 10_000 });
+      await chip(page).getByText(offer.title).waitFor({ timeout: 5_000 });
+      expect(await chip(page).getByRole("button", { name: "Start" }).isVisible()).toBe(true);
       await page.close();
     });
 
