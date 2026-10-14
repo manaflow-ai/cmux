@@ -3,6 +3,7 @@ import CnxAgentChat
 import CnxAuth
 import CnxBrowserStream
 import CnxDesign
+import CnxFeed
 import CnxLive
 import CnxModel
 import CnxSettings
@@ -107,6 +108,29 @@ final class ShellModel {
             self?.toast = CnxToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
+        FeedRouting.shared.openTerminal = { [weak self] item in self?.openTerminal(item) }
+    }
+
+    /// A terminal agent's Feed event: its workspace on Workspaces, at that
+    /// terminal tab (as a tap on the workspace row with that tab does).
+    func openTerminal(_ item: FeedItem) {
+        guard let workspace = store.workspace(id: item.workspaceID) else {
+            toast = CnxToast(symbol: "exclamationmark.circle", text: "That workspace is no longer open")
+            return
+        }
+        store.noteOpened(tabID: item.tabID, in: workspace.id)
+        store.markSeen(workspace.id)
+        tab = .workspaces
+        if workspacesPath.last?.id == workspace.id {
+            // Its page is already up, on the tab it had: build it again on this tab.
+            workspacesPath = []
+            Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
+        } else {
+            workspacesPath = [workspace]
+        }
+        if let live, store.teams.flatMap(\.macs).contains(where: { $0.id == workspace.macID && $0.isOnline }) {
+            live.select(macID: workspace.macID)
         }
     }
 

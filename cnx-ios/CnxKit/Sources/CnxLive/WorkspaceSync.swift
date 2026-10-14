@@ -18,6 +18,8 @@ public final class WorkspaceSync {
     public private(set) var lastError: String?
 
     @ObservationIgnored public var onTree: (@MainActor (DaemonTree) -> Void)?
+    /// A notification was posted on the Mac (terminal agents, `cmux notify`).
+    @ObservationIgnored public var onNotification: (@MainActor () -> Void)?
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var refreshing = false
@@ -135,6 +137,9 @@ public final class WorkspaceSync {
             activity[surface] = Date()
             Task { await refresh() }
         case .treeChanged:
+            Task { await refresh() }
+        case .notification:
+            onNotification?()
             Task { await refresh() }
         case .resubscribe:
             Task {

@@ -59,6 +59,8 @@ public final class LiveCoordinator {
     /// may fail, and the app says so.
     public private(set) var relayAvailable: Bool?
     @ObservationIgnored public let feed: LiveFeed
+    /// Terminal agents' events in the Feed (the daemon's notification ledger).
+    @ObservationIgnored public let terminalFeed: TerminalFeed
 
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let api: LiveAPI
@@ -153,16 +155,27 @@ public final class LiveCoordinator {
         link = LinkController(transport: transport, relayOnly: relayOnly, dialer: dialer, clock: clock,
                               accessToken: { try await apiForLink.accessToken($0) })
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
+        terminalFeed = TerminalFeed(store: feedStore)
         link.endpoint = { [weak self] macID in
             guard let self, let teamID = self.registeredTeamID else { return nil }
             return LinkEndpoint(baseURL: self.api.baseURL, teamID: teamID, deviceID: self.identity.link, macDeviceID: macID)
         }
         feed.place = { [weak self] sessionID in self?.place(sessionID: sessionID) }
         feed.hub = acpmux
+        feed.terminal = terminalFeed
+        terminalFeed.request = { [weak self] command, params in
+            guard let client = self?.workspaces.daemon else { throw DaemonReplyError(message: "Not connected") }
+            var fields: [String: Any] = [:]
+            for (key, value) in params { fields[key] = value }
+            return try await client.request(command, params: fields)
+        }
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.replaceAll(archive.load())
-        feedStore.onItemsChange = { [weak self] _ in self?.scheduleFeedSave(archive) }
+        feedStore.onItemsChange = { [weak self] items in
+            self?.scheduleFeedSave(archive)
+            self?.terminalFeed.itemsChanged(items)
+        }
         feedStore.actions = feed
         feedStore.syncState = .connecting
         store.workspaces = []
@@ -180,6 +193,7 @@ public final class LiveCoordinator {
             await Self.prepareLink(link, pairing: pairing, deviceID: deviceID, deviceName: deviceName)
         }
         workspaces.onTree = { [weak self] tree in self?.apply(tree) }
+        workspaces.onNotification = { [weak self] in self?.terminalFeed.notificationPosted() }
         acpmux.onWatchEvent = { [weak self] event in
             guard let self else { return }
             self.feed.handle(event, sessions: self.acpmux.sessions)
@@ -1033,6 +1047,7 @@ public final class LiveCoordinator {
         scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.
         if acpmux.isReady { feed.hydrate(Array(acpmux.sessions.values)) }
+        terminalFeed.treeChanged(tree, macID: macID, connection: workspaces.daemon.map(ObjectIdentifier.init))
     }
 
     @ObservationIgnored private var feedSavePending = false

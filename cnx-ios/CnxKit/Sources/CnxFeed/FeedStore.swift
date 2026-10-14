@@ -13,6 +13,10 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         case permission(ACPPermissionRequest)
         case finished
         case failed
+        /// A terminal agent (Codex, Claude Code in a terminal tab) waits for the
+        /// person: an approval or a question in its TUI. It is answered in the
+        /// terminal, so the item opens the tab instead of answering inline.
+        case needsInput
     }
 
     /// The message this event answers, shown as an iMessage-style quote bubble.
@@ -51,6 +55,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// the card shows it instead of its buttons, and never claims "Allowed"
     /// before the signed answer went out (review m10).
     public var pending: String?
+    /// The event came from a terminal tab (a terminal agent's notification):
+    /// opening it shows the terminal, and it takes no inline reply.
+    public var opensTerminal = false
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -72,7 +79,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         guard resolution == nil else { return false }
         switch kind {
         case .question(let question): return question.isPending
-        case .permission: return true
+        case .permission, .needsInput: return true
         default: return false
         }
     }

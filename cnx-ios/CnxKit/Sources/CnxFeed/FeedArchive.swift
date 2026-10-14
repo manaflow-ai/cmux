@@ -52,13 +52,15 @@ public struct FeedArchive: Sendable {
         var isDone: Bool
         var resolution: String?
         var replies: [String]
+        /// A terminal agent's event (nil in archives before it existed).
+        var opensTerminal: Bool?
 
         init?(_ item: FeedItem) {
             switch item.kind {
             case .response: kind = .response
             case .finished: kind = .finished
             case .failed: kind = .failed
-            case .question, .permission: return nil
+            case .question, .permission, .needsInput: return nil
             }
             id = item.id
             workspaceID = item.workspaceID
@@ -74,6 +76,7 @@ public struct FeedArchive: Sendable {
             isDone = item.isDone
             resolution = item.resolution
             replies = item.replies
+            opensTerminal = item.opensTerminal ? true : nil
         }
 
         var item: FeedItem? {
@@ -91,6 +94,7 @@ public struct FeedArchive: Sendable {
             item.isDone = isDone
             item.resolution = resolution
             item.replies = replies
+            item.opensTerminal = opensTerminal == true
             return item
         }
     }
