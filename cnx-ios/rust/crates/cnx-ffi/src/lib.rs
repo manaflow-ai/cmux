@@ -847,6 +847,16 @@ async fn dial(
     let (ice_servers, socket) =
         tokio::join!(warm().ice_servers(&request.base_url, &request.token, timeline), socket);
     let (socket, reused) = socket?;
+    let mut ice_servers = ice_servers;
+    if std::env::var_os("CNX_DEV_NO_TURN").is_some() {
+        // Measurement support (simulator: SIMCTL_CHILD_CNX_DEV_NO_TURN=1):
+        // no TURN server, so a relay-only WireGuard link rides the backend's
+        // WebSocket relay instead of TURN.
+        for server in &mut ice_servers {
+            server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
+        }
+        ice_servers.retain(|server| !server.urls.is_empty());
+    }
     let options = DialOptions {
         ice_servers,
         include_loopback: request.include_loopback,

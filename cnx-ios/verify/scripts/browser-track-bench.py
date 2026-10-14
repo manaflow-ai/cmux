@@ -7,7 +7,8 @@ the iOS app in ONE headless simulator on this Mac. The Mac's browser tab loads
 bench-page/bench.html, which scrolls itself every frame and shows the Mac's
 wall clock ("mac MM:SS.mmm") and, on each pointerdown, the time it arrived
 ("taps N at MM:SS.mmm"). The phone's measurement overlay shows the phone's
-clock ("phone MM:SS.mmm") and the carrier ("· track" or "· channel"). The
+clock ("phone MM:SS.mmm") and the carrier ("· track", "· wg-rtp" or
+"· channel"). The
 simulator and the Mac app share this Mac's clock, so no offset applies.
 
 Per configuration (carrier x path x loss), from the simulator's recording:
@@ -16,7 +17,14 @@ Per configuration (carrier x path x loss), from the simulator's recording:
 - input to frame: tap sent (host time) -> first video frame showing that tap's
   count (its phone clock), split at the page's own receipt time.
 
-usage: browser-track-bench.py --mac-app APP [--configs track,channel,track-relay,channel-relay,track-loss30]
+Configurations: `[wg-]{track,channel}[-relay|-wss][-loss<permille>]`. A `wg-`
+prefix dials WireGuard (`-cnx.settings.transport wireguard`), whose lane is RTP
+inside the tunnel (overlay label `wg-rtp`); without it the link is WebRTC.
+`-relay` is relay only (TURN when the service offers one); `-wss` is relay only
+with TURN removed on the phone (CNX_DEV_NO_TURN), so WireGuard rides the
+backend's WebSocket relay.
+
+usage: browser-track-bench.py --mac-app APP [--configs track,channel,track-relay,channel-relay,track-loss30,wg-track,wg-channel,wg-track-relay,wg-track-wss,wg-track-loss30]
        [--seconds 12] [--taps 10] [--keep] [--no-build]
 """
 import argparse
@@ -143,13 +151,19 @@ class Bench:
         raise RuntimeError("the streamed page never showed (no overlay or page clock)")
 
     def run_config(self, name, mac, sim, j, out):
-        carrier = "channel" if name.startswith("channel") else "track"
-        relay = "relay" in name
+        wg = name.startswith("wg-")
+        base = name[3:] if wg else name
+        carrier = "channel" if base.startswith("channel") else ("wg-rtp" if wg else "track")
+        wss = "wss" in base
+        relay = "relay" in base or wss
         m = re.search(r"loss(\d+)", name)
         drop = int(m.group(1)) if m else 0
-        self.log(f"=== {name}: carrier {carrier}, relay only {relay}, drop {drop}/1000")
+        self.log(f"=== {name}: transport {'wireguard' if wg else 'webrtc'}, carrier {carrier}, relay only {relay}"
+                 f"{' (no TURN)' if wss else ''}, drop {drop}/1000")
         args = ["-cnx.dev.relayOnly", "YES" if relay else "NO",
+                "-cnx.settings.transport", "wireguard" if wg else "webrtc",
                 "-cnx.dev.browserVideoOnChannel", "YES" if carrier == "channel" else "NO"]
+        sim_env = {"CNX_DEV_NO_TURN": "1"} if wss else None
         if self.a.remote:
             # The Mac app runs on a fleet Mac (browser-track-mac.sh); hostd reads the
             # drop share from its state folder at each new link.
@@ -164,7 +178,7 @@ class Bench:
                 mac.wait_hostd(120)
                 time.sleep(3)
             env = self.hostd_env(mac)
-        sim.launch(BUNDLE, args=args)
+        sim.launch(BUNDLE, args=args, env=sim_env)
         time.sleep(4)
         shown = self.open_bench(j, sim)
         # Wait for the carrier the configuration asks for.
@@ -189,7 +203,8 @@ class Bench:
         time.sleep(1.5)
         sim.record_stop()
         shot = sim.shot(f"{name}-end")
-        result = {"config": name, "carrier_expected": carrier, "relay_only": relay, "drop_permille": drop,
+        result = {"config": name, "transport": "wireguard" if wg else "webrtc", "no_turn": wss,
+                  "carrier_expected": carrier, "relay_only": relay, "drop_permille": drop,
                   "hostd_env": env, "overlay_at_start": shown[:300], "link_status": status,
                   "recording_started_host": rec_t0, "taps_host": taps, "screenshot": shot}
         json.dump(result, open(os.path.join(cfg_dir, "capture.json"), "w"), indent=2)
@@ -225,7 +240,7 @@ class Bench:
             text = texts.get(os.path.basename(p), "")
             mac = re.search(r"mac\s+" + CLOCK, text)
             phone = re.search(r"phone\s+" + CLOCK, text)
-            for c in ("track", "channel"):
+            for c in ("wg-rtp", "track", "channel"):
                 if re.search(rf"\b{c}\b", text):
                     carriers[c] = carriers.get(c, 0) + 1
             if mac and phone:

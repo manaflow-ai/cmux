@@ -52,8 +52,8 @@ TrackBridge (hostd = rd viewer of stream 0)       ReceiverCore
   forced for its own rd viewer (test `browser_video_rides_the_webrtc_track`).
   The phone shows one page at a time, so per-tab tracks would only add
   renegotiation.
-- WireGuard links never offer the lane yet. The `MediaCarrier` seam is in
-  place; the carrier is described below and its stub answers `Unsupported`.
+- WireGuard links carry the same lane as RTP inside the tunnel (option A
+  below, built on `feat-cnx-ios-wgmedia`; section "WireGuard carrier").
 
 ### Mac side: hostd bridges rd to RTP; the host is unchanged
 
@@ -172,12 +172,98 @@ numbers but does not expose them.
 - We would revisit if field data shows the rd controller under-using
   cellular paths, where GCC's probing is stronger.
 
+## WireGuard carrier (built: option A, `feat-cnx-ios-wgmedia`)
+
+The user approved option A below: RTP on the tunnel's datagram path with
+webrtc-rs's `rtp`, `rtcp` and `interceptor` crates, no PeerConnection in the
+tunnel and no SRTP.
+
+```
+Mac: hostd TrackBridge ─▶ VideoOut ─▶ SenderCore ─▶ interceptors ─▶ WgCarrier
+                                                   (resend guard,      │ overlay UDP 7422,
+                                                    NACK responder,    │ RTP = Priority::Media
+                                                    sender reports)    ▼ inside boringtun
+phone: BrowserFrame ◀─ VideoIn ◀─ ReceiverCore ◀─ interceptors ◀─ WgCarrier
+                                                   (NACK generator, TWCC receiver,
+                                                    receiver reports) ─▶ RTCP back, Interactive
+```
+
+- **Carrier** (`cnx-link/src/media/wireguard.rs`, `WgCarrier`). Binds overlay
+  UDP 7422 on the session's `WgNet`, beside TCP 7420 (the link) and UDP 7421
+  (roaming). One task owns the socket: it sends what the writers queue and
+  sorts what arrives into RTP and RTCP by the second byte (RFC 5761). A
+  datagram from another overlay address, or RTP with another SSRC, is
+  dropped and counted.
+- **Interceptors.** The registry the track uses (`interceptor_registry`)
+  is built once per carrier and bound as `RTCRtpSender` and `TrackRemote`
+  do: RTCP writer first (the NACK generator and TWCC receiver start their
+  loops on it), then the RTCP reader, then the local (Mac) or remote (phone)
+  stream with a fixed `StreamInfo` (payload type 102, TWCC id 1, SSRC
+  `0x636e7876`, `nack`, `nack pli`, `ccm fir`, `transport-cc`). Pump tasks
+  read the chains so a reader that stops waiting never loses a packet half
+  way through a chain.
+- **MTU.** The datagram service takes 1232 bytes (1280 minus IPv6 and UDP).
+  The carrier reports a payload limit of 1232 − 12 (RTP) − 24 (extensions:
+  the TWCC block plus room for two more) = 1196 bytes, and `SenderCore`
+  packetizes at the carrier's limit (the WebRTC track keeps 1100). A packet
+  over the limit would be counted and dropped, never fragmented; the tests
+  assert it never happens.
+- **Negotiation.** `wg-init` and `wg-resp` carry `lanes: ["input","video"]`.
+  The Mac binds 7422 before it answers and lists `video` only if that
+  worked; the phone binds before it opens the link stream. Older Mac or
+  phone: no lane, video on the channel (tests below).
+- **Roaming.** The `WgNet` and its sockets survive a roam (only the
+  underlay's UDP socket changes), so nothing is renegotiated. The session
+  counts network changes (its own roam after the rebind, and each endpoint
+  announcement the peer sends on 7421) and the carrier exposes the count
+  (`MediaCarrier::path_changes`). The phone's receiver sends a PLI at once
+  without dropping what it holds; the Mac's sender forgets its in-flight
+  bytes, resets the controller's delay baseline (`on_path_changed`) and asks
+  the source for a keyframe, rate limited together with PLIs, so one
+  keyframe results.
+- **Reused unchanged.** `ReceiverCore` (release on marker, give-up deadline,
+  keyframe gating), hostd's `TrackBridge` (rd to RTP, virtual bottleneck to
+  the VideoToolbox bitrate, ack window and frame skipping, PLI to IDR, tab
+  switching), the cnx-ffi viewer. The overlay names the carrier `wg-rtp`.
+
+### Two fixes to the shared cores, found with the capped-link test
+
+Both affect the WebRTC track too.
+
+1. **NACK storm.** webrtc-rs's generator asks for every missing packet each
+   interval (20 ms) with no retry limit, and the responder resends each time.
+   On a 1.5 Mbit/s bottleneck with a 250 ms queue the resends queued behind
+   the losses they repaired and were lost too: 30 to 55 % loss for four
+   seconds with the target at its 250 kbit/s floor. `media/resend.rs` sits
+   below the responder and lets a sequence number go again only 40 ms after
+   its last send, at most 3 times (libwebrtc bounds resends by RTT and count
+   as well). A packet still missing is the receiver's to give up.
+2. **Controller cadence.** The rd controller cuts 15 % per overusing sample
+   and assumes rd's 50 ms feedback. TWCC comes every 25 ms. `SenderCore` now
+   batches TWCC arrivals into one sample per 50 ms and, after a decrease,
+   holds the next sample for the feedback delay plus 50 ms (100 to 400 ms):
+   one decrease per round trip, so a queue that is still draining does not
+   read as fresh overuse.
+
+Capped-link test (1.5 Mbit/s, start 2.5 Mbit/s, adaptive source, 10 s):
+
+| | target after 1 s | after 10 s | loss on the way |
+| --- | --- | --- | --- |
+| neither fix | 259 kbit/s | 531 kbit/s | not traced |
+| cadence only | 250 kbit/s (the floor) | 464 kbit/s | 30 to 55 % for 4 s (NACK storm) |
+| both | 915 kbit/s (lowest 459) | 830 kbit/s, rising 8 %/s | 15 to 35 % for 1.2 s, then 0 |
+
+The controller still overshoots on a start above the path: rd's controller
+cuts relative to its own target rather than to the measured delivery rate
+(GCC's 0.85 × acknowledged rate), and grows at most 8 % per second. Moving
+it closer to GCC is a change to `cmux-rd-core` and is left as follow-up.
+
 ## WireGuard: media on the datagram lane vs a PeerConnection in the tunnel
 
 The user has decided on WireGuard for everything, with WebRTC used only for
 media. Research is in `verify/transport-wireguard-everything.md` (branch
-`feat-cnx-ios-wgresearch`, `2ad07df5`). Nothing below is started. This is
-the comparison the decision needs.
+`feat-cnx-ios-wgresearch`, `2ad07df5`). This is the comparison the decision
+needed; option A is now built (above).
 
 Both options keep what this branch built:
 
@@ -229,8 +315,7 @@ If the user prefers the smallest change for browser tabs alone, the rd
 datagram lane is smaller, but browser video then has two media formats
 (RTP on WebRTC, rd on WireGuard) until the WebRTC transport is retired.
 
-The seam is in place for any of the three, and
-`media::wireguard::carrier()` answers `Unsupported` until one is chosen.
+Option A was chosen and is built (section "WireGuard carrier").
 
 ## Tests
 
@@ -249,8 +334,23 @@ The seam is in place for any of the three, and
 - cnx-link `tests/media.rs`, over real webrtc-rs peer connections:
   - frames ride the track with TWCC flowing;
   - 3% loss below the NACK responder recovers by NACK and stays decodable;
-  - older Mac, older phone and WireGuard each leave the lane out;
+  - older Mac and older phone leave the lane out;
   - a newer claim preempts the older one.
+- cnx-link `tests/media.rs`, WireGuard (two in-process boringtun peers over
+  loopback UDP with the fake signaling relay):
+  - frames ride RTP in the tunnel, keyframes over 30 kB arrive whole, TWCC
+    flows, the link's TCP streams still work;
+  - 3% loss below the NACK responder recovers by NACK (at least 200 of 240
+    frames, recovered frames seen);
+  - a 1.5 Mbit/s bottleneck: the target ends under the cap, never falls
+    under a fifth of it, and the queue drains (no standing delay or loss);
+  - an unrecoverable loss (600 ms of packets and all their resends):
+    the gap is given up, PLI, and decoding resumes at the requested keyframe;
+  - the phone roams mid-stream: same lane, a PLI, a keyframe after the roam
+    (the source makes none unasked), 150+ frames after it;
+  - an older Mac and an older phone stay on the channel.
+- cnx-link unit tests: RTP/RTCP demux, a full packet fits the 1232-byte
+  datagram, the test bottleneck and blackout, the resend guard.
 - cnx-hostd `browser_track` unit tests, against the real rd `MediaEngine`:
   - the host's bitrate follows the lane;
   - a full window holds the gate;
@@ -258,9 +358,11 @@ The seam is in place for any of the three, and
   - only the main stream's media is the bridge's.
 - cnx-hostd `tests/host.rs`:
   - `browser_video_rides_the_webrtc_track`, including the takeover;
-  - `browser_video_stays_on_the_channel_over_wireguard`.
+  - `browser_video_rides_rtp_inside_the_wireguard_tunnel`, the same over
+    WireGuard;
+  - `browser_video_stays_on_the_channel_for_an_older_phone_over_wireguard`.
 - cnx-ffi `tests/browser.rs`: the exported viewer over the track, the
-  channel and WireGuard with the lane offered.
+  channel, and RTP inside the WireGuard tunnel.
 
 ## Measurement support
 
@@ -268,6 +370,12 @@ The seam is in place for any of the three, and
   packets. The drop sits below the NACK responder, so the responder can
   resend them, as on a lossy path.
 - hostd `CNX_VIDEO_LANE=0` turns the lane off.
+- hostd `CNX_VIDEO_CAP_KBPS=N` (or `$CNX_STATE_DIR/video-cap-kbps`): a
+  bottleneck of N kbit/s with a 250 ms queue for outgoing video RTP, on the
+  WireGuard lane only.
+- Phone (simulator) `SIMCTL_CHILD_CNX_DEV_NO_TURN=1`: no TURN server, so a
+  relay-only WireGuard link rides the backend's WebSocket relay; the bench's
+  `-wss` configurations use it.
 - Phone, Settings → Transport → Developer → "Browser video on channel"
   (`-cnx.dev.browserVideoOnChannel YES`) is the baseline with no lane.
 

@@ -232,6 +232,38 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
 | Reads local state the remote should not see? | Only what a web page sees in a fresh profile: no cookies, history or saved logins of the person. |
 
+## Media lane: browser video as RTP (WebRTC track or WireGuard UDP)
+
+The media lane (PROTOCOL.md "Media lane") adds a way for bytes to travel, not
+a way into the Mac. It is not a service and it opens nothing on the Mac.
+
+- **Who reaches it.** Only the link's own peer. On WebRTC the lane is a track
+  on the link's peer connection (the same DTLS keys). On WireGuard it is
+  overlay UDP port 7422 inside the session's tunnel: the tunnel's keys came
+  from the same admitted signaling exchange as the link (`wg-init` /
+  `wg-resp`), the tunnel routes only the peer's overlay address, and the
+  carrier also drops any datagram from another address or SSRC. No SRTP is
+  added there because WireGuard already authenticates and encrypts each
+  datagram; nothing listens on a real network interface.
+- **What it sends.** Nothing until a `browser` channel claims it, and that
+  channel is behind pairing like every other service (`auth` first). The
+  lane carries only the claimed tab's encoded frames: the pictures the same
+  channel would carry without the lane.
+- **What the phone can send on it.** RTCP only: NACK, PLI, FIR, TWCC and
+  receiver reports. A NACK makes the Mac resend a packet it sent to that same
+  phone (at most 3 times); PLI and FIR make the claimed tab's encoder produce
+  a keyframe (at most every 250 ms); TWCC lowers or raises that tab's bitrate.
+  RTP from the phone is dropped. None of it reaches the browser host as input,
+  and none of it names a tab, a file or a command.
+- **Roaming** reuses the tunnel; the lane is never negotiated again, so a
+  network change cannot attach it to anyone else.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It moves the encoded frames of a tab the paired phone already opened; its RTCP only paces and repairs that stream. |
+| Mutates or destroys objects the session does not own? | No. A keyframe request or a bitrate change affects only the claiming tab's encoder. |
+| Reads local state the remote should not see? | No. Only frames of the phone's own tab, which the `browser` channel would carry anyway. |
+
 ## `daemon`: agent tabs and tab create, close and select
 
 Added by `feat-cnx-ios-dataflow` so tabs made on the phone are real tabs of

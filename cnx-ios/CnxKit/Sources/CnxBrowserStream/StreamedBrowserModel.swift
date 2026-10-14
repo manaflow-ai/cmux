@@ -245,7 +245,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         meter.height = shown.height
         meter.frames = self.meter.frames + 1
         if let stats = connection?.stats() {
-            meter.carrier = stats.videoTrack ? "track" : "channel"
+            meter.carrier = stats.videoCarrier
             meter.trackDropped = stats.trackFramesDropped
             meter.trackRecovered = stats.trackPacketsRecovered
         }
