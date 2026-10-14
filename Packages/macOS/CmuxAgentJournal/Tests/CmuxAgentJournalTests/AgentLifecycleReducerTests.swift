@@ -190,6 +190,21 @@ struct AgentLifecycleReducerTests {
         #expect(cleaned.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
     }
 
+    @Test func combinedSessionKeyTracksThePhaseOwner() {
+        let state = fold([
+            event(1, .turnCompleted, session: "old", pendingWork: true),
+            event(2, .turnCompleted, session: "new"),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .backgroundWorkPending)
+        #expect(state.combinedSessionKey(surfaceId: surface, agentKey: "claude_code") == "old")
+
+        let running = fold([
+            event(1, .turnCompleted, session: "old", pendingWork: true),
+            event(2, .turnStarted, session: "new"),
+        ])
+        #expect(running.combinedSessionKey(surfaceId: surface, agentKey: "claude_code") == "new")
+    }
+
     @Test func sessionBoundaryRetiresARecoveredOlderError() {
         let state = fold([
             event(1, .errorReported, session: "old"),
