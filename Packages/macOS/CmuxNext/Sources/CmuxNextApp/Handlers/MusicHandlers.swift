@@ -17,7 +17,7 @@ enum MusicHandlers {
         registry.bind("music.open", unavailable: preview, invoke: { [weak services, weak registry] invocation in
             guard let services, let registry else { return }
             let anchor = services.windows.active?.window
-            let given = (invocation["url"] ?? invocation["path"])?.stringValue.flatMap(url(for:))
+            let given = [invocation["url"], invocation["path"]].lazy.compactMap { $0?.stringValue.flatMap(url(for:)) }.first
             registry.track(Task { @MainActor in
                 var urls = given.map { [$0] }
                 if urls == nil { urls = await choose(anchor: anchor) }
@@ -40,9 +40,9 @@ enum MusicHandlers {
         })
     }
 
-    /// A stream URL as is, else a file path (with `~`); nil when empty.
+    /// A stream URL as is, else a file path (with `~`); nil when blank, so a blank `url` falls back to `path`.
     private static func url(for path: String) -> URL? {
-        let path = path.trimmingCharacters(in: .whitespaces)
+        let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { return nil }
         if let url = URL(string: path), ["http", "https"].contains(url.scheme?.lowercased() ?? "") { return url }
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)

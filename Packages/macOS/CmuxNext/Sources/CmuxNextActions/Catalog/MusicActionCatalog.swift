@@ -1,5 +1,6 @@
 // cmux's own music player (cx-imt2i, behind labs.previewFeatures): play the person's songs or
-// folders (a `path`, or an http(s) stream URL there, skips the picker), and stop. The Now Playing card and the media keys run play, pause, next and previous.
+// folders (a `url` stream or a `path` skips the picker), and stop. The Now Playing card and the
+// media keys run play, pause, next and previous.
 // Titles live in MusicActions.xcstrings.
 
 nonisolated enum MusicActionCatalog: ActionCatalogGroup {
