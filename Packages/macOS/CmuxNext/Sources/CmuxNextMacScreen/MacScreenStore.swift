@@ -113,7 +113,7 @@ public final class MacScreenStore {
         case ownLink
     }
 
-    private struct File: Codable, Sendable {
+    nonisolated private struct File: Codable, Sendable {
         var macs: [SavedMac] = []
         var shareEnabled = false
     }
