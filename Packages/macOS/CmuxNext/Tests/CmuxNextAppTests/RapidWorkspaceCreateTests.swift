@@ -71,9 +71,10 @@ struct RapidWorkspaceCreateTests {
     }
 
     /// The rows a count of new rows leaves out: those `shown` in the window's sidebar before the
-    /// presses.
+    /// presses, and every workspace the window or the daemon had by then, which the sidebar may not
+    /// show yet (it follows the registry and the store a main-actor hop later).
     private static func rowsBeforePresses(shown: Set<String>, services: AppServices, window: String) -> Set<String> {
-        shown
+        shown.union(services.windows.registry.members(of: window)).union(services.daemon.store.workspaces.map(\.id))
     }
 
     /// `launch()` returns once the window registry lists the launch workspace, but the sidebar
