@@ -1,27 +1,21 @@
 public import CmuxNextDesign
 
 public extension BackdropCatalog {
-    /// The Settings page's wallpaper grid rows. Art carries its picker collection (Dark Art, Museum
-    /// Icons, Calm, Doré), the person's own images theirs ("Your images") and macOS wallpapers
-    /// "Apple Wallpapers", with whether the full picture is downloaded; the page groups the grid
-    /// by collection.
+    /// The Settings page's wallpaper grid rows. Each carries its picker collection (an art
+    /// collection, "Your images", "Apple Wallpapers", Moving wallpapers), and the page groups the
+    /// grid by it; a video says so, and a macOS still whether its full picture is downloaded.
     var pageRows: JSONValue {
         .array(choices.map { choice -> JSONValue in
             var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(choice.title),
                                             "attribution": .string(choice.attribution)]
-            switch choice {
-            case .art(let art):
-                row["collection"] = .string(art.collection.rawValue)
-                row["collection_title"] = .string(art.collection.title)
-            case .file:
-                row["collection"] = .string(BackdropUserImages.collection)
-                row["collection_title"] = .string(BackdropUserImages.collectionTitle)
-            case .system(let path):
-                row["collection"] = .string(AppleWallpapers.collection)
-                row["collection_title"] = .string(AppleWallpapers.collectionTitle)
+            if let collection = choice.pickerCollection {
+                row["collection"] = .string(collection.id)
+                row["collection_title"] = .string(collection.title)
+            }
+            if choice.isVideo {
+                row["video"] = .bool(true)
+            } else if case .system(let path) = choice {
                 row["downloaded"] = .bool(appleWallpapers[path]?.isDownloaded ?? true)
-            case .desktop:
-                break
             }
             return .object(row)
         })

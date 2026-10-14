@@ -1,0 +1,75 @@
+import type { conversation } from "@cmux/home-core"
+import { NO_REPLY } from "./prompts.ts"
+
+type Head = NonNullable<conversation.ConversationState>
+type Message = conversation.Message
+
+/** Words of a model reply or tool result, from pi-ai content parts. */
+export const textParts = (content: ReadonlyArray<{ type: string; text?: string }>): string =>
+  content
+    .filter((p) => p.type === "text")
+    .map((p) => p.text ?? "")
+    .join("")
+
+/**
+ * After `reset()`, pi appends the new user entry first and its system entry (sections and tools)
+ * at the first request, so the transcript reads [user, system, ...]. Moving the system entry to the
+ * front gives tools, system, view, message: the system prefix caches across turns.
+ */
+export function systemFirst<M extends { role: string }>(messages: ReadonlyArray<M>): { messages: Array<M> } | undefined {
+  const at = messages.findIndex((m) => m.role === "system")
+  if (at <= 0) return undefined
+  const out = [...messages]
+  const [system] = out.splice(at, 1)
+  return { messages: [system!, ...out] }
+}
+
+const nameOf = (head: Head, id: string) => head.participants.find((p) => p.id === id)?.display_name ?? id
+
+/**
+ * One conversation message as the Chief reads it: a header in brackets (conversation, kind, author,
+ * thread), then the text, with mentions shown as @name and attachments as one line each. Empty
+ * when the message carries nothing a model can read.
+ */
+export const formatMessage = (head: Head, m: Message): string => {
+  const lines: Array<string> = []
+  for (const part of m.parts) {
+    if (part.type === "text") {
+      let text = part.text
+      // Mentions right to left so earlier offsets stay valid.
+      for (const run of [...(part.runs ?? [])].sort((a, b) => b.start - a.start)) {
+        if (run.mention) text = `${text.slice(0, run.start)}@${nameOf(head, run.mention)}${text.slice(run.start + run.length)}`
+      }
+      if (text.trim()) lines.push(text)
+    } else if (part.type === "attachment") lines.push(`[attachment: ${(part as { name?: string }).name ?? "file"}]`)
+    else if (part.type === "link_preview") lines.push(`[link: ${(part as { url?: string }).url ?? ""}]`)
+  }
+  if (lines.length === 0) return ""
+  const kind = head.kind ?? "group"
+  const where = head.title?.trim() ? head.title.trim() : kind
+  const thread = m.thread_root ? " · in a thread" : ""
+  return `[${where} · ${kind} · ${nameOf(head, m.author)}${thread}] ${lines.join("\n")}`
+}
+
+/**
+ * Where the reply goes: in a channel or group, the thread of the message answered (its own thread,
+ * or the thread it is in); in the chief's line or a DM, the main timeline unless that message was
+ * already in a thread.
+ */
+export const replyTarget = (kind: string, message: string, threadRoot: string | null): { reply_to?: string; thread_root?: string } => {
+  if (kind === "chief" || kind === "dm") return threadRoot ? { reply_to: message, thread_root: threadRoot } : {}
+  return { reply_to: message, thread_root: threadRoot ?? message }
+}
+
+/** The model's "post nothing" answer, with punctuation and case ignored ("NO_REPLY.", "no_reply"). */
+export const isNoReply = (text: string) => text.replace(/[^A-Za-z_]/g, "").toUpperCase() === NO_REPLY
+
+/** Reply text stays under message.send's text limit (64 KiB). */
+const REPLY_BYTES = 60 * 1024
+export const clipReply = (text: string) => {
+  const enc = new TextEncoder()
+  if (enc.encode(text).length <= REPLY_BYTES) return text
+  let out = [...text]
+  while (enc.encode(out.join("")).length > REPLY_BYTES - 16) out = out.slice(0, Math.floor(out.length * 0.9))
+  return `${out.join("")}\n[... cut]`
+}

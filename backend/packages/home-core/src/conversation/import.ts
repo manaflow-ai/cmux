@@ -1,3 +1,4 @@
+import { withTurn } from "./budget.ts"
 import { summary } from "./create.ts"
 import type { OutboxItem, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
@@ -121,8 +122,8 @@ const appendBatch = (head: ConversationHead, rawMessages: unknown, ctx: ReduceCo
       ...next,
       last_seq: message.seq,
       updated_at: message.created_at,
-      ...(text ? (agent ? { agent_text_streak: (next.agent_text_streak ?? 0) + 1, last_agent_text_at: message.created_at } : { agent_text_streak: 0 }) : {})
     }
+    if (text) next = withTurn(next, message.thread_root, agent, message.created_at)
     messages.push(message)
     writes.push({ table: "msg", op: "upsert", key: message.id, n: message.seq, row: message }, { table: "msgkey", op: "upsert", key, n: null, row: { message_id: message.id } })
   }

@@ -131,12 +131,14 @@ pub(super) fn move_tab_to_split(
     edge: String,
     ratio: Option<f32>,
     respawn: Option<SplitRespawnRequest>,
+    keep_focus: bool,
     transaction: Option<String>,
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
     let edge = crate::TabDropEdge::parse(&edge)?;
-    let outcome = split_tab(mux, client, surface, pane, edge, ratio, respawn, transaction)?;
+    let outcome =
+        split_tab(mux, client, surface, pane, edge, ratio, respawn, keep_focus, transaction)?;
     Ok(tab_drag_outcome_json(&outcome))
 }
 

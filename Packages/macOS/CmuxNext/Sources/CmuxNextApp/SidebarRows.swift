@@ -48,6 +48,12 @@ final class SidebarRows {
         model.setSections(sections)
     }
 
+    /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
+    func patch(_ changed: [SidebarWorkspace]) {
+        live = SidebarSection.patching(changed, in: live)
+        if !model.patchWorkspaces(changed) { show() }
+    }
+
     /// Folds or opens `group` at once and keeps that look until `body`
     /// replied and the home store holds it, or failed (then `resync`).
     func fold(_ group: GroupID, collapsed: Bool, on home: DaemonService, resync: @escaping @MainActor () -> Void,

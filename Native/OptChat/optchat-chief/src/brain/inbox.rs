@@ -4,10 +4,12 @@
 //! are in the OptChat log, so a restart never loses or repeats one.
 //!
 //! Other conversations (G9): the main conversation's stream is the only one
-//! the brain subscribes to. Another conversation is read only when the
-//! chief's wake queue names it (`side.rs`), and answered there.
+//! the brain follows. Another conversation is read only when the chief's
+//! wake queue names it (`side.rs`), or, on the local owner with
+//! `OPTCHAT_GROUP_WAKE` set (`membership`), when a person writes in one the
+//! Chief takes part in; it is answered there.
 
-use cmux_chief::rules::{AGENT_MUX, PAGE, message_text};
+use cmux_chief::rules::{PAGE, message_text};
 
 use crate::wake::chief_wakes;
 use cmux_conversation::{Change, Message, Op, Part};
@@ -33,7 +35,7 @@ impl Brain {
                         // agent_mux cursor; ops for the old one cannot land.
                         let cursor = conversation
                             .read_cursors
-                            .get(AGENT_MUX)
+                            .get(&self.settings.membership.participant)
                             .copied()
                             .unwrap_or(0);
                         (self.log)(&format!(
@@ -68,6 +70,9 @@ impl Brain {
                 change,
             } => {
                 if self.state.conversation.as_deref() != Some(conversation.as_str()) {
+                    if self.settings.membership.local_side {
+                        self.on_local_side_change(conversation, change);
+                    }
                     return;
                 }
                 match change {
@@ -104,7 +109,7 @@ impl Brain {
     }
 
     fn on_message(&mut self, message: Message) {
-        if message.author == AGENT_MUX {
+        if message.author == self.settings.membership.participant {
             self.mux_messages.insert(message.id.clone());
         }
         if self.daemon.is_none() || message.seq <= self.handled {
@@ -128,7 +133,11 @@ impl Brain {
         };
         let fetched = (|| {
             let (summary, messages) = daemon.snapshot(&conversation, PAGE)?;
-            let cursor = summary.read_cursors.get(AGENT_MUX).copied().unwrap_or(0);
+            let cursor = summary
+                .read_cursors
+                .get(&self.settings.membership.participant)
+                .copied()
+                .unwrap_or(0);
             let from = self.handled.max(cursor);
             let mut pending: Vec<Message> =
                 messages.iter().filter(|m| m.seq > from).cloned().collect();
@@ -149,7 +158,7 @@ impl Brain {
         match fetched {
             Ok((summary, messages, pending, from)) => {
                 for m in messages.iter().chain(pending.iter()) {
-                    if m.author == AGENT_MUX {
+                    if m.author == self.settings.membership.participant {
                         self.mux_messages.insert(m.id.clone());
                     }
                 }
@@ -181,7 +190,12 @@ impl Brain {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
         if (!text.trim().is_empty() || has_images)
-            && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
+            && chief_wakes(
+                &self.settings.membership.rule(false),
+                summary,
+                &message,
+                |id| self.mux_messages.contains(id),
+            )
         {
             // An answer to a pending approval of the running turn: it
             // answers, is logged, and is not a new message (it neither
@@ -234,7 +248,11 @@ impl Brain {
         let current = self
             .summary
             .as_ref()
-            .and_then(|s| s.read_cursors.get(AGENT_MUX).copied())
+            .and_then(|s| {
+                s.read_cursors
+                    .get(&self.settings.membership.participant)
+                    .copied()
+            })
             .unwrap_or(0);
         if seq <= current {
             return;
@@ -242,11 +260,12 @@ impl Brain {
         let Some(daemon) = self.daemon.as_mut() else {
             return;
         };
-        let key = format!("cursor:{AGENT_MUX}:{seq}");
+        let participant = self.settings.membership.participant.clone();
+        let key = format!("cursor:{participant}:{seq}");
         match daemon.op(&conversation, &key, &Op::ReadCursorSet { seq }) {
             Ok(_) => {
                 if let Some(summary) = self.summary.as_mut() {
-                    summary.read_cursors.insert(AGENT_MUX.into(), seq);
+                    summary.read_cursors.insert(participant, seq);
                 }
             }
             Err(OpError::Rejected(reason)) if reason.contains("cursor_regression") => {}

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "8f97c9a547c2824c5ff929fad1d83572baeaf02d35f5efaf1791e5ba0038e0de",
+  "catalog_sha256": "0218d7cb3429e0aeb9093ada4184d045f5c97fb4a13afd506f31c11f61d8615a",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -8,6 +8,9 @@
       "class": "read"
     },
     "agent.message.mark": {
+      "class": "mutation"
+    },
+    "agent.message.release": {
       "class": "mutation"
     },
     "agent.message.send": {
@@ -83,6 +86,27 @@
       "class": "read"
     },
     "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.profile.avatar.get": {
+      "class": "read"
+    },
+    "chief.profile.avatar.set": {
+      "class": "mutation"
+    },
+    "chief.profile.create": {
+      "class": "mutation"
+    },
+    "chief.profile.delete": {
+      "class": "mutation"
+    },
+    "chief.profile.get": {
+      "class": "read"
+    },
+    "chief.profile.list": {
+      "class": "read"
+    },
+    "chief.profile.update": {
       "class": "mutation"
     },
     "chief.stop": {
@@ -343,6 +367,12 @@
     "pane.zoom": {
       "class": "mutation"
     },
+    "participant.avatar.get": {
+      "class": "read"
+    },
+    "participant.avatar.set": {
+      "class": "mutation"
+    },
     "project.add": {
       "class": "mutation"
     },
@@ -544,6 +574,60 @@
     "settings.snapshot": {
       "class": "read"
     },
+    "sidebar.adopt": {
+      "class": "mutation"
+    },
+    "sidebar.apply": {
+      "class": "mutation"
+    },
+    "sidebar.get": {
+      "class": "read"
+    },
+    "sidebar.group.create": {
+      "class": "mutation"
+    },
+    "sidebar.group.ungroup": {
+      "class": "mutation"
+    },
+    "sidebar.group.update": {
+      "class": "mutation"
+    },
+    "sidebar.item.add": {
+      "class": "mutation"
+    },
+    "sidebar.item.remove": {
+      "class": "mutation"
+    },
+    "sidebar.item.remove_ref": {
+      "class": "mutation"
+    },
+    "sidebar.item.update": {
+      "class": "mutation"
+    },
+    "sidebar.move": {
+      "class": "mutation"
+    },
+    "sidebar.pin": {
+      "class": "mutation"
+    },
+    "sidebar.reset": {
+      "class": "mutation"
+    },
+    "sidebar.section.add": {
+      "class": "mutation"
+    },
+    "sidebar.section.move": {
+      "class": "mutation"
+    },
+    "sidebar.section.remove": {
+      "class": "mutation"
+    },
+    "sidebar.section.update": {
+      "class": "mutation"
+    },
+    "sidebar.unpin": {
+      "class": "mutation"
+    },
     "sidebar_layout.get": {
       "class": "read"
     },
@@ -740,6 +824,9 @@
       "class": "read"
     },
     "workspace.move": {
+      "class": "mutation"
+    },
+    "workspace.open_url": {
       "class": "mutation"
     },
     "workspace.place": {

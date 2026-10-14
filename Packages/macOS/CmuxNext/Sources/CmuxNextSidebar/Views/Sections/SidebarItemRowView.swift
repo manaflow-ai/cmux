@@ -284,7 +284,7 @@ class SidebarItemRowView: NSView {
     /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
     static func emojiImage(_ emoji: String, side: CGFloat) -> NSImage {
         NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: side * 0.85)])
+            let text = NSAttributedString(string: emoji, attributes: [.font: Typography.system(size: side * 0.85)])
             let size = text.size()
             text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
             return true

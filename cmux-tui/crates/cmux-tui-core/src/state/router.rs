@@ -13,7 +13,6 @@ use crate::resource_router::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name,
     resource_operation_error, validation_error,
 };
-use crate::state::agent_message_store::{self, AgentMessageFilter, NewAgentMessage};
 use crate::state::closed_history::ReopenRequest;
 use crate::state::closed_history_delete::DeleteRequest;
 use crate::state::store::StateCommit;
@@ -21,10 +20,13 @@ use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
     closed_history_query, palette_usage_store, personal_state_store, projects_store,
-    screen_state_store, sidebar_layout_store, tab_state_store, window_record_store,
+    screen_state_store, sidebar_doc_store, sidebar_layout_store, tab_state_store,
+    window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
+
+mod agent_message_router;
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     use ResourceOperation as Op;
@@ -87,6 +89,24 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordDelete
             | Op::SidebarLayoutGet
             | Op::SidebarLayoutUpdate
+            | Op::SidebarGet
+            | Op::SidebarMove
+            | Op::SidebarPin
+            | Op::SidebarUnpin
+            | Op::SidebarItemAdd
+            | Op::SidebarItemRemove
+            | Op::SidebarItemUpdate
+            | Op::SidebarItemRemoveRef
+            | Op::SidebarSectionAdd
+            | Op::SidebarSectionUpdate
+            | Op::SidebarSectionMove
+            | Op::SidebarSectionRemove
+            | Op::SidebarGroupCreate
+            | Op::SidebarGroupUpdate
+            | Op::SidebarGroupUngroup
+            | Op::SidebarAdopt
+            | Op::SidebarApply
+            | Op::SidebarReset
             | Op::ProjectList
             | Op::ProjectObserve
             | Op::ProjectAdd
@@ -112,6 +132,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::AgentMessageSend
             | Op::AgentMessageList
             | Op::AgentMessageMark
+            | Op::AgentMessageRelease
     )
 }
 
@@ -643,6 +664,34 @@ pub(crate) fn dispatch(
                 mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
             state_result(mux, commit)
         }
+        // The sidebar document (sidebar-doc-v1)
+        Op::SidebarGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, sidebar_doc_store::snapshot)
+        }
+        Op::SidebarMove
+        | Op::SidebarPin
+        | Op::SidebarUnpin
+        | Op::SidebarItemAdd
+        | Op::SidebarItemRemove
+        | Op::SidebarItemUpdate
+        | Op::SidebarItemRemoveRef
+        | Op::SidebarSectionAdd
+        | Op::SidebarSectionUpdate
+        | Op::SidebarSectionMove
+        | Op::SidebarSectionRemove
+        | Op::SidebarGroupCreate
+        | Op::SidebarGroupUpdate
+        | Op::SidebarGroupUngroup
+        | Op::SidebarAdopt
+        | Op::SidebarApply
+        | Op::SidebarReset => {
+            ensure_session(mux, selectors)?;
+            let commit = mux
+                .state_sidebar_apply(&mutation(&request)?, operation.wire_name(), fields)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
         // The project list (project-list-v1, plans/cmux-next/projects.md)
         Op::ProjectList => {
             ensure_session(mux, selectors)?;
@@ -848,52 +897,10 @@ pub(crate) fn dispatch(
             state_result(mux, commit)
         }
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)
-        Op::AgentMessageList => {
-            let filter = AgentMessageFilter {
-                recipient: string(fields, "recipient"),
-                sender: string(fields, "sender"),
-                thread_id: string(fields, "thread_id"),
-                state: string(fields, "state"),
-                oldest_first: fields.get("oldest_first").and_then(Value::as_bool).unwrap_or(false),
-            };
-            let limit = index(fields, "limit").unwrap_or(50);
-            mux.agent_message_list(selectors, &filter, limit).map(Value::Array)
-        }
-        Op::AgentMessageSend => {
-            let message = NewAgentMessage {
-                sender: string(fields, "sender")
-                    .unwrap_or_else(|| agent_message_store::CLI_SENDER.to_owned()),
-                sender_name: string(fields, "sender_name"),
-                recipients: strings(fields, "recipients"),
-                body: string(fields, "body").unwrap_or_default(),
-                thread_id: string(fields, "thread_id"),
-                in_reply_to: string(fields, "in_reply_to"),
-            };
-            let commit = mux
-                .agent_message_send(
-                    &mutation(&request)?,
-                    expected_revision(fields)?,
-                    selectors,
-                    message,
-                )
-                .map_err(state_error)?;
-            state_result(mux, commit)
-        }
-        Op::AgentMessageMark => {
-            let commit = mux
-                .agent_message_mark(
-                    &mutation(&request)?,
-                    expected_revision(fields)?,
-                    selectors,
-                    &strings(fields, "ids"),
-                    &string(fields, "recipient").unwrap_or_default(),
-                    &string(fields, "state").unwrap_or_default(),
-                    string(fields, "via").as_deref(),
-                    string(fields, "error").as_deref(),
-                )
-                .map_err(state_error)?;
-            state_result(mux, commit)
-        }
+        Op::AgentMessageList
+        | Op::AgentMessageSend
+        | Op::AgentMessageMark
+        | Op::AgentMessageRelease => agent_message_router::dispatch(mux, &request),
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),
             "state router received an operation it does not own",

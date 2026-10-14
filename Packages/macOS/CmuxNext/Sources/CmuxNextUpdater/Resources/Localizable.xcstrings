@@ -14411,133 +14411,133 @@
         }
       }
     },
-    "updater.close.options": {
+    "updater.close.hide": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close or Remind Me Later"
+            "value": "Hide"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "閉じる、または後で通知"
+            "value": "非表示"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إغلاق أو تذكيري لاحقًا"
+            "value": "إخفاء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatvori ili me podsjeti kasnije"
+            "value": "Sakrij"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Luk eller påmind mig senere"
+            "value": "Skjul"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schließen oder später erinnern"
+            "value": "Ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cerrar o recordármelo más tarde"
+            "value": "Ocultar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fermer ou me le rappeler plus tard"
+            "value": "Masquer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiudi o ricordamelo più tardi"
+            "value": "Nascondi"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ ឬរំលឹកខ្ញុំពេលក្រោយ"
+            "value": "លាក់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "닫기 또는 나중에 알림"
+            "value": "숨기기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lukk eller påminn meg senere"
+            "value": "Skjul"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zamknij lub przypomnij później"
+            "value": "Ukryj"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fechar ou Lembrar Mais Tarde"
+            "value": "Ocultar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрыть или напомнить позже"
+            "value": "Скрыть"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปิดหรือเตือนฉันภายหลัง"
+            "value": "ซ่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kapat veya Daha Sonra Hatırlat"
+            "value": "Gizle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрити або нагадати пізніше"
+            "value": "Приховати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đóng hoặc nhắc tôi sau"
+            "value": "Ẩn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "关闭或稍后提醒我"
+            "value": "隐藏"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "關閉或稍後提醒我"
+            "value": "隱藏"
           }
         }
       }

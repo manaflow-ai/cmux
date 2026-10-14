@@ -418,6 +418,9 @@ pub(super) fn attach_surface(
                 }
             }
             report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+            // Release this viewer's frame claim before the detach can resize
+            // the page, so a natively hosted page is not restarted for nobody.
+            drop(frames);
             detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
         });
         if let Err(error) = spawned {

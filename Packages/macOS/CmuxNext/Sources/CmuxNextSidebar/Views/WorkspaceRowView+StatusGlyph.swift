@@ -3,17 +3,16 @@ import CmuxNextDesign
 
 extension WorkspaceRowView {
     /// The status mark's frame (the shared indicator, or the agent mark standing in for it) ending
-    /// at `trailing`: as tall as the unread badge, centered on the middle of the title's capitals,
-    /// on the pixel grid. The title is top-aligned at `titleTop`, its baseline the font's ascender
-    /// below (MarqueeLabel). Leo 2026-10-13: a 10 pt mark on the row's box center read small and
-    /// low beside the badge.
-    func statusGlyphFrame(trailing: CGFloat, titleTop: CGFloat) -> NSRect {
+    /// at `trailing`: as tall as the unread badge, centered on `centerY`, the line the badge and
+    /// the row's other trailing marks share (a compact row's middle, a one-line row's and a
+    /// two-line row's alike; an expanded row's title line), on the pixel grid. Leo 2026-10-14:
+    /// a mark on the title's capitals sat above the badge ("why is it superscript?"), and a
+    /// two-line row centers it on the whole row.
+    func statusGlyphFrame(trailing: CGFloat, centerY: CGFloat) -> NSRect {
         let side = SidebarStyle.statusGlyphSize
-        let font = title.font
-        let center = titleTop + font.ascender - font.capHeight / 2
         let scale = window?.backingScaleFactor ?? 2
         func snapped(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
-        return NSRect(x: snapped(trailing - side), y: snapped(center - side / 2), width: side, height: side)
+        return NSRect(x: snapped(trailing - side), y: snapped(centerY - side / 2), width: side, height: side)
     }
 
     /// The agent mark's image size: the status mark's when it stands in for the status, the

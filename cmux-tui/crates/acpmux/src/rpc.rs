@@ -181,6 +181,9 @@ pub mod method {
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
+    /// Turn one of a chat's tools on or off (`hub/tools.rs`): `{sessionId,
+    /// id, enabled}`.
+    pub const MUX_SET_TOOLS: &str = "_acpmux/set_tools";
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";
@@ -209,8 +212,13 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    /// Stop one of a session's background subagents (a Claude background
+    /// agent or workflow): `{sessionId, subagentSessionId}`.
+    pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// An agent message's sender takes it back (`hub/withdraw.rs`).
+    pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
@@ -238,9 +246,14 @@ pub mod method {
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// Personal stats over every session log (`stats.rs`); the local unix
+    /// socket only (the app reaches it there), never a WebSocket origin.
+    pub const MUX_STATS: &str = "_acpmux/stats";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
+    pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
+    pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     pub const MUX_ASK: &str = "_acpmux/ask";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
@@ -293,6 +306,14 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// An agent offers the person a parallel chat (`hub/offers.rs`): a chip
+    /// the person accepts or dismisses with `offer_respond`.
+    pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
+    pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
+    /// The background-process registry (`hub/processes.rs`): list a chat's
+    /// (or every chat's) background processes, and stop one.
+    pub const MUX_PROCESS_LIST: &str = "_acpmux/process/list";
+    pub const MUX_PROCESS_KILL: &str = "_acpmux/process/kill";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
@@ -303,4 +324,7 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To attached and watching clients when a background process starts or
+    /// ends: `{process}` (`server/processes.rs`).
+    pub const MUX_PROCESS_UPDATE: &str = "_acpmux/process_update";
 }

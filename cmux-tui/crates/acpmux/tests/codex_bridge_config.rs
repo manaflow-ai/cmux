@@ -116,6 +116,82 @@ async fn the_bridge_runs_the_codex_path_the_family_configures() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A chat's Codex starts with its agent-thread limits lifted (Leo
+/// 2026-10-14, no caps on subagents): `-c` overrides before `app-server`,
+/// so a new chat has them without a restart. A key the profile's command
+/// line sets keeps the profile's value.
+#[tokio::test]
+async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_sets_one() {
+    let d = dir("limits");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let recorded = d.join("args.json");
+    // An empty codex home: the machine's own codex config is not the test's.
+    let home = d.join("codex-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let hub = hub_with(json!({
+        "harnesses": {"codex": {
+            "argv": [codex, "-c", "agents.max_depth=2", "app-server"],
+            "env": {"FAKE_CODEX_ARGS": recorded, "CODEX_HOME": home},
+        }},
+        "defaultHarness": "codex",
+        "permissionPolicy": "ask",
+    }));
+    let mut c = Client::local(&hub);
+    let (s, _) = harness_of_new(&mut c, &d, "codex").await;
+    let r = c
+        .call("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": "hi"}]}))
+        .await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    // Each start of the app-server, the chat's among them (a model probe
+    // may start one too).
+    let starts: Vec<Value> = std::fs::read_to_string(&recorded)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let lifted = json!([
+        "-c",
+        "agents.max_concurrent_threads_per_session=1000",
+        "-c",
+        "agents.max_depth=2",
+        "app-server"
+    ]);
+    assert!(starts.contains(&lifted), "{starts:?}");
+
+    // A key the project's codex config sets wins too.
+    let project = d.join("project");
+    std::fs::create_dir_all(project.join(".codex")).unwrap();
+    std::fs::create_dir_all(project.join("work")).unwrap();
+    std::fs::write(
+        project.join(".codex/config.toml"),
+        "[agents]\nmax_concurrent_threads_per_session = 3\n",
+    )
+    .unwrap();
+    let recorded = d.join("project-args.json");
+    let hub = hub_with(json!({
+        "harnesses": {"codex": {
+            "argv": [codex, "app-server"],
+            "env": {"FAKE_CODEX_ARGS": recorded, "CODEX_HOME": home},
+        }},
+        "defaultHarness": "codex",
+        "permissionPolicy": "ask",
+    }));
+    let mut c = Client::local(&hub);
+    let (s, _) = harness_of_new(&mut c, &project, "codex").await;
+    let r = c
+        .call("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": "hi"}]}))
+        .await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    let starts: Vec<Value> = std::fs::read_to_string(&recorded)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let lifted = json!(["-c", "agents.max_depth=16", "app-server"]);
+    assert!(starts.contains(&lifted), "{starts:?}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 #[tokio::test]
 async fn a_prefer_list_still_picks_the_codex_profile() {
     let d = dir("prefer");

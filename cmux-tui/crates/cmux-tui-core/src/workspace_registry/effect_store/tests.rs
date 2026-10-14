@@ -358,7 +358,14 @@ fn effect_patch_commits_topology_event_and_receipt_together() {
         (changes[1]["kind"].as_str(), changes[1]["resource"].as_str()),
         (Some("state_upsert"), Some("workspace_placement"))
     );
-    assert_eq!(changes.as_array().unwrap().len(), 2);
+    // Then the new workspace's sidebar document item and the document
+    // revision (sidebar-doc-v1).
+    let rest = &changes.as_array().unwrap()[2..];
+    assert!(
+        rest.iter().all(|change| change["kind"] == "state_upsert"
+            && matches!(change["resource"].as_str(), Some("sidebar_item" | "sidebar_doc"))),
+        "{rest:?}"
+    );
     assert_eq!(
         registry
             .lookup_resource_effect("effect-patch-key", "workspace.create", &fingerprint,)

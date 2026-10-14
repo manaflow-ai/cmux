@@ -4,9 +4,15 @@ public nonisolated enum AppsUnavailableReason: Sendable, Hashable {
     case needsNewerDaemon
     /// The daemon is not connected (starting, restarting, gone).
     case notConnected
+    /// The daemon is not connected, with its real cause from the daemon
+    /// service (still restoring, the last connect error, the drop reason).
+    case notReady(String)
     /// An administrator turned apps off on this Mac (DisabledFeatures); the
     /// text says so. Nothing mounts and nothing changes until it is back on.
     case turnedOff(String)
+
+    /// The reason as shown (banner, app sections, action refusals).
+    public var text: String { AppsStrings.unavailable(self) }
 }
 
 /// Whether the supervisor answers. `epoch` changes on every (re)connect:

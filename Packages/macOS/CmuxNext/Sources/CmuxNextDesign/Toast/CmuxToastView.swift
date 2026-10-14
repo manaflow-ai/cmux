@@ -95,13 +95,12 @@ public final class CmuxToastView: NSView {
     /// (the surface clips to its corners, so it cannot cast its own).
     private func castShadow() {
         wantsLayer = true
-        let style = PopupStyle.standard
+        let elevation = PopupStyle.elevation2
         layer?.masksToBounds = false
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = Float(style.shadowAlpha)
-        // Core Animation's radius is about half a CSS blur.
-        layer?.shadowRadius = style.shadowBlur / 2
-        layer?.shadowOffset = CGSize(width: 0, height: -style.shadowOffset)
+        layer?.shadowOpacity = Float(elevation.alpha)
+        layer?.shadowRadius = elevation.layerRadius
+        layer?.shadowOffset = elevation.layerOffset()
     }
 
     public override func layout() {

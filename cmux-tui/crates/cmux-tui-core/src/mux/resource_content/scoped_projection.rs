@@ -341,13 +341,23 @@ fn reindex_scope(state: &mut State, scope: &HashSet<WorkspacePublicId>) -> anyho
                 indexes.pane_ids.insert(pane.id, pane.public_id.clone());
                 indexes.pane_screen.insert(pane.id, screen.id);
                 for slot in &pane.tabs {
-                    let (Some(tab), Some(content)) = (
-                        indexes.tab_ids.get(slot).cloned(),
-                        indexes.content_ids.get(slot).cloned(),
-                    ) else {
+                    // The topology's record, else the live surface's identity
+                    // (`State::tab_identity_of`): a lost record is repaired,
+                    // not left to fail every later mutation (cx-95uaf).
+                    let identity = match (indexes.tab_ids.get(slot), indexes.content_ids.get(slot))
+                    {
+                        (Some(tab), Some(content)) => Some((tab.clone(), content.clone())),
+                        _ => state.surfaces.get(slot).and_then(|surface| {
+                            let identity = surface.resource_identity()?;
+                            Some((identity.tab_id.clone(), identity.content_id.clone()))
+                        }),
+                    };
+                    let Some((tab, content)) = identity else {
                         state.resource_indexes = indexes;
                         anyhow::bail!("tab slot {slot} has no durable identity");
                     };
+                    indexes.tab_ids.insert(*slot, tab.clone());
+                    indexes.content_ids.insert(*slot, content.clone());
                     indexes.tabs.insert(tab, *slot);
                     let placements = indexes.content_placements.entry(content).or_default();
                     if !placements.contains(slot) {

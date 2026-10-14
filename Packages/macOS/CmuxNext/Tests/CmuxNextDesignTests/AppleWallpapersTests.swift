@@ -142,11 +142,11 @@ import UniformTypeIdentifiers
         #expect(!BackdropSelection.system(path: fixture.path("Solid Colors/Blue.heic")).followsAppearance)
 
         let store = BackdropImageStore(maxPixelSize: 64)
-        let light = try #require(await store.image(sonoma, appearance: .light))
-        let dark = try #require(await store.image(sonoma, appearance: .dark))
+        let light = try #require(await store.image(sonoma, dark: false))
+        let dark = try #require(await store.image(sonoma, dark: true))
         #expect(try Self.red(light) > 200)
         #expect(try Self.red(dark) < 50)
-        #expect(store.cached(sonoma, appearance: .dark) === dark)
+        #expect(store.cached(sonoma, dark: true) === dark)
     }
 
     @Test func aWindowRedrawsADynamicWallpaperWhenItsAppearanceChanges() async throws {

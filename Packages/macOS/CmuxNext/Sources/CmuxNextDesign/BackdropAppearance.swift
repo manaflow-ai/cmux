@@ -1,4 +1,4 @@
-public import AppKit
+import Foundation
 public import ImageIO
 
 /// The appearance a backdrop is drawn for. A dynamic macOS wallpaper has a picture for each: a
@@ -7,11 +7,6 @@ public import ImageIO
 public nonisolated enum BackdropAppearance: String, Hashable, Sendable {
     case light
     case dark
-
-    /// The appearance of `appearance` (dark for any dark or high-contrast dark variant).
-    public init(_ appearance: NSAppearance) {
-        self = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
-    }
 
     /// The frame of a dynamic HEIC for this appearance, read from its `apple_desktop` metadata
     /// (`apr` light/dark pairs, `solar` and `h24` sun or time sequences); 0 for any other image.

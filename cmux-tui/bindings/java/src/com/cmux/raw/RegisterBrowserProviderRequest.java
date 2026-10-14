@@ -15,6 +15,7 @@ public final class RegisterBrowserProviderRequest implements WireValue {
     private final BrowserProviderAuthentication authentication;
     private final Field<String> bearerToken;
     private final String endpoint;
+    private final Field<BrowserProviderHosting> hosting;
     private final String providerId;
     private final List<BrowserProviderTarget> targets;
 
@@ -24,6 +25,7 @@ public final class RegisterBrowserProviderRequest implements WireValue {
         this.bearerToken = builder.bearerToken;
         if (!builder.endpointSet) throw new IllegalArgumentException("endpoint is required");
         this.endpoint = Wire.nonNull(builder.endpoint, "endpoint");
+        this.hosting = builder.hosting;
         if (!builder.providerIdSet) throw new IllegalArgumentException("provider_id is required");
         this.providerId = Wire.nonNull(builder.providerId, "provider_id");
         if (!builder.targetsSet) throw new IllegalArgumentException("targets is required");
@@ -35,6 +37,7 @@ public final class RegisterBrowserProviderRequest implements WireValue {
     public BrowserProviderAuthentication authentication() { return authentication; }
     public Field<String> bearerToken() { return bearerToken; }
     public String endpoint() { return endpoint; }
+    public Field<BrowserProviderHosting> hosting() { return hosting; }
     public String providerId() { return providerId; }
     public List<BrowserProviderTarget> targets() { return targets; }
 
@@ -49,6 +52,10 @@ public final class RegisterBrowserProviderRequest implements WireValue {
         }
         Object rawEndpoint = Wire.required(object, "endpoint");
         builder.endpoint(Wire.string(rawEndpoint, "RegisterBrowserProviderRequest.endpoint"));
+        Object rawHosting = Wire.optional(object, "hosting");
+        if (!Wire.isMissing(rawHosting)) {
+            builder.hosting(rawHosting == null ? null : BrowserProviderHosting.fromWire(rawHosting));
+        }
         Object rawProviderId = Wire.required(object, "provider_id");
         builder.providerId(Wire.string(rawProviderId, "RegisterBrowserProviderRequest.provider_id"));
         Object rawTargets = Wire.required(object, "targets");
@@ -62,6 +69,7 @@ public final class RegisterBrowserProviderRequest implements WireValue {
         Wire.put(object, "authentication", authentication);
         Wire.put(object, "bearer_token", bearerToken);
         Wire.put(object, "endpoint", endpoint);
+        Wire.put(object, "hosting", hosting);
         Wire.put(object, "provider_id", providerId);
         Wire.put(object, "targets", targets);
         return Collections.unmodifiableMap(object);
@@ -70,11 +78,11 @@ public final class RegisterBrowserProviderRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof RegisterBrowserProviderRequest that)) return false;
-        return Objects.equals(authentication, that.authentication) && Objects.equals(bearerToken, that.bearerToken) && Objects.equals(endpoint, that.endpoint) && Objects.equals(providerId, that.providerId) && Objects.equals(targets, that.targets);
+        return Objects.equals(authentication, that.authentication) && Objects.equals(bearerToken, that.bearerToken) && Objects.equals(endpoint, that.endpoint) && Objects.equals(hosting, that.hosting) && Objects.equals(providerId, that.providerId) && Objects.equals(targets, that.targets);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(authentication, bearerToken, endpoint, providerId, targets); }
+    public int hashCode() { return Objects.hash(authentication, bearerToken, endpoint, hosting, providerId, targets); }
 
     @Override
     public String toString() { return "RegisterBrowserProviderRequest" + toWire(); }
@@ -85,6 +93,7 @@ public final class RegisterBrowserProviderRequest implements WireValue {
         private Field<String> bearerToken = Field.omitted();
         private String endpoint;
         private boolean endpointSet;
+        private Field<BrowserProviderHosting> hosting = Field.omitted();
         private String providerId;
         private boolean providerIdSet;
         private List<BrowserProviderTarget> targets;
@@ -102,6 +111,10 @@ public final class RegisterBrowserProviderRequest implements WireValue {
         public Builder endpoint(String value) {
             this.endpoint = value;
             this.endpointSet = true;
+            return this;
+        }
+        public Builder hosting(BrowserProviderHosting value) {
+            this.hosting = Field.ofNullable(value);
             return this;
         }
         public Builder providerId(String value) {

@@ -104,39 +104,55 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     }
     endPreview();
   };
-  // `attribution` null: the name alone (an Apple wallpaper). `pending`: a macOS wallpaper macOS
-  // has not downloaded, dimmed with a cloud; a click opens the Wallpaper pane, which downloads it.
-  const tile = (id: string, title: string, attribution: string | null, pending = false) => (
-    <button
-      type="button"
-      key={id}
-      className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
-      aria-pressed={current === id}
-      aria-label={title}
-      title={pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : undefined}
-      ref={focus === BACKGROUND_KEY && current === id && state.readable && workspaceRead ? revealTile : undefined}
-      onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
-      onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
-      onPointerLeave={pending ? undefined : endPreview}
-      onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, 0)}
-      onBlur={pending ? undefined : endPreview}
-    >
-      {id === "none" || id === FOLLOW_ID ? (
-        <span className="backdrop-thumb backdrop-none" />
-      ) : id === DAILY_ID ? (
-        <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
-          ↻
-        </span>
-      ) : (
-        <span className="backdrop-frame">
-          <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(id)}`} />
-          {pending && <Icon name="icloud.and.arrow.down" className="backdrop-download" />}
-        </span>
-      )}
-      <span className="backdrop-title">{title}</span>
-      {attribution !== null && <span className="row-help">{attribution}</span>}
-    </button>
-  );
+  // `attribution` null: the name alone (an Apple wallpaper). `video`: a moving wallpaper, marked
+  // over its first frame. `pending`: a macOS wallpaper macOS has not downloaded, dimmed with a
+  // cloud; a click opens the Wallpaper pane, which downloads it.
+  const tile = (
+    id: string,
+    title: string,
+    attribution: string | null,
+    choice?: { video?: boolean; pending?: boolean },
+  ) => {
+    const pending = choice?.pending === true;
+    return (
+      <button
+        type="button"
+        key={id}
+        className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
+        aria-pressed={current === id}
+        aria-label={title}
+        title={pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : undefined}
+        ref={focus === BACKGROUND_KEY && current === id && state.readable && workspaceRead ? revealTile : undefined}
+        onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
+        onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
+        onPointerLeave={pending ? undefined : endPreview}
+        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, 0)}
+        onBlur={pending ? undefined : endPreview}
+      >
+        {id === "none" || id === FOLLOW_ID ? (
+          <span className="backdrop-thumb backdrop-none" />
+        ) : id === DAILY_ID ? (
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            ↻
+          </span>
+        ) : (
+          <span className="backdrop-frame">
+            {/* Encoded twice: the app decodes the URL path before splitting it on "/", then decodes
+              the one segment, so a system: or file: id with slashes stays one segment. */}
+            <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            {pending && <Icon name="icloud.and.arrow.down" className="backdrop-download" />}
+          </span>
+        )}
+        {choice?.video && (
+          <span className="backdrop-badge" aria-hidden="true">
+            ▶
+          </span>
+        )}
+        <span className="backdrop-title">{title}</span>
+        {attribution !== null && <span className="row-help">{attribution}</span>}
+      </button>
+    );
+  };
   // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
   // title, then the person's own images ("Your images"), the desktop picture in an untitled
   // group, and every macOS wallpaper ("Apple Wallpapers").
@@ -214,8 +230,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           <div className="backdrop-grid">
             {group.choices.map((choice) =>
               choice.collection === "apple"
-                ? tile(choice.id, choice.title, null, choice.downloaded === false)
-                : tile(choice.id, choice.title, choice.attribution),
+                ? tile(choice.id, choice.title, null, { pending: choice.downloaded === false })
+                : tile(choice.id, choice.title, choice.attribution, choice),
             )}
           </div>
         </div>

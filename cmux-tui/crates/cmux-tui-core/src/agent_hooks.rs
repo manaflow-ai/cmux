@@ -38,6 +38,29 @@ const AGENT_EVENT_KINDS: [&str; 13] = [
     "agent.plugin.exited",
 ];
 
+/// Longest prompt kept for the hover card's task line (characters).
+pub const LIVE_PROMPT_CHARS: usize = 200;
+
+/// The prompt a turn-start hook carries, for the hover card's task line: shown text (no
+/// control or invisible formatting characters), trimmed, at most [`LIVE_PROMPT_CHARS`]
+/// characters. Read before redaction; it never enters the journal or a log (Lawrence
+/// 2026-10-14: memory only). `None` for other events and empty prompts.
+pub fn agent_hook_live_prompt(native_event: &str, native: &Value) -> Option<String> {
+    if semantic_key(native_event) != "userpromptsubmit" {
+        return None;
+    }
+    let text =
+        first_string_at(native, &[&["prompt"][..], &["user_prompt"][..], &["userPrompt"][..]])?;
+    live_prompt_text(text)
+}
+
+/// `text` as a kept prompt: shown text, whitespace folded, cut to [`LIVE_PROMPT_CHARS`].
+pub(crate) fn live_prompt_text(text: &str) -> Option<String> {
+    let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let shown = crate::program_status::shown_text(&folded, LIVE_PROMPT_CHARS);
+    (!shown.is_empty()).then_some(shown)
+}
+
 pub fn agent_hook_journal_ingress(
     source: &str,
     native_event: &str,

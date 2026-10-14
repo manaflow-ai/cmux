@@ -33,7 +33,15 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 id: "closeWindow",
                 title: String(localized: "action.closeWindow", defaultValue: "Close Window", bundle: .module),
                 defaultShortcut: Shortcut("w", modifiers: [.control, .command]), category: .window,
-                symbol: "xmark.rectangle", surfaces: [.palette, .keyboard], cliName: "app close-window"
+                symbol: "xmark.rectangle", surfaces: [.palette, .keyboard, .menu], cliName: "app close-window", mainMenu: .file
+            ),
+            // Every other open window; each window's own close check runs (an
+            // incognito window asks), and terminals keep running as for Close Window.
+            ActionDescriptor(
+                id: "window.closeOthers",
+                title: String(localized: "action.window.closeOthers", defaultValue: "Close Other Windows", bundle: .module),
+                keywords: ["close", "windows", "other", "others"], category: .window, symbol: "xmark.rectangle.portrait",
+                surfaces: [.palette, .menu], cliName: "app close-other-windows", mainMenu: .file
             ),
             // Ghostty's close_all_windows, toggle_maximize and goto_window
             // route here (GHOSTTY-CONFIG item (c), coordinator A1, B1, E1).

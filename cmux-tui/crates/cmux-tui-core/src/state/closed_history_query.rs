@@ -55,15 +55,21 @@ fn public_tab(tab: &Value) -> Value {
 
 /// Whether a stored tab would reopen as nothing, so Recently Closed can leave it out: an
 /// untouched New Tab page (a chat tab whose agent session has no session yet, no page and no
-/// route) or a browser on `about:blank`. A remote terminal, a chat, a page and any other
-/// conversation source never are.
+/// route) or a browser on a blank or New Tab page (`about:blank`, Chromium's
+/// `chrome://newtab/`). A remote terminal, a chat, a page and any other conversation source
+/// never are.
 fn reopens_empty(tab: &Value) -> bool {
     if tab["kind"] != "browser" || !tab["remote"].is_null() {
         return false;
     }
     let conversation = &tab["conversation"];
     match conversation.as_object() {
-        None => matches!(tab["url"].as_str(), None | Some("" | "about:blank")),
+        None => tab["url"].as_str().is_none_or(|url| {
+            matches!(
+                url.to_ascii_lowercase().as_str(),
+                "" | "about:blank" | "chrome://newtab" | "chrome://newtab/"
+            )
+        }),
         Some(source) => {
             source.keys().all(|key| key == "agent_session")
                 && source.get("agent_session").is_some_and(|agent| agent["session"].is_null())

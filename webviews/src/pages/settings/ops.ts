@@ -102,9 +102,10 @@ export type HostLists = {
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
   /**
-   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
-   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`) and its localized title; macOS
-   * wallpapers (`apple`) say whether macOS has downloaded the full picture.
+   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
+   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
+   * its localized title. `video: true` marks a moving wallpaper; a macOS still (`apple`) says
+   * whether macOS has downloaded the full picture.
    */
   backdrops?: Array<{
     id: string;
@@ -112,6 +113,7 @@ export type HostLists = {
     attribution: string;
     collection?: string;
     collection_title?: string;
+    video?: boolean;
     downloaded?: boolean;
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */

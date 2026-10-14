@@ -32,7 +32,7 @@ cmux workspace clear-name --target ws_…
 cmux workspace set-status --target ws_… --status inProgress
 ```
 
-Colors: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other actions include `mark-as-read`, `mark-as-unread`, `move-up`, `move-down`, `move-to-top`, `close-other`, `close-above` and `close-below`.
+Colors: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other actions include `mark-as-read`, `mark-as-unread`, `move-up`, `move-down`, `move-to-top`, `close-other`, `close-above`, `close-below`, `close-all` (every workspace in a window) and `close-all-in-all-windows`; `cmux app close-other-windows` and `close-all-windows` close windows (terminals keep running); `cmux workspace-group close-others` and `duplicate`; `cmux sidebar close-section-workspaces` and `new-section-workspace` (Pinned too); `cmux agent archive-chat --target pane:…`. A script passes `--confirm` to the close verbs that close several workspaces.
 
 ## Groups
 
