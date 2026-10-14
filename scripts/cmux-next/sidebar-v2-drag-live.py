@@ -530,6 +530,22 @@ try:
         undo(step, back)
 
     if layout_section("sec_pinned"):
+        # Two quick sidebar actions, then one Edit > Undo undoes only the second (each step is its own undo group).
+        align = lambda: (layout_section("sec_pinned") or {}).get("align")
+        gap = lambda: (layout_section("sec_pinned") or {}).get("gap")
+        target = {"target_kind": "sidebar-section", "target_id": "sec_pinned"}
+        toast(perform="sidebar.section.setAlignment", arguments={"align": "center"}, **target)
+        toast(perform="sidebar.section.setGap", arguments={"gap": 12}, **target)
+        both = wait(lambda: (align() == "center" and gap() == 12) or None, 5)
+        reply = rpc("debug.menu_item", {"action": "undo:", "window_number": window_number()}) or {}
+        one = wait(lambda: (gap() is None and align() == "center") or None, 5)
+        time.sleep(1.0)  # test harness: a second step undone by the same Edit > Undo would land by now
+        record("two quick sidebar actions: one Edit > Undo undoes only the second", bool(both) and bool(one) and align() == "center",
+               f"applied={bool(both)} reply={json.dumps(reply)[:200]} align={align()} gap={gap()}")
+        rpc("debug.menu_item", {"action": "undo:", "window_number": window_number()})
+        wait(lambda: (align() == "leading" and gap() is None) or None, 5)
+        record("two quick sidebar actions: the next Edit > Undo undoes the first", align() == "leading" and gap() is None,
+               f"align={align()} gap={gap()}")
         section_edit("alignment goes to the document", "sidebar.section.setAlignment", {"align": "center"},
                      lambda: (layout_section("sec_pinned") or {}).get("align") == "center",
                      lambda: (layout_section("sec_pinned") or {}).get("align") == "leading")

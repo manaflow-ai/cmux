@@ -94,8 +94,16 @@ final class PinUndoStep: NSObject {
     func register() {
         guard let undoManager else { return }
         Self.held.insert(self) // it outlives the toast
+        // One user action is one undo group: its own explicit group, also when another step's reply registered in the same
+        // run-loop pass (by-event grouping would put both in one group, and one Cmd-Z would undo both). An undo's or redo's
+        // step goes into the group the undo manager opened for it.
+        let ownGroup = !undoManager.isUndoing && !undoManager.isRedoing
+        // Opened at level 0, the explicit group keeps by-event grouping from opening one around it, so each sidebar step is
+        // its own top-level group. (A level-0 registration by other code earlier in the same pass would still hold it.)
+        if ownGroup { undoManager.beginUndoGrouping() }
         undoManager.registerUndo(withTarget: self, selector: #selector(performUndo(_:)), object: nil)
         undoManager.setActionName(title)
+        if ownGroup { undoManager.endUndoGrouping() }
     }
 
     /// The undo stack's action (on the main thread, as every undo).
