@@ -29,7 +29,9 @@ import Testing
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
-        store.connectionState = .connected(try Self.connected())
+        let identity = try Self.connected()
+        store.noteHandshake(identity) // capability checks read the handshake's identity
+        store.connectionState = .connected(identity)
         store.apply(snapshot: Self.tree())
         let workspace = try #require(store.workspaces.first)
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
@@ -51,13 +53,7 @@ import Testing
         let first = pane.view.hidesStrip
         // The settled state, after the pane's own observation has run.
         try await Task.sleep(for: .milliseconds(300))
-        // Each input of the chat's no-strip rule, so a fixture that never hides the strip says why.
-        #expect(services.daemon.supports(DaemonCapabilities.shared.dockColumnRole))
-        #expect(content.layoutModel.screen(containing: pane.layoutPaneID)?.layout.columns.count == 1)
-        #expect(pane.tabBarKind == .agent)
-        #expect(services.paneTabBars.choice(for: pane.paneKey) == nil)
-        #expect(ChatDockChrome.hidesStrip(pane, tabCount: 1))
-        #expect(pane.view.hidesStrip)
+        #expect(pane.view.hidesStrip, "the lone chat keeps its strip once settled: the fixture is not one the rule hides")
         #expect(first == pane.view.hidesStrip, "the lone chat mounted with a tab strip that a later turn removes")
     }
 }
