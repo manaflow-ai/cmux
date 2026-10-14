@@ -135,28 +135,32 @@ import Testing
         }
     }
 
-    /// The user's Ghostty config binds Cmd-Q and Cmd-B to text; cmux's defaults there are Quit
-    /// (system tier) and Toggle Sidebar (navigation tier). Both keys run the user's keybinds.
+    /// The user's Ghostty config binds Cmd-Shift-N and Cmd-B to text; cmux's defaults there are New
+    /// Window (system tier) and Toggle Sidebar (navigation tier). Both keys run the user's keybinds.
     @Test func theUsersGhosttyKeybindWinsOverTheMenuItemOnItsChord() async throws {
-        let harness = try Self.harness(userConfig: "keybind = cmd+q=text:c11q\nkeybind = cmd+b=text:c11b\n")
+        let harness = try Self.harness(userConfig: "keybind = cmd+shift+n=text:c11n\nkeybind = cmd+b=text:c11b\n")
         defer { harness.close() }
         let registry = harness.services.registry
         let actions = Probe()
-        registry.unbind("quit")
-        registry.bind("quit") { actions.runs.append("quit") }
+        // Ghostty binds neither chord itself, so the config's lines claim them from cmux's defaults.
+        let claims = registry.keyBindingLayers.ghosttyClaims
+        try #require(claims.contains(Shortcut("n", modifiers: [.command, .shift])), "Cmd-Shift-N is not the user's: \(claims)")
+        try #require(claims.contains(Shortcut("b", modifiers: [.command])), "Cmd-B is not the user's: \(claims)")
+        registry.unbind("newWindow")
+        registry.bind("newWindow") { actions.runs.append("newWindow") }
         registry.unbind("toggleSidebar")
         registry.bind("toggleSidebar") { actions.runs.append("toggleSidebar") }
-        let menu = Self.menuBar(["quit", "toggleSidebar"].compactMap { registry.makeMenuItem(for: $0) })
+        let menu = Self.menuBar(["newWindow", "toggleSidebar"].compactMap { registry.makeMenuItem(for: $0) })
         try Self.withMenu(menu, harness) { () throws in
-            let took1 = try Self.press("q", keyCode: 12, in: harness)
+            let took1 = try Self.press("N", keyCode: 45, shift: true, in: harness)
             #expect(took1)
             let took2 = try Self.press("b", keyCode: 11, in: harness)
             #expect(took2)
         }
-        await Self.wait(within: .seconds(5)) { harness.written.contains("c11q") && harness.written.contains("c11b") }
-        #expect(actions.count("quit") == 0, "Quit took the Cmd-Q the user's Ghostty config binds")
+        await Self.wait(within: .seconds(5)) { harness.written.contains("c11n") && harness.written.contains("c11b") }
+        #expect(actions.count("newWindow") == 0, "New Window took the Cmd-Shift-N the user's Ghostty config binds")
         #expect(actions.count("toggleSidebar") == 0, "Toggle Sidebar took the Cmd-B the user's Ghostty config binds")
-        #expect(harness.written.contains("c11q"), "the Ghostty keybind on Cmd-Q never ran (wrote \(harness.written.debugDescription))")
+        #expect(harness.written.contains("c11n"), "the Ghostty keybind on Cmd-Shift-N never ran (wrote \(harness.written.debugDescription))")
         #expect(harness.written.contains("c11b"), "the Ghostty keybind on Cmd-B never ran (wrote \(harness.written.debugDescription))")
     }
 
@@ -178,7 +182,8 @@ import Testing
         }
         let menu = Self.menuBar([
             item("Undo", #selector(Probe.undo(_:)), "z", [.command]),
-            item("Redo", #selector(Probe.redo(_:)), "z", [.command, .shift]),
+            // Edit's "z" with Shift, as AppKit matches a synthesized Shift-Z (an uppercase equivalent).
+            item("Redo", #selector(Probe.redo(_:)), "Z", [.command]),
             item("Select All", #selector(Probe.selectAll(_:)), "a", [.command]),
         ] + [registry.makeMenuItem(for: "quit")].compactMap { $0 })
         try Self.withMenu(menu, harness) { () throws in
