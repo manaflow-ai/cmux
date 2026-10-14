@@ -29,7 +29,7 @@ function HomeChannelsGallery({ select, thread, offline = false, draft, longThrea
     const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread));
     if (select)
       void created.select(select).then(() => {
-        if (thread) created.openThread(thread);
+        if (thread) void created.openThread(thread);
       });
     return created;
   });

@@ -10,7 +10,6 @@ import CmuxNextIcons
 final class SidebarTabRowView: SidebarRowView {
     private let icon = NSImageView()
     private let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    private var unread = false
     /// Activates this tab from an accessibility AXPress.
     var onSelect: (() -> Void)?
 
@@ -29,7 +28,6 @@ final class SidebarTabRowView: SidebarRowView {
 
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
-        unread = false
         onSelect = nil
     }
 
@@ -37,9 +35,8 @@ final class SidebarTabRowView: SidebarRowView {
         let content = Content(tab: tab, group: row.group, groupColor: row.groupColor)
         guard needsConfigure(content) else { return }
         title.stringValue = tab.title
-        // Regular weight read or unread; unread reads by color (updateLayer).
+        // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14).
         title.font = SidebarStyle.subtitleFont
-        unread = tab.isUnread
         // Only a page's favicon draws, as is; no kind or agent glyph.
         let side = SidebarStyle.tabIconSize
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
@@ -62,7 +59,7 @@ final class SidebarTabRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = SidebarStyle.titleColor(emphasized: unread)
+            title.textColor = Palette.textPrimary
             paintFill(isHovered ? Palette.hoverFill : nil)
         }
     }
