@@ -54,7 +54,7 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.closeOthersInGroup", run: { invocation in
             let workspace = try context.workspace(invocation).model
             guard let group = try group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
-            close(group.workspaces.map(\.id.rawValue).filter { $0 != workspace.id }, context)
+            WorkspaceBulkClose.close(group.workspaces.map(\.id.rawValue).filter { $0 != workspace.id }.compactMap(context.services.machines.workspace(id:)))
         })
 
         registry.bind("workspace.selectFirst", run: { _ in try select(context) { $0.first } })
@@ -181,14 +181,6 @@ enum WorkspaceVerbHandlers {
     }
 
     // MARK: Close, select, sort, collapse
-
-    static func close(_ ids: [String], _ context: AppActionContext) {
-        for id in ids {
-            guard let (workspace, daemon) = context.services.machines.workspace(id: id), let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
-        }
-    }
 
     private static func select(_ context: AppActionContext, _ pick: ([SidebarWorkspaceID]) -> SidebarWorkspaceID?) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
