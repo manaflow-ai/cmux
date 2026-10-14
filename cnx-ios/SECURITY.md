@@ -83,15 +83,47 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
 
 ## `file`: read-only previews
 
-- **Path checks.** Only absolute paths inside `CNX_FILE_ROOTS` are served.
-  These are the chat roots from Settings, and there are none by default, which
-  refuses every read.
-  - The path is canonicalized (symlinks resolved) before the open.
-  - After the open, the descriptor's real path (`F_GETPATH`) is checked again,
-    so a component swapped for a symlink in between cannot escape.
+`file {path}` streams one regular file and closes with `eof`. The phone uses it
+for Files & Links previews: paths a terminal or an agent printed.
+
+- **What it may read.** An absolute path inside either of these:
+  - `CNX_FILE_ROOTS`: the chat roots from Settings. There are none by default.
+  - **The folder of a tab the Mac's daemon lists right now** (`list-workspaces`
+    on the app's own session, canonicalized). This is the rule `upload` already
+    uses to choose where it writes, here used read-only. It is not decided yet:
+    see "Decisions for the person". Two limits apply:
+    - The folder must be a project folder. `/`, the home folder and any
+      folder above it are never shared (`shareable_tab_folder`), so a shell
+      left in `~` shares nothing.
+    - Below a tab folder, hidden names are refused (`hidden_below`): `.env`,
+      `.git/`, `.ssh/` and every other path component that starts with a dot.
+      The one exception is the phone's own uploads under `.cmux/`. The deepest
+      tab folder that holds the path decides.
+  - A daemon that does not answer shares no tab folder.
+- **Path checks.**
+  - The path is canonicalized (symlinks and `..` resolved) before the check.
+    A symlink in a tab folder that points outside it is refused.
+  - After the open, the descriptor's real path (`F_GETPATH`) is checked again
+    against the same roots, so a component swapped for a symlink in between
+    cannot escape.
 - **What it serves.** Regular files only (opened non-blocking, so a FIFO
   cannot hold the open), up to 64 MiB. It never writes, lists
   directories, or executes anything.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It reads bytes from one regular file. Nothing is executed, opened in an app or indexed, and no directory is listed. |
+| Mutates or destroys objects the session does not own? | No. The open is read-only; `file` never creates, writes, renames or deletes. Writes stay with `upload` and its own rule. |
+| Reads local state the remote should not see? | Only what the person already shows the phone: files below the folder of a tab open on this Mac. Hidden files (secrets such as `.env`, keys, git internals) and anything outside those folders are refused. The phone is the account owner's own paired device (see "Who the peer is"), and the same link's `daemon` service already gives it the terminals in those folders. So the tab-folder rule gives no new authority. It lets a preview work without running `cat` in the person's terminal. |
+| Whose objects? | Only the Mac owner's: the tab folders come from the app's own daemon session, which hostd pins to when supervised. A phone cannot name another session's tabs (`file` takes no session) or another user's (admission). Each read asks the daemon again, so a closed tab's folder stops being readable at once. |
+
+- **Rule 6 (tests):** `confine_keeps_reads_inside_roots`,
+  `tab_folders_shared_for_reading_are_project_folders`,
+  `hidden_paths_below_a_tab_folder_are_refused`,
+  `files_of_a_live_tab_folder_are_readable_and_nothing_else` (a project file
+  passes; `.env`, `.git/config`, a symlink out, `..` out, a file outside and
+  a relative path are refused), `without_a_daemon_no_tab_folder_is_shared`,
+  and the `file` cases in `tests/host.rs`.
 
 ## `chief`: a splice to the Mac's Chief conversation owner
 
@@ -244,6 +276,11 @@ sent as an ACP `resource_link` to that path.
 
 ## Decisions for the person
 
+- Files & Links previews: whether `file` may read below the folder of a live
+  tab (the recommendation, implemented on `feat-cnx-ios-fileroots`). The
+  alternative is that the app passes every workspace folder as a file root.
+  That shares folders with no open tab and keeps sharing a closed one until
+  hostd restarts.
 - Phone-signed approvals or relayed Mac approvals for agent permission
   questions.
 - None for the service: production builds use the production Worker

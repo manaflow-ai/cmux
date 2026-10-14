@@ -516,14 +516,67 @@ fn confine_open(_roots: &[PathBuf], _file: &tokio::fs::File) -> Result<(), Refus
     Ok(())
 }
 
-/// `file`: stream one regular file inside a workspace root, then close
-/// with `eof`.
+/// Whether a live tab's folder may be read below (`file`): never `/`, the
+/// home folder or a folder above it (a shell left in `~` would share every
+/// file of the account), only a project-like folder under it or elsewhere.
+pub fn shareable_tab_folder(folder: &Path, home: Option<&Path>) -> bool {
+    folder.parent().is_some() && home.is_none_or(|home| !home.starts_with(folder))
+}
+
+/// A path below a tab folder that `file` refuses: one through a hidden
+/// folder or naming a hidden file (`.ssh`, `.env`, `.git`), except the
+/// phone's own uploads under `.cmux` (`upload` writes them there).
+pub fn hidden_below(root: &Path, resolved: &Path) -> bool {
+    let Ok(relative) = resolved.strip_prefix(root) else { return true };
+    let mut parts = relative.components().map(|c| c.as_os_str().to_string_lossy().into_owned());
+    match parts.next() {
+        None => false,
+        Some(first) if first == ".cmux" => parts.any(|p| p.starts_with('.')),
+        Some(first) => first.starts_with('.') || parts.any(|p| p.starts_with('.')),
+    }
+}
+
+/// The real path `file` may read for `requested`, and the roots it is
+/// inside: the shared roots (`CNX_FILE_ROOTS`), else the folder of a tab the
+/// Mac's daemon lists now ([`daemon_folders`], the rule `upload` writes by,
+/// read-only here) that is [`shareable_tab_folder`], with no hidden path
+/// below it ([`hidden_below`]). Symlinks and `..` resolve before the check.
+pub async fn readable(config: &ServiceConfig, requested: &Path) -> Result<(PathBuf, Vec<PathBuf>), Refusal> {
+    if let Ok(resolved) = confine(&config.file_roots, requested) {
+        return Ok((resolved, config.file_roots.clone()));
+    }
+    // A daemon that does not answer shares no tab folder.
+    let home = std::env::var_os("HOME").map(PathBuf::from).and_then(|h| std::fs::canonicalize(h).ok());
+    let tabs: Vec<PathBuf> = daemon_folders(config)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|folder| shareable_tab_folder(folder, home.as_deref()))
+        .collect();
+    let resolved = confine(&tabs, requested).map_err(|refusal| match refusal.code {
+        "forbidden" => Refusal::new(
+            "forbidden",
+            "path is outside the workspace roots and the folders of this Mac's tabs",
+        ),
+        _ => refusal,
+    })?;
+    let mut inside: Vec<PathBuf> = tabs.into_iter().filter(|root| resolved.starts_with(root)).collect();
+    // The deepest tab folder decides (a hidden folder of an outer tab may hold an inner tab's project).
+    inside.sort_by_key(|root| std::cmp::Reverse(root.components().count()));
+    if inside.first().is_none_or(|root| hidden_below(root, &resolved)) {
+        return Err(Refusal::new("forbidden", "hidden files and folders are not shared"));
+    }
+    Ok((resolved, inside))
+}
+
+/// `file`: stream one regular file inside a workspace root or a live tab's
+/// folder ([`readable`]), then close with `eof`. Read-only.
 async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
         .ok_or_else(|| Refusal::new("bad_request", "missing path"))?;
-    let resolved = confine(&config.file_roots, Path::new(requested))?;
+    let (resolved, roots) = readable(config, Path::new(requested)).await?;
     // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
     // refuse anything that is not a regular file.
     let mut file = tokio::fs::OpenOptions::new()
@@ -534,7 +587,7 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
         .map_err(|_| Refusal::new("not_found", "cannot open"))?;
     // A path component swapped for a symlink between the check and the open would
     // escape the roots: check again where the open descriptor really points.
-    confine_open(&config.file_roots, &file)?;
+    confine_open(&roots, &file)?;
     let metadata = file.metadata().await.map_err(|_| Refusal::new("not_found", "cannot stat"))?;
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
@@ -853,6 +906,109 @@ mod tests {
             .expect("open blocked")
             .unwrap();
         assert!(!file.metadata().await.unwrap().is_file());
+    }
+
+    #[test]
+    fn tab_folders_shared_for_reading_are_project_folders() {
+        let home = Path::new("/Users/me");
+        assert!(shareable_tab_folder(Path::new("/Users/me/src/app"), Some(home)));
+        assert!(shareable_tab_folder(Path::new("/opt/work"), Some(home)));
+        assert!(!shareable_tab_folder(Path::new("/Users/me"), Some(home)));
+        assert!(!shareable_tab_folder(Path::new("/Users"), Some(home)));
+        assert!(!shareable_tab_folder(Path::new("/"), Some(home)));
+        assert!(!shareable_tab_folder(Path::new("/"), None));
+    }
+
+    #[test]
+    fn hidden_paths_below_a_tab_folder_are_refused() {
+        let root = Path::new("/p");
+        assert!(!hidden_below(root, Path::new("/p/src/main.rs")));
+        assert!(!hidden_below(root, Path::new("/p/.cmux/attachments/phone-1/a.jpg")));
+        assert!(hidden_below(root, Path::new("/p/.env")));
+        assert!(hidden_below(root, Path::new("/p/.git/config")));
+        assert!(hidden_below(root, Path::new("/p/src/.secrets/key")));
+        assert!(hidden_below(root, Path::new("/p/.cmux/.x")));
+        assert!(hidden_below(root, Path::new("/elsewhere/a")));
+    }
+
+    /// A fake daemon that lists one tab in `folder` (`list-workspaces`).
+    fn daemon_listing(socket: &Path, folder: &Path) {
+        let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
+        let folder = folder.to_str().unwrap().to_owned();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                use std::io::{BufRead, Write};
+                let mut out = conn.try_clone().unwrap();
+                let mut line = String::new();
+                if std::io::BufReader::new(conn).read_line(&mut line).is_ok() {
+                    let reply = serde_json::json!({"id": "cnx-upload", "data": {"workspaces": [{"screens": [{"panes": [
+                        {"tabs": [{"cwd": folder}]}]}]}]}});
+                    let _ = writeln!(out, "{reply}");
+                }
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn files_of_a_live_tab_folder_are_readable_and_nothing_else() {
+        let sockets = tempfile::tempdir().unwrap();
+        let base = tempfile::tempdir().unwrap();
+        let project = std::fs::canonicalize(base.path()).unwrap().join("project");
+        let outside = std::fs::canonicalize(base.path()).unwrap().join("outside");
+        std::fs::create_dir_all(project.join("src")).unwrap();
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(project.join("src/main.rs"), "fn main() {}").unwrap();
+        std::fs::write(project.join(".env"), "TOKEN=x").unwrap();
+        std::fs::write(project.join(".git/config"), "[core]").unwrap();
+        std::fs::write(outside.join("secret"), "s").unwrap();
+        std::os::unix::fs::symlink(outside.join("secret"), project.join("escape")).unwrap();
+        daemon_listing(&sockets.path().join("main.sock"), &project);
+        let config = ServiceConfig {
+            tui_socket_dir: sockets.path().to_path_buf(),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: Vec::new(),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
+            agent_tab_host: None,
+            uploads_dir: base.path().join("uploads"),
+            upload_max_bytes: 1,
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::new(None, 1),
+        };
+        let (resolved, roots) = readable(&config, &project.join("src/main.rs")).await.unwrap();
+        assert_eq!(resolved, project.join("src/main.rs"));
+        assert_eq!(roots, vec![project.clone()]);
+        let refused = |path: PathBuf| {
+            let config = &config;
+            async move { readable(config, &path).await.unwrap_err().code }
+        };
+        assert_eq!(refused(project.join(".env")).await, "forbidden");
+        assert_eq!(refused(project.join(".git/config")).await, "forbidden");
+        assert_eq!(refused(project.join("escape")).await, "forbidden");
+        assert_eq!(refused(project.join("src/../../outside/secret")).await, "forbidden");
+        assert_eq!(refused(outside.join("secret")).await, "forbidden");
+        assert_eq!(refused(PathBuf::from("src/main.rs")).await, "bad_request");
+    }
+
+    #[tokio::test]
+    async fn without_a_daemon_no_tab_folder_is_shared() {
+        let sockets = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("a.txt"), "a").unwrap();
+        let config = ServiceConfig {
+            tui_socket_dir: sockets.path().to_path_buf(),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: Vec::new(),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
+            agent_tab_host: None,
+            uploads_dir: project.path().join("uploads"),
+            upload_max_bytes: 1,
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::new(None, 1),
+        };
+        assert_eq!(readable(&config, &project.path().join("a.txt")).await.unwrap_err().code, "forbidden");
     }
 
     #[test]

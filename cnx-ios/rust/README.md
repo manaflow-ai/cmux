@@ -172,7 +172,7 @@ target/release/cnx-hostd
 | `CNX_TUI_SOCKET_DIR`, `CNX_TUI_SESSION` | cmux-tui sockets, default `$TMPDIR/cmux-tui-<uid>` and `main`. |
 | `CNX_TUI_SOCKET` | The default session's socket when it is not `<dir>/<session>.sock` (the cmux-next app passes its own daemon's socket). |
 | `CNX_CONTROL=stdio` | Supervised mode (below): tokens and the acpmux endpoint come from stdin, events go to stdout. |
-| `CNX_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
+| `CNX_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset leaves only the folders of the daemon's live tabs (SECURITY.md, `file`). |
 | `CNX_AGENT_TAB_HOST` | The `agent_session.host` this Mac's app records on its own agent tabs (`install:<id>`). hostd sets it on a phone's `new-conversation-tab`. Unset refuses agent tabs from a phone. |
 | `CNX_UPLOADS_DIR` | Where `upload` writes a file that has no `cwd`, one folder per link session. Default `$CNX_STATE_DIR/uploads`. |
 | `CNX_UPLOAD_MAX_BYTES` | The largest file one `upload` accepts. Default 100 MiB. |
@@ -235,8 +235,10 @@ Services (default deny, `unknown_service` otherwise):
   (refused unless the listener is on loopback). One data frame per message.
   acpmux treats this as a remote-origin (`Web`) connection.
 - `file` `{path}`: an absolute path, canonicalized (symlinks resolved) and
-  required to stay inside a `CNX_FILE_ROOTS` root; streams the regular file,
-  then closes with `eof`.
+  required to stay inside a `CNX_FILE_ROOTS` root or below the folder of a tab
+  the daemon lists now (not `/`, the home folder or above it; no hidden names
+  below it but `.cmux`); streams the regular file, then closes with `eof`.
+  Read-only (SECURITY.md, `file`).
 - `upload` `{name, size, cwd?}`: writes the next `size` bytes to a new file
   and answers `{"path","size"}`. The file goes into
   `<cwd>/.cmux/attachments/phone-<session>/` when `cwd` is a folder of one of
