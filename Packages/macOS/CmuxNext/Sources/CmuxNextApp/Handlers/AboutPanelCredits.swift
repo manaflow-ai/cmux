@@ -10,6 +10,14 @@ import AppKit
 struct AboutPanelCredits {
     let bundle: Bundle
 
+    private var includedPRs: String? {
+        guard let url = Bundle.module.url(forResource: "DevBuildIncludedPRs", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return nil }
+        return "Included PRs: " + lines.joined(separator: ", ")
+    }
+
     /// The link text.
     static var title: String {
         String(localized: "about.credits.licenses", defaultValue: "Third-Party Licenses", table: "Windows", bundle: .module)
@@ -49,6 +57,12 @@ struct AboutPanelCredits {
             lines.append(NSAttributedString(string: Self.remoteBrowserHostOptOut, attributes: [
                 .font: font,
                 .foregroundColor: NSColor.systemOrange,
+                .paragraphStyle: centered,
+            ]))
+        }
+        if let includedPRs {
+            lines.append(NSAttributedString(string: includedPRs, attributes: [
+                .font: font,
                 .paragraphStyle: centered,
             ]))
         }
