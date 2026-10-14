@@ -1,7 +1,8 @@
 //! `agent.runtime.list` on a real headless daemon (RFC #20149 phase 1): an
 //! agent started in a cmux terminal is verified to that terminal, the same
 //! agent started outside cmux is unattributed, and arguments come back
-//! redacted.
+//! redacted. An agent that left its terminal's session stays verified, from
+//! the daemon's launch ledger, after the terminal closes.
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use std::fs;
@@ -86,9 +87,9 @@ impl Daemon {
     }
 }
 
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        // End the terminal (and its host) before the daemon goes.
+impl Daemon {
+    /// Close every workspace and end its terminals.
+    fn close_all(&self) {
         let mut line = String::new();
         let request = json!({"cmd": "list-workspaces"});
         if self.line(&request).read_line(&mut line).is_ok()
@@ -100,6 +101,13 @@ impl Drop for Daemon {
                 let _ = self.line(&close).read_line(&mut String::new());
             }
         }
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        // End the terminal (and its host) before the daemon goes.
+        self.close_all();
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_dir_all(&self.dir);
@@ -113,13 +121,130 @@ fn runtime_with_pid(inventory: &Value, pid: u64) -> Option<Value> {
 /// Set in a stand-in agent's environment: [`stand_in_agent`] then waits.
 const STAND_IN: &str = "CMUX_RUNTIMES_STAND_IN";
 const STAND_IN_ARGS: &str = "stand_in_agent --exact";
+/// Set to a file path in a stand-in agent's environment: the stand-in leaves
+/// its terminal's session (`setsid`), as `nohup`/`setsid` launches and agent
+/// daemons do, then writes `<pid> <ppid>` to that file before it waits.
+const DETACH: &str = "CMUX_RUNTIMES_DETACH";
 
 /// The body of a stand-in agent process; a no-op in a normal test run.
 #[test]
 fn stand_in_agent() {
     if std::env::var_os(STAND_IN).is_some() {
+        if let Some(ready) = std::env::var_os(DETACH) {
+            // SAFETY: setsid takes no arguments and touches no memory.
+            assert_ne!(unsafe { libc::setsid() }, -1, "setsid failed");
+            let ready = PathBuf::from(ready);
+            let partial = ready.with_extension("partial");
+            let ids = format!("{} {}", std::process::id(), std::os::unix::process::parent_id());
+            fs::write(&partial, ids).unwrap();
+            fs::rename(&partial, &ready).unwrap();
+        }
         std::thread::sleep(Duration::from_secs(60));
     }
+}
+
+/// A detached stand-in agent, killed when the test ends: closing its
+/// terminal no longer ends it.
+struct DetachedAgent {
+    pid: u32,
+    /// Its parent when it started: the terminal's shell.
+    ppid: u32,
+}
+
+impl Drop for DetachedAgent {
+    fn drop(&mut self) {
+        if let Ok(pid) = i32::try_from(self.pid) {
+            // SAFETY: kill takes plain integers.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    }
+}
+
+/// Run a stand-in agent that detaches itself in a new cmux terminal, and
+/// wait until it is ready.
+fn start_detached_agent(daemon: &Daemon) -> DetachedAgent {
+    let codex = daemon.dir.join("codex");
+    fs::copy(std::env::current_exe().unwrap(), &codex).unwrap();
+    let ready = daemon.dir.join("detached.ready");
+    let created = daemon.raw(json!({
+        "cmd": "run",
+        "argv": ["/bin/sh", "-c", format!("{STAND_IN}=1 {DETACH}={} {} {STAND_IN_ARGS}; :",
+                                          ready.display(), codex.display())],
+        "new_workspace": true,
+        "name": "detached",
+    }));
+    assert!(created["surface"].is_u64(), "{created}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        if let Ok(ids) = fs::read_to_string(&ready) {
+            let ids: Vec<u32> = ids.split(' ').filter_map(|id| id.parse().ok()).collect();
+            assert_eq!(ids.len(), 2, "bad ready file: {ids:?}");
+            return DetachedAgent { pid: ids[0], ppid: ids[1] };
+        }
+        assert!(Instant::now() < deadline, "the detached stand-in never became ready");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// The agent's runtime once its terminal's shell is gone and it was
+/// reparented.
+fn reparented_runtime(daemon: &Daemon, agent: &DetachedAgent) -> Value {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    loop {
+        let inventory = daemon.runtimes();
+        let runtime = runtime_with_pid(&inventory, u64::from(agent.pid))
+            .unwrap_or_else(|| panic!("the detached stand-in is not listed: {inventory}"));
+        if runtime["ppid"] != u64::from(agent.ppid) {
+            return runtime;
+        }
+        assert!(Instant::now() < deadline, "the terminal's shell never ended: {runtime}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn cmux_next_agent_runtimes_keep_a_listed_detached_agent_verified_after_its_terminal_closes() {
+    let daemon = Daemon::start();
+    let agent = start_detached_agent(&daemon);
+    // Listed while its terminal lives: verified through the process tree.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let listed = loop {
+        let inventory = daemon.runtimes();
+        if let Some(runtime) = runtime_with_pid(&inventory, u64::from(agent.pid))
+            && runtime["attribution"]["status"] == "verified"
+        {
+            break runtime;
+        }
+        assert!(Instant::now() < deadline, "the stand-in was never verified: {inventory}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(listed["attribution"]["source"], "terminal_process_tree", "{listed}");
+    let terminal = listed["attribution"]["terminal_id"].clone();
+    assert!(terminal.as_str().is_some_and(|id| id.starts_with("term_")), "{listed}");
+
+    daemon.close_all();
+    let runtime = reparented_runtime(&daemon, &agent);
+    assert_eq!(runtime["id"], listed["id"], "the same process generation");
+    assert_eq!(runtime["attribution"]["status"], "verified", "{runtime}");
+    assert_eq!(runtime["attribution"]["source"], "launch_ledger", "{runtime}");
+    assert_eq!(runtime["attribution"]["terminal_id"], terminal, "{runtime}");
+    assert_eq!(runtime["can_stop_safely"], false, "{runtime}");
+}
+
+#[test]
+fn cmux_next_agent_runtimes_observe_a_detached_agent_when_its_terminal_closes() {
+    let daemon = Daemon::start();
+    let agent = start_detached_agent(&daemon);
+    // Never listed before the close: the close itself records the agent.
+    daemon.close_all();
+    let runtime = reparented_runtime(&daemon, &agent);
+    assert_eq!(runtime["attribution"]["status"], "verified", "{runtime}");
+    assert_eq!(runtime["attribution"]["source"], "launch_ledger", "{runtime}");
+    assert!(
+        runtime["attribution"]["terminal_id"].as_str().is_some_and(|id| id.starts_with("term_")),
+        "{runtime}"
+    );
+    assert_eq!(runtime["can_stop_safely"], false, "{runtime}");
 }
 
 #[test]
