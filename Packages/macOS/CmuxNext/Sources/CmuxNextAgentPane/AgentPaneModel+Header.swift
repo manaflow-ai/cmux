@@ -116,7 +116,9 @@ extension AgentPaneModel {
             // The Terminal split names the chat's folder; agent-home is the chat's only.
             let folder = folderForOtherTabs(cwd)
             if toggle { header.toggle(id, folder) } else { header.run(id, folder) }
-            return AgentPaneReply.success()
+            // `ran`: the page knows the App took the action (a host without panes, such as the
+            // gallery, answers null), so its diff link opens the diff beside the chat, not in place.
+            return AgentPaneReply.success(["ran": true])
         case .tabState(let refresh):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")

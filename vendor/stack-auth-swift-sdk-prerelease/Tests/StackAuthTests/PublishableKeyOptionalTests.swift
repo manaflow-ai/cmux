@@ -104,12 +104,12 @@ private final class PublishableKeyURLProtocol: URLProtocol, @unchecked Sendable 
         let isRefresh = request.url?.path.hasSuffix("/auth/oauth/token") == true
         let record = RecordedStackRequest(
             isRefresh: isRefresh,
-            publishableHeader: request.value(forHTTPHeaderField: "x-stack-publishable-client-key"),
+            publishableHeader: request.value(forHTTPHeaderField: "x-hexclave-publishable-client-key"),
             formFields: isRefresh ? Self.formFields(of: request) : [:]
         )
         Self.lock.withLock { Self.requests.append(record) }
 
-        let accessToken = request.value(forHTTPHeaderField: "x-stack-access-token")
+        let accessToken = request.value(forHTTPHeaderField: "x-hexclave-access-token")
         let authenticated = request.url?.path.hasSuffix("/users/me") == true
         let statusCode = isRefresh || !authenticated || accessToken == Self.newAccessToken ? 200 : 401
         let headers = statusCode == 200
