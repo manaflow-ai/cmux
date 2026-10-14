@@ -850,8 +850,9 @@ final class SessionIndexStore: ObservableObject {
         return combined.sorted { $0.modified > $1.modified }
     }
 
-    private struct ClaudeParsed {
+    struct ClaudeParsed {
         var title: String = ""
+        var entrypoint: String?
         var cwd: String?
         var branch: String?
         var pr: PullRequestLink?
@@ -934,7 +935,7 @@ final class SessionIndexStore: ObservableObject {
         return roots
     }
 
-    nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
+    nonisolated static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
 
@@ -948,6 +949,9 @@ final class SessionIndexStore: ObservableObject {
             }
             if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
                 out.cwd = cwdField
+            }
+            if let entrypoint = obj["entrypoint"] as? String, !entrypoint.isEmpty {
+                out.entrypoint = entrypoint
             }
             if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
                 out.branch = branchField
@@ -994,6 +998,9 @@ final class SessionIndexStore: ObservableObject {
             }
             if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
                 out.branch = branchField
+            }
+            if let entrypoint = obj["entrypoint"] as? String, !entrypoint.isEmpty {
+                out.entrypoint = entrypoint
             }
             if let mode = obj["permissionMode"] as? String, !mode.isEmpty {
                 out.permissionMode = mode
@@ -1122,6 +1129,7 @@ final class SessionIndexStore: ObservableObject {
 
     private struct CodexParsed {
         var sessionId: String = ""
+        var entrypoint: String?
         /// First user message — used only if Codex never assigns a thread_name.
         var firstUserMessage: String = ""
         /// Codex-generated session title (`event_msg.thread_name_updated`). Wins over firstUserMessage.
@@ -1165,6 +1173,13 @@ final class SessionIndexStore: ObservableObject {
         forEachJSONLine(url: url, maxBytes: maxBytes) { obj in
             let type = obj["type"] as? String
             let payload = obj["payload"] as? [String: Any]
+            if out.entrypoint == nil {
+                if let entrypoint = obj["entrypoint"] as? String, !entrypoint.isEmpty {
+                    out.entrypoint = entrypoint
+                } else if let entrypoint = payload?["entrypoint"] as? String, !entrypoint.isEmpty {
+                    out.entrypoint = entrypoint
+                }
+            }
             if type == "session_meta", let p = payload {
                 if let c = p["cwd"] as? String, !c.isEmpty { out.cwd = c }
                 if let id = p["id"] as? String, !id.isEmpty { out.sessionId = id }
@@ -1408,22 +1423,17 @@ final class SessionIndexStore: ObservableObject {
     ) async -> [SessionEntry] {
         switch scope {
         case .agent(let a):
-            let registry: CmuxVaultAgentRegistry
             let cwdFilter: String?
             if case .registered = a {
                 let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
-                registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
             } else if a == .grok {
                 let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
-                registry = await Self.vaultAgentRegistry(
-                    workingDirectory: cwdFilter
-                )
             } else {
                 cwdFilter = nil
-                registry = CmuxVaultAgentRegistry(registrations: [])
             }
+            let registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
             return await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: cwdFilter,
                 offset: 0, limit: limit, errorBag: bag, registry: registry,
@@ -1528,6 +1538,60 @@ final class SessionIndexStore: ObservableObject {
     @Sendable
 #endif
     nonisolated static func searchAgent(
+        needle: String, agent: SessionAgent, cwdFilter: String?,
+        offset: Int, limit: Int, errorBag: ErrorBag,
+        registry: CmuxVaultAgentRegistry,
+        ampSessionRepository: any AmpHookSessionReading
+    ) async -> [SessionEntry] {
+        let safeOffset = max(0, offset)
+        let safeLimit = max(0, limit)
+        guard safeLimit > 0 else { return [] }
+        guard registry.hasSessionExclusions else {
+            return await loadRawAgentEntries(
+                needle: needle,
+                agent: agent,
+                cwdFilter: cwdFilter,
+                offset: safeOffset,
+                limit: safeLimit,
+                errorBag: errorBag,
+                registry: registry,
+                ampSessionRepository: ampSessionRepository
+            )
+        }
+
+        // Read source pages from the beginning when exclusions are active. A
+        // filtered page cannot use the source offset directly: excluded recent
+        // sessions must not consume the requested result window.
+        let target = min(searchMaxFiles, safeOffset + safeLimit)
+        let pageSize = max(50, min(target, searchMaxFiles))
+        var sourceOffset = 0
+        var matches: [SessionEntry] = []
+        while matches.count < target, sourceOffset < searchMaxFiles {
+            if Task.isCancelled { return [] }
+            let page = await loadRawAgentEntries(
+                needle: needle,
+                agent: agent,
+                cwdFilter: cwdFilter,
+                offset: sourceOffset,
+                limit: pageSize,
+                errorBag: errorBag,
+                registry: registry,
+                ampSessionRepository: ampSessionRepository
+            )
+            guard !page.isEmpty else { break }
+            matches.append(contentsOf: page.filter { !registry.excludes($0) })
+            sourceOffset += page.count
+            if page.count < pageSize { break }
+        }
+        return Array(matches.dropFirst(safeOffset).prefix(safeLimit))
+    }
+
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
+    nonisolated private static func loadRawAgentEntries(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
         registry: CmuxVaultAgentRegistry,
@@ -1792,6 +1856,7 @@ final class SessionIndexStore: ObservableObject {
                         agent: .claude,
                         sessionId: sid,
                         title: parsed.title,
+                        entrypoint: parsed.entrypoint,
                         cwd: parsed.cwd,
                         gitBranch: parsed.branch,
                         pullRequest: parsed.pr,
@@ -1923,6 +1988,7 @@ final class SessionIndexStore: ObservableObject {
                 agent: .codex,
                 sessionId: parsed.sessionId,
                 title: parsed.title,
+                entrypoint: parsed.entrypoint,
                 cwd: parsed.cwd,
                 gitBranch: parsed.branch,
                 pullRequest: nil,

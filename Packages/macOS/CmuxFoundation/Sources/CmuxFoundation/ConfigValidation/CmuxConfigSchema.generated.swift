@@ -12,7 +12,7 @@ enum CmuxEmbeddedConfigSchema {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
   "title": "cmux.json",
-  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
+  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, Vault agent registrations and session filters, workspace-group overrides, and workspace launch/button configuration.",
   "descriptionKey": "schemaDescriptions.root",
   "type": "object",
   "additionalProperties": false,
@@ -486,6 +486,48 @@ enum CmuxEmbeddedConfigSchema {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "hideClaudeSDKSessions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide Claude Code transcripts whose entrypoint starts with sdk-, which are usually non-interactive Agent SDK runs."
+        },
+        "exclude": {
+          "type": "array",
+          "description": "Session rules to omit from Vault. A rule matches when every field it contains matches; agent, folder, and entrypoint support * and ?, while labelPattern (or pattern) supports the same wildcards or a regular expression.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "agent": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "Agent id to exclude, optionally with * or ? wildcards."
+              },
+              "folder": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "Session working directory to exclude, optionally with * or ? wildcards."
+              },
+              "entrypoint": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "Transcript entrypoint to exclude, optionally with * or ? wildcards."
+              },
+              "labelPattern": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "Session label pattern to exclude. Supports * and ?, or a regular expression; prefix with re: to make regular-expression intent explicit."
+              },
+              "pattern": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "Alias for labelPattern: a session label pattern using * and ?, or a regular expression."
+              }
+            }
+          },
+          "default": []
+        },
         "agents": {
           "type": "array",
           "description": "Custom coding agents that Vault can detect, list, and resume.",

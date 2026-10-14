@@ -4,9 +4,32 @@ import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
+    /// Hides Claude transcripts produced by the Agent SDK (`sdk-*` entrypoints).
+    var hideClaudeSDKSessions: Bool
+    /// Rules applied to every session after its metadata has been read.
+    var exclude: [CmuxVaultSessionExclusion]
 
-    init(agents: [CmuxVaultAgentRegistration] = []) {
+    private enum CodingKeys: String, CodingKey {
+        case agents
+        case hideClaudeSDKSessions
+        case exclude
+    }
+
+    init(
+        agents: [CmuxVaultAgentRegistration] = [],
+        hideClaudeSDKSessions: Bool = false,
+        exclude: [CmuxVaultSessionExclusion] = []
+    ) {
         self.agents = agents
+        self.hideClaudeSDKSessions = hideClaudeSDKSessions
+        self.exclude = exclude
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agents = try container.decodeIfPresent([CmuxVaultAgentRegistration].self, forKey: .agents) ?? []
+        hideClaudeSDKSessions = try container.decodeIfPresent(Bool.self, forKey: .hideClaudeSDKSessions) ?? false
+        exclude = try container.decodeIfPresent([CmuxVaultSessionExclusion].self, forKey: .exclude) ?? []
     }
 }
 
@@ -460,8 +483,14 @@ struct CmuxVaultAgentRegistry: Sendable {
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "VaultAgentRegistry")
 
     var registrations: [CmuxVaultAgentRegistration]
+    let hideClaudeSDKSessions: Bool
+    let sessionExclusions: [CmuxVaultSessionExclusion]
 
-    init(registrations: [CmuxVaultAgentRegistration]) {
+    init(
+        registrations: [CmuxVaultAgentRegistration],
+        hideClaudeSDKSessions: Bool = false,
+        sessionExclusions: [CmuxVaultSessionExclusion] = []
+    ) {
         var ordered: [CmuxVaultAgentRegistration] = []
         var indexesByID: [String: Int] = [:]
         for registration in registrations {
@@ -473,10 +502,25 @@ struct CmuxVaultAgentRegistry: Sendable {
             }
         }
         self.registrations = ordered
+        self.hideClaudeSDKSessions = hideClaudeSDKSessions
+        self.sessionExclusions = sessionExclusions
     }
 
     func registration(id: String) -> CmuxVaultAgentRegistration? {
         registrations.first { $0.id == id }
+    }
+
+    var hasSessionExclusions: Bool {
+        hideClaudeSDKSessions || !sessionExclusions.isEmpty
+    }
+
+    func excludes(_ entry: SessionEntry) -> Bool {
+        if hideClaudeSDKSessions,
+           entry.agent == .claude,
+           entry.entrypoint?.lowercased().hasPrefix("sdk-") == true {
+            return true
+        }
+        return sessionExclusions.contains { $0.matches(entry) }
     }
 
     func mergingProjectConfig(
@@ -487,11 +531,14 @@ struct CmuxVaultAgentRegistry: Sendable {
               !workingDirectory.isEmpty,
               let path = Self.findLocalConfig(startingAt: workingDirectory, fileManager: fileManager),
               let config = Self.decodeConfig(at: path, fileManager: fileManager),
-              let agents = config.vault?.agents,
-              !agents.isEmpty else {
+              let vault = config.vault else {
             return self
         }
-        return CmuxVaultAgentRegistry(registrations: registrations + agents)
+        return CmuxVaultAgentRegistry(
+            registrations: registrations + vault.agents,
+            hideClaudeSDKSessions: hideClaudeSDKSessions || vault.hideClaudeSDKSessions,
+            sessionExclusions: sessionExclusions + vault.exclude
+        )
     }
 
     static func load(
@@ -511,11 +558,20 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInMuse,
             CmuxVaultAgentRegistration.builtInHermes,
         ]
+        var hideClaudeSDKSessions = false
+        var sessionExclusions: [CmuxVaultSessionExclusion] = []
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
-            registrations.append(contentsOf: config.vault?.agents ?? [])
+            guard let vault = config.vault else { continue }
+            registrations.append(contentsOf: vault.agents)
+            hideClaudeSDKSessions = hideClaudeSDKSessions || vault.hideClaudeSDKSessions
+            sessionExclusions.append(contentsOf: vault.exclude)
         }
-        return CmuxVaultAgentRegistry(registrations: registrations)
+        return CmuxVaultAgentRegistry(
+            registrations: registrations,
+            hideClaudeSDKSessions: hideClaudeSDKSessions,
+            sessionExclusions: sessionExclusions
+        )
     }
 
     private static func configPaths(
