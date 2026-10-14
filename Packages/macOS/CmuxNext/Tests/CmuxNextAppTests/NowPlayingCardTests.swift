@@ -25,7 +25,7 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
-    nonisolated(unsafe) static var npOriginals: [UInt32: (AEEventHandlerUPP, SRefCon?)] = [:]
+    nonisolated(unsafe) static var npOriginals: [UInt32: (AEEventHandlerUPP, UnsafeMutableRawPointer?)] = [:]
     nonisolated(unsafe) static var npDepth = 1
     nonisolated static func npSay(_ s: String) { FileHandle.standardError.write(Data(("NPDIAG \(DispatchTime.now().uptimeNanoseconds / 1_000_000) " + s + "\n").utf8)) }
     static let npDiag: Void = {
@@ -46,7 +46,7 @@ import Testing
         }
         for id in [kAEOpenApplication, kAEReopenApplication, kAEQuitApplication, kAEOpenDocuments, kAEPrintDocuments, kAEShowPreferences].map({ AEEventID($0) }) {
             var handler: AEEventHandlerUPP?
-            var refcon: SRefCon?
+            var refcon: UnsafeMutableRawPointer?
             let found = AEGetEventHandler(AEEventClass(kCoreEventClass), id, &handler, &refcon, false)
             npSay("AE handler \(id) found=\(found) has=\(handler != nil)")
             if found == OSErr(noErr), let handler { npOriginals[id] = (handler, refcon) }
