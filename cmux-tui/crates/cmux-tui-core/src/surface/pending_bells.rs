@@ -47,8 +47,11 @@ impl PendingBells {
 
     /// Whether a bell at `now` posts a notification, recording it when it does.
     fn notification_due(&self, now: Instant) -> bool {
-        let mut notified_at = self.notified_at.lock().unwrap();
-        if notified_at.is_some_and(|at| now.saturating_duration_since(at) < BELL_NOTIFICATION_COOLDOWN) {
+        let mut notified_at =
+            self.notified_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if notified_at
+            .is_some_and(|at| now.saturating_duration_since(at) < BELL_NOTIFICATION_COOLDOWN)
+        {
             return false;
         }
         *notified_at = Some(now);
