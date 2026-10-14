@@ -108,6 +108,23 @@ import CmuxHomeCoreTestSupport
         #expect(store.transcript(for: id).last?.threadRoot == root)
     }
 
+    /// `chiefShowcase`: the Chief's Markdown and a link-only message end its history; `streamReply`
+    /// grows one Chief message to the whole reply.
+    @Test func chiefShowcaseEndsWithMarkdownAndALinkAndAReplyStreamsIn() async throws {
+        let (store, source) = await started(MockHomeSource.Options(chiefHistory: 300, latency: .zero, replyDelay: .zero, chiefShowcase: true))
+        let id = ConversationID("conv_chief")
+        await store.open(id)
+        let chief = await source.chief.id
+        let tail = store.transcript(for: id).suffix(2)
+        #expect(tail.map(\.seq) == [301, 302])
+        #expect(tail.allSatisfy { $0.author == chief })
+        #expect(tail.map { $0.parts.map(\.plainText).joined() } == [MockHomeSeed.chiefMarkdown, MockHomeSeed.showcaseLink])
+        let streamed = try #require(await source.streamReply("one two three", in: id, interval: .zero))
+        await waitUntil { store.transcript(for: id).last?.parts.map(\.plainText).joined() == "one two three" }
+        #expect(store.transcript(for: id).last?.messageID == streamed)
+        #expect(store.transcript(for: id).last?.editedAt == nil)
+    }
+
     @Test func theChiefHistoryHasNoThreadByDefault() async {
         let (store, _) = await started()
         let id = ConversationID("conv_chief")

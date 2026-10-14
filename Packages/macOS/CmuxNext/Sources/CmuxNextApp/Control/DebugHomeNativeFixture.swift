@@ -20,6 +20,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
+
+    /// Streams a Chief reply into every open fixture (`HomeNativeFixture.startStream`).
+    func startStream() -> Bool {
+        fixtures.values.map { $0.startStream() }.contains(true)
+    }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
@@ -171,10 +176,13 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else { return .object(["error": .string("click needs x and y")]) }
             let clicked = view.debugClick(atWindow: CGPoint(x: x, y: y), count: params["count"]?.intValue ?? 1)
             return .object(["ok": .bool(clicked), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
+        case "stream":
+            // The fixture's Chief streams a reply in, a word every 120 ms (the mock owner's updates).
+            ok = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.startStream() ?? false
         case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies or thread_state")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies, stream or thread_state")])
         }
         return .object(["ok": .bool(ok)])
     }

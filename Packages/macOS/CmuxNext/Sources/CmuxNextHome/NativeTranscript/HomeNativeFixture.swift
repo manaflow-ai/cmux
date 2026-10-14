@@ -13,10 +13,14 @@ public final class HomeNativeFixture {
     public static var title: String { HomeStrings.conversations }
     /// No latency; the Chief types for 1.5 s before it answers (the typing
     /// indicator shows, as in MessagesLab's script). The Chief's history holds
-    /// one thread (`chiefThread`), so the thread views can be opened.
-    private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500), chiefThread: true))
+    /// one thread (`chiefThread`), so the thread views can be opened, and ends with the Chief's
+    /// Markdown and a link card (`chiefShowcase`); `startStream` streams a Chief reply in.
+    private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500),
+                                                       chiefThread: true, chiefShowcase: true))
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
+    /// The conversation shown (the Chief's), once loaded.
+    private var conversation: ConversationID?
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
@@ -49,8 +53,18 @@ public final class HomeNativeFixture {
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         self.view = view
+        conversation = id
         await view.binding.opened()
         if attachments { await addAttachments(in: id) }
+    }
+
+    /// Streams a Chief reply into the shown conversation (`MockHomeSource.streamReply`, a word every
+    /// 120 ms). False before the conversation is loaded.
+    public func startStream() -> Bool {
+        guard let conversation else { return false }
+        let source = self.source
+        Task { await source.streamReply(in: conversation) }
+        return true
     }
 
     private func addAttachments(in id: ConversationID) async {

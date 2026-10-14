@@ -14,7 +14,7 @@ enum MockHomeSeed {
         var members: [ContactAddress: ParticipantID]
     }
 
-    static func make(now: Date, chiefHistory: Int) -> Seed {
+    static func make(now: Date, chiefHistory: Int, chiefShowcase: Bool = false) -> Seed {
         let me = Participant(id: ParticipantID("user_me"), kind: .human, displayName: "Lawrence")
         let chief = Participant(id: ParticipantID("agent_chief"), kind: .agent, displayName: "Chief",
                                 agentClass: .chief, ownerUser: me.id)
@@ -41,8 +41,23 @@ enum MockHomeSeed {
             readCursors: [me.id: total - min(total, 2)], pinRank: 0
         )
         chiefSummary.lastMessage = generatedMessage(seq: total, total: total, in: chiefSummary, epoch: now)
-        conversations.append(chiefSummary)
         generated[chiefID] = total
+        if chiefShowcase {
+            // After the generated history: the Chief's Markdown and a link-only message (a link card).
+            let lines = [chiefMarkdown, showcaseLink]
+            var list: [Message] = []
+            for (i, text) in lines.enumerated() {
+                let seq = total + Seq(i + 1)
+                list.append(Message(id: MessageID("msg_showcase_\(i + 1)"), conversation: chiefID, seq: seq,
+                                    clientMessageID: IdempotencyKey("showcase_\(i + 1)"), author: chief.id, parts: [.text(text)],
+                                    createdAt: now.addingTimeInterval(Double(i - lines.count) * 20)))
+            }
+            messages[chiefID] = list
+            chiefSummary.lastSeq = total + Seq(lines.count)
+            chiefSummary.rev = chiefSummary.lastSeq
+            chiefSummary.lastMessage = list.last
+        }
+        conversations.append(chiefSummary)
 
         func add(_ id: String, title: String = "", _ participants: [Participant], minutesAgo: Double,
                  unread: Int = 0, _ lines: [(Participant, String)]) {
@@ -174,6 +189,26 @@ enum MockHomeSeed {
             replyTo: root.map { PartRef(message: $0) }, threadRoot: root
         )
     }
+
+    /// `MockHomeSource.Options.chiefShowcase`: the Chief's Markdown (bold, italic, a list, a link
+    /// and a fenced code block) and a message that is only a URL (a link card).
+    static let chiefMarkdown = """
+    Here is the plan for the **transport** branch:
+
+    - Build the iOS shell on the fleet
+    - Run the *focused* tests
+    - Open the draft PR, see [the open PRs](https://github.com/manaflow-ai/cmux/pulls)
+
+    ```swift
+    let tunnel = try await Transport.open(.freestyle)
+    try await tunnel.send(.hello)
+    ```
+    """
+    static let showcaseLink = "https://cmux.com"
+
+    /// The streamed reply (`MockHomeSource.streamReply`), a word at a time.
+    static let streamedReply = "The fleet build is running. Two of six steps are green, the iOS archive is next, "
+        + "and the **focused tests** start when it lands. I will post the result here."
 
     static func chiefGreeting(_ name: String) -> String {
         "Hi, I'm \(name). Tell me what to work on, and I'll run agents for it."

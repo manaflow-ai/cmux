@@ -18,14 +18,19 @@ public actor MockHomeSource: HomeSource {
         /// The Chief's generated history holds one thread: a Chief message with two replies near
         /// the newest end (`MockHomeSeed.chiefThread`), for the transcript's thread views.
         public var chiefThread: Bool
+        /// After the generated history, the Chief's Markdown message and a link-only message (a link
+        /// card), for the transcript's Markdown and link card rendering (`MockHomeSeed.chiefMarkdown`).
+        public var chiefShowcase: Bool
 
         public init(chiefHistory: Int = 2_000, latency: Duration = .milliseconds(120),
-                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true, chiefThread: Bool = false) {
+                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true, chiefThread: Bool = false,
+                    chiefShowcase: Bool = false) {
             self.chiefHistory = chiefHistory
             self.latency = latency
             self.replyDelay = replyDelay
             self.startsOnline = startsOnline
             self.chiefThread = chiefThread
+            self.chiefShowcase = chiefShowcase
         }
 
         /// No delays: for tests.
@@ -100,7 +105,7 @@ public actor MockHomeSource: HomeSource {
         self.clock = clock
         self.online = options.startsOnline
         self.epoch = now
-        let seed = MockHomeSeed.make(now: now, chiefHistory: options.chiefHistory)
+        let seed = MockHomeSeed.make(now: now, chiefHistory: options.chiefHistory, chiefShowcase: options.chiefShowcase)
         self.me = seed.me
         self.chief = seed.chief
         for summary in seed.conversations { conversations[summary.id] = summary }
@@ -446,6 +451,40 @@ public actor MockHomeSource: HomeSource {
     /// Posts a message as someone else (incoming traffic for demos).
     public func receive(_ text: String, from author: ParticipantID, in conversation: ConversationID) {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())
+    }
+
+    /// A Chief reply that streams in (demos and captures): the message is committed with its first
+    /// word, then its text grows by one word every `interval` (each step an owner update of the
+    /// message's parts, as an agent's streaming text reaches the client; no `editedAt`: a stream is
+    /// not an edit, so the transcript shows no Edited label). The message's id.
+    @discardableResult
+    public func streamReply(_ text: String? = nil, in conversation: ConversationID,
+                            interval: Duration = .milliseconds(120)) -> MessageID? {
+        let words = (text ?? MockHomeSeed.streamedReply).split(separator: " ").map(String.init)
+        guard let first = words.first,
+              (try? commitMessage(in: conversation, author: chief.id, parts: [.text(first)], key: .make())) != nil,
+              let id = stored[conversation]?.last?.id else { return nil }
+        let clock = self.clock
+        Task {
+            var shown = first
+            for word in words.dropFirst() {
+                try? await clock.sleep(for: interval)
+                shown += " " + word
+                self.updateStreamed(id, in: conversation, text: shown)
+            }
+        }
+        return id
+    }
+
+    private func updateStreamed(_ id: MessageID, in conversation: ConversationID, text: String) {
+        guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == id }),
+              var summary = conversations[conversation] else { return }
+        list[index].parts = [.text(text)]
+        stored[conversation] = list
+        summary.rev += 1
+        if summary.lastMessage?.id == id { summary.lastMessage = list[index] }
+        conversations[conversation] = summary
+        publish(.message(list[index], rev: summary.rev))
     }
 
     // MARK: Owner logic
