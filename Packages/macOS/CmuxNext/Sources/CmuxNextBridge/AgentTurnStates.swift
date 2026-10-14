@@ -58,19 +58,20 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// new state (nil: no indicator, or purged), its last message (`lastMessage`, cx-13w3.1) and
     /// whether its notifications are muted. Nil when the line names no session state.
     public static func change(_ params: [String: Any])
-        -> (session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?)? {
+        -> (session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?, generatedTitle: String?)? {
         guard let id = params["sessionId"] as? String else { return nil }
-        if params["kind"] as? String == "purged" { return (id, nil, nil, false, nil) }
+        if params["kind"] as? String == "purged" { return (id, nil, nil, false, nil, nil) }
         guard let summary = params["session"] as? [String: Any] else { return nil }
         return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary), lastMessage(summary), muted(summary),
-                title(summary))
+                title(summary), title(summary, includingPrompt: false))
     }
 
     /// A summary's chat title as the page names it (sessionList.ts `sessionTitle`): the name the
     /// user gave, else the agent's title, else the first prompt. A name acpmux generated from the
     /// harness or its family (`claude-sr`, `claude-sr-2`, `codex-fork`) is no title. Nil when the
-    /// chat has none yet.
-    public static func title(_ summary: [String: Any]) -> String? {
+    /// chat has none yet. `includingPrompt: false` leaves out the first prompt: the chat's real
+    /// title only (workspace auto-naming persists nothing else, hq#1957).
+    public static func title(_ summary: [String: Any], includingPrompt: Bool = true) -> String? {
         let name = (summary["name"] as? String) ?? ""
         let bare = name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? name
         func generated(from agent: String?) -> Bool {
@@ -83,17 +84,17 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         if !name.isEmpty, !generated(from: summary["harness"] as? String), !generated(from: summary["family"] as? String) {
             return name
         }
-        for key in ["title", "lastPrompt"] {
+        for key in includingPrompt ? ["title", "lastPrompt"] : ["title"] {
             if let text = (summary[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty { return text }
         }
         return nil
     }
 
     /// The title of every session of a watch result that has one.
-    public static func titles(_ result: [String: Any]) -> [String: String] {
+    public static func titles(_ result: [String: Any], includingPrompt: Bool = true) -> [String: String] {
         var titles: [String: String] = [:]
         for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
-            if let id = summary["sessionId"] as? String, let title = title(summary) { titles[id] = title }
+            if let id = summary["sessionId"] as? String, let title = title(summary, includingPrompt: includingPrompt) { titles[id] = title }
         }
         return titles
     }
@@ -165,6 +166,8 @@ public final class AgentTurnStateStore {
     public var muted: Set<String> = []
     /// Each session's title (`AgentTurnStates.title`), for a chat tab the user has not named.
     public var titles: [String: String] = [:]
+    /// Each session's real title, never its first prompt (`AgentTurnStates.title(_:includingPrompt:)`).
+    public var generatedTitles: [String: String] = [:]
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
@@ -191,6 +194,13 @@ public final class AgentTurnStateStore {
     public func title(for ref: AgentSessionRef) -> String? {
         guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
         return titles[session]
+    }
+
+    /// The real title of the chat an agent chat tab shows (never its first prompt); nil when it
+    /// has none yet or is not on this Mac.
+    public func generatedTitle(for ref: AgentSessionRef) -> String? {
+        guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
+        return generatedTitles[session]
     }
 
     /// Whether the chat an agent chat tab shows has its notifications muted; nil when
