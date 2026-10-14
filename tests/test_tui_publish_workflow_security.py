@@ -113,22 +113,31 @@ def valgrind_build_step() -> str:
 def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
     build = valgrind_build_step()
 
-    assert re.findall(
-        r"(?m)^\s+-p ([A-Za-z0-9_-]+) --(bin|test) "
-        r"([A-Za-z0-9_-]+) \\\s*$",
-        build,
-    ) == [
-        ("cmux-tui", "bin", "cmux-tui"),
-        ("ghostty-vt", "test", "terminal"),
-    ]
+    # The startup tests live in the cmux_tui library (src/main.rs since the
+    # Windows thin-exe split); the cmux-tui bin's test binary has the same
+    # cmux_tui-<hash> name and none of them.
+    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text()
+    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "src/main.rs"', cargo_toml)
     assert re.search(
-        r"cargo test \\\s+-p cmux-tui --bin cmux-tui \\\s+"
+        r"cargo test \\\s+-p cmux-tui --lib \\\s+"
         r"-p ghostty-vt --test terminal \\\s+"
         r"--locked --no-run --message-format=json",
         build,
     )
+    assert "--bin cmux-tui" not in build
     assert "cargo test --workspace" not in build
     assert build.count("cargo test") == 1
+
+
+def test_valgrind_runner_refuses_an_ambiguous_or_stale_startup_binary() -> None:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+    run_step = job.split("      - name: Run test binaries under valgrind", 1)[1]
+
+    # Two cmux_tui-<hash> binaries (lib and bin) must not resolve silently to
+    # whichever cargo listed last.
+    assert "more than one cmux_tui test binary" in run_step
+    # A listed test that is gone names the list and the cargo selector to fix.
+    assert "update startup_tests and the cargo selector in Build test binaries" in run_step
 
 
 def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:

@@ -459,9 +459,12 @@ jobs:
           mkdir -p target
           # Cargo target selectors keep this startup shard from compiling the
           # unrelated workspace test harnesses. The selected targets map to
-          # the cmux_tui-* and terminal-* binaries checked below.
+          # the cmux_tui-* and terminal-* binaries checked below. The startup
+          # tests live in the cmux_tui library (src/main.rs); the cmux-tui
+          # bin's test binary has the same cmux_tui-<hash> name and none of
+          # them, so it is not built here.
           cargo test \
-            -p cmux-tui --bin cmux-tui \
+            -p cmux-tui --lib \
             -p ghostty-vt --test terminal \
             --locked --no-run --message-format=json \
             > target/cargo-test-binaries.jsonl
@@ -558,7 +561,7 @@ jobs:
             local bin="$1"
             local test_name="$2"
             if ! "$bin" --list | grep -Fqx "$test_name: test"; then
-              echo "::error::$(basename "$bin") does not contain exact test '$test_name'" >&2
+              echo "::error::$(basename "$bin") does not contain exact test '$test_name': it was renamed, moved or now builds in another target; update startup_tests and the cargo selector in Build test binaries" >&2
               exit 1
             fi
           }
@@ -567,7 +570,13 @@ jobs:
           terminal_bin=""
           while IFS= read -r bin; do
             case "$(basename "$bin")" in
-              cmux_tui-*) cmux_tui_bin="$bin" ;;
+              cmux_tui-*)
+                if [[ -n "$cmux_tui_bin" ]]; then
+                  echo "::error::more than one cmux_tui test binary ($cmux_tui_bin and $bin); select one cargo target in Build test binaries" >&2
+                  exit 1
+                fi
+                cmux_tui_bin="$bin"
+                ;;
               terminal-*) terminal_bin="$bin" ;;
             esac
           done < target/valgrind-test-binaries.txt
