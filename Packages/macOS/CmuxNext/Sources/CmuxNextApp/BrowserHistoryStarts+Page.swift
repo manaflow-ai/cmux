@@ -25,12 +25,13 @@ extension BrowserHistoryStarts {
     /// `configuration` for restored Chromium tab `tab`, with the navigation state saved with its
     /// history when it was saved at the page's address (cx-il4fv): Chromium restores its back list
     /// and page state, and loads the address itself when it cannot. Tabs that open as before, as
-    /// in `page`, and pages with a local file in their history (Chromium's file access is not
-    /// bounded to a folder) keep `configuration`.
+    /// in `page`, keep `configuration`. A local page restores only when every entry is a file in
+    /// its own folder (cx-5djb2): its entries then commit as a fresh load of each would, so the
+    /// restore reads nothing those loads would not; any other history with a file loads the address.
     func chromium(_ tab: TabModel, _ configuration: BrowserTabConfiguration, cache: TabContentCache) async -> BrowserTabConfiguration {
         let service = cache.browserTabs, key = tab.id, daemon = service.daemon(for: tab)
         guard configuration.restoreState == nil, configuration.machineStore == nil, let url = configuration.initialURL,
-              ["http", "https"].contains(url.scheme?.lowercased() ?? ""), MachineBrowserRecord(url: url) == nil,
+              ["http", "https", "file"].contains(url.scheme?.lowercased() ?? ""), MachineBrowserRecord(url: url) == nil,
               tab.isFrontendOwned, !service.isIncognitoTab(key), !service.wasOpenedHere(tab), daemon.isLocal,
               daemon.supports(DaemonCapabilities.shared.frontendBrowserHistory) else { return configuration }
         // As for a WebKit page, a slow read makes the page at its address.
@@ -38,7 +39,8 @@ extension BrowserHistoryStarts {
             await service.fetchHistory(daemon, tab.surface)
         }
         guard let state = BrowserHistoryWriter.restoreState(saved, at: url, engine: .cef),
-              !(saved?.entries ?? []).contains(where: { URL(string: $0.url)?.isFileURL ?? true }) else {
+              let entries = saved?.entries.compactMap({ URL(string: $0.url) }), entries.count == saved?.entries.count,
+              BrowserHistoryWriter.keepsFileAccess(entries, shown: url) else {
             outcomes[key] = saved == nil ? "address" : saved?.engineState == nil ? "address-no-state" : "address-file-access"
             return configuration
         }

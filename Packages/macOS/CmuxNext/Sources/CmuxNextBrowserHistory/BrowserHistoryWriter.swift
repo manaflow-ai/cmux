@@ -141,11 +141,16 @@ public final class BrowserHistoryWriter {
 
     static let hasPasswordField = "!!document.querySelector('input[type=password]')"
 
-    /// Whether WebKit's own history over `urls` restores without wider file access than a load
+    /// Whether an engine's own history over `urls` restores without wider file access than a load
     /// of `shown` grants: no local files, or only local files in `shown`'s folder. WebKit reads a
     /// restored local entry with access to every file unless its process already reads that
     /// folder, which `BrowserHistoryStarts` grants by loading `shown` first.
-    static func keepsFileAccess(_ urls: [URL], shown: URL) -> Bool {
+    ///
+    /// - Parameters:
+    ///   - urls: Every entry of the history to restore.
+    ///   - shown: The page the history shows.
+    /// - Returns: True when restoring reads no file outside `shown`'s folder.
+    public static func keepsFileAccess(_ urls: [URL], shown: URL) -> Bool {
         guard urls.contains(where: \.isFileURL) else { return true }
         guard shown.isFileURL else { return false }
         let folder = shown.standardizedFileURL.deletingLastPathComponent().path
