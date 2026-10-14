@@ -37,6 +37,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
+        capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -191,6 +192,7 @@ pub(super) fn advertised_capabilities(
         crate::state::app_workspaces::APP_SCREENS_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
         crate::state::agent_start::CAPABILITY,
+        crate::resource_router::OPEN_URL_CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
