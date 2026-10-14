@@ -377,8 +377,9 @@ def main() -> int:
               {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
 
         # Doc slice 3: the TUI reads the order from the document, so it
-        # echoes sidebar-doc-v1 and a new top workspace sends its stream only
-        # the new placement, not a restatement of every row it shifted.
+        # echoes sidebar-doc-v1 and placement-shift-v1, and a new top workspace
+        # sends its stream only the new placement, not a restatement of every
+        # row it shifted.
         check("the TUI echoes sidebar-doc-v1 and placement-shift-v1 in set-client-info",
               any("sidebar-doc-v1" in caps and "placement-shift-v1" in caps for caps in proxy.echoed),
               proxy.echoed)
