@@ -106,10 +106,26 @@ impl Request {
                     }),
             }
         };
+        // A model id, never a flag, whitespace or a control character;
+        // `default` is no model (the small model is picked and reported).
+        let model = match params.get("model") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(m)) if m.is_empty() || m == "default" => None,
+            Some(Value::String(m))
+                if m.starts_with('-') || m.chars().any(|c| c.is_whitespace() || c.is_control()) =>
+            {
+                return Err(CompleteError::InvalidParams(
+                    "model must be a model id: no leading '-', whitespace or control characters"
+                        .into(),
+                ));
+            }
+            Some(Value::String(m)) => Some(m.clone()),
+            Some(_) => return Err(CompleteError::InvalidParams("model must be a string".into())),
+        };
         Ok(Self {
             prompt: prompt.to_owned(),
             harness: text("harness")?,
-            model: text("model")?,
+            model,
             max_tokens: number("maxTokens", DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS)?,
             timeout: Duration::from_millis(u64::from(number(
                 "timeoutMs",

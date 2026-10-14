@@ -17,8 +17,9 @@ const SLOTS: usize = 4;
 static RUNNING: std::sync::LazyLock<tokio::sync::Semaphore> =
     std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(SLOTS));
 
-/// The model ids `_acpmux/models` offers harness `name` (with aliases).
-fn offered_ids(models: &Value, name: &str) -> Vec<String> {
+/// The model ids `_acpmux/models` offers harness `name` (with aliases);
+/// `refused`: only those its backend refused, else only those it did not.
+fn offered_ids(models: &Value, name: &str, refused: bool) -> Vec<String> {
     let Some(entry) =
         models["harnesses"].as_array().and_then(|list| list.iter().find(|h| h["harness"] == name))
     else {
@@ -26,8 +27,8 @@ fn offered_ids(models: &Value, name: &str) -> Vec<String> {
     };
     let mut ids = Vec::new();
     for model in entry["models"].as_array().into_iter().flatten() {
-        // A model its backend refused (`model_availability.rs`) is skipped.
-        if model.get("unavailable").is_some() {
+        // A model its backend refused (`model_availability.rs`).
+        if model.get("unavailable").is_some() != refused {
             continue;
         }
         ids.extend(model["id"].as_str().map(str::to_owned));
@@ -38,13 +39,13 @@ fn offered_ids(models: &Value, name: &str) -> Vec<String> {
     ids
 }
 
-/// `ANTHROPIC_SMALL_FAST_MODEL` from the profile env (with its route), else
-/// the login environment. A secret reference is not a model id.
-fn small_fast(env: &BTreeMap<String, String>) -> Option<String> {
-    env.get(model_pick::SMALL_FAST_ENV)
+/// `key` from the profile env (with its route), else the login environment,
+/// else the daemon's. A secret reference is not a model id.
+fn env_value(env: &BTreeMap<String, String>, key: &str) -> Option<String> {
+    env.get(key)
         .cloned()
-        .or_else(|| crate::login_env::var(model_pick::SMALL_FAST_ENV))
-        .or_else(|| std::env::var(model_pick::SMALL_FAST_ENV).ok())
+        .or_else(|| crate::login_env::var(key))
+        .or_else(|| std::env::var(key).ok())
         .filter(|m| !m.trim().is_empty() && !m.contains("${"))
 }
 
@@ -91,6 +92,30 @@ impl Hub {
         reply.map_err(RpcError::from)
     }
 
+    /// The harness's small model (`model_pick`). None: the CLI's default.
+    async fn small_model(
+        &self,
+        name: &str,
+        recipe: Recipe,
+        env: &BTreeMap<String, String>,
+    ) -> Option<String> {
+        let models = self.models_catalog().await;
+        if recipe != Recipe::Claude {
+            return model_pick::pick(recipe, &offered_ids(&models, name, false));
+        }
+        let live: Option<Vec<String>> =
+            self.live_models_for(name).map(|list| list.into_iter().map(|m| m.id).collect());
+        let refused = offered_ids(&models, name, true);
+        let small_fast = env_value(env, model_pick::SMALL_FAST_ENV);
+        let default_haiku = env_value(env, model_pick::DEFAULT_HAIKU_ENV);
+        Some(model_pick::claude_model(&model_pick::ClaudeInputs {
+            small_fast: small_fast.as_deref(),
+            default_haiku: default_haiku.as_deref(),
+            live: live.as_deref().filter(|l| !l.is_empty()),
+            refused: &refused,
+        }))
+    }
+
     async fn complete_with(
         self: &Arc<Self>,
         name: &str,
@@ -111,10 +136,7 @@ impl Hub {
             .map_err(|e| failed(e.message))?;
         let model = match &req.model {
             Some(model) => Some(model.clone()),
-            None => {
-                let models = self.models_catalog().await;
-                model_pick::pick(recipe, &offered_ids(&models, name))
-            }
+            None => self.small_model(name, recipe, &env).await,
         };
         // The CLIs need the login environment (PATH, API keys).
         tokio::time::timeout_at(deadline, self.wait_startup()).await.map_err(|_| timed_out())?;

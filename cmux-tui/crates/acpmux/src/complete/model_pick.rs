@@ -1,9 +1,12 @@
 //! The harness's small model when the caller names none (design
 //! "Which model, and whose auth"):
 //!
-//! - Claude Code: `ANTHROPIC_SMALL_FAST_MODEL` when the profile env (or the
-//!   login env) sets one, so Vertex and Bedrock users keep theirs; else the
-//!   newest `claude-haiku-*` the live list or catalog offers; else `haiku`.
+//! - Claude Code ([`claude_model`]): `ANTHROPIC_SMALL_FAST_MODEL` when the
+//!   profile env (or the login env) sets one; else the `haiku` alias, so the
+//!   user's own mapping (`ANTHROPIC_DEFAULT_HAIKU_MODEL` on Bedrock, Vertex,
+//!   CodeRouter) picks the concrete model. A concrete newest
+//!   `claude-haiku-*` only when Claude Code's live list lacks the alias or
+//!   the backend refused it; never from the curated catalog.
 //! - Codex: the first `luna`, then `mini`, then `nano` model it lists
 //!   (effort low is the recipe's); else the CLI's default.
 //! - The others: the first `flash-lite`, `flash`, `haiku`, `luna` or `mini`
@@ -17,6 +20,8 @@ use super::recipes::Recipe;
 pub const CLAUDE_FALLBACK: &str = "haiku";
 /// Claude Code's own small-model override.
 pub const SMALL_FAST_ENV: &str = "ANTHROPIC_SMALL_FAST_MODEL";
+/// The user's own mapping of the `haiku` alias (Bedrock, Vertex, CodeRouter).
+pub const DEFAULT_HAIKU_ENV: &str = "ANTHROPIC_DEFAULT_HAIKU_MODEL";
 
 const CODEX_ORDER: &[&str] = &["luna", "mini", "nano"];
 const OTHER_ORDER: &[&str] = &["flash-lite", "flash", "haiku", "luna", "mini"];
@@ -48,9 +53,27 @@ pub struct ClaudeInputs<'a> {
 
 /// Claude Code's small model.
 pub fn claude_model(inputs: &ClaudeInputs<'_>) -> String {
-    // hq#1957: not implemented yet (the failing tests come first).
-    let _ = inputs;
-    String::new()
+    if let Some(model) = inputs.small_fast.map(str::trim).filter(|m| !m.is_empty()) {
+        return model.to_owned();
+    }
+    // The user maps the alias to their provider's model: Claude Code resolves it.
+    if inputs.default_haiku.is_some_and(|m| !m.trim().is_empty()) {
+        return CLAUDE_FALLBACK.to_owned();
+    }
+    let is_alias = |m: &String| m.eq_ignore_ascii_case(CLAUDE_FALLBACK);
+    let listed = inputs.live.is_none_or(|live| live.iter().any(is_alias));
+    let refused = inputs.refused.iter().any(is_alias);
+    if listed && !refused {
+        return CLAUDE_FALLBACK.to_owned();
+    }
+    let usable: Vec<String> = inputs
+        .live
+        .unwrap_or_default()
+        .iter()
+        .filter(|m| !inputs.refused.contains(*m))
+        .cloned()
+        .collect();
+    newest_haiku(&usable).unwrap_or_else(|| CLAUDE_FALLBACK.to_owned())
 }
 
 /// The first id holding `order[0]`, else `order[1]`, ...
