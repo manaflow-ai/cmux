@@ -25,7 +25,7 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
-    nonisolated(unsafe) static var npDepth = 0
+    nonisolated(unsafe) static var npDepth = 1 // installed inside the outer run
     static let npDiag: Void = {
         func say(_ s: String) { FileHandle.standardError.write(Data(("NPDIAG " + s + "\n").utf8)) }
         atexit { FileHandle.standardError.write(Data(("NPDIAG atexit\n" + Thread.callStackSymbols.joined(separator: "\n") + "\n").utf8)) }
