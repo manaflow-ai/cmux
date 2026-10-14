@@ -7,14 +7,17 @@ public import Foundation
 /// subagents (`acpmux/`).
 ///
 /// One Chief per build (Lawrence, 2026-10-14: "we need a chief per build,
-/// should not overlap"): every build, keyed by its bundle id, has its own
-/// home, so no build starts, stops or reads another build's brain, acpmux,
-/// tools socket or memory, and a quit stops only its own Chief. NIGHTLY
-/// (`com.cmuxterm.app.nightly`), Lawrence's daily Chief, keeps the home all
-/// builds shared before (`~/.cmux/chief/<account>`) where it is: nothing is
-/// moved or copied, so its memory and history stay as they are. Every
-/// other build starts with an empty home of its own and never imports the
-/// old per-tag Chiefs (`ChiefMigration` runs only for a shared home).
+/// should not overlap"): every DEV and staging build, keyed by its bundle
+/// id, has its own home, so it never starts, stops or reads another build's
+/// brain, acpmux, tools socket or memory, and its quit stops only its own
+/// Chief. NIGHTLY (`com.cmuxterm.app.nightly`, and cmux NEXT's
+/// `com.cmuxterm.app.nightly.cmux-next`), Lawrence's daily Chief, keeps the
+/// home all builds shared before (`~/.cmux/chief/<account>`) where it is:
+/// nothing is moved or copied, so its memory and history stay as they are.
+/// Release and RC, which run no Chief, keep that path too (their Home shows
+/// it; the `cmux chief` CLI in their terminals reaches NIGHTLY's Chief as
+/// before). A DEV build's home starts empty and never imports the old
+/// per-tag Chiefs (`ChiefMigration` runs only for a shared home).
 ///
 /// Resolution, first match wins:
 /// 1. `CMUX_NEXT_CHIEF_HOME` (or the older `CMUX_NEXT_MUX_HOME`): that
@@ -26,11 +29,12 @@ public import Foundation
 ///    `CMUX_NEXT_NO_ACTIVATE=1`, test window placement, showcase):
 ///    `~/.cmux/chief/isolated/<tag>`, so automation never reads or writes the
 ///    user's real Chief.
-/// 4. NIGHTLY: `~/.cmux/chief/<account>` (the account from
-///    `CMUX_NEXT_CHIEF_ACCOUNT`, else `default`). Any other build:
-///    `~/.cmux/chief/<bundle id>`, with `.<account>` appended for an account
-///    other than `default`. A DEBUG build may name another bundle id in
-///    `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
+/// 4. A DEV or staging build (`com.cmuxterm.app.debug[.<tag>]`,
+///    `com.cmuxterm.app.staging[.<tag>]`): `~/.cmux/chief/<bundle id>`, with
+///    `.<account>` appended for an account other than `default`. Any other
+///    build (NIGHTLY first): `~/.cmux/chief/<account>` (the account from
+///    `CMUX_NEXT_CHIEF_ACCOUNT`, else `default`). A DEBUG build may name
+///    another bundle id in `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
 ///
 /// Builds from before one Chief per build still resolve
 /// `~/.cmux/chief/<account>`, NIGHTLY's home. They cannot damage its memory:
@@ -48,12 +52,15 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// The bundle id this home belongs to (rules 2 and 4), nil for rules 1 and 3.
     public var buildID: String? = nil
 
-    /// The build that keeps the shared home of older builds.
-    public static let sharedHomeBuildID = "com.cmuxterm.app.nightly"
+    /// Whether `bundleID` gets a Chief home of its own: DEV and staging builds.
+    public static func hasOwnHome(bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"].contains { bundleID == $0 || bundleID.hasPrefix($0 + ".") }
+    }
 
     /// Whether this home may take in the old per-tag Chiefs (`ChiefMigration`):
-    /// only a shared home (rule 1, or NIGHTLY's), never a new build's own.
-    public var importsOldChiefs: Bool { !isolated && (buildID == nil || buildID == Self.sharedHomeBuildID) }
+    /// only a shared home (rule 1, or NIGHTLY's), never a DEV build's own.
+    public var importsOldChiefs: Bool { !isolated && !Self.hasOwnHome(bundleID: buildID) }
 
     /// `--mux-home` of the brain host: OptChat memory under `optchat/`,
     /// the single-writer host lock at `state/host.lock`.
@@ -92,10 +99,9 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
         }
         let account = value("CMUX_NEXT_CHIEF_ACCOUNT").flatMap(component(of:)) ?? "default"
         let build = (isDebugBuild ? value("CMUX_NEXT_CHIEF_BUILD_ID") : nil) ?? bundleID
-        if build == sharedHomeBuildID {
+        guard hasOwnHome(bundleID: build), let build, let name = component(of: build) else {
             return ChiefHome(root: base.appendingPathComponent(account, isDirectory: true), isolated: false, buildID: build)
         }
-        let name = build.flatMap(component(of:)) ?? "unbundled"
         let root = base.appendingPathComponent(account == "default" ? name : "\(name).\(account)", isDirectory: true)
         return ChiefHome(root: root, isolated: false, buildID: build)
     }

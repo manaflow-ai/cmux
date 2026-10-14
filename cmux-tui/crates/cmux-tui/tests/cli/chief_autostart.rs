@@ -119,6 +119,15 @@ impl Sandbox {
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_CHIEF_HOME")
             .env_remove("CMUX_NEXT_CHIEF_HOME")
+            .env_remove("CMUX_NEXT_MUX_HOME")
+            .env_remove("CMUX_NEXT_CHIEF_ROOT")
+            .env_remove("CMUX_NEXT_CHIEF_ACCOUNT")
+            .env_remove("CMUX_NEXT_CHIEF_BUILD_ID")
+            .env_remove("CMUX_NEXT_CHIEF_ISOLATED")
+            .env_remove("CMUX_NEXT_NO_ACTIVATE")
+            .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -153,15 +162,28 @@ impl Sandbox {
 
 impl Drop for Sandbox {
     fn drop(&mut self) {
-        let home = self.isolated();
-        if let Ok(pid) = fs::read_to_string(home.join("brain.pid"))
-            && let Ok(pid) = pid.trim().parse::<i32>()
-        {
-            // SAFETY: kill(2) of the stand-in brain this test started.
-            unsafe { libc::kill(pid, libc::SIGKILL) };
+        // The isolated home and every per-build home under the sandbox's ~/.cmux/chief.
+        let chiefs = fs::read_dir(self.dir.join("home/.cmux/chief"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path());
+        let homes: Vec<PathBuf> = std::iter::once(self.isolated()).chain(chiefs).collect();
+        for home in &homes {
+            if let Ok(pid) = fs::read_to_string(home.join("brain.pid"))
+                && let Ok(pid) = pid.trim().parse::<i32>()
+            {
+                // SAFETY: kill(2) of the stand-in brain this test started.
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+            }
         }
-        // The daemon the CLI started for the home ends with its terminals.
-        let started = fs::read_to_string(home.join("daemon-socket")).ok().map(PathBuf::from);
+        // The daemons the CLI started for the homes end with their terminals
+        // (on macOS their sockets are in the Darwin temp directory, not run/).
+        let started: Vec<PathBuf> = homes
+            .iter()
+            .filter_map(|home| fs::read_to_string(home.join("daemon-socket")).ok())
+            .map(PathBuf::from)
+            .collect();
         for socket in sockets(&self.dir.join("run")).into_iter().chain(started) {
             // shutdown-daemon names the daemon's pid and generation (identify).
             let identity =
