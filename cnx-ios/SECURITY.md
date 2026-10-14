@@ -217,6 +217,11 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 - **What it can touch.** Its CEF cache lives in a fresh work folder that is
   removed when it exits (`<state>/browser`), separate from the person's own
   cmux browser profiles. It runs as the person, like the app's own CEF.
+  It never reads the login Keychain (`--use-mock-keychain`): its cookies in
+  that fresh folder are not encrypted with the person's "Chromium Safe
+  Storage" key, and it can neither use that key nor raise a Keychain prompt.
+  Without the switch every http(s) load waited on that key and no page
+  painted (2026-10-14, `feat-cnx-ios-rbfix`).
 - **Signing.** The host app and its five helper apps are signed with the
   hardened runtime and a secure timestamp (`scripts/sign-cmux-bundle.sh`,
   `rbh_sign`); the GPU and Renderer helpers get `com.apple.security.cs.allow-jit`,
