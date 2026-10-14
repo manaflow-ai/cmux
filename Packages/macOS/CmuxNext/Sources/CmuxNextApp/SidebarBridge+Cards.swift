@@ -3,6 +3,7 @@ import Foundation
 import CmuxNextActions
 import CmuxNextNowPlaying
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
 import Observation
@@ -11,7 +12,7 @@ extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
         let nowPlaying = model.followNowPlaying(services.cache.pageRequests.sidebarSources) { [weak services] in services?.settings?.snapshot.previewFeatures == true }
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry).cancelling(nowPlaying)
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings).cancelling(nowPlaying)
     }
 }
 
@@ -34,10 +35,11 @@ enum SidebarCardFeed {
     /// The cards, and with `window` its What's New item (SidebarWhatsNewItemFeed):
     /// one task, so the bridge cancels both together. `registry` gives the
     /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil) -> Task<Void, Never> {
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
+                      settings: SettingsController? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry)
         guard window != nil else { return cards }
-        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew)
+        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew, settings: settings)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
