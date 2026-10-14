@@ -73,8 +73,9 @@ struct BrowserColors: Sendable {
     let overviewBottom = BrowserColors.pair(0xD2D3DB, 0x0B0B0D)
     /// Card close circle: #F2F2F7 over a white card, white 8% over a dark
     /// one (#232325 measured on #111); the cross is mid gray.
-    let cardCloseFill = BrowserColors.pair(0xF2F2F7, 0xFFFFFF, lightAlpha: 0.94, darkAlpha: 0.08)
-    let cardCloseGlyph = BrowserColors.pair(0x7E7E83, 0x9A9A9F)
+    /// Dark values from a device screenshot (opaque #3E3E3F, cross #A7A7A9).
+    let cardCloseFill = BrowserColors.pair(0xF2F2F7, 0x3E3E3F, lightAlpha: 0.94, darkAlpha: 1)
+    let cardCloseGlyph = BrowserColors.pair(0x7E7E83, 0xA7A7A9)
     let separator = BrowserColors.pair(0x3C3C43, 0x545458, lightAlpha: 0.18, darkAlpha: 0.5)
     /// cmux-next has one hue (`highlight`); Safari's #0088FF progress line and
     /// Done button use it.

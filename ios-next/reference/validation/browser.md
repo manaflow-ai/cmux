@@ -824,3 +824,31 @@ frame sheets show.
 The frame sheets show the same text in every frame: from the card image to
 the live view when opening (the first open waits for the first draw), and
 from the page to the live card when shrinking.
+
+## Round 13: the cards' close button against a device screenshot
+
+Aziz's iPhone 17 Pro Max screenshots, both 1320 × 2868 px at 3x and both in
+dark mode: `~/nxios-ref/dogfood/close-x-ours.png` and `close-x-safari.png`.
+In both, the cards span x 684–1271 px, which is 196 pt wide.
+
+| | Safari | Ours (before) |
+|---|---|---|
+| Close circle | 66 px = 22 pt | 66 px = 22 pt |
+| Top inset (card top → circle) | 12 px = 4 pt | 12 px = 4 pt |
+| Trailing inset | 12–13 px = 4 pt | 12–13 px = 4 pt |
+| Cross | 29 px = 9.6 pt, stroke ≈ 6.5 px | 28 px = 9.3 pt, stroke ≈ 5.5 px |
+| Fill (dark) | #3E3E3F, opaque | #303030 (8% white over the card) |
+| Cross color (dark) | #A7A7A9 | #9A9A9F |
+| Card corner (continuous, fitted to the top-left edge profile) | **15.2 pt** | 19.9 pt |
+
+The circle's size and insets were already the same as Safari's. The extra
+room Aziz saw around Safari's button comes from its tighter card corner: our
+20 pt corner curves in close to the circle. Changes:
+
+- the card corner is now 15.2 pt at 196 pt (base 13.7 pt at 177, still
+  scaled with the card), which also changes the zoom's end radius;
+- the cross is semibold;
+- the dark fill is #3E3E3F and the cross #A7A7A9; light mode is unchanged.
+
+Safari's screenshot also shows a dark copy of the cross, offset −2 pt, −0.7 pt.
+I didn't copy it; it looks like a transient artifact.

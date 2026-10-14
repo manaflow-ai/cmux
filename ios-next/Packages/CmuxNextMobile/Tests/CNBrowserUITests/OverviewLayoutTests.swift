@@ -8,6 +8,14 @@ private func proMax(count: Int) -> OverviewLayout {
 }
 
 struct OverviewLayoutTests {
+    /// Device screenshot (iPhone 17 Pro Max, 3x): 196 pt cards with a
+    /// 15.2 pt continuous corner.
+    @Test func proMaxCardCornerMatchesTheDevice() {
+        let g = proMax(count: 2)
+        #expect(g.cardWidth == 196)
+        #expect(abs(g.cardRadius - 15.2) < 0.1)
+    }
+
     /// Grid metrics measured on the device recordings.
     @Test func proMaxMetricsMatchSafari() {
         let g = proMax(count: 7)

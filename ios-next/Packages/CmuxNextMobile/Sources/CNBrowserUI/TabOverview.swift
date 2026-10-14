@@ -70,14 +70,15 @@ struct TabCard: View {
     }
 }
 
-/// The card's close button: a 22 pt circle with a light 9.5 pt cross,
-/// 4 pt from the card's top and trailing edges (measured). The zoom draws
+/// The card's close button: a 22 pt circle with a 9.5 pt semibold cross,
+/// 4 pt from the card's top and trailing edges (device screenshot: 66 px
+/// circle, 12 px insets at 3x). The zoom draws
 /// the same glyph on the moving card.
 struct CardCloseGlyph: View {
     private let style = BrowserStyle.shared
     var body: some View {
         Image(systemName: "xmark")
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(style.colors.cardCloseGlyph)
             .frame(width: style.metrics.cardClose, height: style.metrics.cardClose)
             .background(style.colors.cardCloseFill, in: .circle)
