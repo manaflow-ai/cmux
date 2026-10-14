@@ -1164,8 +1164,19 @@ Chief is `agent_mux` and exists from the first read; a new Chief is `agent_`
 and 26 Crockford base32 characters. A deleted id is never reused.
 
 The callers are the owner (the rule of Chief control above) and the Chiefs: a
-Unix connection bound with `conversation-bind` to a live record's id. Every
-other connection is refused with `origin.forbidden`. A Chief reads every
+Unix connection bound with `conversation-bind` to a live record's id. With
+`chief-profile-ws-v1` the person's page is a caller too: an authenticated
+WebSocket acting as `user_local` that is no remote client and no bound agent,
+and is either page `home-channels` (handshake Origin
+`cmux-page://cmux.home-channels`) or a connection with no page that presented
+the daemon's own credential (a pairing-store credential with no page is a
+paired device and is refused). It may list, read, create and edit the profile
+text and avatar. A create or update that names a grant field (`tools`,
+`harnesses`, `harness`, `model`, `effort`, `self_edit`) and every delete need
+the person's gesture: `origin.forbidden` reason `gesture_required` on the
+WebSocket, which never carries a confirmation; the host's page relay of page
+`home-channels` brings it (page-router.md). A create with no grant field gets
+the default grant. Every other connection is refused with `origin.forbidden`. A Chief reads every
 record and changes only its own fields that its `self_edit` lists; tools,
 harnesses, engine and `self_edit` are the owner's only, as are create and
 delete. Any other Chief request is `operation.failed` reason

@@ -340,7 +340,9 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
-        // A page never reads or edits the person's Chiefs.
+        // A page reads and edits the person's Chiefs only where its
+        // page-router entry lists the operation (home-channels,
+        // chief-profile-ws-v1); grant fields and delete need a gesture.
         | Op::ChiefProfileList
         | Op::ChiefProfileGet
         | Op::ChiefProfileCreate
@@ -399,12 +401,25 @@ pub(super) fn page_refusal(
         error.details["derived"] = json!(origin.wire_name());
         return Some(error);
     }
-    let grant = page_router_table::grant(page, operation.wire_name());
+    let grant = match page_router_table::grant(page, operation.wire_name()) {
+        // A Chief create or edit that names a grant field (tools, harnesses,
+        // engine, self_edit) needs the person's gesture even where the page
+        // may create and edit Chiefs (chief-profile-ws-v1).
+        PageGrant::Read if writes_chief_grant(operation, params) => PageGrant::Gesture,
+        grant => grant,
+    };
     if matches!(grant, PageGrant::Gesture | PageGrant::Confirm) && origin == RequestOrigin::User {
         return None;
     }
     let reason = page_router_table::missing_confirmation_reason(grant)?;
     Some(page_forbidden(page, operation.wire_name(), reason, origin))
+}
+
+/// Whether `operation` is a Chief create or edit whose params name a grant
+/// field (chief_registry.rs `GRANT_FIELDS`).
+fn writes_chief_grant(operation: Op, params: &Value) -> bool {
+    matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileUpdate)
+        && params.as_object().is_some_and(crate::chief_registry::names_grant_field)
 }
 
 /// `origin.forbidden` for page `page`: `page_not_allowed` (not on its

@@ -48,6 +48,17 @@ const DEFAULT_NEW_TOOLS: [&str; 3] = ["spawn", "tell", "workspaces"];
 pub(crate) const SELF_EDITABLE: [&str; 5] =
     ["avatar", "display_name", "instructions", "personality", "role"];
 const AVATAR_TYPES: [&str; 4] = ["image/gif", "image/jpeg", "image/png", "image/webp"];
+/// The person's grant fields: what a Chief may use (tools, harnesses, its
+/// engine) and which fields it may change about itself. A page writes them
+/// only on the person's gesture (`chief-profile-ws-v1`): Chief messages
+/// render in that page, so injected content must not widen a grant.
+pub(crate) const GRANT_FIELDS: [&str; 6] =
+    ["effort", "harness", "harnesses", "model", "self_edit", "tools"];
+
+/// Whether request fields name a grant field ([`GRANT_FIELDS`]).
+pub(crate) fn names_grant_field(fields: &Map<String, Value>) -> bool {
+    GRANT_FIELDS.iter().any(|field| fields.contains_key(*field))
+}
 
 /// A refusal; the resource layer maps it to `operation.failed` with
 /// `details.reason` [`Refusal::reason`] (or `validation.invalid` for a field).

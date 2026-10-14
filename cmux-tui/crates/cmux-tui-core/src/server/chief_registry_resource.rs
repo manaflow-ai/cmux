@@ -6,8 +6,17 @@
 //! Callers. The owner: a registered Unix client with no link peer record
 //! acting as `user_local` (the rule of chief.engine.*). A Chief: a Unix
 //! connection bound with `conversation-bind` to the participant id of a live
-//! record. Every other connection (a page, a WebSocket, a relayed or remote
-//! client, an agent that is not a Chief) is refused with `origin.forbidden`.
+//! record. The person's page (`chief-profile-ws-v1`): an authenticated
+//! WebSocket acting as `user_local` that is no remote client and no bound
+//! agent, and is either page `home-channels` (Origin
+//! `cmux-page://cmux.home-channels`) or no page with the daemon's own
+//! credential (a pairing-store credential with no page is a paired device);
+//! it lists, reads, creates and edits profile text and avatars, but a grant
+//! field (tools, harnesses, engine, self_edit) or a delete needs the
+//! person's gesture, which a WebSocket never carries (`gesture_required`;
+//! the host's page relay brings it, request_origin.rs). Every other
+//! connection (another page, a relayed or remote client, a paired device, an
+//! agent that is not a Chief) is refused with `origin.forbidden`.
 //! The owner may do everything except delete the default Chief. A Chief
 //! may read every record, and may change only its own fields that its
 //! record lists in `self_edit` (the person's rule): never its tools,
@@ -49,7 +58,13 @@ enum Caller {
     Owner,
     /// The Chief with this id (its bound participant).
     Chief(String),
+    /// The person's page on an authenticated WebSocket: the owner's rights
+    /// without the grant fields and delete (no gesture on a WebSocket).
+    Page,
 }
+
+/// The capability that names the person's page as a caller.
+pub const CHIEF_PROFILE_WS_CAPABILITY: &str = "chief-profile-ws-v1";
 
 pub(super) fn handle(
     mux: &Arc<Mux>,
@@ -134,8 +149,16 @@ fn mutate(
     if let Caller::Chief(me) = caller {
         self_edit_allowed(store, operation, me, &chief, &profile)?;
     }
+    if *caller == Caller::Page
+        && (operation == Op::ChiefProfileDelete || chief_registry::names_grant_field(&profile))
+    {
+        return Err(crate::request_origin::forbidden(
+            "changing a Chief's tools, harnesses, engine or self-edit rights, or deleting a Chief, needs the person's gesture in the cmux app",
+            json!({"derived": "agent", "required": "user", "reason": "gesture_required"}),
+        ));
+    }
     let actor = match caller {
-        Caller::Owner => LOCAL_USER.to_owned(),
+        Caller::Owner | Caller::Page => LOCAL_USER.to_owned(),
         Caller::Chief(me) => me.clone(),
     };
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
@@ -243,8 +266,29 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
             json!({"derived": "agent", "required": "user", "reason": "chief_registry_caller"}),
         )
     };
-    if !unix || mux.is_remote_client(client) {
+    if mux.is_remote_client(client) {
         return Err(forbidden());
+    }
+    if !unix {
+        // The person's page (chief-profile-ws-v1): an authenticated WebSocket
+        // as `user_local`, no paired device, no bound agent, no other page.
+        let websocket = matches!(
+            mux.control_clients.transport_of(client),
+            Some(ClientTransport::WebSocket)
+        );
+        // A pairing-store credential is a paired device unless the app's own
+        // page web view (Origin cmux-page://cmux.home-channels) presents it:
+        // the app's `page-credential` and an approved pairing share the store.
+        let page = super::origin_gate::connection_page(mux, client);
+        let allowed_page = match page.as_deref() {
+            Some(page) => page == "home-channels",
+            None => !mux.control_clients.is_websocket_person(client),
+        };
+        let person_page = websocket
+            && principal == LOCAL_USER
+            && mux.bound_conversation_participant(client).ok().flatten().is_none()
+            && allowed_page;
+        return if person_page { Ok(Caller::Page) } else { Err(forbidden()) };
     }
     if principal == LOCAL_USER {
         return Ok(Caller::Owner);
