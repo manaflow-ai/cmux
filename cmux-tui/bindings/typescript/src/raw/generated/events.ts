@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4523c41c1c0ed458c4026263ec9f4a53599e1a44c40b131d2d026f4d61a2bf52. */
+/* cmux-tui mux protocol 12, IR 63b0df7a776267c3d7bddccc9c36fd5efc7ad0a9122bdbb7882dbbfe3d20e8eb. */
 
 
 import type * as T from "./types.js";
@@ -113,6 +113,14 @@ export type CloudConversationResyncedEvent = { event: "cloud-conversation-resync
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationRunChangedEvent = { event: "cloud-conversation-run-changed" } & {
+  "account"?: string;
+  "conversation": string;
+  "run": (T.JsonValue) | null;
+  "steps": Array<T.JsonValue>;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
   "account"?: string;
   "entries": (T.JsonValue) | null;
@@ -186,6 +194,13 @@ export type ConversationDraftEvent = { event: "conversation-draft" } & {
   "conversation": string;
   "item": T.JsonValue;
   "participant": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationRunChangedEvent = { event: "conversation-run-changed" } & {
+  "conversation": string;
+  "run": (T.JsonValue) | null;
+  "steps": Array<T.JsonValue>;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -644,6 +659,7 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationResyncedEvent
+  | CloudConversationRunChangedEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -654,6 +670,7 @@ export type KnownCmuxEvent =
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
   | ConversationDraftEvent
+  | ConversationRunChangedEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
@@ -724,6 +741,7 @@ export type KnownSubscribeEvent =
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationResyncedEvent
+  | CloudConversationRunChangedEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -733,6 +751,7 @@ export type KnownSubscribeEvent =
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
   | ConversationDraftEvent
+  | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent

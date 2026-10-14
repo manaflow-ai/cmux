@@ -27,11 +27,14 @@ import {
   withDraft,
 } from "./model";
 import { Palette, type PaletteItem } from "./Palette";
+import { RunsContext, type RunsContextValue } from "./RunCard";
+import { useRunEntry } from "./runs";
+import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
 import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
-import type { HomeMessage, HomeParticipant } from "./types";
+import type { HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
 
 const NOTICE_MS = 1600;
@@ -43,6 +46,20 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
   const [focused, setFocused] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
+  /** The run the run sheet shows (an agent turn's whole trajectory). */
+  const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  const runs = useMemo<RunsContextValue>(
+    () => ({
+      book: store.runs,
+      strings,
+      onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
+      onLoad: (run: HomeRun) => void store.loadRunSteps(run),
+    }),
+    [store, strings],
+  );
+  const runSheet = useRunEntry(store.runs, (book) =>
+    openRun ? book.get(openRun.conversation, openRun.author, openRun.id) : undefined,
+  );
   const noticeTimer = useRef<number | undefined>(undefined);
   /** The status each root was last asked to take, until the owner's event shows it (two quick
    * presses of E resolve, then reopen). */
@@ -188,6 +205,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     escape: () => {
       if (palette) setPalette(false);
       else if (editing) setEditing(undefined);
+      else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
       else if (focused) setFocused(undefined);
       else return false;
@@ -403,86 +421,102 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                 </button>
               </output>
             )}
-            <div className="lg-stage" ref={column} data-drop-zone>
-              <Timeline
-                conversation={snap.selected}
-                rows={rows}
-                people={people}
-                me={me}
-                strings={strings}
-                loadingOlder={snap.loadingOlder}
-                onLoadOlder={() => void store.loadOlder()}
-                onOpenThread={(root) => openThread(root)}
-                onReact={(message, value) => void store.react(message, value)}
-                onCopyLink={(message) => copyLink(message)}
-                highlight={snap.highlight}
-                threadFor={threadFor}
-                openThread={snap.thread}
-                focused={focused}
-                pendingState={pendingState}
-                onRetry={(key) => store.retry(key)}
-                onDiscard={(key) => store.discard(key)}
-                stamp={stamp}
-                empty={t("timeline.empty")}
-                {...editActions("main")}
-              />
-              <div className="lg-typing" aria-live="polite">
-                {typingNames.length === 1
-                  ? format("typing.one", typingNames[0]!)
-                  : typingNames.length > 1
-                    ? t("typing.many")
-                    : ""}
-              </div>
-              <div className="lg-main-compose">
-                <Composer
-                  key={open.id}
-                  strings={strings}
-                  placeholder={format("composer.placeholder", place)}
-                  label={format("composer.placeholder", name)}
-                  disabled={!online}
-                  people={mentionable}
-                  onEditLast={() => {
-                    const last = lastEditable(snap.messages, me, new Set(threads.map((entry) => entry.root.id)));
-                    if (last) setEditing({ id: last.id, surface: "main" });
-                  }}
-                  attachments={uploads}
-                  dropZone={column}
-                  onSend={(text, files) => store.send(text, undefined, undefined, files)}
-                />
-              </div>
-              {snap.thread && (
-                <ThreadSheet
-                  key={snap.thread}
-                  root={snap.thread}
-                  thread={sheetThread}
-                  place={place}
-                  messages={threadSource}
-                  stats={snap.threadStats.get(snap.thread)}
-                  hasMore={snap.threadView?.hasMore}
-                  loadingMore={snap.threadView?.loading}
-                  onLoadMore={() => store.loadMoreReplies()}
+            <RunsContext.Provider value={runs}>
+              <div className="lg-stage" ref={column} data-drop-zone>
+                <Timeline
+                  conversation={snap.selected}
+                  rows={rows}
                   people={people}
-                  mentionable={mentionable}
                   me={me}
                   strings={strings}
-                  canSend={online}
-                  highlight={snap.highlight}
-                  onClose={() => openThread(undefined)}
-                  onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
-                  owners={open.participants}
-                  onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
-                  onRename={(title) => (sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false))}
-                  onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
-                  attachments={uploads}
-                  onCopyLink={(message) => copyLink(message)}
+                  loadingOlder={snap.loadingOlder}
+                  onLoadOlder={() => void store.loadOlder()}
+                  onOpenThread={(root) => openThread(root)}
                   onReact={(message, value) => void store.react(message, value)}
+                  onCopyLink={(message) => copyLink(message)}
+                  highlight={snap.highlight}
+                  threadFor={threadFor}
+                  openThread={snap.thread}
+                  focused={focused}
                   pendingState={pendingState}
                   onRetry={(key) => store.retry(key)}
                   onDiscard={(key) => store.discard(key)}
-                  {...editActions("thread")}
+                  stamp={stamp}
+                  empty={t("timeline.empty")}
+                  {...editActions("main")}
                 />
-              )}
-            </div>
+                <div className="lg-typing" aria-live="polite">
+                  {typingNames.length === 1
+                    ? format("typing.one", typingNames[0]!)
+                    : typingNames.length > 1
+                      ? t("typing.many")
+                      : ""}
+                </div>
+                <div className="lg-main-compose">
+                  <Composer
+                    key={open.id}
+                    strings={strings}
+                    placeholder={format("composer.placeholder", place)}
+                    label={format("composer.placeholder", name)}
+                    disabled={!online}
+                    people={mentionable}
+                    onEditLast={() => {
+                      const last = lastEditable(snap.messages, me, new Set(threads.map((entry) => entry.root.id)));
+                      if (last) setEditing({ id: last.id, surface: "main" });
+                    }}
+                    attachments={uploads}
+                    dropZone={column}
+                    onSend={(text, files) => store.send(text, undefined, undefined, files)}
+                  />
+                </div>
+                {snap.thread && (
+                  <ThreadSheet
+                    key={snap.thread}
+                    root={snap.thread}
+                    thread={sheetThread}
+                    place={place}
+                    messages={threadSource}
+                    stats={snap.threadStats.get(snap.thread)}
+                    hasMore={snap.threadView?.hasMore}
+                    loadingMore={snap.threadView?.loading}
+                    onLoadMore={() => store.loadMoreReplies()}
+                    people={people}
+                    mentionable={mentionable}
+                    me={me}
+                    strings={strings}
+                    canSend={online}
+                    highlight={snap.highlight}
+                    onClose={() => openThread(undefined)}
+                    onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
+                    owners={open.participants}
+                    onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
+                    onRename={(title) =>
+                      sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
+                    }
+                    onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
+                    attachments={uploads}
+                    onCopyLink={(message) => copyLink(message)}
+                    onReact={(message, value) => void store.react(message, value)}
+                    pendingState={pendingState}
+                    onRetry={(key) => store.retry(key)}
+                    onDiscard={(key) => store.discard(key)}
+                    {...editActions("thread")}
+                  />
+                )}
+                {runSheet && runSheet.run.conversation === snap.selected && (
+                  <RunSheet
+                    key={`${runSheet.run.author}:${runSheet.run.id}`}
+                    entry={runSheet}
+                    people={people}
+                    strings={strings}
+                    place={place}
+                    asked={askedLine(runSheet.run.answers[0], threadSource)}
+                    onClose={() => setOpenRun(undefined)}
+                    onLoad={runs.onLoad}
+                  />
+                )}
+              </div>
+            </RunsContext.Provider>
           </>
         )}
       </section>
@@ -532,4 +566,12 @@ function EmptyState({
       </div>
     </div>
   );
+}
+
+/** The first line of the message a run works on (the run sheet's title when the run has none). */
+function askedLine(id: string | undefined, messages: readonly HomeMessage[]): string | undefined {
+  const message = id ? messages.find((entry) => entry.id === id) : undefined;
+  const text = message?.parts.find((part) => part.type === "text");
+  const line = text && text.type === "text" ? text.text.split("\n")[0]!.trim() : "";
+  return line ? (line.length > 120 ? `${line.slice(0, 119)}…` : line) : undefined;
 }
