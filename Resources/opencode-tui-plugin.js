@@ -264,12 +264,15 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
     if (!events.has(event.type)) events.set(event.type, event);
   };
   const onEvent = ({ details, event }) => {
+    const incoming = details || event;
+    const incomingID = sessionID(incoming);
+    if (sessionEventName(incoming) === "session-end") cancelPending(incomingID);
     // OpenCode v2 exposes route/tab state as reactive reads rather than a
     // stable callback. Re-check queued starts at every event boundary too, so
     // a restored route that commits between lifecycle events is admitted
     // without a wall-clock retry or a dropped final attempt.
     flushPending();
-    void handleEvent(ctx, ownership, feed, details || event, environment, {
+    void handleEvent(ctx, ownership, feed, incoming, environment, {
       cancel: cancelPending,
       enqueue: enqueueSessionStart,
     }).catch((error) => reportError(ctx, error));

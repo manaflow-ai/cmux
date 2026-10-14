@@ -162,6 +162,14 @@ await Promise.race([
   waitForObserved((event) => event.hook_event_name === "SessionStart" && event.cwd === "/tmp/a"),
   new Promise((_, reject) => setTimeout(() => reject(new Error("restored OpenCode session-start was dropped before TUI route became visible")), 2000)),
 ]);
+liveA.ui.router.current = () => ({ type: "home" });
+liveA.ui.tabs.list = () => [];
+liveA.emit({ details: { type: "session.created", data: { sessionID: "child-stale", location: { directory: "/tmp/a" } } } });
+liveA.ui.router.current = routeA;
+liveA.ui.tabs.list = tabsA;
+liveA.emit({ details: { type: "session.deleted", data: { sessionID: "child-stale" } } });
+await new Promise((resolve) => setImmediate(resolve));
+if (observed.some((event) => event.session_id === "child-stale" && event.hook_event_name === "SessionStart")) throw new Error("ended queued session-start was replayed");
 liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-b" } } });
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-a", action: "edit", resources: ["/tmp/a/file"] } } });
 liveB.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-wrong", action: "edit" } } });
