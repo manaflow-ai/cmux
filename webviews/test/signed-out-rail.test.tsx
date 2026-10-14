@@ -202,6 +202,8 @@ test("a signed-out harness offers Log In, never its models", async () => {
   expect(tab!.getAttribute("aria-disabled")).toBe("true");
   await act(async () => tab!.click());
   expect(modelRows().map((row) => row.textContent)).toEqual([]);
+  // No More models fold either: it would open models a pick refuses (seen on a DEV build).
+  expect(host.querySelector(".acpmux-mp-older")).toBeNull();
   const login = host.querySelector<HTMLButtonElement>(".acpmux-mp-login");
   expect(login?.textContent).toBe("Log In");
   await act(async () => login!.click());
