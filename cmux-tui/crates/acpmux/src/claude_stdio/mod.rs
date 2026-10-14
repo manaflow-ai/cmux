@@ -170,6 +170,12 @@ mod tests;
 mod workflow_tests;
 mod workflows;
 
+/// The internal ACP request that stops one of Claude Code's background
+/// tasks (`hub/processes.rs`), `{sessionId, taskId}`: Claude Code's
+/// `stop_task` control request. The answer is `{}` once Claude Code took it;
+/// the task's end arrives as its own event.
+pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
+
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";
@@ -341,6 +347,8 @@ struct BackgroundShell {
     command: String,
     task: Option<String>,
     background: bool,
+    /// Started in the background (`run_in_background`), not moved there.
+    launched: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
 }
@@ -352,6 +360,8 @@ enum Pending {
     Prompt,
     /// A setting change, applied to the cached value once claude accepts it.
     Control(Setting, String),
+    /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
+    StopTask,
 }
 
 #[derive(Debug, Clone, Copy)]

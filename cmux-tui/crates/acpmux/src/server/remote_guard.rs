@@ -33,6 +33,8 @@
 //! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
 //!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
 //!   prompts until the user answers it in the app or the CLI.
+//! - Web and Peer: no `_acpmux/process/*` (a process's command line and
+//!   its kill are local), refused in `processes.rs`, which runs first.
 //! - Web only: no `_acpmux/set_tools` (`tools.remote`). Turning an MCP
 //!   server on makes the harness start the stdio command the user's config
 //!   names on this machine; unlike a mode, no asking table makes that safe.
