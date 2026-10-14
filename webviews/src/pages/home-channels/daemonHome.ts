@@ -218,6 +218,10 @@ export class DaemonHomeClient implements PageClient {
   private readonly cloud: CloudHome;
   /** The daemon's `identify` capabilities, read once. */
   private capabilities: Promise<string[]> | null = null;
+  /** My own list state of each local conversation (pins, marks), from `conversation-list` and
+   * `conversation-inbox-changed`: a snapshot or a conversation change carries none, so a summary
+   * from them keeps what the list said. */
+  private readonly listState = new Map<string, Json>();
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
   private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
 
@@ -240,6 +244,16 @@ export class DaemonHomeClient implements PageClient {
     this.cloud = new CloudHome(daemon, conversation, (summary) => {
       for (const listener of this.cloudListeners) listener(summary);
     });
+  }
+
+  /** A local owner summary as the page's row, with my list state (kept when the summary has none). */
+  private local(raw: Json): HomeConversation {
+    const id = String(raw.id);
+    if ("pinned" in raw || "marked_unread" in raw) {
+      this.listState.set(id, { pinned: raw.pinned, pin_position: raw.pin_position, marked_unread: raw.marked_unread });
+      return conversation(raw, this.me);
+    }
+    return conversation({ ...raw, ...this.listState.get(id) }, this.me);
   }
 
   private capable(capability: string): Promise<boolean> {
@@ -310,7 +324,7 @@ export class DaemonHomeClient implements PageClient {
         const cloud = await this.cloud.inbox(await this.cloudReady()).catch(() => []);
         return {
           me,
-          conversations: [...summaries.map((entry) => conversation(entry, this.me)), ...cloud],
+          conversations: [...summaries.map((entry) => this.local(entry)), ...cloud],
           rev: Math.max(0, ...summaries.map((entry) => num(entry.rev))),
           inboxState: await this.capable(INBOX_STATE_CAPABILITY),
         };
@@ -323,7 +337,7 @@ export class DaemonHomeClient implements PageClient {
         });
         const id = str(params, "conversation");
         return {
-          conversation: this.cloud.summary(id) ?? conversation(page.conversation as Json, this.me),
+          conversation: this.cloud.summary(id) ?? this.local(page.conversation as Json),
           messages: ((page.messages as Json[]) ?? []).map(message),
           threads: threads(page.threads),
         };
@@ -541,7 +555,7 @@ export class DaemonHomeClient implements PageClient {
             batch.inboxStale = true;
           });
         } else if (change.kind === "conversation" && change.conversation) {
-          deliver((batch) => (batch.conversations ??= []).push(conversation(change.conversation as Json, this.me)));
+          deliver((batch) => (batch.conversations ??= []).push(this.local(change.conversation as Json)));
         } else {
           deliver((batch) => (batch.inboxStale = true));
         }
@@ -554,6 +568,11 @@ export class DaemonHomeClient implements PageClient {
             markedUnread: event.marked_unread === true,
           };
           if (change.pinned && typeof event.pin_position === "number") change.pinPosition = event.pin_position;
+          this.listState.set(change.conversation, {
+            pinned: change.pinned,
+            pin_position: change.pinPosition,
+            marked_unread: change.markedUnread,
+          });
           (batch.inbox ??= []).push(change);
         });
       } else if (event.event === "conversation-typing") {
