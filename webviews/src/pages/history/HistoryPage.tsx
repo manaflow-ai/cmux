@@ -130,11 +130,7 @@ export function HistoryPage({
             >
               {t("page.groupBy")}
             </button>
-            <button
-              type="button"
-              className="history-menu-button"
-              onClick={(event) => headerMenu(event, clearItems())}
-            >
+            <button type="button" className="history-menu-button" onClick={(event) => headerMenu(event, clearItems())}>
               {t("page.clear")}
             </button>
           </div>
