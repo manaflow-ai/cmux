@@ -115,7 +115,9 @@ test("each delimiter typesets once math appears", async () => {
 function copySelection(): string | undefined {
   const data = new Map<string, string>();
   const event = new window.Event("copy", { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "clipboardData", { value: { setData: (type: string, value: string) => data.set(type, value) } });
+  Object.defineProperty(event, "clipboardData", {
+    value: { setData: (type: string, value: string) => data.set(type, value) },
+  });
   window.document.getSelection()!.anchorNode!.parentElement!.dispatchEvent(event);
   return event.defaultPrevented ? data.get("text/plain") : undefined;
 }
