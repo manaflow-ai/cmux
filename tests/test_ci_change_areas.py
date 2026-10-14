@@ -278,8 +278,8 @@ def test_cli_lane_routes_the_cmux_cli_target_closure() -> None:
     assert "Packages/macOS/CmuxCore" in inputs.package_directories
     assert "Packages/macOS/CmuxFoundation" in inputs.package_directories
     assert "Packages/Shared/CMUXMobileCore" in inputs.package_directories
-    # Packages no cmux-cli product reaches.
-    assert "Packages/macOS/CmuxTerminal" not in inputs.package_directories
+    # CmuxCloudTui now reaches CmuxTerminal through its local package graph.
+    assert "Packages/macOS/CmuxTerminal" in inputs.package_directories
     assert not any(
         directory.startswith("Packages/iOS/") for directory in inputs.package_directories
     )
@@ -504,12 +504,16 @@ def test_package_lane_does_not_widen_any_other_area() -> None:
 def test_app_and_web_only_changes_skip_the_cli_lane() -> None:
     for path in (
         "Sources/AppDelegate.swift",
-        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift",
         "webviews/src/agent-session/index.tsx",
         "Resources/Localizable.xcstrings",
         "docs/ci.md",
     ):
         assert module.classify_files([path]).cli is False, path
+
+    # CmuxTerminal is part of the cmux-cli package closure through CmuxCloudTui.
+    assert module.classify_files([
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift"
+    ]).cli is True
 
 
 def test_ci_script_only_change_skips_the_cli_lane_but_keeps_linux_guards() -> None:
