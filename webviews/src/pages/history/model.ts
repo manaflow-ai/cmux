@@ -32,15 +32,6 @@ export function filterKinds(filter: HistoryFilter): HistoryKind[] {
   }
 }
 
-/**
- * Whether Clear History can clear anything under the filter: the daemon's `history.clear` clears
- * page visits, hides agent and command entries and deletes closed items, and never touches
- * locations (the app's trail).
- */
-export function canClear(filter: HistoryFilter): boolean {
-  return filter !== "locations";
-}
-
 export interface HistoryGroup {
   id: string;
   /** The local day's start for `day`, else the newest entry's time. */

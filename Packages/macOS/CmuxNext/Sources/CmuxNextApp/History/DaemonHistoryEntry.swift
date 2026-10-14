@@ -23,9 +23,13 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
     var exitCode: Int?
     var sessionID: String?
     var provider: String?
+    /// Location rows: the window of the step and the place as recorded (cx-hnmbt.12).
+    var window: String?
+    var location: DaemonTrailLocation?
 
     enum CodingKeys: String, CodingKey {
         case id, kind, title, detail, machine, workspace, available, current, running, url, profile, cwd, command, provider
+        case window, location
         case atMS = "at_ms"
         case closedKind = "closed_kind"
         case exitCode = "exit_code"
@@ -54,6 +58,8 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         exitCode = try c.decodeCatalogNumberIfPresent(forKey: .exitCode).map { Int($0) }
         sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID)
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        window = try c.decodeIfPresent(String.self, forKey: .window)
+        location = try c.decodeIfPresent(DaemonTrailLocation.self, forKey: .location)
     }
 
     init(id: String, kind: HistoryEntry.Kind, atMS: Double, title: String, available: Bool) {
@@ -64,8 +70,8 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         self.available = available
     }
 
-    /// The app's entry for the restore paths (history.open, palette pages). Locations are nil: the
-    /// app owns the trail and reads its own entries.
+    /// The app's entry for the restore paths (history.open, palette pages). A location comes from the
+    /// daemon's trail (`location` and `window`); the caller marks whether its tab is reachable.
     @MainActor func historyEntry() -> HistoryEntry? {
         // The daemon leaves a closed terminal with no name, URL or directory untitled; the app
         // localizes the default.
@@ -73,7 +79,8 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         let payload: HistoryEntry.Payload
         switch kind {
         case .location:
-            return nil
+            guard let location = trailLocation else { return nil }
+            payload = .location(location, isCurrent: current == true)
         case .page:
             guard let url else { return nil }
             payload = .page(url: url, profile: profile ?? "default")
