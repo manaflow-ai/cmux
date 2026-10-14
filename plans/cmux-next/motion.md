@@ -59,7 +59,9 @@ would do it, spring curves", "proper physics". Design:
   lays out once. A released divider flung onto a snap within
   `motion.divider.releaseProjection` of its velocity lands there.
 - New tab (only with `ui.animations.newTab` on; off, every entry point shows
-  the tab in its final slot at once): Cmd-T, +, New Terminal Tab and the socket all grow the tab in its
+  the tab in its final slot at once, and a closed tab's room closes at once
+  too; the store's tab takes its provisional stand-in's cell in place, so a
+  new tab is one element): Cmd-T, +, New Terminal Tab and the socket all grow the tab in its
   slot with the strip's spring; what a New Tab page turns into takes the
   page's cell in place (`TabStripView.expectReplacement(of:)`).
 - New workspace: the row opens at its index and the rows below slide; the

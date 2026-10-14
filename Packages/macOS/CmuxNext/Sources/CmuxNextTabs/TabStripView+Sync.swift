@@ -46,11 +46,14 @@ extension TabStripView {
 
         let swaps = adoptReplacements(&ordered)
         placeInsertions(&ordered)
-        // A new tab grows into its slot while its neighbours slide, on one clock; with
-        // `ui.animations.newTab` off, or under Reduce Motion, the whole strip takes its new
-        // places in one step (no crossfade standing in for the motion, DESIGN P6).
+        // A new tab grows into its slot while its neighbours slide, on one clock, and a closed one
+        // gives its room back; with `ui.animations.newTab` off (the default), or under Reduce
+        // Motion, the whole strip takes its new places in one step (no crossfade standing in for
+        // the motion, DESIGN P6). Reorders and drags keep their motion.
         let adding = ordered.contains { cells[$0.id] == nil }
-        let animated = hasSynced && !reduceMotion && animating && (!adding || Motion.animates(.newTab))
+        let shownIDs = Set(ordered.map(\.id))
+        let removing = cells.keys.contains { !shownIDs.contains($0) && !dying.contains($0) }
+        let animated = hasSynced && !reduceMotion && animating && (!(adding || removing) || Motion.animates(.newTab))
         let ids = Set(ordered.map(\.id))
         if MotionTrace.isEnabled {
             let shownBefore = displayed.map(\.id)
