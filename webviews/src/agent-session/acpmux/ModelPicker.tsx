@@ -634,6 +634,7 @@ export function ModelPicker(props: ModelPickerProps) {
         className="acpmux-picker-button"
         data-menu={modelText}
         aria-label={modelText}
+        title={chipLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -651,7 +652,7 @@ export function ModelPicker(props: ModelPickerProps) {
         {...press}
       >
         <AgentMark agent={chipHarness} size={15} />
-        <span className="acpmux-model-name">{chipLabel}</span>
+        <span className="acpmux-model-name">{withoutVendor(chipLabel)}</span>
         <ChevronIcon />
       </PickerButton>
       {open && (
@@ -940,4 +941,11 @@ export function ModelPicker(props: ModelPickerProps) {
       )}
     </span>
   );
+}
+
+/** A model name as the chip shows it, without the vendor its mark already draws ("Claude Opus 5.5"
+ * reads "Opus 5.5"; Leo 2026-10-13: the footer "tells too much"). The title keeps the full name. */
+export function withoutVendor(name: string): string {
+  const short = name.replace(/^(?:Claude|Gemini|OpenAI|Anthropic|Google)\s+(?=\S)/, "");
+  return short || name;
 }
