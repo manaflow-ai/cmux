@@ -143,7 +143,15 @@ function ImageTile({
   );
 }
 
-function VideoPlayer({ conversation, part, strings }: { conversation: string; part: HomeAttachment; strings: Strings }) {
+function VideoPlayer({
+  conversation,
+  part,
+  strings,
+}: {
+  conversation: string;
+  part: HomeAttachment;
+  strings: Strings;
+}) {
   const service = useContext(AttachmentContext);
   const [src, setSrc] = useState<string>();
   const posterSrc = usePoster(conversation, part);
@@ -195,7 +203,12 @@ function VideoPlayer({ conversation, part, strings }: { conversation: string; pa
             .join(" · ")}
         </span>
         {src && (
-          <a className="hc-att-download" href={src} download={part.name} aria-label={strings.format("attachment.download", part.name)}>
+          <a
+            className="hc-att-download"
+            href={src}
+            download={part.name}
+            aria-label={strings.format("attachment.download", part.name)}
+          >
             <HomeIcon name="download" />
           </a>
         )}
@@ -295,30 +308,40 @@ function Lightbox({
           step(event.key === "ArrowRight" ? 1 : -1);
         }}
       >
-      <header className="hc-lightbox-bar">
-        <span className="hc-att-name">{part.name}</span>
-        <span className="hc-att-meta">
-          {images.length > 1 ? `${index + 1} / ${images.length} · ` : ""}
-          {formatBytes(part.byteCount)}
-        </span>
-        <span className="lg-spacer" />
-        <button ref={closeButton} type="button" className="hc-text-button" onClick={onClose}>
-          {strings.t("lightbox.close")}
-        </button>
-      </header>
-      <div className="hc-lightbox-stage">
-        {images.length > 1 && (
-          <button type="button" className="hc-lightbox-step prev" aria-label={strings.t("lightbox.previous")} onClick={() => step(-1)}>
-            <HomeIcon name="chevronLeft" />
+        <header className="hc-lightbox-bar">
+          <span className="hc-att-name">{part.name}</span>
+          <span className="hc-att-meta">
+            {images.length > 1 ? `${index + 1} / ${images.length} · ` : ""}
+            {formatBytes(part.byteCount)}
+          </span>
+          <span className="lg-spacer" />
+          <button ref={closeButton} type="button" className="hc-text-button" onClick={onClose}>
+            {strings.t("lightbox.close")}
           </button>
-        )}
-        {(src ?? preview) && <img src={src ?? preview} alt={part.name} />}
-        {images.length > 1 && (
-          <button type="button" className="hc-lightbox-step next" aria-label={strings.t("lightbox.next")} onClick={() => step(1)}>
-            <HomeIcon name="chevronRight" />
-          </button>
-        )}
-      </div>
+        </header>
+        <div className="hc-lightbox-stage">
+          {images.length > 1 && (
+            <button
+              type="button"
+              className="hc-lightbox-step prev"
+              aria-label={strings.t("lightbox.previous")}
+              onClick={() => step(-1)}
+            >
+              <HomeIcon name="chevronLeft" />
+            </button>
+          )}
+          {(src ?? preview) && <img src={src ?? preview} alt={part.name} />}
+          {images.length > 1 && (
+            <button
+              type="button"
+              className="hc-lightbox-step next"
+              aria-label={strings.t("lightbox.next")}
+              onClick={() => step(1)}
+            >
+              <HomeIcon name="chevronRight" />
+            </button>
+          )}
+        </div>
       </KeyboardScope>
     </Dialog>
   );
@@ -379,11 +402,22 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
         </span>
       </span>
       {state === "uploading" && (
-        <span className="hc-tray-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fraction * 100)}>
+        <span
+          className="hc-tray-bar"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(fraction * 100)}
+        >
           <span style={{ width: percent }} />
         </span>
       )}
-      <button type="button" className="hc-tray-remove" aria-label={strings.format("attach.remove", item.file.name)} onClick={onRemove}>
+      <button
+        type="button"
+        className="hc-tray-remove"
+        aria-label={strings.format("attach.remove", item.file.name)}
+        onClick={onRemove}
+      >
         <HomeIcon name="close" />
       </button>
     </li>

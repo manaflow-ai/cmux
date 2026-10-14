@@ -195,7 +195,9 @@ export default componentEntry<Props>({
         await ctx.click({ selector: ".hc-att-image" });
         await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox img"));
         await ctx.press("ArrowRight");
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "sidebar-after.png");
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "sidebar-after.png",
+        );
       },
     },
     "attachments-composer": {

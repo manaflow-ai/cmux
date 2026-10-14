@@ -170,8 +170,16 @@ export function addMedia(home: ReturnType<typeof sampleHome>): void {
   const jpeg = (hash: string) => ({ hash, mimeType: "image/jpeg", byteCount: 24_000 });
   const message = text(id, 1, builder, BASE + 30 * MINUTE, "Screens from the sidebar fix, and the run.");
   message.parts.push(
-    file("a".repeat(64), "sidebar-before.png", "image/png", 812_000, { width: 1600, height: 1000, preview: jpeg("b".repeat(64)) }),
-    file("c".repeat(64), "sidebar-after.png", "image/png", 790_000, { width: 1600, height: 1000, preview: jpeg("d".repeat(64)) }),
+    file("a".repeat(64), "sidebar-before.png", "image/png", 812_000, {
+      width: 1600,
+      height: 1000,
+      preview: jpeg("b".repeat(64)),
+    }),
+    file("c".repeat(64), "sidebar-after.png", "image/png", 790_000, {
+      width: 1600,
+      height: 1000,
+      preview: jpeg("d".repeat(64)),
+    }),
     file("e".repeat(64), "scroll.png", "image/png", 64_000, { width: 640, height: 400 }),
     file("f".repeat(64), "run-recording.mp4", "video/mp4", 2_300_000, {
       width: 1280,
