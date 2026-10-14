@@ -1,0 +1,30 @@
+// Labs (hq#1980): new looks and behaviors ship behind a flag a person turns on, not in the
+// defaults. The flags live in schemas/settings/source/labs.json (owner, dates, cohort, intent);
+// the app keeps the names of the ones that are on in `data-labs` on `<html>`, space separated,
+// at document start and whenever one changes. Pages read a flag only through these helpers.
+// Unlike an experiment (./experiment.ts), a gallery comparison of arms, a Labs flag is a person's
+// opt-in in the shipped app. How to add one: skills/cmux-architecture/references/labs-flags.md.
+import { useSyncExternalStore } from "react";
+import { LABS_FLAGS, type LabsFlagName } from "./labs.generated";
+
+export { LABS_FLAGS, type LabsFlagName };
+
+function onFlags(root: Element): Set<string> {
+  return new Set((root.getAttribute("data-labs") ?? "").split(" ").filter(Boolean));
+}
+
+/** Whether the Labs flag `name` is on in this page now. Off outside the app (no `data-labs`). */
+export function labsFlag(name: LabsFlagName, root: Element = document.documentElement): boolean {
+  return onFlags(root).has(name);
+}
+
+function subscribe(change: () => void): () => void {
+  const observer = new MutationObserver(change);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-labs"] });
+  return () => observer.disconnect();
+}
+
+/** `labsFlag` for a component: it renders again when the flag turns on or off. */
+export function useLabsFlag(name: LabsFlagName): boolean {
+  return useSyncExternalStore(subscribe, () => labsFlag(name), () => false);
+}

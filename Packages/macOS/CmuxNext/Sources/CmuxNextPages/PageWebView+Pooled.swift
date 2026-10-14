@@ -78,6 +78,7 @@ extension PageWebView {
                                                forMainFrameOnly: true, in: .page))
         var attributes = documentAttributes
         if attributes["scrollers"] == nil { attributes["scrollers"] = SystemScrollers.pageValue }
+        if attributes["labs"] == nil { attributes["labs"] = labs }
         if let script = attributesScript(attributes) {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart,
                                                    forMainFrameOnly: true, in: .page))
