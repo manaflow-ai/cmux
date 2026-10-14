@@ -1477,6 +1477,10 @@ jobs:
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
 
+      - name: Initialize Bonsplit for CLI package graph
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh vendor/bonsplit
+
       - name: Validate SwiftPM lockfile policy
         run: |
           python3 tests/test_package_resolved_policy_remote_inputs.py
