@@ -117,7 +117,11 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             )
         )
     }
-    @Test func warmRendererRevealDoesNotScheduleBlockingFallbackRefresh() { #expect(!GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: true)); #expect(GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: false)) }
+    @Test("A previously painted pane still needs a reveal fallback after renderer loss")
+    func hiddenRendererRevealSchedulesFallbackRefresh() {
+        #expect(GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(rendererPresented: false))
+        #expect(!GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(rendererPresented: true))
+    }
     @Test func immediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
         #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(

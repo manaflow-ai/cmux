@@ -38,6 +38,8 @@ extension ControlCommandCoordinator {
             return debugWorkspaceTodoChecklistAddField()
         case "debug.pro_welcome_checklist.show":
             return debugShowProWelcomeChecklist()
+        case "debug.native_pricing.show":
+            return debugShowNativePricing()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
         case "debug.command_palette.rename_tab.open":
@@ -219,6 +221,16 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "Control context unavailable", data: nil)
         }
         debugContext.controlDebugShowProWelcomeChecklist()
+        return .ok(.object(["shown": .bool(true)]))
+    }
+
+    // MARK: - debug.native_pricing.show — show the native pricing screen
+
+    func debugShowNativePricing() -> ControlCallResult {
+        guard let debugContext else {
+            return .err(code: "unavailable", message: "Control context unavailable", data: nil)
+        }
+        debugContext.controlDebugShowNativePricing()
         return .ok(.object(["shown": .bool(true)]))
     }
 

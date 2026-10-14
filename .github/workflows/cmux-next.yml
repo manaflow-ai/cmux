@@ -1,0 +1,15 @@
+name: cmux-next
+
+# The cmux-next implementation lives on feat-cmux-next. Keep this inert
+# registration on the default branch so workflow_run consumers can subscribe
+# to that workflow name before the branch workflow is merged.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: echo "cmux-next is implemented on feat-cmux-next"

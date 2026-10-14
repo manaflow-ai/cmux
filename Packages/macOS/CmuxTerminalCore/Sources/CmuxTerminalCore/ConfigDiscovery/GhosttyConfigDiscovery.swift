@@ -71,6 +71,127 @@ public struct GhosttyConfigDiscovery {
         "U+AC00-U+D7AF": [0xAC00, 0xD55C],
     ]
 
+    // MARK: - Symbol font fallback codepoints
+
+    /// Pictographic/symbol codepoints where Ghostty's monospace-biased `CTFontCollection`
+    /// scoring can land on an unpredictable installed "monospace" font rather
+    /// than the narrower substitute CoreText's own `CTFontCreateForString`
+    /// cascade would pick (e.g. the hexagon ⬡ at U+2B21, or the ▰/▱ gauge
+    /// characters used by status-line tools). Unlike CJK, coverage here isn't
+    /// locale-conditioned, so these are always considered for injection.
+    ///
+    /// Coverage is checked and injected per codepoint, not per block: fonts
+    /// (Nerd Fonts especially) often patch in some but not all glyphs in a
+    /// block, and overriding the whole block would discard glyphs the
+    /// configured font already renders correctly.
+    ///
+    /// See: https://github.com/Nanako0129/coralline/issues/47
+    public static let symbolCodepoints: [UInt32] = [
+        0x25A0, 0x25B0, 0x25B1, 0x25CB, 0x25CF,  // Geometric Shapes (▰ ▱ ● ○ ■ □ …)
+        0x2B21, 0x2B22,  // Miscellaneous Symbols and Arrows (⬡ U+2B21, ⬢ U+2B22, …)
+    ]
+
+    /// The font cmux injects for ``symbolCodepoints``: macOS's built-in
+    /// symbol font. CoreText's own cascade resolves to this font for
+    /// codepoints a base font is missing, so injecting it for those specific
+    /// codepoints makes Ghostty's fallback choice match what a plain CoreText
+    /// app would render instead of an unpredictable, potentially much wider
+    /// substitute. This equivalence only holds for codepoints the configured
+    /// font actually lacks — see ``autoInjectedSymbolFontMappings(configPaths:codepointCoverageProbe:)``.
+    public static let symbolFallbackFont = "Apple Symbols"
+
+    /// The subset of ``symbolCodepoints`` that Ghostty's built-in primary
+    /// face already renders, used when the user configured no `font-family`.
+    ///
+    /// With no `font-family`, Ghostty loads its embedded JetBrains Mono as the
+    /// primary face (`ghostty/src/font/SharedGridSet.zig`, `font.embedded.variable`),
+    /// and a `font-codepoint-map` entry outranks that face. Since the embedded
+    /// font ships with Ghostty rather than being installed system-wide, it
+    /// can't be resolved through ``GhosttyFontProbing`` by family name, so its
+    /// coverage of the managed codepoints is recorded here instead.
+    ///
+    /// `defaultFaceCoversManagedSymbolCodepointsMatchingGhosttysEmbeddedFont`
+    /// probes the vendored copy of that font and fails if this list drifts
+    /// from the submodule.
+    public static let defaultFaceCoveredSymbolCodepoints: Set<UInt32> = [
+        0x25A0, 0x25CB, 0x25CF,  // ■ ○ ● — JetBrains Mono has these; it lacks ▰ ▱ ⬡ ⬢
+    ]
+
+    /// Returns `(codepoint, font)` pairs (`codepoint` formatted as `U+XXXX`)
+    /// for cmux's symbol-glyph fallback. Always non-empty, since coverage
+    /// isn't locale-conditioned like CJK.
+    public func symbolFontMappings() -> [(String, String)] {
+        Self.symbolCodepoints.map {
+            (String(format: "U+%04X", $0), Self.symbolFallbackFont)
+        }
+    }
+
+    /// Returns only the symbol mappings cmux should auto-inject after
+    /// respecting explicit user overrides and the glyph coverage of the
+    /// configured primary font family. Coverage is checked per codepoint so
+    /// a font with partial coverage of a block only has its missing glyphs
+    /// overridden, not the glyphs it already has.
+    public func autoInjectedSymbolFontMappings(
+        configPaths: [String]? = nil,
+        codepointCoverageProbe: ((String, UInt32) -> Bool)? = nil
+    ) -> [(String, String)]? {
+        let configPaths = configPaths ?? loadedCJKScanPaths()
+        var mappings = symbolFontMappings()
+
+        let summary = userFontConfigSummary(configPaths: configPaths)
+        if summary.containsCodepointMap || summary.hasExplicitFontFamilyFallbackChain {
+            return nil
+        }
+
+        guard let configuredFontFamily = summary.effectiveFontFamilies.first else {
+            // No `font-family`: the primary face is Ghostty's embedded
+            // JetBrains Mono. Only override the codepoints that face lacks,
+            // for the same reason coverage is filtered per codepoint below.
+            mappings.removeAll { codepoint, _ in
+                Self.defaultFaceCoveredSymbolCodepoints.contains(Self.parseCodepoint(codepoint))
+            }
+            return mappings.isEmpty ? nil : mappings
+        }
+
+        if let codepointCoverageProbe {
+            mappings.removeAll { codepoint, _ in
+                codepointCoverageProbe(configuredFontFamily, Self.parseCodepoint(codepoint))
+            }
+        } else {
+            // Coverage of the configured font is unknown when it can't be
+            // probed (e.g. the family name doesn't resolve). Fail closed
+            // rather than inject Apple Symbols over codepoints that may
+            // already be covered.
+            guard let configuredFont = fontProbe.configuredFont(named: configuredFontFamily, size: 12) else {
+                return nil
+            }
+            mappings.removeAll { codepoint, _ in
+                Self.fontContainsGlyph(configuredFont, forCodepoint: Self.parseCodepoint(codepoint))
+            }
+        }
+
+        return mappings.isEmpty ? nil : mappings
+    }
+
+    /// Whether cmux should inject its managed symbol-glyph
+    /// `font-codepoint-map` fallback.
+    public func shouldInjectSymbolFontFallback(
+        configPaths: [String]? = nil,
+        codepointCoverageProbe: ((String, UInt32) -> Bool)? = nil
+    ) -> Bool {
+        let configPaths = configPaths ?? loadedCJKScanPaths()
+        return autoInjectedSymbolFontMappings(
+            configPaths: configPaths,
+            codepointCoverageProbe: codepointCoverageProbe
+        ) != nil
+    }
+
+    /// Parses a `U+XXXX`-formatted codepoint string produced by
+    /// ``symbolFontMappings()`` back into its numeric value.
+    static func parseCodepoint(_ formatted: String) -> UInt32 {
+        UInt32(formatted.dropFirst(2), radix: 16) ?? 0
+    }
+
     // MARK: - CJK font mappings
 
     /// Returns `(range, font)` pairs for CJK font fallback based on the system's
@@ -138,7 +259,14 @@ public struct GhosttyConfigDiscovery {
             mappings.removeAll { range, _ in
                 rangeCoverageProbe(configuredFontFamily, range)
             }
-        } else if let configuredFont = fontProbe.configuredFont(named: configuredFontFamily, size: 12) {
+        } else {
+            // Coverage of the configured font is unknown when it can't be
+            // probed (e.g. the family name doesn't resolve). Fail closed
+            // rather than inject a CJK font over ranges that may already
+            // be covered.
+            guard let configuredFont = fontProbe.configuredFont(named: configuredFontFamily, size: 12) else {
+                return nil
+            }
             mappings.removeAll { range, _ in
                 Self.fontContainsGlyphs(configuredFont, forRange: range)
             }
@@ -295,6 +423,38 @@ public struct GhosttyConfigDiscovery {
         var glyphs = Array(repeating: CGGlyph(), count: characters.count)
         let hasGlyphs = CTFontGetGlyphsForCharacters(font, characters, &glyphs, characters.count)
         return hasGlyphs && !glyphs.contains(0)
+    }
+
+    static func fontContainsGlyph(
+        _ font: CTFont,
+        forCodepoint codepoint: UInt32
+    ) -> Bool {
+        // CTFontGetGlyphsForCharacters takes UTF-16 code units, so codepoints
+        // outside the BMP need to be encoded as a surrogate pair.
+        let chars: [UniChar]
+        if let bmp = UniChar(exactly: codepoint) {
+            chars = [bmp]
+        } else if codepoint >= 0x10000, codepoint <= 0x10FFFF {
+            let adjusted = codepoint - 0x10000
+            chars = [
+                UniChar(0xD800 + (adjusted >> 10)),
+                UniChar(0xDC00 + (adjusted & 0x3FF)),
+            ]
+        } else {
+            return false
+        }
+
+        var glyphs = Array(repeating: CGGlyph(), count: chars.count)
+        let hasGlyphs = CTFontGetGlyphsForCharacters(font, chars, &glyphs, chars.count)
+        // For a surrogate pair, CTFontGetGlyphsForCharacters doesn't
+        // guarantee both output slots are non-zero for a successful match,
+        // so the boolean return alone is the source of truth there; for a
+        // single BMP code unit, checking the glyph itself matches the
+        // sibling `fontContainsGlyphs`.
+        if chars.count == 1 {
+            return hasGlyphs && glyphs[0] != 0
+        }
+        return hasGlyphs
     }
 
     static func normalizedFontName(_ name: String) -> String {

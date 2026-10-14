@@ -63,6 +63,30 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Antigravity resumes the captured conversation and preserves launch options")
+    func antigravityResumeUsesConversationID() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "antigravity",
+                sessionId: "conversation-123",
+                executablePath: "/Users/example/.local/bin/agy",
+                arguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--dangerously-skip-permissions",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                ]
+            ) == [
+                "/Users/example/.local/bin/agy",
+                "--conversation",
+                "conversation-123",
+                "--dangerously-skip-permissions",
+                "--add-dir",
+                "/tmp/extra repo",
+            ]
+        )
+    }
+
     @Test("OpenCode resume drops internal TUI settings selector")
     func opencodeResumeDropsInternalTUISettingsSelector() {
         #expect(
@@ -192,6 +216,51 @@ struct AgentResumeArgvTests {
                 executablePath: nil,
                 arguments: ["cmux", "codex-teams", "-c", "check_for_update_on_startup=true"]
             ) == .resolved(["cmux", "codex-teams", "resume", "SID", "-c", "check_for_update_on_startup=true"])
+        )
+    }
+
+    @Test("Codex Teams remote resume and fork drop the unsupported permission override")
+    func codexTeamsRemoteResumeAndForkDropUnsupportedPermissionOverride() {
+        let appServerURL = "ws://127.0.0.1:4242"
+        let bypassFlag = "--dangerously-bypass-approvals-and-sandbox"
+        let builder = AgentResumeArgv()
+
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["resume", "THREAD", bypassFlag, "--model", "gpt-5"]
+            ) == ["resume", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["fork", "THREAD", "--model", "gpt-5", bypassFlag]
+            ) == ["fork", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["resume", "THREAD", "--", bypassFlag]
+            ) == ["resume", "--remote", appServerURL, "THREAD", "--", bypassFlag]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["fork", "THREAD", "--", bypassFlag]
+            ) == ["fork", "--remote", appServerURL, "THREAD", "--", bypassFlag]
+        )
+    }
+
+    @Test("Codex Teams fresh remote launches preserve the permission override")
+    func codexTeamsFreshRemoteLaunchPreservesPermissionOverride() {
+        let appServerURL = "ws://127.0.0.1:4242"
+        let bypassFlag = "--dangerously-bypass-approvals-and-sandbox"
+
+        #expect(
+            AgentResumeArgv().codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["--model", "gpt-5", bypassFlag]
+            ) == ["--remote", appServerURL, "--model", "gpt-5", bypassFlag]
         )
     }
 

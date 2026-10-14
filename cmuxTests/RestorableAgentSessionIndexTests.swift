@@ -502,7 +502,7 @@ struct RestorableAgentSessionIndexTests {
     // the start directory's project folder. Fork/resume must cd into the directory that actually
     // holds the transcript, otherwise `claude --resume` fails with "No conversation found".
     //
-    // The launch path contains a "." so this also exercises encodeClaudeProjectDir's "." -> "-"
+    // The launch path contains punctuation so this also exercises Claude's full slug rule.
     // contract, and the on-disk fixture is placed using a project-dir name computed independently of
     // the production helper so a regression in that helper fails the test instead of being masked.
     @Test
@@ -1351,16 +1351,73 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    // The Sessions sidebar cwd filter skips the project-directory scan and looks up the encoded
+    // directory directly. Fixture directories are named by `expectedClaudeProjectDirName`, not the
+    // production encoder, so an encoder regression cannot move the fixture and the lookup together.
+    @Test
+    func testClaudeCandidateCwdFilterFindsDottedProjectDir() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-dot-cwd-filter-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let sessionRoot = SessionIndexStore.ClaudeSessionRoot(
+            configDir: configDir.path,
+            resumeConfigDirectory: nil
+        )
+
+        for relativeCwd in ["repo/.claude/worktrees/feat-X", "repo/.worktrees/feat-x"] {
+            let cwd = root.appendingPathComponent(relativeCwd, isDirectory: true)
+            let projectDirName = expectedClaudeProjectDirName(cwd.path)
+            // A slash-only directory is noncanonical because Claude replaces every punctuation
+            // scalar, including the dots in these paths.
+            let slashOnlyDirName = cwd.path.replacingOccurrences(of: "/", with: "-")
+            let otherProjectDirName = expectedClaudeProjectDirName(root.appendingPathComponent("other").path)
+            for (dirName, sessionId) in [
+                (projectDirName, "dotted-session"),
+                (slashOnlyDirName, "slash-only-session"),
+                (otherProjectDirName, "other-project-session"),
+            ] {
+                let projectDir = projectsDir.appendingPathComponent(dirName, isDirectory: true)
+                try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+                try writeClaudeTranscript(
+                    sessionId: sessionId,
+                    transcriptURL: projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false),
+                    cwd: cwd
+                )
+            }
+
+            let candidates = SessionIndexStore.enumerateClaudeJSONLCandidates(
+                root: sessionRoot,
+                cwdFilter: cwd.path,
+                prefilteredByRipgrep: false
+            )
+
+            XCTAssertEqual(candidates.map(\.url.lastPathComponent), ["dotted-session.jsonl"], relativeCwd)
+            XCTAssertEqual(candidates.map(\.dirName), [projectDirName], relativeCwd)
+            try fm.removeItem(at: projectsDir)
+        }
+    }
+
     private func setDirectoryModificationDate(_ date: Date, for directory: URL) throws {
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: directory.path)
     }
 
-    /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
+    /// Mirrors Claude's external project-directory naming rule independently of production code.
+    /// Every non-ASCII-alphanumeric scalar becomes `-`.
     /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
     /// that helper regresses instead of masking it by sharing the same code path.
     private func expectedClaudeProjectDirName(_ path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        expectedClaudeProjectSlug(path)
+    }
+
+    @Test
+    func testClaudeProjectDirEncodingCoversPunctuationAndUnicode() {
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/a/my_proj.v2/home/é"),
+            "-Users-a-my-proj-v2-home--"
+        )
     }
 
     // A custom Vault agent defaults to cwd: .preserve and can expand {{cwd}} in its resume template,
@@ -1989,4 +2046,17 @@ struct RestorableAgentSessionIndexTests {
             options: .atomic
         )
     }
+}
+
+/// Claude Code's project-directory name for `path`, written independently of
+/// production code: every non-ASCII-alphanumeric scalar becomes `-`. Runner
+/// temp paths can contain `_`, so a fixture that only replaces `/` and `.`
+/// builds a directory Claude never creates.
+func expectedClaudeProjectSlug(_ path: String) -> String {
+    String(path.unicodeScalars.map { scalar -> Character in
+        switch scalar {
+        case "a"..."z", "A"..."Z", "0"..."9": return Character(scalar)
+        default: return "-"
+        }
+    })
 }

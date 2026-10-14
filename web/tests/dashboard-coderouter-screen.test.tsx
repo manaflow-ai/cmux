@@ -28,7 +28,7 @@ mock.module("next-intl", () => ({
 }));
 
 const { coderouterOverviewQuery } = await import("../dashboard-app/queries/coderouter");
-const { cloudDevicesQuery } = await import("../dashboard-app/queries/cloud");
+const { cloudDevicesQuery, cloudMachinesQuery } = await import("../dashboard-app/queries/cloud");
 const { CoderouterScreen } = await import("../dashboard-app/screens/coderouter/coderouter-screen");
 const { CloudScreen } = await import("../dashboard-app/screens/cloud/cloud-screen");
 const { coderouterRoutes } = await import("../dashboard-app/routes/coderouter");
@@ -173,15 +173,30 @@ describe("cloud screen", () => {
     tunnelPurposes: ["browser", "terminal"] as ("browser" | "terminal")[],
   };
 
-  async function renderCloud(devices: readonly (typeof device)[]) {
+  const machine = { id: "vm-abc123", name: "Build box", status: "running" as const, teamId: "team-1" };
+
+  async function renderCloud(devices: readonly (typeof device)[], machines?: readonly (typeof machine)[]) {
     const queryClient = createScreenQueryClient();
     queryClient.setQueryData(cloudDevicesQuery.queryKey, { devices: [...devices] });
+    if (machines) queryClient.setQueryData(cloudMachinesQuery.queryKey, { machines: [...machines] });
     return renderDashboardScreen({ url: "/dashboard/cloud", queryClient, render: () => <CloudScreen /> });
   }
 
+  test("lists each machine with its owner, status, and network control", async () => {
+    const html = await renderCloud([device], [machine]);
+    expect(html).toContain("Build box");
+    expect(html).toContain("Team · Running · vm-abc123");
+    expect(html).toContain(">Network<");
+  });
+
+  test("explains an empty machine list", async () => {
+    const html = await renderCloud([device], []);
+    expect(html).toContain("You have no Cloud machines.");
+  });
+
   test("lists each Mac with its build, access, and actions", async () => {
     const html = await renderCloud([device]);
-    expect(html).toContain("Cloud Mac access");
+    expect(html).toContain("Cloud machines and Mac access");
     expect(html).toContain("Studio Mac");
     expect(html).toContain("Mac15,3 · macOS 26.1 · arm64");
     expect(html).toContain("nightly 0.70.0 (123)");

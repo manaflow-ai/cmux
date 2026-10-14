@@ -8,6 +8,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     var webView: AgentSessionWebView?
     private var panelId = UUID()
     private var workspaceId = UUID()
+    private weak var attachedHost: AgentSessionWebHostView?
+    private var hasAttachedHost = false
     private var rendererKind: AgentSessionRendererKind = .react
     private var initialProviderID: AgentSessionProviderID = .codex
     private var workingDirectory: String?
@@ -18,10 +20,17 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var trustedShellURL: URL?
     private var hasFinishedNavigation = false
     private var hasCompletedVisiblePaintFlush = false
+    private var isVisiblePaintFlushInFlight = false
+    private(set) var visiblePaintGeneration: UInt64 = 0
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
     private var processStore = AgentSessionProcessStore()
+    /// Posts the panel's finished turns and provider failures (cx-sg1qz).
+    private var turnNotifier: AgentSessionTurnNotifier?
+    private var turnNotifierPanelId: UUID?
+    /// The folder the running provider started in, for "Completed in <project>".
+    private var providerWorkingDirectory: String?
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
@@ -42,12 +51,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         isFocused: Bool
     ) {
         self.panelId = panelId
+        let workspaceChanged = self.workspaceId != workspaceId
         self.workspaceId = workspaceId
         if self.rendererKind != rendererKind {
             loadedRendererKind = nil
             trustedShellURL = nil
             hasFinishedNavigation = false
-            hasCompletedVisiblePaintFlush = false
+            resetVisiblePaintState()
+        } else if workspaceChanged {
+            resetVisiblePaintState()
         }
         self.rendererKind = rendererKind
         self.initialProviderID = initialProviderID
@@ -58,12 +70,31 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         if themeChanged {
             applyThemeToLoadedPage()
         }
+        if turnNotifier == nil || turnNotifierPanelId != panelId {
+            turnNotifierPanelId = panelId
+            turnNotifier = AgentSessionTurnNotifier(
+                surfaceID: panelId,
+                workspaceID: { [weak self] in self?.workspaceId ?? workspaceId },
+                workingDirectory: { [weak self] in self?.providerWorkingDirectory ?? self?.workingDirectory }
+            )
+        }
         processStore.eventSink = { [weak self] event in
+            self?.turnNotifier?.observe(event)
             self?.sendEvent(event)
         }
         processStore.activeProviderSink = { [weak self] hasActiveProvider in
             self?.onHasActiveProviderChanged?(hasActiveProvider)
         }
+    }
+
+    /// Records the host currently displaying this retained renderer session.
+    func attach(to host: AgentSessionWebHostView) {
+        guard attachedHost !== host else { return }
+        attachedHost = host
+        if hasAttachedHost {
+            invalidateVisiblePaintAfterReattachment()
+        }
+        hasAttachedHost = true
     }
 
     func ensureWebView(onPointerDown: @escaping () -> Void) -> AgentSessionWebView {
@@ -122,7 +153,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
-        hasCompletedVisiblePaintFlush = false
+        resetVisiblePaintState()
     }
 
     func focus() {
@@ -157,7 +188,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         loadedRendererKind = nil
         trustedShellURL = nil
         hasFinishedNavigation = false
-        hasCompletedVisiblePaintFlush = false
+        attachedHost = nil
+        hasAttachedHost = false
+        resetVisiblePaintState()
     }
 
     func userContentController(
@@ -267,14 +300,31 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     func flushVisiblePaintIfReady() {
         guard hasFinishedNavigation,
               !hasCompletedVisiblePaintFlush,
+              !isVisiblePaintFlushInFlight,
               let webView,
               webView.window != nil,
               !webView.bounds.isEmpty else {
             return
         }
+        let generation = visiblePaintGeneration
+        isVisiblePaintFlushInFlight = true
         flushInitialPaint(for: webView) { [weak self] in
-            self?.hasCompletedVisiblePaintFlush = true
+            guard let self, self.visiblePaintGeneration == generation else { return }
+            self.isVisiblePaintFlushInFlight = false
+            self.hasCompletedVisiblePaintFlush = true
         }
+    }
+
+    /// Reopens the visible paint gate after Bonsplit moves a retained web host.
+    func invalidateVisiblePaintAfterReattachment() {
+        resetVisiblePaintState()
+        flushVisiblePaintIfReady()
+    }
+
+    private func resetVisiblePaintState() {
+        visiblePaintGeneration &+= 1
+        isVisiblePaintFlushInFlight = false
+        hasCompletedVisiblePaintFlush = false
     }
 
     private func flushInitialPaint(for webView: WKWebView, completion: (() -> Void)? = nil) {
@@ -600,9 +650,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             guard !isClosed else {
                 throw AgentSessionBridgeError.invalidRequest
             }
+            let providerDirectory = request.string("workingDirectory") ?? workingDirectory
+            providerWorkingDirectory = providerDirectory
             let session = try await processStore.start(
                 plan: plan,
-                workingDirectory: request.string("workingDirectory") ?? workingDirectory
+                workingDirectory: providerDirectory
             )
             return [
                 "sessionId": session.sessionId,
@@ -777,3 +829,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         return false
     }
 }
+
+#if DEBUG
+extension AgentSessionWebRendererCoordinator {
+    /// The page's bridge, for tests: one request as the page sends it.
+    func handleBridgeRequestForTesting(_ body: [String: Any]) async throws -> Any {
+        try await handle(AgentSessionBridgeRequest(body: body))
+    }
+}
+#endif

@@ -679,6 +679,7 @@ extension TerminalController: ControlWorkspaceContext {
                 explicitAgentSocketPath: agentSocketPath,
                 explicitAgentSocketPathIsSet: hasExplicitAgentSocketPath
             ),
+            agentSocketPathOverrideIsSet: hasExplicitAgentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,

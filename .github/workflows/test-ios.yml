@@ -48,6 +48,7 @@ on:
           - CmuxSyncStore
           - CmuxMobilePairedMac
           - CmuxMobileChanges
+          - CmuxMobileBilling
           - CmuxMobileShell
           - CmuxMobileShellModel
       ios_version:
@@ -461,7 +462,7 @@ jobs:
           SELECTED_PACKAGE: ${{ inputs.swift_package }}
         run: |
           case "$SELECTED_PACKAGE" in
-            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileShell|CmuxMobileShellModel) ;;
+            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileBilling|CmuxMobileShell|CmuxMobileShellModel) ;;
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
@@ -582,6 +583,22 @@ jobs:
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
             --label CmuxMobileChanges --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
+
+      - name: Run CmuxMobileBilling package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileBilling' }}
+        run: |
+          set -euo pipefail
+          args=(--package-path Packages/iOS/CmuxMobileBilling)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxMobileBilling-tests.log"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileBilling --log "$log_path" -- swift test "${args[@]}"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileBilling}"
 
       - name: Run CmuxMobileShell package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShell' }}

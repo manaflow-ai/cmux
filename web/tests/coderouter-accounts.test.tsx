@@ -79,7 +79,7 @@ const nativeCodexAccount = {
   id: "native-1",
   provider: "codex" as const,
   providerAccountId: "acct_9f3",
-  label: "lawrence@example.com",
+  label: "user@example.com",
   state: "active" as const,
   credentialExpiresAt: "2026-09-08T00:00:00.000Z",
   lastFailureCode: null,
@@ -150,7 +150,7 @@ describe("coderouter account transfer", () => {
 
   test("hides Transfer when the viewer cannot manage accounts", () => {
     const html = renderTransferCase({ canManage: false, transferTeams: otherTeams });
-    expect(html).toContain("lawrence@example.com");
+    expect(html).toContain("user@example.com");
     expect(html).not.toContain(">Transfer<");
   });
 
@@ -219,7 +219,7 @@ describe("coderouter accounts section", () => {
     );
 
     expect(html).toContain("3 accounts");
-    expect(html).toContain("lawrence@example.com");
+    expect(html).toContain("user@example.com");
     expect(html).toContain("3 active sessions");
     expect(html.match(/<ul[^>]*>/g)).toHaveLength(1);
     expect(html).toContain("Claude Code OAuth");

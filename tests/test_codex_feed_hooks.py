@@ -1094,8 +1094,8 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
     codex_home.mkdir()
     cmux_pre_tool = cmux_codex_feed_command("PreToolUse")
     orca_hook = (
-        "if [ -x '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh' ]; "
-        "then /bin/sh '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh'; fi"
+        "if [ -x '/Users/dev/Library/Application Support/orca/agent-hooks/codex-hook.sh' ]; "
+        "then /bin/sh '/Users/dev/Library/Application Support/orca/agent-hooks/codex-hook.sh'; fi"
     )
     (codex_home / "hooks.json").write_text(
         json.dumps(

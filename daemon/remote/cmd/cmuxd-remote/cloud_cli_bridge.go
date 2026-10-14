@@ -29,21 +29,29 @@ type cloudCLIForwardTarget struct {
 	requestID string
 }
 
+// cloudCLIPendingRequest remembers which RPC client a request ID was sent to,
+// so only that client can answer it.
+type cloudCLIPendingRequest struct {
+	server     *rpcServer
+	responseCh chan cloudCLIResponse
+}
+
 type cloudCLIBridge struct {
 	mu sync.Mutex
 	// Set before start; every accepted connection must prove its OS user identity.
 	peerUserID func(net.Conn) (uint32, error)
 	nextID     uint64
 	servers    map[*rpcServer]struct{}
-	pending    map[string]chan cloudCLIResponse
+	pending    map[string]cloudCLIPendingRequest
 	listener   net.Listener
+	socketInfo os.FileInfo
 }
 
 func newCloudCLIBridge() *cloudCLIBridge {
 	return &cloudCLIBridge{
 		peerUserID: cloudCLIConnectionUserID,
 		servers:    map[*rpcServer]struct{}{},
-		pending:    map[string]chan cloudCLIResponse{},
+		pending:    map[string]cloudCLIPendingRequest{},
 	}
 }
 
@@ -73,8 +81,7 @@ func (b *cloudCLIBridge) start(ctx context.Context, socketPath string, stderr io
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
 		return err
 	}
-	_ = os.Remove(socketPath)
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := listenCloudCLIBridgeSocket(socketPath)
 	if err != nil {
 		return err
 	}
@@ -83,20 +90,73 @@ func (b *cloudCLIBridge) start(ctx context.Context, socketPath string, stderr io
 		_ = os.Remove(socketPath)
 		return err
 	}
+	socketInfo, err := os.Lstat(socketPath)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
 	b.mu.Lock()
 	b.listener = listener
+	b.socketInfo = socketInfo
 	b.mu.Unlock()
 	_, _ = fmt.Fprintf(stderr, "cmuxd-remote cloud CLI bridge listening on %s\n", socketPath)
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
 	}()
-	go b.acceptLoop(listener, socketPath, stderr)
+	go b.acceptLoop(listener, socketPath, socketInfo, stderr)
 	return nil
 }
 
-func (b *cloudCLIBridge) acceptLoop(listener net.Listener, socketPath string, stderr io.Writer) {
-	defer os.Remove(socketPath)
+// listenCloudCLIBridgeSocket preserves a live bridge and only removes a Unix
+// socket after an ECONNREFUSED probe confirms that it is stale.
+func listenCloudCLIBridgeSocket(socketPath string) (net.Listener, error) {
+	listener, err := net.Listen("unix", socketPath)
+	if err == nil {
+		return listener, nil
+	}
+	info, statErr := os.Lstat(socketPath)
+	if statErr != nil || info.Mode().Type() != os.ModeSocket {
+		return nil, err
+	}
+	probe, probeErr := net.DialTimeout("unix", socketPath, 100*time.Millisecond)
+	if probeErr == nil {
+		_ = probe.Close()
+		return nil, err
+	}
+	if !errors.Is(probeErr, syscall.ECONNREFUSED) {
+		return nil, err
+	}
+	latestInfo, statErr := os.Lstat(socketPath)
+	if statErr != nil || !os.SameFile(info, latestInfo) {
+		return nil, err
+	}
+	if removeErr := os.Remove(socketPath); removeErr != nil {
+		return nil, err
+	}
+	return net.Listen("unix", socketPath)
+}
+
+// removeCloudCLIBridgeSocketIfOwned avoids removing a replacement bridge's
+// path when an older accept loop finishes after a restart.
+func removeCloudCLIBridgeSocketIfOwned(socketPath string, ownerInfo os.FileInfo) {
+	if ownerInfo == nil {
+		return
+	}
+	currentInfo, err := os.Lstat(socketPath)
+	if err != nil || !os.SameFile(ownerInfo, currentInfo) {
+		return
+	}
+	_ = os.Remove(socketPath)
+}
+
+func (b *cloudCLIBridge) acceptLoop(
+	listener net.Listener,
+	socketPath string,
+	ownerInfo os.FileInfo,
+	stderr io.Writer,
+) {
+	defer removeCloudCLIBridgeSocketIfOwned(socketPath, ownerInfo)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -229,7 +289,7 @@ func (b *cloudCLIBridge) reserveRequests() ([]cloudCLIForwardTarget, chan cloudC
 	for server := range b.servers {
 		b.nextID++
 		requestID := fmt.Sprintf("cli-%d", b.nextID)
-		b.pending[requestID] = responseCh
+		b.pending[requestID] = cloudCLIPendingRequest{server: server, responseCh: responseCh}
 		targets = append(targets, cloudCLIForwardTarget{server: server, requestID: requestID})
 	}
 	return targets, responseCh
@@ -249,17 +309,16 @@ func (b *cloudCLIBridge) forgetRequests(targets []cloudCLIForwardTarget) {
 	b.mu.Unlock()
 }
 
-func (b *cloudCLIBridge) deliverResponse(requestID string, response cloudCLIResponse) bool {
+func (b *cloudCLIBridge) deliverResponse(from *rpcServer, requestID string, response cloudCLIResponse) bool {
 	b.mu.Lock()
-	ch := b.pending[requestID]
-	if ch != nil {
-		delete(b.pending, requestID)
-	}
-	b.mu.Unlock()
-	if ch == nil {
+	pending, ok := b.pending[requestID]
+	if !ok || pending.server != from {
+		b.mu.Unlock()
 		return false
 	}
-	ch <- response
+	delete(b.pending, requestID)
+	b.mu.Unlock()
+	pending.responseCh <- response
 	return true
 }
 
@@ -294,7 +353,7 @@ func (s *rpcServer) handleCLIResponse(req rpcRequest) rpcResponse {
 			response.err = "cmux app rejected cloud CLI request"
 		}
 	}
-	if !s.cliBridge.deliverResponse(requestID, response) {
+	if !s.cliBridge.deliverResponse(s, requestID, response) {
 		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{Code: "not_found", Message: "cloud CLI request not found"}}
 	}
 	return rpcResponse{ID: req.ID, OK: true, Result: map[string]any{"delivered": true}}

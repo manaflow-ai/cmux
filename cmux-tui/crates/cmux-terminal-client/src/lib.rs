@@ -2587,6 +2587,14 @@ pub unsafe extern "C" fn cmux_wireguard_net_start(
 
 /// Checks whether a trusted-carrier route is a literal WebSocket IP covered
 /// by the tunnel's AllowedIPs without opening a connection.
+///
+/// # Safety
+///
+/// The caller must pass pointers that are valid for reads for the duration of
+/// this call, or null where the API permits it. A non-null `route` must point
+/// to a NUL-terminated C string, including its terminator, within one readable
+/// allocation for the duration of the call. The output buffer must be valid
+/// for writes of up to `error_capacity` bytes when an error is reported.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_wireguard_net_route_is_allowed(
     net: *const CmuxWireGuardNet,

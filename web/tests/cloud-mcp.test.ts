@@ -379,6 +379,9 @@ function vmRow(overrides: Partial<CloudVmRow>): CloudVmRow {
     providerMetadata: {},
     ownerTeamId: "user",
     coderouterPoolId: null,
+    agentUpdates: null,
+    networkPolicy: null,
+    networkPolicyStatus: null,
     ...overrides,
   };
 }

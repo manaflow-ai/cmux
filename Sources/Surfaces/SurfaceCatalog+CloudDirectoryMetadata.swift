@@ -36,13 +36,35 @@ extension SurfaceCatalog {
     /// Projects accepted directory and machine metadata independently from name reconciliation.
     /// The catalog remains authoritative; Workspace owns only the UI-facing projection.
     func updateCloudDirectoryMetadata(on machine: SurfaceMachineID, affectedResourceIDs: Set<SurfaceResourceID>? = nil) {
-        let projectedWorkspaceIDs = Set(projections.filter {
+        guard !machine.isLocal else { return }
+        let machineProjections = projections.filter {
             $0.resource.machine == machine && (affectedResourceIDs?.contains($0.resource) ?? true)
-        }.map(\.workspaceID))
+        }
+        let projectedWorkspaceIDs = Set(machineProjections.map(\.workspaceID))
         if let affectedResourceIDs {
+            // Group the complete projection set once. The workspace updater
+            // needs all of a workspace's rows to preserve existing bindings,
+            // but an incremental resource update must not rescan and sort the
+            // global projection list once per affected workspace.
+            let recordsByWorkspace = Dictionary(grouping: projections.filter { !$0.resource.machine.isLocal }) {
+                $0.workspaceID
+            }.mapValues { projections in
+                projections.map {
+                    SurfaceProjectionRecord(
+                        panelID: $0.panelID,
+                        resource: $0.resource,
+                        remoteWorkspaceID: $0.remoteWorkspaceID,
+                        remoteTabID: $0.remoteTabID
+                    )
+                }
+            }
             for id in projectedWorkspaceIDs {
                 guard let workspace = cloudWorkspaceRenameService.environment.workspace(id) else { continue }
-                updateCloudDirectoryMetadata(in: workspace, affectedResourceIDs: affectedResourceIDs)
+                updateCloudDirectoryMetadata(
+                    in: workspace,
+                    affectedResourceIDs: affectedResourceIDs,
+                    projected: recordsByWorkspace[id] ?? []
+                )
             }
             return
         }
@@ -58,9 +80,14 @@ extension SurfaceCatalog {
         updateCloudDirectoryMetadata(in: workspace)
     }
 
-    private func updateCloudDirectoryMetadata(in workspace: Workspace, affectedResourceIDs: Set<SurfaceResourceID>? = nil) {
+    private func updateCloudDirectoryMetadata(
+        in workspace: Workspace,
+        affectedResourceIDs: Set<SurfaceResourceID>? = nil,
+        projected suppliedProjections: [SurfaceProjectionRecord]? = nil
+    ) {
         // Saved projections establish ownership even before their provider rediscovers the resource.
-        let projected = projectionRecords(forWorkspace: workspace.id).filter { !$0.resource.machine.isLocal }
+        let projected = (suppliedProjections ?? projectionRecords(forWorkspace: workspace.id))
+            .filter { !$0.resource.machine.isLocal }
         let resourcesByPanel = Dictionary(projected.map { ($0.panelID, $0.resource) }, uniquingKeysWith: { first, _ in first })
         var machineIDs = Set(projected.map { $0.resource.machine.rawValue })
         if let id = workspace.cloudVMID { machineIDs.insert(id) }
@@ -69,7 +96,16 @@ extension SurfaceCatalog {
         })
         let previous = workspace.cloudBindingState.projectedResources
         let previousHostLabel = workspace.hostLabel
-        workspace.cloudBindingState.updateCatalogMetadata(resources: resourcesByPanel, machineNames: names)
+        // The sidebar hides a panel whose terminal row is missing or still launching, so the row's
+        // arrival and readiness are presentation inputs even when the projection, names and cwd
+        // stay the same. Without them the workspace row stays blank until an unrelated change.
+        let terminalLifecycles = Dictionary(projected.compactMap { projection -> (UUID, SurfaceLifecycle)? in
+            guard let resource = resources[projection.resource], resource.kind == .terminal else { return nil }
+            return (projection.panelID, resource.lifecycle)
+        }, uniquingKeysWith: { first, _ in first })
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: resourcesByPanel, machineNames: names, terminalLifecycles: terminalLifecycles
+        )
         if workspace.hostLabel != previousHostLabel {
             workspace.owningTabManager?.workspaceHostLabelDidChange(workspace)
         }

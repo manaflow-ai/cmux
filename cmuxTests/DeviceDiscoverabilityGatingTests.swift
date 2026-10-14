@@ -17,7 +17,7 @@ struct DeviceDiscoverabilityGatingTests {
         #expect(section.inlineRowCount == 3)
         #expect(!section.discoveryControl.isEnabled)
         #expect(!section.incomingControl.isEnabled)
-        #expect(section.discoveryControl.title == "Discover other Macs")
+        #expect(section.discoveryControl.title == "Discover other devices")
         #expect(section.incomingControl.title == "Make this Mac discoverable")
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [], snapshot: .empty, localWorkspaces: [], includeLocalMachine: false,

@@ -84,6 +84,10 @@ extension TerminalController: ControlDebugContext {
         ProWelcomeChecklistPresenter.present()
     }
 
+    func controlDebugShowNativePricing() {
+        ProUpgradePresenter.presentNativePricingPreview()
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }
@@ -113,6 +117,26 @@ extension TerminalController: ControlDebugContext {
     func controlDebugFlashCount(surfaceArgument: String) -> String { flashCount(surfaceArgument) }
 
     func controlDebugResetFlashCounts() -> String { resetFlashCounts() }
+
+    func controlDebugBrowserDiscard(arguments: String) -> String {
+        let parts = arguments.split(separator: " ").map(String.init)
+        guard let raw = parts.first, let id = UUID(uuidString: raw) else {
+            return "ERROR: usage: browser_discard <surface-uuid> [force]"
+        }
+        let force = parts.dropFirst().contains("force")
+        var result = "ERROR: Browser surface not found"
+        v2MainSync {
+            guard let app = AppDelegate.shared else { return }
+            for context in app.mainWindowContexts.values {
+                for workspace in context.tabManager.tabs {
+                    guard let panel = workspace.panels[id] as? BrowserPanel else { continue }
+                    result = panel.debugDiscardForTesting(force: force)
+                    return
+                }
+            }
+        }
+        return result
+    }
 
     func controlDebugPanelSnapshot(arguments: String) -> String { panelSnapshot(arguments) }
 

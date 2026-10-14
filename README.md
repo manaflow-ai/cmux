@@ -159,7 +159,9 @@ For shell watcher churn and managed-Mac process audit volume, see the supported
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ N | New workspace |
+| ⌘ N | New local workspace |
+| ⌘ Y | New Cloud workspace on the last usable Cloud context; opens New Cloud Machine when none is available |
+| ⌘ ⇧ Y | New Cloud machine |
 | ⌘ 1–8 | Jump to workspace 1–8 |
 | ⌘ 9 | Jump to last workspace |
 | ⌃ ⌘ ] | Next workspace |
@@ -271,7 +273,8 @@ cmux does not checkpoint arbitrary live process state. Ordinary terminals,
 tmux, vim, shells, and unsupported terminal apps reopen as normal terminals.
 For live detach/reattach across cmux quit, crashes, and updates, opt in to the
 local tmux owner with `cmux local-tmux`; see [`docs/local-tmux.md`](docs/local-tmux.md)
-for its lifecycle and machine-sleep limits.
+for its lifecycle and machine-sleep limits. zellij users can use `cmux local-zellij`
+instead; see [`docs/local-zellij.md`](docs/local-zellij.md).
 
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:

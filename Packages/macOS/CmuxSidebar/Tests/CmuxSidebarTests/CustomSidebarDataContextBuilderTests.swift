@@ -28,7 +28,8 @@ struct CustomSidebarDataContextBuilderTests {
     private func minimalWorkspace(
         id: UUID = UUID(),
         index: Int = 0,
-        surfaces: [CustomSidebarSurfaceSnapshot] = []
+        surfaces: [CustomSidebarSurfaceSnapshot] = [],
+        taskStatus: String = "todo"
     ) -> CustomSidebarWorkspaceSnapshot {
         CustomSidebarWorkspaceSnapshot(
             id: id,
@@ -50,7 +51,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: taskStatus
         )
     }
 
@@ -141,7 +143,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -188,7 +191,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: "",
             latestSubmittedMessage: "",
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -223,7 +227,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: "hi",
             latestSubmittedMessage: "do it",
             latestSubmittedAt: Date(timeIntervalSince1970: 100),
-            remote: .init(target: "host", stateRawValue: "connected", isConnected: true)
+            remote: .init(target: "host", stateRawValue: "connected", isConnected: true),
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -268,7 +273,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let progress = builder.workspaceValue(workspace).member("progress")
@@ -449,7 +455,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
             remote: nil,
-            agents: [minimal]
+            agents: [minimal],
+            taskStatus: "todo"
         )
         let agents = builder.workspaceValue(workspace).member("agents")
         #expect(agents?.iterationValues?.count == 1)
@@ -530,5 +537,27 @@ struct CustomSidebarDataContextBuilderTests {
         )
 
         #expect(builder.surfaceValue(blank).member("latestPrompt") == nil)
+    }
+
+    @Test("Workspace status projects the resolved lane")
+    func workspaceStatusProjects() {
+        let builder = CustomSidebarDataContextBuilder()
+
+        for lane in ["todo", "working", "needs-attention", "review", "done"] {
+            let workspace = minimalWorkspace(taskStatus: lane)
+            #expect(builder.workspaceValue(workspace).member("status") == .string(lane))
+        }
+    }
+
+    // `status` is an always-present key, not an optional one: a sidebar reads
+    // it without `if let`, so it must survive a workspace that carries nothing
+    // else worth showing.
+    @Test("Workspace status is present even on an otherwise empty workspace")
+    func workspaceStatusAlwaysPresent() {
+        let builder = CustomSidebarDataContextBuilder()
+        let value = builder.workspaceValue(minimalWorkspace())
+
+        #expect(value.member("status") == .string("todo"))
+        #expect(value.member("branch") == nil)
     }
 }

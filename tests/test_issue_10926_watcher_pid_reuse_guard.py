@@ -27,7 +27,7 @@ import socket
 import subprocess
 import tempfile
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -135,7 +135,7 @@ def ps_epoch_start_time(pid: int, env: dict[str, str]) -> str:
     if len(words) != 5:
         return ""
     try:
-        started = datetime.strptime(" ".join(words), "%a %b %d %H:%M:%S %Y").replace(tzinfo=UTC)
+        started = datetime.strptime(" ".join(words), "%a %b %d %H:%M:%S %Y").replace(tzinfo=timezone.utc)
     except ValueError:
         return ""
     return str(int(started.timestamp()))

@@ -32,22 +32,32 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         var sessionId: String?
         /// Resumes sent in the current failing streak.
         var streak = 0
-        /// Resumes sent since the agent session started, for the marker.
+        /// Resumes sent since the agent last finished a turn, for the marker.
         var total = 0
         /// Token of the pending schedule, if any.
         var pendingToken: UInt64?
     }
 
+    /// Extra wait, in seconds, added to a failure's `retry after` hint. Every
+    /// client of a shared pool gets the same hint, so the jitter keeps them
+    /// from all resuming in the same second.
+    public static let defaultRetryHintJitterSeconds: ClosedRange<Int64> = 30...180
+
     public let delays: [Duration]
+    public let retryHintJitterSeconds: ClosedRange<Int64>
     private let classifier = AgentRetryableFailureClassifier()
     private var surfaces: [String: SurfaceState] = [:]
     private var nextToken: UInt64 = 0
 
-    public init(delays: [Duration] = AgentAutoResumeTracker.defaultDelays) {
+    public init(
+        delays: [Duration] = AgentAutoResumeTracker.defaultDelays,
+        retryHintJitterSeconds: ClosedRange<Int64> = AgentAutoResumeTracker.defaultRetryHintJitterSeconds
+    ) {
         self.delays = delays
+        self.retryHintJitterSeconds = retryHintJitterSeconds
     }
 
-    /// Resumes sent for the surface since its agent session started.
+    /// Resumes sent for the surface since its agent last finished a turn.
     public func totalResumes(surfaceId: String) -> Int {
         surfaces[surfaceId]?.total ?? 0
     }
@@ -84,9 +94,9 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
                     // session that a newer sessionStarted event established.
                     return .none
                 }
-                if surfaces[surfaceId]?.sessionId != sessionId {
-                    surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
-                }
+                // Only an unnamed or matching session reaches here, so this
+                // names it without dropping its streak or marker count.
+                surfaces[surfaceId, default: SurfaceState()].sessionId = sessionId
             }
             // The same failure can arrive twice: once with its detail and
             // once through the error notification without one. An event with
@@ -101,16 +111,22 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             }
             nextToken &+= 1
             state.pendingToken = nextToken
-            let delay = delays[state.streak]
+            var delay = delays[state.streak]
+            if let hint = classifier.retryAfter(detail: detail) {
+                // The failure says when capacity returns, so resuming before
+                // then only repeats the refusal.
+                delay = max(delay, hint + .seconds(Int64.random(in: retryHintJitterSeconds)))
+            }
             surfaces[surfaceId] = state
             return .schedule(surfaceId: surfaceId, attempt: state.streak + 1, delay: delay, token: nextToken)
         case .turnCompleted:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
-            // A turn finished normally: the failing streak is over. The total
-            // stays so the marker still shows the turn needed help.
+            // A turn finished normally: the agent recovered, so the failing
+            // streak and the marker's count are both over.
             guard var state = surfaces[surfaceId] else { return .none }
             let hadPending = state.pendingToken != nil
             state.streak = 0
+            state.total = 0
             state.pendingToken = nil
             surfaces[surfaceId] = state
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
@@ -126,7 +142,13 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .sessionStarted:
             let hadPending = surfaces[surfaceId]?.pendingToken != nil
-            surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
+            if let sessionId, !sessionId.isEmpty, surfaces[surfaceId]?.sessionId == sessionId {
+                // The same session starting again (a compact or resume) has
+                // not finished a turn, so it keeps the marker count.
+                surfaces[surfaceId]?.pendingToken = nil
+            } else {
+                surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
+            }
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .childSpawned, .childCompleted, .childFailed, .stateChanged,
              .idleObserved, .messagePublished:
@@ -203,6 +225,29 @@ public struct AgentRetryableFailureClassifier: Sendable, Equatable {
         "network error", "network_error", "socket hang up", "temporarily unavailable",
         "service unavailable", "bad gateway", "internal server error", "try again",
     ]
+
+    /// Longest `retry after` hint honored. A larger number is not a time a
+    /// person would wait at a terminal for.
+    static let maxRetryAfterSeconds: Int64 = 7 * 24 * 60 * 60
+
+    /// The wait a failure names before capacity returns, from a
+    /// `retry after <N>s` hint such as Subrouter's exhausted-pool 503.
+    public func retryAfter(detail: String?) -> Duration? {
+        guard let detail else { return nil }
+        let text = detail.lowercased()
+        var searchStart = text.startIndex
+        while let marker = text.range(of: "retry after ", range: searchStart..<text.endIndex) {
+            let rest = text[marker.upperBound...]
+            let digits = rest.prefix(while: { $0.isASCII && $0.isNumber })
+            if rest.dropFirst(digits.count).first == "s",
+               let seconds = Int64(digits),
+               (1...Self.maxRetryAfterSeconds).contains(seconds) {
+                return .seconds(seconds)
+            }
+            searchStart = marker.upperBound
+        }
+        return nil
+    }
 
     public func isRetryable(detail: String?) -> Bool {
         guard let detail, !detail.isEmpty else { return false }

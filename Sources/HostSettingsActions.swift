@@ -11,13 +11,12 @@ import CmuxFoundation
 import Foundation
 import OSLog
 import SwiftUI
-
 nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
-
 /// Routes Settings actions to app-owned services, keeping the package independent.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     let computersActions: ComputersSettingsActions
+    var cloudActivationCoordinator: CloudActivationCoordinator?
     private let configFileURL: URL
     private let browserDataImportCoordinator: BrowserDataImportCoordinator
     private let automationConfigStore: AutomationConfigStore
@@ -26,7 +25,6 @@ final class HostSettingsActions: SettingsHostActions {
     let computerUseRuntimeService: ComputerUseRuntimeService
     var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
-
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
 
@@ -78,10 +76,12 @@ final class HostSettingsActions: SettingsHostActions {
             alert.runModal()
         },
         computersActions: ComputersSettingsActions? = nil,
+        cloudActivationCoordinator: CloudActivationCoordinator? = nil,
         runComputerUseOnboardingAction:
             @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
     ) {
         self.computersActions = computersActions ?? ComputersSettingsActions()
+        self.cloudActivationCoordinator = cloudActivationCoordinator
         self.configFileURL = configFileURL
         self.automationConfigStore = automationConfigStore
         self.openAutomationRulesFile = openAutomationRulesFile
@@ -755,18 +755,6 @@ final class HostSettingsActions: SettingsHostActions {
             bringWindowForward: true,
             debugSource: "settings.mobileConnect"
         )
-    }
-
-    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? {
-        switch AppDelegate.shared?.appChannelSwitchTarget {
-        case .nightly: .nightly
-        case .stable: .stable
-        case nil: nil
-        }
-    }
-
-    func switchAppChannel() {
-        AppDelegate.shared?.switchAppChannel(nil)
     }
 
     func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {

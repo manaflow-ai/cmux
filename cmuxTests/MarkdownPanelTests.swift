@@ -1055,9 +1055,11 @@ final class MarkdownPanelTests: XCTestCase {
         let configuration = WKWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
         let remoteImageHandler = MarkdownRemoteImageHoldingSchemeHandler()
+        let bridge = MarkdownRecordingScriptMessageHandler()
         coordinator.filePath = markdownURL.path
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
         configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
+        configuration.userContentController.add(bridge, name: "cmuxLib")
         let webView = MarkdownWebView(frame: frame, configuration: configuration)
         coordinator.webView = webView
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -1255,9 +1257,13 @@ final class MarkdownPanelTests: XCTestCase {
             in: webView,
             describedAs: "open the blocked HTTP remote image URL"
         )
+        // Opening goes through the host's URL validation, never window.open.
         let openedHTTPImageURLs = try XCTUnwrap(openedHTTPImageURL as? [[String: Any]])
-        XCTAssertEqual(openedHTTPImageURLs.first?["url"] as? String, "http://images.example.com/pixel.png")
-        XCTAssertEqual(openedHTTPImageURLs.first?["target"] as? String, "_blank")
+        XCTAssertTrue(openedHTTPImageURLs.isEmpty)
+        try await bridge.waitForMessage(
+            action: "openRemoteImage",
+            url: "http://images.example.com/pixel.png"
+        )
         let linkedPlaceholderClickResult = try await evaluateJavaScript(
             """
             (function() {
@@ -1303,6 +1309,20 @@ final class MarkdownPanelTests: XCTestCase {
             """,
             in: webView,
             describedAs: "load the linked remote image"
+        )
+        // The page only asks; the host's exact-URL approval lets it load.
+        try await bridge.waitForMessage(
+            action: "approveRemoteImage",
+            url: "https://images.example.com/linked.png"
+        )
+        let unapproved = try await remoteImageSnapshot(in: webView)
+        let unapprovedImages = try XCTUnwrap(unapproved["images"] as? [[String: Any]])
+        let unapprovedLinkedImage = try XCTUnwrap(unapprovedImages.first { $0["alt"] as? String == "Linked remote" })
+        XCTAssertEqual(unapprovedLinkedImage["src"] as? String, "")
+        _ = try await evaluateJavaScript(
+            "window.__cmuxRemoteImageApproved('https://images.example.com/linked.png');",
+            in: webView,
+            describedAs: "deliver the host approval for the linked remote image"
         )
         let loading = try await remoteImageSnapshot(in: webView)
         let loadingImages = try XCTUnwrap(loading["images"] as? [[String: Any]])
@@ -2129,6 +2149,34 @@ private final class MarkdownURLSchemeTaskSpy: NSObject, WKURLSchemeTask {
             didFinish: finished,
             error: receivedError
         )
+    }
+}
+
+@MainActor
+private final class MarkdownRecordingScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    private(set) var messages: [[String: String]] = []
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard let body = message.body as? [String: Any] else { return }
+        var record: [String: String] = [:]
+        for (key, value) in body {
+            record[key] = String(describing: value)
+        }
+        messages.append(record)
+    }
+
+    func waitForMessage(action: String, url: String) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !messages.contains(where: { $0["action"] == action && $0["url"] == url }) {
+            guard ContinuousClock.now < deadline else {
+                XCTFail("missing bridge message \(action) \(url)")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
     }
 }
 

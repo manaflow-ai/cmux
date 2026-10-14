@@ -127,6 +127,15 @@ export const cloudVms = pgTable(
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
     providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    // Outbound network policy (services/vms/networkPolicy.ts). Null means the
+    // historical default, full Internet. Control-plane owned; the driver
+    // reconciles the provider's firewall and TLS rules to it.
+    networkPolicy: jsonb("network_policy").$type<Record<string, unknown>>(),
+    // Last reconcile outcome for networkPolicy: { state, error?, appliedAt }.
+    networkPolicyStatus: jsonb("network_policy_status").$type<Record<string, unknown>>(),
+    // Coding-agent updates (services/vms/guestAgentUpdates.ts). "latest" updates
+    // the baked agents to npm's latest on attach; null keeps the image's pins.
+    agentUpdates: text("agent_updates").$type<"latest">(),
   },
   (table) => [
     foreignKey({ columns: [table.ownerTeamId, table.coderouterPoolId], foreignColumns: [coderouterPools.teamId, coderouterPools.id], name: "cloud_vms_coderouter_pool_team_fk" }),
@@ -179,6 +188,37 @@ export const cloudVmObservedDestroyCleanups = pgTable(
       "cloud_vm_observed_destroy_cleanups_pending_step",
       observedDestroyCleanupValidityPredicate(table.cleanup),
     ),
+  ],
+);
+
+/**
+ * Idempotency ledger for `POST /api/vm/:id/snapshot`. One row per (machine,
+ * key): `pending` while the provider snapshot runs, `succeeded` with the
+ * provider's snapshot once it returns. A failed attempt deletes its row, so the
+ * same key may retry. A pending row older than the route's budget may be taken
+ * over by a retry (the first attempt died without finishing).
+ */
+export const cloudVmSnapshotRequests = pgTable(
+  "cloud_vm_snapshot_requests",
+  {
+    vmId: uuid("vm_id").notNull().references(() => cloudVms.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    name: text("name"),
+    status: text("status").$type<"pending" | "succeeded">().notNull(),
+    providerSnapshotId: text("provider_snapshot_id"),
+    snapshotName: text("snapshot_name"),
+    snapshotCreatedAtMs: bigint("snapshot_created_at_ms", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.vmId, table.idempotencyKey] }),
+    check("cloud_vm_snapshot_requests_status", sql`${table.status} in ('pending', 'succeeded')`),
+    check(
+      "cloud_vm_snapshot_requests_succeeded_has_snapshot",
+      sql`${table.status} <> 'succeeded' or (${table.providerSnapshotId} is not null and ${table.snapshotCreatedAtMs} is not null)`,
+    ),
+    check("cloud_vm_snapshot_requests_key_length", sql`length(${table.idempotencyKey}) between 1 and 128`),
   ],
 );
 
@@ -2550,6 +2590,32 @@ export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations"
   index("hexclave_pending_revocations_user_idx").on(table.userId),
 ]);
 
+/**
+ * A Stack session that must be revoked because the Cloud access grant it
+ * enrolled was revoked. Written in the same transaction that revokes the
+ * grant, so no crash can lose it. The row is deleted once Stack accepts the
+ * revocation; until then the vm-reconcile cron claims due rows (lease in
+ * `claimed_until`, `FOR UPDATE SKIP LOCKED`) and retries with bounded
+ * backoff. After the attempt cap or 24 hours it stops (`gave_up_at`) and is
+ * reported.
+ */
+export const stackSessionRevocations = pgTable("stack_session_revocations", {
+  stackSessionId: text("stack_session_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  accessGrantId: uuid("access_grant_id"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  gaveUpAt: timestamp("gave_up_at", { withTimezone: true }),
+}, (table) => [
+  index("stack_session_revocations_due_idx")
+    .on(table.nextAttemptAt)
+    .where(sql`${table.gaveUpAt} is null`),
+  index("stack_session_revocations_user_idx").on(table.userId),
+]);
+
 export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
 
 /**
@@ -2557,6 +2623,56 @@ export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "fail
  * revocations reflect Hexclave; a redelivery of such an id is acknowledged
  * without work. Invalid and failed deliveries keep `processed_at` null.
  */
+/**
+ * Verified Hexclave webhook deliveries waiting to be applied. The webhook
+ * answers 200 once a delivery is stored here; a rate-limited drain (the
+ * webhook's own after-response kick and the every-minute `hexclave-inbox`
+ * cron) applies them, coalescing events for one user or team into one
+ * Hexclave read. A row is deleted once applied (and recorded in
+ * `hexclave_webhook_events`). After the attempt cap a row is dead-lettered
+ * (kept, reported, purged after 30 days). Only the target is stored, never
+ * the payload.
+ */
+export const hexclaveWebhookInbox = pgTable("hexclave_webhook_inbox", {
+  svixId: text("svix_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  entityKind: text("entity_kind").$type<"user" | "team">().notNull(),
+  entityId: text("entity_id").notNull(),
+  revokeCandidateTeamIds: jsonb("revoke_candidate_team_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+}, (table) => [
+  check("hexclave_webhook_inbox_entity_kind_check", sql`${table.entityKind} in ('user', 'team')`),
+  index("hexclave_webhook_inbox_due_idx").on(table.nextAttemptAt).where(sql`${table.deadLetteredAt} is null`),
+  index("hexclave_webhook_inbox_entity_idx").on(table.entityKind, table.entityId),
+]);
+
+/** At most this many inbox drains run at once, each holding one leased slot. */
+export const hexclaveWebhookInboxDrainSlots = pgTable("hexclave_webhook_inbox_drain_slots", {
+  slot: integer("slot").primaryKey(),
+  /** The holder's token: only it may release the slot. */
+  leaseId: uuid("lease_id").notNull(),
+  leasedUntil: timestamp("leased_until", { withTimezone: true }).notNull(),
+});
+
+/**
+ * The inbox's single state row: a global Hexclave backoff every drain checks
+ * before it starts, and the stuck and dead-letter counts last reported (an
+ * alert fires only when they change).
+ */
+export const hexclaveWebhookInboxState = pgTable("hexclave_webhook_inbox_state", {
+  id: integer("id").primaryKey().default(1),
+  throttledUntil: timestamp("throttled_until", { withTimezone: true }).notNull().default(sql`'epoch'`),
+  reportedStuck: integer("reported_stuck").notNull().default(0),
+  reportedDeadLettered: integer("reported_dead_lettered").notNull().default(0),
+}, (table) => [
+  check("hexclave_webhook_inbox_state_singleton", sql`${table.id} = 1`),
+]);
+
 export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
   svixId: text("svix_id").primaryKey(),
   eventType: text("event_type").notNull(),
@@ -2567,4 +2683,116 @@ export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
 }, (table) => [
   check("hexclave_webhook_events_outcome_check", sql`${table.outcome} in ('processed', 'ignored', 'invalid', 'failed')`),
   index("hexclave_webhook_events_received_idx").on(table.receivedAt),
+]);
+
+/**
+ * iOS in-app purchases (docs/billing/ios-in-app-purchases.md). The server is
+ * the source of truth: every Apple transaction and App Store Server
+ * Notification is verified, recorded here, and mirrored into the same
+ * `cmuxPlan` entitlement Stripe fulfillment writes.
+ */
+export const APPLE_SUBSCRIPTION_STATUSES = [
+  "active",
+  "grace_period",
+  "billing_retry",
+  "expired",
+  "revoked",
+] as const;
+export type AppleSubscriptionStatus = (typeof APPLE_SUBSCRIPTION_STATUSES)[number];
+
+/** One `appAccountToken` per cmux user, minted by the server and sent with every purchase. */
+export const appleAccountTokens = pgTable("apple_account_tokens", {
+  userId: text("user_id").primaryKey(),
+  appAccountToken: uuid("app_account_token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("apple_account_tokens_app_account_token_unique").on(table.appAccountToken),
+]);
+
+/**
+ * Current state of one Apple subscription (one original transaction). The
+ * row only moves forward: `state_signed_at` is the Apple `signedDate` of the
+ * data that produced it, and an older signed payload never overwrites it.
+ */
+export const appleSubscriptions = pgTable("apple_subscriptions", {
+  originalTransactionId: text("original_transaction_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  appAccountToken: uuid("app_account_token"),
+  bundleId: text("bundle_id").notNull(),
+  environment: text("environment").notNull(),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id").notNull(),
+  status: text("status").$type<AppleSubscriptionStatus>().notNull(),
+  autoRenewEnabled: boolean("auto_renew_enabled"),
+  autoRenewProductId: text("auto_renew_product_id"),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+  originalPurchaseDate: timestamp("original_purchase_date", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  gracePeriodExpiresAt: timestamp("grace_period_expires_at", { withTimezone: true }),
+  storefront: text("storefront"),
+  currency: text("currency"),
+  priceMilliunits: bigint("price_milliunits", { mode: "number" }),
+  lastTransactionId: text("last_transaction_id"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revocationReason: integer("revocation_reason"),
+  stateSignedAt: timestamp("state_signed_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_subscriptions_user_id_idx").on(table.userId),
+  index("apple_subscriptions_expires_at_idx").on(table.expiresAt),
+  check(
+    "apple_subscriptions_status_check",
+    sql`${table.status} in ('active', 'grace_period', 'billing_retry', 'expired', 'revoked')`,
+  ),
+]);
+
+/** One row per Apple transaction (purchase, renewal, upgrade); refunds set `revoked_at`. */
+export const appleTransactions = pgTable("apple_transactions", {
+  transactionId: text("transaction_id").primaryKey(),
+  originalTransactionId: text("original_transaction_id").notNull(),
+  userId: text("user_id").notNull(),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id"),
+  environment: text("environment").notNull(),
+  type: text("type"),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  priceMilliunits: bigint("price_milliunits", { mode: "number" }),
+  currency: text("currency"),
+  storefront: text("storefront"),
+  offerType: integer("offer_type"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_transactions_original_transaction_id_idx").on(table.originalTransactionId),
+  index("apple_transactions_user_id_idx").on(table.userId),
+  index("apple_transactions_purchase_date_idx").on(table.purchaseDate),
+]);
+
+/**
+ * App Store Server Notifications V2 ledger, idempotent on `notification_uuid`.
+ * The row is written before any state change. A failed application keeps
+ * `processed_at` null and records `error`; the retry job re-applies those
+ * rows. A notification that can never apply (no linked cmux account, an
+ * unknown product) is closed with `processed_at` and an `error` explaining
+ * why, so it is not retried forever.
+ */
+export const appleNotifications = pgTable("apple_notifications", {
+  notificationUuid: text("notification_uuid").primaryKey(),
+  notificationType: text("notification_type").notNull(),
+  subtype: text("subtype"),
+  environment: text("environment").notNull(),
+  originalTransactionId: text("original_transaction_id"),
+  signedDate: timestamp("signed_date", { withTimezone: true }).notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  error: text("error"),
+}, (table) => [
+  index("apple_notifications_original_transaction_id_idx").on(table.originalTransactionId),
+  index("apple_notifications_pending_idx")
+    .on(table.receivedAt)
+    .where(sql`${table.processedAt} is null`),
 ]);

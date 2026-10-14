@@ -450,7 +450,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     let mut websocket = authenticated_connect(websocket_server.local_addr());
     send_json(
         &mut websocket,
-        json!({"id": 3, "cmd": "set-client-info", "name": "lawrences-iphone", "kind": "web"}),
+        json!({"id": 3, "cmd": "set-client-info", "name": "test-iphone", "kind": "web"}),
     );
     assert_eq!(read_until(&mut websocket, |value| value["id"] == 3)["ok"], true);
     send_json(&mut websocket, json!({"id": 4, "cmd": "attach-surface", "surface": surface}));
@@ -468,7 +468,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     let ws_client = clients.iter().find(|client| client["transport"] == "ws").unwrap();
     assert_eq!(unix_client["self"], true);
     assert_eq!(ws_client["self"], false);
-    assert_eq!(ws_client["name"], "lawrences-iphone");
+    assert_eq!(ws_client["name"], "test-iphone");
     assert_eq!(ws_client["kind"], "web");
     assert_eq!(unix_client["attached"], json!([surface]));
     assert_eq!(ws_client["attached"], json!([surface]));

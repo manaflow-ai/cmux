@@ -123,7 +123,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
     private func rows(_ snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
         CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
             machines: [fleetRow()], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false
-        ))
+        )).withoutCoderouterSection
     }
 
     /// Exercise the shipped CLI binary through its socket boundary. `CMUXCLI` belongs to

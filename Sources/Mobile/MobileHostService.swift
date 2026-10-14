@@ -524,6 +524,27 @@ final class MobileHostService {
         clientIDsByConnectionID[connectionID] ?? []
     }
 
+    /// Records accepted input from an Iroh terminal lane for the phone
+    /// connection that owns the admitted binding.
+    ///
+    /// Iroh lane frames do not carry the RPC `client_id`. The control
+    /// connection records that id when the phone's first authorized request
+    /// arrives; the connection registry supplies the binding-to-connection
+    /// association needed to route lane activity to the right participant.
+    func noteIrohTerminalInputActivity(surfaceID: UUID, bindingID: String) {
+        let clientIDs = MobileHostConnectionRegistry.shared
+            .snapshot(irohBindingID: bindingID)
+            .reduce(into: Set<String>()) { result, connection in
+                result.formUnion(clientIDsByConnectionID[connection.connectionID] ?? [])
+            }
+        for clientID in clientIDs {
+            TerminalController.shared.noteMobileSizingActivity(
+                surfaceID: surfaceID,
+                clientID: clientID
+            )
+        }
+    }
+
     /// This Mac's authenticated Stack email, or `nil` when signed out or before
     /// the auth graph is configured.
     ///

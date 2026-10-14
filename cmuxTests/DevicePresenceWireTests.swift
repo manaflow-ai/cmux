@@ -34,6 +34,16 @@ struct DevicePresenceWireTests {
         #expect(DevicePresenceSubscriber.subscribeURL(serviceBaseURL: try #require(URL(string: "ws://presence.example.test"))) == nil)
     }
 
+    @Test("My Devices subscribes to the signed-in user's devices, not the selected team's")
+    func subscribesToAccountScopedPresence() throws {
+        let serviceBaseURL = try #require(URL(string: "https://presence.example.test/base/"))
+        let url = try #require(DevicePresenceSubscriber.subscribeURL(serviceBaseURL: serviceBaseURL))
+        let comps = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(comps.scheme == "wss")
+        #expect(comps.path == "/base/v1/presence/subscribe")
+        #expect(comps.queryItems == [URLQueryItem(name: "scope", value: "account")])
+    }
+
     @Test("A snapshot lists every instance and drops only the route entries this build cannot decode")
     func snapshotKeepsInstancesWithUnknownRoutes() throws {
         let parsed = try frame([

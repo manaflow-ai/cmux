@@ -12,7 +12,7 @@ struct AgentFeedMarkdownText: View {
 
     private static let renderedCache: NSCache<NSString, AgentFeedMarkdownCacheEntry> = {
         let cache = NSCache<NSString, AgentFeedMarkdownCacheEntry>()
-        cache.countLimit = 256
+        cache.countLimit = 512
         return cache
     }()
 

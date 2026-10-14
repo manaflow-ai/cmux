@@ -51,7 +51,8 @@ struct CloudDesktopOpenActionTests {
             fixture.selectedID = fixture.other.id
             try fixture.activate(row)
             if navigateBeforeTask { fixture.selectedID = fixture.owner.id }
-            await fixture.waitForOpen()
+            // The ownership hint rejects synchronously; no operation starts.
+            #expect(fixture.completions == 0)
             #expect(fixture.failures == [SurfaceTransferRejection.cloudMachineMismatch.message])
             #expect(fixture.provider.destinations.isEmpty)
             let pane = try #require(fixture.other.bonsplitController.allPaneIds.first)

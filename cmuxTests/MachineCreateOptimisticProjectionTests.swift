@@ -86,8 +86,8 @@ struct MachineCreateOptimisticProjectionTests {
         let refreshed = CloudTreeNodeBuilder.nodes(
             machines: [machine], pendingCreates: coordinator.operations, snapshot: .empty, localWorkspaces: []
         )
-        #expect(refreshed.count == 1)
-        #expect(refreshed.first?.id == selectedID)
+        // The Coderouter section always follows the machines (#17233).
+        #expect(refreshed.map(\.id) == [selectedID, "coderouter-section"])
         #expect(coordinator.hasRunningOperations)
     }
 

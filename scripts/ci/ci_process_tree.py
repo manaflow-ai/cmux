@@ -70,7 +70,11 @@ def terminate(
     """Stop the command's process group and every descendant that left it."""
     # Capture the tree first: once the leader dies its children are reparented
     # and can no longer be found from it.
+    # Foreground commands need not lead a process group. Include the owned root
+    # even if ps could not take a snapshot, so it still receives both signals.
     strays = [pid for pid, _ in (tree if tree is not None else process_tree(process.pid))]
+    if process.pid not in strays:
+        strays.append(process.pid)
     try:
         os.killpg(process.pid, first_signal)
     except ProcessLookupError:

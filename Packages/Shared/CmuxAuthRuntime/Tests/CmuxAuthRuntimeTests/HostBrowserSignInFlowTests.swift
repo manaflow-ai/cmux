@@ -526,19 +526,6 @@ import Testing
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
     }
 
-    @Test func fallbackExternalCallbackWithoutActiveAttemptSignsIn() async {
-        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = HostBrowserSignInFlowHarness(user: user)
-
-        let result = await harness.flow.handleCallbackURL(harness.fallbackCallbackURL())
-
-        #expect(result)
-        #expect(harness.coordinator.isAuthenticated)
-        #expect(harness.coordinator.currentUser == user)
-        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
-        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
-    }
-
     @Test func statefulExternalCallbackWithoutActiveAttemptIsRejected() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)

@@ -23,6 +23,8 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     /// Account presence for another Mac's app instance; nil for local and cloud machines.
     public var presence: SurfaceDevicePresence? = nil
     public var portDiscoveryState: CloudPortDiscoveryState = .notRequested
+    /// vCPUs the cloud machine reports; nil for the local Mac and when unknown.
+    public var cpus: Int? = nil
 
     public init(
         id: SurfaceMachineID,
@@ -40,7 +42,8 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil,
         privateAddress: String? = nil,
         presence: SurfaceDevicePresence? = nil,
-        portDiscoveryState: CloudPortDiscoveryState = .notRequested
+        portDiscoveryState: CloudPortDiscoveryState = .notRequested,
+        cpus: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -58,12 +61,13 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         self.privateAddress = privateAddress
         self.presence = presence
         self.portDiscoveryState = portDiscoveryState
+        self.cpus = cpus
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, status, image, hasDesktop, memoryMb, diskMb, linkState, linkError
         case cpuPercent, memoryUsedMb, diskUsedMb, remoteWorkspaces, privateAddress, presence
-        case portDiscoveryState
+        case portDiscoveryState, cpus
     }
 
     public init(from decoder: any Decoder) throws {
@@ -84,6 +88,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         privateAddress = try values.decodeIfPresent(String.self, forKey: .privateAddress)
         presence = try values.decodeIfPresent(SurfaceDevicePresence.self, forKey: .presence)
         portDiscoveryState = try values.decodeIfPresent(CloudPortDiscoveryState.self, forKey: .portDiscoveryState) ?? .notRequested
+        cpus = try values.decodeIfPresent(Int.self, forKey: .cpus)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -104,6 +109,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         try values.encodeIfPresent(privateAddress, forKey: .privateAddress)
         try values.encodeIfPresent(presence, forKey: .presence)
         try values.encode(portDiscoveryState, forKey: .portDiscoveryState)
+        try values.encodeIfPresent(cpus, forKey: .cpus)
     }
 }
 

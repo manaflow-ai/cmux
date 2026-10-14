@@ -4,11 +4,14 @@ import WebKit
 @MainActor
 final class AgentSessionWebHostView: NSView {
     var onDidMoveToWindow: (() -> Void)?
+    /// Called when a retained agent web host is attached after its first pane attachment.
+    var onDidReattach: (() -> Void)?
     var onGeometryChanged: (() -> Void)?
     private(set) var geometryRevision: UInt64 = 0
     private var lastReportedAgentSessionWebHostGeometryState: AgentSessionWebHostGeometryState?
     private var hasPendingGeometryNotification = false
     private weak var hostedWebView: WKWebView?
+    private var hasBeenAttachedToSuperview = false
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
     private var pendingScrollDelta = CGPoint.zero
     private var scrollFlushTask: Task<Void, Never>?
@@ -26,6 +29,12 @@ final class AgentSessionWebHostView: NSView {
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        if superview != nil {
+            if hasBeenAttachedToSuperview {
+                onDidReattach?()
+            }
+            hasBeenAttachedToSuperview = true
+        }
         notifyGeometryChangedIfNeeded()
     }
 
@@ -163,9 +172,13 @@ final class AgentSessionWebHostView: NSView {
         if hostedWebView !== webView {
             resetPendingScroll()
         }
+        let wasAttachedToDifferentHost = webView.superview != nil && webView.superview !== self
         if webView.superview !== self {
             webView.removeFromSuperview()
             addSubview(webView, positioned: .above, relativeTo: nil)
+        }
+        if wasAttachedToDifferentHost {
+            onDidReattach?()
         }
         hostedWebView = webView
         webView.translatesAutoresizingMaskIntoConstraints = true

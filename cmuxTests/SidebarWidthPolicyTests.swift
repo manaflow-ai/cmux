@@ -132,14 +132,14 @@ struct SidebarWidthPolicyTests {
                     10_000,
                     availableWidth: 1000,
                     configuredMaximumWidth: 120
-                ) - 276
+                ) - 295
             ) <= 0.001
         )
     }
 
     @Test
     func rightSidebarClampKeepsMinimumWidth() {
-        #expect(abs(ContentView.clampedRightSidebarWidth(20, availableWidth: 1000) - 276) <= 0.001)
+        #expect(abs(ContentView.clampedRightSidebarWidth(20, availableWidth: 1000) - 295) <= 0.001)
     }
 
     @Test

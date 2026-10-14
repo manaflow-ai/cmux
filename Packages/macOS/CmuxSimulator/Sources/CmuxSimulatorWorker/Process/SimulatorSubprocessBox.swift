@@ -123,14 +123,14 @@ actor SimulatorSubprocessBox {
         forceKillTask?.cancel()
         timeoutTask = nil
         forceKillTask = nil
-        continuation.resume(returning: SimulatorSubprocessResult(
-            status: status,
-            standardOutput: String(decoding: output.data, as: UTF8.self),
-            standardError: String(decoding: error.data, as: UTF8.self),
-            outputWasTruncated: output.truncated,
-            errorWasTruncated: error.truncated,
-            timedOut: timedOut
-        ))
+        continuation.resume(with: Result {
+            try SimulatorSubprocessResult.completed(
+                status: status,
+                output: output,
+                error: error,
+                timedOut: timedOut
+            )
+        })
     }
 
     private func terminateIfCancellationWasRequested() {

@@ -1,0 +1,32 @@
+{
+  "oracle": {},
+  "cmux": {
+    "wikipedia:missing": [],
+    "wikipedia:leaks": [],
+    "wikipedia:within-reference-a-10pct": true,
+    "hackernews:missing": [],
+    "hackernews:leaks": [],
+    "hackernews:within-reference-a-10pct": true,
+    "github:missing": [],
+    "github:leaks": [],
+    "github:within-reference-a-10pct": true,
+    "mdn:missing": [],
+    "mdn:leaks": [],
+    "mdn:within-reference-a-10pct": true,
+    "mdn-iframe:missing": [],
+    "mdn-iframe:leaks": [],
+    "mdn-iframe:within-reference-a-10pct": true,
+    "npr:missing": [],
+    "npr:leaks": [],
+    "npr:within-reference-a-10pct": true,
+    "bbc:missing": [],
+    "bbc:leaks": [],
+    "bbc:within-reference-a-10pct": true,
+    "books:missing": [],
+    "books:leaks": [],
+    "books:within-reference-a-10pct": true,
+    "vercel:missing": [],
+    "vercel:leaks": [],
+    "vercel:within-reference-a-10pct": true
+  }
+}

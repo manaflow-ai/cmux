@@ -24,6 +24,18 @@ extension CloudTreeOutlineView.Coordinator {
         if machine.freeAccess != .expired, machine.capabilities.sizing {
             items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
         }
+        if machine.freeAccess != .expired {
+            items.append(item(String(localized: "machines.menu.network", defaultValue: "Network…")) { actions.editNetwork(id, machine.displayName) })
+            // Only when the server reports the setting: an older control plane has no endpoint for it.
+            if let agentUpdates = machine.agentUpdates {
+                let keepUpdated = item(String(localized: "machines.menu.keepAgentsUpdated", defaultValue: "Keep Agents Up to Date")) {
+                    actions.setAgentUpdates(id, !agentUpdates.keepsAgentsUpdated)
+                }
+                keepUpdated.state = agentUpdates.keepsAgentsUpdated ? .on : .off
+                keepUpdated.toolTip = CloudAgentUpdatesExplainer.text
+                items.append(keepUpdated)
+            }
+        }
         items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
         items.append(.separator())
         items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.manageEntries(machine)))
@@ -47,7 +59,8 @@ extension CloudTreeOutlineView.Coordinator {
             promptRename: actions.promptRename,
             copyToPasteboard: nodeActions.copyToPasteboard,
             confirmDelete: actions.confirmDelete,
-            promptUpgrade: actions.promptUpgrade
+            promptUpgrade: actions.promptUpgrade,
+            fork: actions.fork
         )
     }
 

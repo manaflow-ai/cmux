@@ -571,11 +571,9 @@ describe("device revocation", () => {
     expect(back.frame("error")?.payload).toMatchObject({ code: "mint_revoked", retryable: false });
   });
 
-  // confirm-on-hello stores a device's overlay under the exact endpoint id the
-  // client declared, and for a confirmed-but-unlisted device that row is the
-  // one the directory emits. A revocation that wrote only the canonical row
-  // would flip a freshly seeded row nobody emits and leave every peer reading
-  // revoked: false off the row it does see.
+  // confirm-on-hello and revocation both key the overlay on the canonical
+  // spelling, so a device confirmed under another spelling is one identity:
+  // the directory emits ONE canonical row and the kill switch lands on it.
   it("advertises the kill switch for a device confirmed under another spelling", async () => {
     const harness = new Harness();
     harness.serveDiscovery(() => discoveryResponse(42));
@@ -594,15 +592,20 @@ describe("device revocation", () => {
     const directory = peer.frame("directory") as {
       payload: { bindings: Record<string, unknown>[] };
     };
-    expect(directory.payload.bindings.find((binding) => binding.endpointId === upper))
-      .toMatchObject({ endpointId: upper, status: "active", revoked: true });
+    const rows = directory.payload.bindings.filter(
+      (binding) => String(binding.endpointId).toLowerCase() === ENDPOINT_B,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ endpointId: ENDPOINT_B, status: "active", revoked: true });
   });
 
-  // Un-revoking a row an older revocation stored verbatim is a real change:
-  // the emitted directory carries revoked: false only once the revision bumps
-  // and the broadcast goes out, so reporting changed: false would leave the
-  // device locked out of every peer until an unrelated event bumped the list.
-  it("un-revoking a row stored under another spelling bumps and broadcasts", async () => {
+  // A row an older deploy stored under a variant spelling is folded into the
+  // canonical row by the next revocation touching that endpoint, and the
+  // un-revoke is a real change: the emitted directory carries revoked: false
+  // only once the revision bumps and the broadcast goes out, so reporting
+  // changed: false would leave the device locked out of every peer until an
+  // unrelated event bumped the list.
+  it("un-revoking a row stored under another spelling migrates, bumps, and broadcasts", async () => {
     const harness = new Harness();
     harness.serveDiscovery(() => discoveryResponse(42));
     const upper = ENDPOINT_B.toUpperCase();
@@ -615,13 +618,15 @@ describe("device revocation", () => {
 
     const result = await harness.core.handleRevocation({ endpointId: upper, revoked: false });
     expect(result.changed).toBe(true);
-    expect(harness.overlay(upper)).toMatchObject({ revoked: false });
+    // The legacy variant row is gone; the canonical row carries its facts.
+    expect(harness.overlay(upper)).toBeUndefined();
+    expect(harness.overlay(ENDPOINT_B)).toMatchObject({ status: "active", revoked: false });
     const directory = peer.frame("directory") as {
       rev: number;
       payload: { bindings: Record<string, unknown>[] };
     };
     expect(directory.rev).toBe(result.rev);
-    expect(directory.payload.bindings.find((binding) => binding.endpointId === upper))
+    expect(directory.payload.bindings.find((binding) => binding.endpointId === ENDPOINT_B))
       .toMatchObject({ revoked: false });
   });
 

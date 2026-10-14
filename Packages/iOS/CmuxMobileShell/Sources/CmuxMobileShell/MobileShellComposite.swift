@@ -456,9 +456,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// across Macs (the Feed tab's rows).
     public internal(set) var agentFeedItems: [MobileAgentFeedItem] = [] {
         didSet {
+            agentFeedRevision &+= 1
             agentFeedNeedsInputCount = agentFeedItems.lazy.filter(\.effectiveNeedsInput).count
         }
     }
+    /// Increments when the retained Feed snapshot changes. The Feed child uses
+    /// this scalar to avoid comparing every payload in `onChange`.
+    public private(set) var agentFeedRevision: UInt64 = 0
     /// The agent feed's current loading and capability state. Shares the
     /// notification feed's status vocabulary.
     public internal(set) var agentFeedStatus: MobileNotificationFeedStatus = .idle
@@ -472,6 +476,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// a later send to that row succeeds.
     public internal(set) var agentFeedFailedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:]
     var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
+    @ObservationIgnored var agentFeedStopReasonCache = AgentFeedStopReasonCache()
     var agentFeedKnownRevisionsByMac: [String: Int] = [:]
     /// Free-text terminal replies this device sent, keyed by the replied row,
     /// so the row keeps showing what was said across snapshot refreshes.
@@ -1769,6 +1774,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalOutputConsumerOwnerIDsBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
+    /// Content-free Feed measurement port, also passed to the store-free Feed UI.
+    @ObservationIgnored public let feedPerformanceObserver: (any MobileFeedPerformanceObserving)?
     @ObservationIgnored let terminalLatencyObserver: any MobileTerminalLatencyObserving
     var terminalLaneOutputReadySurfaceIDs: Set<String>
     var terminalLaneLifecycleID: UUID
@@ -2009,6 +2016,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hiddenMacStore: any PairedMacHiddenStoring = InMemoryPairedMacHiddenStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
+        feedPerformanceObserver: (any MobileFeedPerformanceObserving)? = nil,
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
@@ -2081,6 +2089,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.hiddenMacStore = hiddenMacStore
         self.analytics = analytics
+        self.feedPerformanceObserver = feedPerformanceObserver
         self.terminalLatencyObserver = terminalLatencyObserver
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter

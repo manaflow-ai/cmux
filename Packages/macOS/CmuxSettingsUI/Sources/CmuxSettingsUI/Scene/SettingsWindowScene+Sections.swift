@@ -72,10 +72,11 @@ extension SettingsWindowRoot {
         }
 
         slot(.cloudMachines, proxy: proxy) {
-            // `DisableCloud` (MDM) and the rollout gate: no Cloud pane at all
-            // while unavailable, not just no placeholder.
+            // `DisableCloud` (MDM) controls administrator availability; the
+            // local first-use marker controls whether Cloud work may run.
             if isCloudSectionAvailable {
                 CloudMachinesSection(hostActions: hostActions)
+                    .id(cloudSectionIdentity)
             }
         }
 

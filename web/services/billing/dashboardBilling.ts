@@ -11,6 +11,7 @@ import {
   manualVmPlanOverride,
   resolveProPlanStatus,
   type BillingManagementKind,
+  type PersonalBillingSource,
 } from "./pro";
 import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
 import type { TeamBillingAccessUser, TeamBillingRole } from "./teamBillingAccess";
@@ -39,6 +40,9 @@ export type PersonalBillingJson = {
     readonly isPro: boolean;
     readonly planId: string;
     readonly billingManagement: BillingManagementKind;
+    /** Who bills the plan; an `apple` plan is managed in the App Store. */
+    readonly billingSource: PersonalBillingSource;
+    readonly manageUrl: string | null;
   };
   readonly subscription: PersonalSubscriptionJson | null;
   readonly goPlanEnabled: boolean;
@@ -132,6 +136,8 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
       isPro: status.isPro,
       planId: status.planId,
       billingManagement: status.billingManagement,
+      billingSource: status.billingSource,
+      manageUrl: status.manageUrl,
     },
     subscription,
     goPlanEnabled,

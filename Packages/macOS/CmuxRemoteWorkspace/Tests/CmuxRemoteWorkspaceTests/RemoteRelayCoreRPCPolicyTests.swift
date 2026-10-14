@@ -49,7 +49,7 @@ struct RemoteRelayCoreRPCPolicyTests {
         #expect(decision("terminal.paste", valid) == .allowed)
         let request = try JSONSerialization.data(withJSONObject: ["method": "terminal.paste", "params": valid])
         #expect(RemoteRelayCommandPolicy().evaluate(
-            commandLine: request, workspaceAliases: [:], surfaceAliases: [:]
+            commandLine: request, workspaceAliases: [owner: owner], surfaceAliases: [surface: surface]
         ) == .allow)
 
         for params in [

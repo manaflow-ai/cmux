@@ -19,7 +19,7 @@ final class CloudWorkspaceRowOpenFixture {
     var failures: [String] = []
     lazy var panelModel = MachinesPanelViewModel(
         createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
-        isCloudEnabled: { false },
+        isCloudEnabled: { true },
         catalogProvider: { [unowned self] in base.catalog.snapshot },
         localWorkspacesProvider: { [] }
     )
@@ -27,7 +27,7 @@ final class CloudWorkspaceRowOpenFixture {
     let defaultsName = "cloud-row-open-\(UUID())"
     lazy var coordinator = CloudTreeOutlineView.Coordinator(
         machineActions: MachineRowActions(openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}),
+            confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}),
         nodeActions: CloudTreeNodeActions.bound(
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { [unowned self] in base.catalog },

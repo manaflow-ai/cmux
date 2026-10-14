@@ -994,7 +994,7 @@ extension CMUXCLI {
 
     static var vmRunUsage: String {
         """
-        Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>
+        Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--timeout <seconds>] -- <command...>
 
         Run a command on a cloud machine without naming one: reuses an idle
         machine the router itself provisioned earlier (shown as "\(vmRunPoolLabel)"
@@ -1010,8 +1010,9 @@ extension CMUXCLI {
                                 current directory.
           --machine <id>        Skip routing and use this machine.
           --new                 Force a fresh pool machine.
-          --size <s>            Memory preset for a machine this run creates
-                                (4g to 24g on Pro; 32g and 64g need cmux Max).
+          --size <4g|8g|16g|24g|32g|64g|MB>
+                                Memory preset for a machine this run creates
+                                (4g to 16g on Pro; 24g, 32g, and 64g need cmux Max).
           --timeout <seconds>   Command timeout (default \(vmRunDefaultTimeoutSeconds)s, max 15 minutes).
           --wait, --output      Accepted for symmetry with `vm agent`; `vm run` always
                                 blocks on the command and prints its output.
@@ -1082,7 +1083,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g on Pro (32g and 64g need cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g on Pro (24g, 32g, and 64g need cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }
@@ -1675,7 +1676,7 @@ extension CMUXCLI {
 extension CMUXCLI {
     static var vmRouteUsage: String {
         """
-        Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <8g>] [--json]
+        Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <4g|8g|16g|24g|32g|64g|MB>] [--json]
 
         Print the machine `cmux vm run` / `cmux vm agent` would use for work in a
         directory, and why — without running anything. The policy is the router's
@@ -1688,8 +1689,9 @@ extension CMUXCLI {
           --cwd <dir>    Route for this directory (default: the current one).
           --new          Ignore the pool and report a fresh machine.
           --provision    Actually create the machine when routing would.
-          --size <s>     Memory preset for a machine --provision creates
-                         (4g to 24g on Pro; 32g and 64g need cmux Max).
+          --size <4g|8g|16g|24g|32g|64g|MB>
+                         Memory preset for a machine --provision creates
+                         (4g to 16g on Pro; 24g, 32g, and 64g need cmux Max).
           --json         {machine, created, reason, would_provision, directory}
         """
     }
@@ -1698,7 +1700,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--json] -- <prompt or args...>
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
@@ -1737,8 +1739,9 @@ extension CMUXCLI {
           --timeout <s>    With --wait: give up waiting after this many seconds
                            (exit 1, the agent is not stopped). Default: no limit.
           --new            Force a fresh pool machine.
-          --size <s>       Memory preset for a machine this call creates
-                           (4g to 24g on Pro; 32g and 64g need cmux Max).
+          --size <4g|8g|16g|24g|32g|64g|MB>
+                           Memory preset for a machine this call creates
+                           (4g to 16g on Pro; 24g, 32g, and 64g need cmux Max).
 
         Examples:
           cmux vm agent --agent claude --sync -- "run the test suite and fix failures"
@@ -1841,7 +1844,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g on Pro (32g and 64g need cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g on Pro (24g, 32g, and 64g need cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }
@@ -1946,7 +1949,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g on Pro (32g and 64g need cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g on Pro (24g, 32g, and 64g need cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }

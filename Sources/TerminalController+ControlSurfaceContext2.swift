@@ -76,9 +76,23 @@ extension TerminalController {
         return .openedExternally(windowID: windowId, url: url.absoluteString)
     }
     // MARK: - split
+    /// Protocol-shaped entry point used by the socket coordinator. Browser
+    /// creation policy is an app-local seam used by layout/browser callers.
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution {
+        controlSurfaceSplit(
+            routing: routing,
+            inputs: inputs,
+            browserCreationPolicy: .automationPreload
+        )
+    }
+
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
     ) -> ControlSurfaceSplitResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -177,7 +191,7 @@ extension TerminalController {
                 insertFirst: insertFirst,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
+                creationPolicy: browserCreationPolicy,
                 bypassRemoteProxy: useLocalContext,
                 initialDividerPosition: dividerPosition
             )?.id
@@ -203,7 +217,8 @@ extension TerminalController {
                 initialDividerPosition: dividerPosition,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 newId = panel.id
@@ -360,6 +375,18 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
+        controlSurfaceCreate(
+            routing: routing,
+            inputs: inputs,
+            browserCreationPolicy: .automationPreload
+        )
+    }
+
+    func controlSurfaceCreate(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceCreateInputs,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
+    ) -> ControlSurfaceCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
@@ -453,7 +480,7 @@ extension TerminalController {
                 inPane: paneId,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
+                creationPolicy: browserCreationPolicy,
                 bypassRemoteProxy: useLocalContext
             )?.id
         } else if panelType == .simulator {
@@ -481,7 +508,8 @@ extension TerminalController {
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 inheritWorkingDirectoryFallback: true,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 newPanelId = panel.id

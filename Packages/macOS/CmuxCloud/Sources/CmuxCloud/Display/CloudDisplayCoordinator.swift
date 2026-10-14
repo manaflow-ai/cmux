@@ -24,6 +24,13 @@ public final class CloudDisplayCoordinator {
     }
 
     public var canCreate: Bool { isAvailable && (snapshot?.canCreate == true || requestID != nil) && creation == nil }
+
+    /// Creation needs no prior discovery: the guest's create reply is the
+    /// authoritative catalog. Only a validated catalog that says the machine is
+    /// full blocks a new request (a retained request id may still be retried).
+    var allowsCreateRequest: Bool {
+        requestID != nil || !(isAvailable && snapshot?.canCreate == false)
+    }
     public var displaySnapshot: CloudGuestDisplaySnapshot? { snapshot ?? lastValidatedSnapshot }
 
     public func refresh() async {
@@ -77,9 +84,12 @@ public final class CloudDisplayCoordinator {
                 creation.cancel()
             }
         }
-        guard isAvailable, snapshot?.canCreate == true || requestID != nil else {
+        guard allowsCreateRequest else {
             throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
         }
+        // Creation supersedes any in-flight discovery; its reply carries the catalog.
+        refreshTask?.cancel()
+        refreshTask = nil
         generation &+= 1
         let token = generation
         let request = requestID ?? UUID()
@@ -94,6 +104,8 @@ public final class CloudDisplayCoordinator {
             guard let self, self.generation == token else { throw CancellationError() }
             self.snapshot = snapshot
             self.lastValidatedSnapshot = snapshot
+            self.isAvailable = true
+            self.hasAttemptedDiscovery = true
             guard response.exitCode == 0, snapshot.error == nil, snapshot.created != nil else {
                 throw SurfaceCatalogError.unsupported(String(localized: "cloud.display.creationFailed", defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged."))
             }

@@ -67,6 +67,39 @@ struct LocalTmuxSessionIdentityResolver {
         return LiveSession(record: updated, binding: observed.binding)
     }
 
+    /// Rebinds a record only after its previously recorded tmux session has
+    /// stopped. This is reserved for an explicit `start` recovery intent;
+    /// attach, status, detach, and close continue to fail closed on a live
+    /// replacement session.
+    func rebindStopped(
+        _ record: LocalTmuxSessionRecord,
+        to observed: ObservedSession
+    ) throws -> LiveSession {
+        try ensureStopped(record)
+
+        var updated = record
+        updated.name = observed.name
+        updated.tmuxBinding = observed.binding
+        // A surface contains the old guarded attach command. Let the next
+        // attach discover or create a client for the new tmux binding.
+        updated.surfaceID = nil
+        updated.updatedAt = Date.now.timeIntervalSince1970
+        try registry.upsert(updated)
+        return LiveSession(record: updated, binding: observed.binding)
+    }
+
+    /// Verifies that a recorded binding is gone before an explicit start is
+    /// allowed to adopt a same-name replacement.
+    func ensureStopped(_ record: LocalTmuxSessionRecord) throws {
+        guard let storedBinding = record.tmuxBinding else { return }
+        guard try !hasSession(
+            arguments: builder.hasSessionArguments(sessionID: storedBinding.sessionID),
+            sessionName: record.name
+        ) else {
+            throw identityChangedError(sessionName: record.name)
+        }
+    }
+
     /// Returns the managed record for a listed session. A same-name session
     /// from another server incarnation is deliberately left unmanaged.
     func reconciledRecord(

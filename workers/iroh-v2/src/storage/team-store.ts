@@ -167,6 +167,16 @@ export class TeamStore {
     return row ? rowToDevice(row) : null;
   }
 
+  /**
+   * Read-only view for the per-user account directory: the stored record and
+   * the user's authority lease in this team. Never writes, so serving it
+   * cannot move the team revision or reach a team socket.
+   */
+  accountMacRecord(identity: Identity): { device: DeviceRecord; authorityExpiresAt: number | null } | null {
+    const device = this.getDevice(identity);
+    return device ? { device, authorityExpiresAt: this.getAuthority(identity.userId)?.expiresAt ?? null } : null;
+  }
+
   getDeviceByRecordId(deviceRecordId: string): DeviceRecord | null {
     const row = this.#db.get<DeviceRow>(sql`SELECT * FROM "devices" WHERE "device_record_id" = ${deviceRecordId}`);
     return row ? rowToDevice(row) : null;

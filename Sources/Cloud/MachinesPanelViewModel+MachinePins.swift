@@ -10,7 +10,9 @@ extension MachinesPanelViewModel {
     /// catalog discoveries that have not reached the list endpoint yet.
     /// Machines being deleted are left out; their pins survive a failed delete.
     var sidebarMachines: [MachineSnapshot] {
-        orderedMachines(MachineSnapshotBuilder.includingCatalogMachines(visibleMachines, catalog: visibleCatalog))
+        orderedMachines(applyingOptimisticLabels(
+            to: MachineSnapshotBuilder.includingCatalogMachines(visibleMachines, catalog: visibleCatalog)
+        ))
     }
 
     @discardableResult

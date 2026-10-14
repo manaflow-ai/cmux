@@ -11,7 +11,7 @@ name: Merge-group fail fast
 # always comes from the default branch, and a queued pull request cannot change
 # it. The source workflow runs only for merge groups, so ordinary pull-request CI
 # never creates a skipped fail-fast run. This workflow checks out nothing and
-# runs on a GitHub-hosted runner.
+# runs on an ephemeral Blacksmith runner through the CI_TRUSTED_RUNNER selector.
 on:
   workflow_run:
     workflows: [Merge-group policy checks]
@@ -32,7 +32,7 @@ env:
 jobs:
   watch:
     name: watch merge group run
-    runs-on: ubuntu-24.04 # github-hosted-required
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 360
     permissions:
       actions: write

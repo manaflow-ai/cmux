@@ -72,6 +72,21 @@ struct SudoApprovalViewMessages: Sendable {
         )
     }
 
+    var hiddenCharacterBadge: String {
+        String(
+            localized: "sudo.approval.hidden_characters.badge",
+            defaultValue: "Hidden characters"
+        )
+    }
+
+    func hiddenCharacterWarning(count: Int) -> String {
+        format(
+            key: "sudo.approval.hidden_characters.warning",
+            defaultValue: "This request contains %ld invisible or text-direction characters. They are shown as ⟨U+XXXX⟩ markers. Deny it unless you expected them.",
+            count
+        )
+    }
+
     func windowTitle(requestID: String) -> String {
         format(
             key: "sudo.approval.window_title",

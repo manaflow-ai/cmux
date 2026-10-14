@@ -1,3 +1,4 @@
+import CoreFoundation
 public import Foundation
 
 /// Decodes `/api/vm` response bodies into the domain values.
@@ -32,7 +33,15 @@ public struct CloudAPIResponseDecoding: Sendable {
             let status = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
             let displayName = (dict["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return CloudMachine(id: id, provider: provider, status: status, displayName: displayName, slug: slug)
+            return CloudMachine(
+                id: id,
+                provider: provider,
+                status: status,
+                displayName: displayName,
+                slug: slug,
+                resources: Self.resources(dict["resources"]),
+                supportsRestart: Self.supportsRestart(dict)
+            )
         }
         let availableKinds: Set<CloudMachineKind>?
         let machineLimits: CloudMachineLimits?
@@ -52,7 +61,8 @@ public struct CloudAPIResponseDecoding: Sendable {
                 memoryOptionsMb: Self.intArray(limits["memoryOptionsMb"]),
                 lockedMemoryOptionsMb: Self.optionalIntArray(limits["lockedMemoryOptionsMb"]),
                 memoryUpgradePlanID: limits["memoryUpgradePlanId"] as? String,
-                memoryUpgradePlansByMb: limits["memoryUpgradePlansByMb"] as? [String: String]
+                memoryUpgradePlansByMb: limits["memoryUpgradePlansByMb"] as? [String: String],
+                resourcePool: Self.resourcePool(limits)
             )
         } else {
             availableKinds = nil
@@ -162,13 +172,41 @@ public struct CloudAPIResponseDecoding: Sendable {
         let status = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         let displayName = (dict["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return CloudMachine(id: id, provider: provider, status: status, displayName: displayName, slug: slug)
+        return CloudMachine(id: id, provider: provider, status: status, displayName: displayName, slug: slug, supportsRestart: Self.supportsRestart(dict))
+    }
+
+    private static func supportsRestart(_ dict: [String: Any]) -> Bool {
+        guard let capabilities = dict["capabilities"] as? [String: Any],
+              let value = capabilities["restart"] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return false }
+        return value.boolValue
     }
 
     private static func int(_ value: Any?) -> Int? {
         if let int = value as? Int { return int }
         if let number = value as? NSNumber { return number.intValue }
         return nil
+    }
+
+    /// `vms[].resources: {vcpus, memoryMb}`; nil unless both are positive.
+    private static func resources(_ value: Any?) -> CloudMachineResources? {
+        guard let object = value as? [String: Any],
+              let vcpus = int(object["vcpus"]), vcpus > 0,
+              let memoryMb = int(object["memoryMb"]), memoryMb > 0 else { return nil }
+        return CloudMachineResources(vcpus: vcpus, memoryMb: memoryMb)
+    }
+
+    /// The `limits` pool fields; nil unless the plan has a positive pool.
+    /// Missing usage reads as nothing in use.
+    private static func resourcePool(_ limits: [String: Any]) -> CloudResourcePool? {
+        guard let poolVcpus = int(limits["poolVcpus"]), poolVcpus > 0,
+              let poolMemoryMb = int(limits["poolMemoryMb"]), poolMemoryMb > 0 else { return nil }
+        return CloudResourcePool(
+            poolVcpus: poolVcpus,
+            poolMemoryMb: poolMemoryMb,
+            usedVcpus: max(0, int(limits["usedVcpus"]) ?? 0),
+            usedMemoryMb: max(0, int(limits["usedMemoryMb"]) ?? 0)
+        )
     }
 
     private static func intArray(_ value: Any?) -> [Int] {
