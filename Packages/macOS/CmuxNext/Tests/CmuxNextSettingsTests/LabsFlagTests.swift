@@ -52,7 +52,7 @@ struct LabsFlagTests {
             #expect(flag.created < flag.expires, "\(flag.key): expires before it was created")
             let descriptor = SettingsSchema.descriptor(for: flag.path)
             #expect(descriptor?.kind == .toggle)
-            #expect(descriptor?.default == .bool(flag.cohort == .default))
+            #expect(descriptor?.defaultValue == .bool(flag.cohort == .default))
             #expect(SettingsSchema.agentSettableKeys.contains(flag.key))
         }
     }
