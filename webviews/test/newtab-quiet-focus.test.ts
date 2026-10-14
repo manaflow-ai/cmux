@@ -1,8 +1,9 @@
 // The New Tab composer box's focus is quiet (Lawrence 10-14, "don't like this focus thing"): focus
 // keeps the box's one-device-pixel rim (--cmux-hairline) at its own width, takes at most a slight
-// step in tone, never the accent, and still clears with appearance.borders none. Its fill is the
-// theme's elevated surface (--cmux-elevated-background, the theme surface one small step toward
-// the text, as the shared page cards use), not the composer tint's gray slab ("same bg kinda weird").
+// step in tone, never the accent, and still clears with appearance.borders none. The composer's
+// fill, the New Tab box's and the chat composer's alike, is no longer a gray slab darker than the
+// page ("same bg kinda weird"; Leo 10-14): in a light theme it is the page lifted toward white,
+// lighter than the page; in a dark theme a small step lighter than the page. Both are solid.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -40,8 +41,8 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     await vite?.close();
   });
 
-  const elevated = "rgb(40, 41, 42)";
-  const elevatedLight = "rgb(250, 250, 250)";
+  // The themes' opaque page colors: a dark gray, and a warm off-white so "lighter" can show.
+  const pages = { dark: [30, 30, 30], light: [240, 236, 226] } as const;
 
   /** The composer-rim harness with a known dark theme and a blue accent, so a ring in the accent shows. */
   async function open(scale: number, theme: "dark" | "light" = "dark"): Promise<Page> {
@@ -50,16 +51,16 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/test/browser/composer-rim.html`);
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
     await page.evaluate(
-      ({ elevated, elevatedLight, theme }) => {
+      ({ page, theme }) => {
         const root = document.documentElement.style;
-        root.setProperty("--cmux-elevated-background", theme === "dark" ? elevated : elevatedLight);
-        root.setProperty("--cmux-surface-solid", theme === "dark" ? "rgb(30, 30, 30)" : "rgb(255, 255, 255)");
+        root.colorScheme = theme;
+        root.setProperty("--cmux-surface-solid", `rgb(${page.join(", ")})`);
         const shell = (document.querySelector(".acpmux-shell") as HTMLElement).style;
         shell.setProperty("--agent-text", theme === "dark" ? "rgb(236, 236, 236)" : "rgb(20, 20, 20)");
         shell.setProperty("--agent-page-bg", "transparent");
         shell.setProperty("--agent-accent", "rgb(0, 122, 255)");
       },
-      { elevated, elevatedLight, theme },
+      { page: pages[theme], theme },
     );
     return page;
   }
@@ -98,10 +99,30 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     });
   }
 
-  /** A rim as it shows: its color over the box's fill (the elevated surface the harness sets). */
-  function ink([r, g, b, a]: Rim["rgba"], theme: "dark" | "light"): number[] {
-    const ground = theme === "dark" ? [40 / 255, 41 / 255, 42 / 255] : [250 / 255, 250 / 255, 250 / 255];
+  /** A computed color as 0...1 channels (`rgb()` or `color(srgb ...)`); null when unparsed. */
+  function parse(color: string): Rim["rgba"] | null {
+    const numbers = [...color.matchAll(/-?[\d.]+(?:e-?\d+)?/g)].map((match) => Number(match[0]));
+    if (color.startsWith("color(srgb")) return [numbers[0], numbers[1], numbers[2], numbers[3] ?? 1];
+    if (color.startsWith("rgb")) return [numbers[0] / 255, numbers[1] / 255, numbers[2] / 255, numbers[3] ?? 1];
+    return null;
+  }
+
+  /** An element's fill: its computed background color and image. */
+  async function fill(page: Page, id: string): Promise<{ rgba: Rim["rgba"] | null; image: string }> {
+    const style = await page.evaluate((id) => {
+      const computed = getComputedStyle(document.getElementById(id)!);
+      return { color: computed.backgroundColor, image: computed.backgroundImage };
+    }, id);
+    return { rgba: parse(style.color), image: style.image };
+  }
+
+  /** A rim as it shows: its color over the box's own fill. */
+  function ink([r, g, b, a]: Rim["rgba"], ground: Rim["rgba"]): number[] {
     return [r, g, b].map((channel, index) => channel * a + ground[index] * (1 - a));
+  }
+
+  function luminance([r, g, b]: Rim["rgba"] | number[]): number {
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
 
   for (const theme of ["dark", "light"] as const) {
@@ -116,12 +137,13 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         const focused = await rims(page);
         expect(focused.length, "focus draws one rim, no extra ring").toBe(1);
         expect(focused[0].spread, "focus keeps the rim's width").toBe(rest[0].spread);
-        const [r, g, b] = ink(focused[0].rgba, theme);
+        const ground = (await fill(page, "newtab")).rgba!;
+        const [r, g, b] = focused[0].rgba;
         expect(Math.max(Math.abs(r - g), Math.abs(g - b)), "the focused rim is neutral, not the accent").toBeLessThan(
           0.02,
         );
         const lift = Math.max(
-          ...ink(focused[0].rgba, theme).map((value, index) => Math.abs(value - ink(rest[0].rgba, theme)[index])),
+          ...ink(focused[0].rgba, ground).map((value, index) => Math.abs(value - ink(rest[0].rgba, ground)[index])),
         );
         expect(lift, "focus lifts the rim's tone at most slightly").toBeLessThan(0.08);
         await page.close();
@@ -137,14 +159,28 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     await page.close();
   });
 
-  test("the box's fill is the theme's elevated surface, one flat color, not the composer tint", async () => {
-    const page = await open(2);
-    const fill = await page.evaluate(() => {
-      const style = getComputedStyle(document.getElementById("newtab")!);
-      return { color: style.backgroundColor, image: style.backgroundImage };
+  for (const theme of ["dark", "light"] as const) {
+    test(`${theme}: the New Tab box and the chat composer are a solid surface lighter than the page`, async () => {
+      const page = await open(2, theme);
+      const ground = pages[theme].map((channel) => channel / 255);
+      for (const id of ["newtab", "composer"]) {
+        const { rgba, image } = await fill(page, id);
+        expect(image, `${id} paints one flat color`).toBe("none");
+        expect(rgba, `${id} fill parsed`).not.toBeNull();
+        expect(rgba![3], `${id} is solid over a wallpaper`).toBe(1);
+        const step = luminance(rgba!) - luminance(ground);
+        if (theme === "light") {
+          // The page lifted toward white: lighter than the page, near white, keeping the page's hue.
+          expect(step, `${id} is lighter than the page`).toBeGreaterThan(0.03);
+          expect(luminance(rgba!), `${id} is near white`).toBeGreaterThan(0.95);
+          expect(rgba![2], `${id} keeps the page's warmth`).toBeLessThan(rgba![0]);
+        } else {
+          // One small step lighter than the page.
+          expect(step, `${id} is a step lighter than the page`).toBeGreaterThan(0.02);
+          expect(step, `${id} is only a small step`).toBeLessThan(0.12);
+        }
+      }
+      await page.close();
     });
-    expect(fill.image).toBe("none");
-    expect(fill.color).toBe(elevated);
-    await page.close();
-  });
+  }
 });
