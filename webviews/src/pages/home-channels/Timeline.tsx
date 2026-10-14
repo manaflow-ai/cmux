@@ -25,6 +25,10 @@ export interface TimelineProps {
   onEditEnd?(): void;
   onEdit?(message: HomeMessage, text: string): Promise<boolean>;
   onRetract?(message: HomeMessage): void;
+  onReply?(message: HomeMessage): void;
+  onCopyLink?(message: HomeMessage): void;
+  /** The message a link opened. */
+  highlight?: string;
   className?: string;
   /** What the empty timeline says. */
   empty?: string;
@@ -48,6 +52,9 @@ export function Timeline({
   onEditEnd,
   onEdit,
   onRetract,
+  onReply,
+  onCopyLink,
+  highlight,
   className,
   empty,
 }: TimelineProps) {
@@ -61,7 +68,7 @@ export function Timeline({
   );
   const sized = useMemo(() => rows.map((row) => ({ key: row.key, estimate: estimate(row) })), [rows]);
   // Destructured: `scroller` alone is the ref; the rest are plain render values.
-  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation);
+  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation, highlight);
   if (rows.length === 0)
     return <div className={`hc-timeline-empty ${className ?? ""}`}>{empty ?? strings.t("timeline.empty")}</div>;
   return (
@@ -121,6 +128,11 @@ export function Timeline({
                     onEditEnd={onEditEnd}
                     onEdit={onEdit}
                     onRetract={onRetract}
+                    onReply={onReply}
+                    onCopyLink={onCopyLink}
+                    depth={row.depth}
+                    parent={row.parent}
+                    highlighted={row.message.id === highlight}
                   />
                 )}
               </div>

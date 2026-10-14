@@ -15,7 +15,11 @@ export function MobileCard() {
       <h3 className="group-title">{state.title}</h3>
       <div className="rows">
         <ActionRow title={state.status_title} help={state.status}>
-          {null}
+          {state.phase === "removed" && state.allow_again_title ? (
+            <button type="button" className="button" data-allow-again="" onClick={() => void store.allowPhonesAgain()}>
+              {state.allow_again_title}
+            </button>
+          ) : null}
         </ActionRow>
         {state.account !== null && (
           <ActionRow title={state.account_title} help={state.account}>

@@ -209,6 +209,55 @@ import Testing
         #expect(twins.map(\.deviceIDs) == [["x"], ["y"], ["z"]])
     }
 
+    @Test func aRemovalIsAPhaseThatDropsPhones() {
+        #expect(CnxHostEvent(line: #"{"type":"removed"}"#) == .removed)
+        var state = CnxHostState(phase: .online)
+        state.apply(.phoneUp(CnxPhoneLink(sessionID: "a", phoneDeviceID: "p", transport: "webrtc", path: "direct")), at: Date())
+        state.apply(.removed, at: Date())
+        #expect(state.phase == .removed && state.phones.isEmpty)
+    }
+
+    @Test func theRemovalMarkerForgetsTheDeviceAndHoldsPerAccount() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cnx-removed-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let identity = CnxDeviceIdentity(directory: directory)
+        let first = try identity.deviceID()
+        let marker = CnxRemovalMarker(directory: directory)
+        #expect(marker.account() == nil)
+        try marker.record(account: "u\u{0}personal-u", identity: identity)
+        #expect(marker.account() == "u\u{0}personal-u")
+        // Allowing again registers a new device.
+        #expect(try identity.deviceID() != first)
+        marker.clear()
+        #expect(marker.account() == nil)
+    }
+
+    /// hostd reports a removal and exits 78: the supervisor shows it and never restarts.
+    @Test(.timeLimit(.minutes(1))) func aRemovedHostdIsNotRestarted() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cnx-rm-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("cnx-hostd")
+        let starts = directory.appendingPathComponent("starts")
+        try """
+        #!/bin/sh
+        echo start >> "\(starts.path)"
+        echo '{"type":"removed"}'
+        exit 78
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let supervisor = CnxHostSupervisor()
+        let states = supervisor.states
+        await supervisor.start(.init(launch: Self.launch(executable: script), accessToken: { _ in "t" }, acpmux: { nil }, log: nil))
+        for await state in states where state.phase == .removed { break }
+        // A restart would come after the first backoff (1 s ± 20%); wait past it.
+        try await Task.sleep(for: .seconds(2))
+        #expect(await supervisor.current.phase == .removed)
+        let runs = try String(contentsOf: starts, encoding: .utf8).split(separator: "\n").count
+        #expect(runs == 1)
+        await supervisor.stop()
+    }
+
     @Test func dropPhoneIsOneControlLine() {
         #expect(String(decoding: CnxHostLaunch.dropPhoneLine("p1"), as: UTF8.self) == #"{"phone_device_id":"p1","type":"drop_phone"}"# + "\n")
     }

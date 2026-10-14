@@ -98,6 +98,10 @@ pub enum Event {
     NeedToken,
     /// The acpmux endpoint is missing or refused a connection (acpmux restarted).
     NeedAcpmux,
+    /// The owner removed this Mac from the account's devices (signaling closed with
+    /// 4002 `removed`). hostd exits after this line and must not be restarted until
+    /// the person allows iPhone connections again (a new device id then).
+    Removed,
     /// A phone's link is up.
     PhoneUp { session_id: String, phone_device_id: String, transport: String, path: String },
     /// A phone's link moved to another path.
@@ -248,6 +252,7 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"relay"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
+        assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {
                 request: 1,

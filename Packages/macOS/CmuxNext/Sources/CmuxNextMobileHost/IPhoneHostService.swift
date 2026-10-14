@@ -68,6 +68,11 @@ public final class IPhoneHostService {
     /// The phones the signed-in user allowed on this Mac (cnx-ios verify/phone-approvals.md).
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: CnxPairedDevices?
+    /// The owner removed this Mac from the account's devices (from a phone or the API).
+    /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
+    /// the setting off and on, or signing in again. Then it registers as a new device.
+    public private(set) var removed = false
+    @ObservationIgnored private var signedOutSinceRemoval = false
     @ObservationIgnored var dependencies: Dependencies?
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = CnxHostSupervisor()
@@ -80,7 +85,6 @@ public final class IPhoneHostService {
     @ObservationIgnored private var watching: Task<Void, Never>?
     @ObservationIgnored private var following: Task<Void, Never>?
     @ObservationIgnored private var followingAccount: Task<Void, Never>?
-    /// What hostd runs for now (account and toggle), so a repeated update does not restart it.
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
@@ -94,6 +98,7 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 let before = self.state
                 self.state = next
+                if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
                 if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
                     self.refreshPhones()
@@ -155,6 +160,13 @@ public final class IPhoneHostService {
     public func accountChanged(_ account: Account?) {
         guard account != self.account else { return }
         let signedOut = account == nil && self.account != nil
+        // Signing out after a removal and signing in again allows connections again. (A
+        // relaunch restores the session without a sign-out, so the removal holds.)
+        if removed, account == nil { signedOutSinceRemoval = true }
+        if account != nil, signedOutSinceRemoval {
+            signedOutSinceRemoval = false
+            clearRemoval()
+        }
         self.account = account
         loadPaired(signedOut: signedOut)
         reconcile()
@@ -184,8 +196,35 @@ public final class IPhoneHostService {
         }
     }
 
+    /// hostd reported the removal: remember it (across relaunches) and forget the device id.
+    private func recordRemoval() {
+        removed = true
+        guard let dependencies, let key = running else { return }
+        do {
+            try CnxRemovalMarker(directory: dependencies.stateDirectory)
+                .record(account: key, identity: CnxDeviceIdentity(directory: dependencies.stateDirectory))
+        } catch {
+            logger.error("could not record the removal: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// The person allowed iPhone connections again after a removal (Settings > Mobile >
+    /// Allow Again): hostd registers this Mac as a new device.
+    public func allowAgain() {
+        clearRemoval()
+        running = nil
+        reconcile()
+    }
+
+    private func clearRemoval() {
+        if let dependencies { CnxRemovalMarker(directory: dependencies.stateDirectory).clear() }
+        removed = false
+    }
+
     private func setAllowed(_ allowed: Bool) {
         guard allowed != self.allowed else { return }
+        // Turning the setting on again is the person allowing connections again.
+        if allowed, removed { clearRemoval() }
         self.allowed = allowed
         reconcile()
         refreshPhones()
@@ -223,6 +262,12 @@ public final class IPhoneHostService {
             }
             guard let executable = dependencies.executable else {
                 await supervisor.stop(phase: .unavailable(IPhoneHostStrings.unavailable))
+                return
+            }
+            // Removed by the owner (this launch or an earlier one): stay stopped.
+            if let key, CnxRemovalMarker(directory: dependencies.stateDirectory).account() == key {
+                self?.removed = true
+                await supervisor.stop(phase: .removed)
                 return
             }
             do {

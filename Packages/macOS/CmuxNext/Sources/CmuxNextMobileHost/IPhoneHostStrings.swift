@@ -22,6 +22,12 @@ enum IPhoneHostStrings {
     static var removeFailed: String {
         String(localized: "iphone.phones.removeFailed", defaultValue: "Could not remove this phone. Try again.", table: "IPhone", bundle: .module)
     }
+    static var removed: String {
+        String(localized: "iphone.status.removed",
+               defaultValue: "This Mac was removed from your account's devices, so your iPhone can't reach it. Choose Allow Again to let your iPhone connect.",
+               table: "IPhone", bundle: .module)
+    }
+    static var allowAgain: String { String(localized: "iphone.allowAgain", defaultValue: "Allow Again", table: "IPhone", bundle: .module) }
     static var spaceTitle: String { String(localized: "iphone.space.title", defaultValue: "Space", table: "IPhone", bundle: .module) }
     static var statusTitle: String { String(localized: "iphone.status.title", defaultValue: "Status", table: "IPhone", bundle: .module) }
     static var off: String { String(localized: "iphone.status.off", defaultValue: "Off", table: "IPhone", bundle: .module) }

@@ -24,6 +24,7 @@ extension IPhoneHostService {
     ///   - auth: The app's Stack session; tokens are read per request, never stored here.
     ///   - daemon: The app's local daemon; hostd splices phones to its socket.
     ///   - acpmuxHost: The agent tabs' acpmux host (started on first use).
+    ///   - agentTabHost: This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
     ///   - settings: The settings controller (the toggle and the chat roots).
     ///   - bundleID: The app's bundle id: hostd's state folder is per bundle.
     ///   - computerName: How phones list this Mac.
@@ -33,7 +34,7 @@ extension IPhoneHostService {
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
-                     agentTabHost: @escaping @MainActor @Sendable () -> String? = { nil },
+                     agentTabHost: @escaping @MainActor () -> String? = { nil },
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {

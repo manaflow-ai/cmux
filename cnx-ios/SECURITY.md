@@ -247,9 +247,11 @@ sent as an ACP `resource_link` to that path.
 
 ## `auth`: pairing a phone with this Mac
 
-When the app supervises hostd, every link starts with `auth`, and every other
-service on the link (`echo` included) is refused with `unpaired` until it
-succeeds. The design is in `verify/phone-approvals.md`.
+When the app supervises hostd, every link starts with `auth`. A channel the
+phone opens after `auth` waits for its outcome (at most the signature and
+approval waits) and is refused with `unpaired` unless it pairs; a channel with
+no `auth` before it (`echo` included) is refused at once. The design is in
+`verify/phone-approvals.md`.
 
 | Rule 2 question | Answer |
 | --- | --- |
@@ -260,7 +262,8 @@ succeeds. The design is in `verify/phone-approvals.md`.
 - **Rule 6 (tests):** `pairing::tests` and the pairing cases in
   `tests/host.rs` (a token alone reaches no service, a forged signature asks
   nobody, approval opens the link, a new approval key asks again, unpair
-  reaches the app, a refused key is closed `denied`).
+  reaches the app, a refused key is closed `denied`, and channels opened
+  behind `auth` wait for it).
 
 ## Decisions for the person
 

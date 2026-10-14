@@ -28,6 +28,9 @@ public enum CnxHostEvent: Sendable, Equatable {
     case needBrowser(request: UInt64, tab: String, url: String)
     /// hostd no longer needs the browser host of `tab`.
     case browserStop(tab: String)
+    /// The owner removed this Mac from the account's devices; hostd exits and must not
+    /// be restarted until the person allows iPhone connections again.
+    case removed
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
@@ -69,6 +72,8 @@ public enum CnxHostEvent: Sendable, Equatable {
         case "browser_stop":
             guard let tab = wire.tab else { return nil }
             self = .browserStop(tab: tab)
+        case "removed":
+            self = .removed
         default:
             return nil
         }

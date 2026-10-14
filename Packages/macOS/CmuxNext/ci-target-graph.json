@@ -605,9 +605,12 @@
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextDesign",
         "CmuxNextMobile",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextRemoteBrowser",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

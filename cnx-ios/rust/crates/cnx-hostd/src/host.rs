@@ -96,7 +96,8 @@ impl IceSource {
     }
 }
 
-/// Run until the process is stopped: reconnect with backoff.
+/// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
+/// the owner removed this Mac (`removed`): registering again would undo that.
 pub async fn run(config: HostConfig) -> Result<()> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let services = Arc::new(config.services.clone());
@@ -115,6 +116,12 @@ pub async fn run(config: HostConfig) -> Result<()> {
         control::emit(&Event::Connecting);
         let started = std::time::Instant::now();
         let reason = match connect_once(&config, &tokens, &services, &ice).await {
+            Ok(reason) if removed(&reason) => {
+                // Registering again would undo the owner's removal: stop for good.
+                tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
+                control::emit(&Event::Removed);
+                return Ok(());
+            }
             Ok(reason) => {
                 tracing::warn!(reason, "signaling ended; reconnecting");
                 // A socket that was up for a while and then reset (every Worker
@@ -182,6 +189,15 @@ async fn connect_once(
         task.abort();
     }
     Ok(reason)
+}
+
+/// hostd's exit status after the owner removed this Mac (`removed`): a supervisor must not restart it.
+pub const EXIT_REMOVED: i32 = 78;
+
+/// Whether the signaling socket closed because the owner removed this device
+/// (`DELETE /v1/devices/:id` closes it with 4002 `removed`, PROTOCOL.md).
+pub fn removed(reason: &str) -> bool {
+    reason.starts_with("signaling closed by server: 4002 ")
 }
 
 /// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
@@ -343,6 +359,15 @@ async fn answer_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_4002_close_is_a_removal() {
+        assert!(removed("signaling closed by server: 4002 removed"));
+        assert!(!removed("signaling closed by server: 4000 replaced"));
+        assert!(!removed("signaling closed by server: 4001 moved"));
+        assert!(!removed("signaling read failed: 4002"));
+        assert!(!removed("signaling socket closed"));
+    }
 
     #[test]
     fn only_a_401_marks_the_token_refused() {

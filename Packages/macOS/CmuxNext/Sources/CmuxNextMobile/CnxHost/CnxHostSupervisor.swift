@@ -60,6 +60,10 @@ public actor CnxHostSupervisor {
     /// Bumped by every start and stop; an older call that resumes late drops out.
     private var generation: UInt64 = 0
 
+    /// hostd's exit status after the owner removed this Mac (`host.rs` `EXIT_REMOVED`).
+    static let exitRemoved: Int32 = 78
+    static let removedReason = "removed"
+
     /// A run up this long (seconds) resets the backoff.
     static let healthyRun: TimeInterval = 60
 
@@ -132,6 +136,13 @@ public actor CnxHostSupervisor {
             let started = now()
             let reason = await runOnce(inputs)
             if Task.isCancelled { return }
+            // The owner removed this Mac: hostd said so (`removed`, exit 78) and must stay
+            // stopped; registering again would undo the removal.
+            if state.phase == .removed || reason == Self.removedReason {
+                logger.notice("this Mac was removed from the account's devices; cnx-hostd stays stopped")
+                publish { $0.reset(to: .removed) }
+                return
+            }
             if now().timeIntervalSince(started) >= Self.healthyRun { backoff.reset() }
             logger.notice("cnx-hostd ended (\(reason, privacy: .public)); restarting after backoff")
             publish { $0.reset(to: .waiting(reason)) }
@@ -168,6 +179,7 @@ public actor CnxHostSupervisor {
             _ = await child.waitForExit()
             return "stopped"
         }
+        if status == Self.exitRemoved { return Self.removedReason }
         return "cnx-hostd exited with status \(status ?? -1)"
     }
 

@@ -347,6 +347,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Mobile: this Mac was removed; allow iPhone connections again, then re-read the host lists. */
+  async allowPhonesAgain(): Promise<void> {
+    await this.request("cmux.settings.mobile.allow_again", {});
+    await this.refreshHost();
+  }
+
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);

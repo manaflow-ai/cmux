@@ -3647,6 +3647,268 @@
           }
         }
       }
+    },
+    "iphone.allowAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح مجددًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovo dozvoli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillad igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wieder erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volver a permitir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser à nouveau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti di nuovo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再度許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다시 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillat igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwól ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить снова"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити знову"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再次允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再次允許"
+          }
+        }
+      }
+    },
+    "iphone.status.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac was removed from your account's devices, so your iPhone can't reach it. Choose Allow Again to let your iPhone connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أُزيل هذا الـ Mac من أجهزة حسابك، لذا لا يمكن لجهاز iPhone الوصول إليه. اختر «السماح مجددًا» للسماح لجهاز iPhone بالاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj Mac je uklonjen s uređaja vašeg računa, pa mu iPhone ne može pristupiti. Odaberite Ponovo dozvoli da biste dozvolili iPhoneu da se poveže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Mac blev fjernet fra kontoens enheder, så din iPhone kan ikke nå den. Vælg Tillad igen for at lade din iPhone forbinde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac wurde aus den Geräten deines Kontos entfernt, daher kann dein iPhone ihn nicht erreichen. Wähle „Wieder erlauben“, damit sich dein iPhone verbinden kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac se eliminó de los dispositivos de tu cuenta, así que tu iPhone no puede acceder a él. Elige Volver a permitir para que tu iPhone se conecte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Mac a été supprimé des appareils de votre compte, votre iPhone ne peut donc pas y accéder. Choisissez Autoriser à nouveau pour que votre iPhone se connecte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo Mac è stato rimosso dai dispositivi del tuo account, quindi il tuo iPhone non può raggiungerlo. Scegli Consenti di nuovo per permettere al tuo iPhone di connettersi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac はアカウントのデバイスから削除されたため、iPhone から接続できません。iPhone から接続できるようにするには「再度許可」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac នេះត្រូវបានដកចេញពីឧបករណ៍របស់គណនីអ្នក ដូច្នេះ iPhone របស់អ្នកមិនអាចចូលដល់វាបានទេ។ ជ្រើសរើស «អនុញ្ញាតម្តងទៀត» ដើម្បីឱ្យ iPhone របស់អ្នកតភ្ជាប់បាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac이 계정의 기기에서 제거되어 iPhone에서 연결할 수 없습니다. iPhone에서 연결하려면 다시 허용을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macen ble fjernet fra kontoens enheter, så iPhonen din når den ikke. Velg Tillat igjen for å la iPhonen koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten Mac został usunięty z urządzeń Twojego konta, więc iPhone nie może się z nim połączyć. Wybierz Zezwól ponownie, aby iPhone mógł się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac foi removido dos dispositivos da sua conta, então seu iPhone não consegue acessá-lo. Escolha Permitir novamente para que seu iPhone se conecte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот Mac удалён из устройств вашей учётной записи, поэтому iPhone не может к нему подключиться. Выберите «Разрешить снова», чтобы iPhone смог подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องนี้ถูกลบออกจากอุปกรณ์ของบัญชีแล้ว iPhone จึงเข้าถึงไม่ได้ เลือก อนุญาตอีกครั้ง เพื่อให้ iPhone เชื่อมต่อได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac hesabınızın cihazlarından kaldırıldı, bu yüzden iPhone’unuz ona erişemiyor. iPhone’unuzun bağlanması için Yeniden izin ver’i seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей Mac видалено з пристроїв облікового запису, тож iPhone не може до нього підключитися. Виберіть «Дозволити знову», щоб iPhone зміг підключитися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy Mac này đã bị xóa khỏi thiết bị của tài khoản nên iPhone không thể truy cập. Chọn Cho phép lại để iPhone kết nối được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 已从你账户的设备中移除，因此 iPhone 无法访问它。选择“再次允许”即可让 iPhone 连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 已從你帳號的裝置中移除，因此 iPhone 無法存取它。選擇「再次允許」即可讓 iPhone 連線。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
