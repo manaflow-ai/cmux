@@ -279,7 +279,7 @@
 .acpmux-composer-context .acpmux-location-label {
   font-size: var(--text-detail);
 }
-@media (max-width: 480px) {
+@container composer (max-width: 480px) {
   .acpmux-composer-context { padding-inline: 9px; gap: 2px; }
   .acpmux-location-button,
   .acpmux-location-readonly { max-width: 145px; }
@@ -336,11 +336,41 @@
   display: inline-flex;
   align-items: center;
 }
-/* Footer controls share one rhythm; separators are reserved for explicit group boundaries. */
-@media (max-width: 480px) {
-  /* At compact pane widths the rail keeps every action available but uses the same icon-first
-     treatment as the mode picker. The button labels remain in aria-label/title metadata, so
-     keyboard and assistive-technology users still get the full value. */
+/* Narrow panes (Leo 2026-10-14, "squashed composers"). The composer is the size container, so a
+   split pane, the New Tab page and interface scale all collapse the same way; the window's width
+   never decides it. Collapse order, widest first: the model and access chips go icon-only (their
+   names stay in aria-label and title), Effort hides (the model menu has the same effort track),
+   the context ring hides, then the rhythm tightens. The turn's own controls (+, mic, Stop, Steer,
+   Send) never shrink: the chips give way first, and clip rather than overlap if they still do not fit
+   (agent-pane.narrow, test/narrow-layouts.test.ts). */
+.acpmux-composer {
+  container: composer / inline-size;
+}
+.acpmux-composer-bar .acpmux-chips {
+  overflow: hidden;
+}
+.acpmux-composer-bar .acpmux-chips > *:not(.acpmux-chips-spacer, .acpmux-model),
+.acpmux-composer-bar .acpmux-composer-plus,
+.acpmux-composer-actions > * {
+  flex-shrink: 0;
+}
+/* Between the tiers only the model's name gives way, to an ellipsis, down to its icon. */
+.acpmux-composer-bar .acpmux-model {
+  display: inline-flex;
+  min-width: 32px;
+}
+.acpmux-composer-bar .acpmux-model .acpmux-picker-button {
+  min-width: 32px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.acpmux-composer-bar .acpmux-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container composer (max-width: 480px) {
   .acpmux-composer-bar .acpmux-model .acpmux-picker-button {
     width: 32px !important;
     max-width: 32px;
@@ -353,16 +383,22 @@
   .acpmux-composer-bar .acpmux-model .acpmux-picker-button .acpmux-icon:last-child {
     display: none;
   }
-  .acpmux-composer-bar .acpmux-access-trigger { width: 112px; max-width: 112px; }
+  .acpmux-composer-bar .acpmux-access-trigger { width: auto; max-width: none; padding-inline: 6px; }
   .acpmux-composer-bar .acpmux-mode-text { display: none; }
 }
-/* Keep the complete control rail usable in a very narrow pane. The regular 112px access
-   control is comfortable at the 240px compact breakpoint, but plus + access + Send otherwise
-   exceed the bar's content box below 220px. Preserve every action and only tighten their rhythm. */
-@media (max-width: 220px) {
-  .acpmux-composer-bar { gap: 6px; padding-inline: 8px; }
+@container composer (max-width: 400px) {
+  .acpmux-composer-bar .acpmux-effort { display: none; }
+}
+@container composer (max-width: 320px) {
+  .acpmux-composer-bar .acpmux-context-usage-menu,
+  .acpmux-composer-bar .acpmux-context { display: none; }
+  .acpmux-composer-bar { gap: 6px; }
+  .acpmux-composer-actions { gap: 6px; }
+}
+/* Below 220px only +, the model, access and the turn's controls remain: tighten their rhythm. */
+@container composer (max-width: 220px) {
+  .acpmux-composer-bar { padding-inline: 8px; }
   .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
-  .acpmux-composer-bar .acpmux-access-trigger { width: 96px; max-width: 96px; }
 }
 /* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
    and rounded corners move to the top. */
