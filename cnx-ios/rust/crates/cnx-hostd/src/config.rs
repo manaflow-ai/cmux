@@ -33,6 +33,8 @@ pub struct ServiceConfig {
     /// Workspace roots the `file` service may read below. Empty denies all.
     pub file_roots: Vec<PathBuf>,
     pub acpmux: AcpmuxTarget,
+    /// The `browser` service: who starts browser hosts, and the running ones.
+    pub browser: crate::browser::BrowserConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +138,21 @@ impl HostConfig {
                 env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".acpmux")),
             ),
         };
+        let max_tabs = env("CNX_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
+        let browser = match (&supplied, env("CNX_RB_HOST")) {
+            // Supervised: the app starts its own bundled browser host.
+            (Some(supplied), _) => {
+                crate::browser::BrowserConfig::new(Some(supplied.browser.launcher()), max_tabs)
+            }
+            (None, Some(exe)) => crate::browser::BrowserConfig::process(
+                PathBuf::from(exe),
+                env("CNX_RB_CACHE_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| default_state_dir().join("browser")),
+                max_tabs,
+            ),
+            (None, None) => crate::browser::BrowserConfig::default(),
+        };
         let file_roots = env("CNX_FILE_ROOTS")
             .map(|roots| roots.split(':').filter(|r| !r.is_empty()).map(PathBuf::from).collect())
             .unwrap_or_default();
@@ -156,6 +173,7 @@ impl HostConfig {
                 default_socket: env("CNX_TUI_SOCKET").map(PathBuf::from),
                 file_roots,
                 acpmux,
+                browser,
             },
         })
     }

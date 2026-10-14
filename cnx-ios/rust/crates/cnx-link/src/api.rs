@@ -30,6 +30,21 @@ pub struct DeviceRegistration {
     pub wg_public_key: Option<String>,
 }
 
+/// The body of `POST /v1/devices/:deviceId/notify`: labels only, never agent output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyEvent {
+    pub event_id: String,
+    /// `question`, `permission`, `completed`, `failed` or `chief`.
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("request failed: {0}")]
@@ -107,6 +122,24 @@ impl ApiClient {
         let body: serde_json::Value =
             Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))?;
         Ok(body.get("device").cloned().unwrap_or(body))
+    }
+
+    /// `POST /v1/devices/:deviceId/notify` (PROTOCOL.md): one Feed-worthy event
+    /// for the owner's phones. Returns the backend's `{configured, sent, failed, dropped}`.
+    pub async fn notify(
+        &self,
+        mac_device_id: &str,
+        event: &NotifyEvent,
+    ) -> Result<serde_json::Value, ApiError> {
+        let response = self
+            .http
+            .post(format!("{}/v1/devices/{mac_device_id}/notify", self.base))
+            .bearer_auth(&self.token)
+            .json(event)
+            .send()
+            .await
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
     }
 
     /// `GET /v1/teams/:teamId/macs`.

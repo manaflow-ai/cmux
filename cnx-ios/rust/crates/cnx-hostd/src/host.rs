@@ -102,6 +102,14 @@ pub async fn run(config: HostConfig) -> Result<()> {
     let services = Arc::new(config.services.clone());
     // One ICE cache for the life of the process (reconnects keep it).
     let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
+    if crate::notify::enabled() {
+        tokio::spawn(crate::notify::run(
+            config.base_url.clone(),
+            config.device_id.clone(),
+            Arc::clone(&tokens),
+            config.services.acpmux.clone(),
+        ));
+    }
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);

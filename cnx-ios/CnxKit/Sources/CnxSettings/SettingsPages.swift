@@ -8,7 +8,7 @@ import UserNotifications
 
 private let theme = CnxTheme.standard
 
-private extension View {
+extension View {
     func settingsPage(_ title: LocalizedStringKey) -> some View {
         listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
@@ -21,6 +21,10 @@ private extension View {
 
 struct AccountPage: View {
     let auth: CnxAuthModel
+    let directory: (any SettingsDeviceDirectory)?
+    @State private var confirmsDeletion = false
+    @State private var deleting = false
+    @State private var deletionError: String?
 
     var body: some View {
         List {
@@ -46,12 +50,50 @@ struct AccountPage: View {
                 Text("Sign-in methods")
             }
             Section {
-                Link(destination: URL(string: "https://cmux.com/account")!) {
-                    Text("Delete account").foregroundStyle(theme.colors.danger)
+                Button(role: .destructive) {
+                    confirmsDeletion = true
+                } label: {
+                    HStack {
+                        Text("Delete Account").foregroundStyle(theme.colors.danger)
+                        if deleting {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
                 }
+                .disabled(deleting)
+                .accessibilityIdentifier("settings.deleteAccount")
+            } footer: {
+                Text("Deletes your cmux account and its data for every cmux app, and removes your Macs and phones from the cmux service. This can't be undone.")
             }
         }
         .settingsPage("Account")
+        .confirmationDialog("Delete your cmux account?", isPresented: $confirmsDeletion, titleVisibility: .visible) {
+            Button("Delete Account", role: .destructive) { Task { await delete() } }
+        } message: {
+            Text("Your cmux account is used by every cmux app (Mac, iPhone and web). Deleting it signs you out everywhere, removes your Macs and phones from the cmux service and permanently deletes your account. This can't be undone.")
+        }
+        .alert("Account not deleted", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deletionError ?? "")
+        }
+    }
+
+    private func delete() async {
+        deleting = true
+        defer { deleting = false }
+        var purge: (@MainActor () async throws -> Void)?
+        if let directory {
+            purge = { try await directory.deleteAccountData() }
+        }
+        do {
+            try await auth.deleteAccount(purgeServiceData: purge)
+        } catch let error as CnxAuthModel.AccountDeletionError {
+            deletionError = error.message
+        } catch {
+            deletionError = "Your account couldn't be deleted. Try again."
+        }
     }
 }
 
@@ -92,60 +134,6 @@ struct TeamPage: View {
             }
         }
         .settingsPage(LocalizedStringKey(team.name))
-    }
-}
-
-struct PairedMacsPage: View {
-    let store: AppStore
-    let transport: TransportKind
-
-    var body: some View {
-        List {
-            Section {
-                ForEach(store.activeTeam?.macs ?? []) { mac in
-                    // Real state: presence (and when it was last seen) plus this
-                    // phone's own connection and the live link line.
-                    let status = store.macStatusLine(mac, presence: Self.presence(mac))
-                    HStack(spacing: 14) {
-                        StatusDot(Self.dot(status.dot))
-                            .frame(width: theme.metrics.settingsIconFrame)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(mac.name).font(theme.type.rowTitle)
-                            Text(status.text)
-                                .font(theme.type.meta).foregroundStyle(theme.colors.label2)
-                            if mac.isOnline, let link = store.macLinkStatus[mac.id] {
-                                Text(link)
-                                    .font(theme.type.meta).foregroundStyle(theme.colors.label2)
-                                    .lineLimit(2)
-                            }
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("paired-mac.\(mac.id)")
-                }
-            } header: {
-                Text("Macs")
-            }
-        }
-        .settingsPage("Paired Macs")
-    }
-
-    /// "Online", "Last seen 3 hours ago", or "Offline" when the service never saw it.
-    static func presence(_ mac: MacDevice) -> String {
-        if mac.isOnline { return "Online" }
-        guard let lastSeenAt = mac.lastSeenAt else { return "Offline" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return "Last seen \(formatter.localizedString(for: lastSeenAt, relativeTo: Date()))"
-    }
-
-    static func dot(_ dot: MacStatusLine.Dot) -> StatusDot.State {
-        switch dot {
-        case .connected: .online
-        case .connecting: .busy
-        case .failed: .error
-        case .offline: .offline
-        }
     }
 }
 
@@ -220,7 +208,8 @@ struct NotificationsPage: View {
                 Button {
                     if status == .notDetermined {
                         Task {
-                            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
+                            let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+                            if granted { UIApplication.shared.registerForRemoteNotifications() }
                             await refresh()
                         }
                     } else if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
@@ -234,18 +223,14 @@ struct NotificationsPage: View {
                     }
                 }
             }
-            Section("Notify me about") {
+            Section {
                 Toggle(isOn: $settings.notifyQuestions) { SettingsLabel("Questions and permissions", symbol: "questionmark.bubble") }
                 Toggle(isOn: $settings.notifyFinished) { SettingsLabel("Finished tasks", symbol: "checkmark.circle") }
                 Toggle(isOn: $settings.notifyErrors) { SettingsLabel("Errors", symbol: "exclamationmark.triangle") }
-            }
-            Section {
-                Picker(selection: $settings.liveActivities) {
-                    ForEach(LiveActivityMode.allCases) { Text($0.title).tag($0) }
-                } label: {
-                    SettingsLabel("Live Activities", symbol: "livephoto")
-                }
-                .pickerStyle(.menu)
+            } header: {
+                Text("Notify me about")
+            } footer: {
+                Text("Your Macs send these through the cmux service. A notification names the agent and workspace only, never what the agent wrote.")
             }
         }
         .settingsPage("Notifications")

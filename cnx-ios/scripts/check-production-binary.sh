@@ -4,7 +4,10 @@
 # mock terminal script, mock agent/Feed/Chief scripts, sample data). Mock code
 # is compiled out with `#if DEBUG`; this proves it on the binary.
 #
-# usage: cnx-ios/scripts/check-production-binary.sh <CnxApp.app> [expected bundle id]
+# usage: cnx-ios/scripts/check-production-binary.sh <CnxApp.app> [expected bundle id] [--shipping]
+#
+# --shipping (TestFlight and App Store builds): the service address must be a
+# production one, never the dev Worker or a local server.
 #
 # Scans every Mach-O in the bundle (SwiftPM products can be dynamic; Debug
 # builds keep their code in CnxApp.debug.dylib). Exits 1 and names each string it found.
@@ -12,6 +15,7 @@ set -euo pipefail
 
 app=${1:?usage: check-production-binary.sh <CnxApp.app> [expected bundle id]}
 expected_bundle=${2:-}
+shipping=0; [[ "${3:-}" == --shipping ]] && shipping=1
 [[ -d "$app" ]] || { echo "error: $app is not an app bundle" >&2; exit 2; }
 
 # Each string exists only in DEBUG code. Literals are longer than 15 bytes
@@ -43,7 +47,15 @@ done < <(find "$app" -type f -print0)
 bad=()
 if [[ -n "$expected_bundle" ]]; then
   [[ "$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")" == "$expected_bundle" ]] || bad+=("bundle id")
-  [[ "$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null)" == https://* ]] || bad+=("CNXAPIBase")
+  api_base=$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null || true)
+  [[ "$api_base" == https://* ]] || bad+=("CNXAPIBase")
+  # Production talks to the production Worker, never a dev deployment.
+  [[ "$api_base" != *-dev* ]] || bad+=("CNXAPIBase is a dev Worker ($api_base)")
+fi
+if [[ $shipping == 1 ]]; then
+  api=$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null || true)
+  [[ "$api" == https://* && ! "$api" =~ (-dev[.-]|localhost|127\.0\.0\.1|\.local) ]] \
+    || bad+=("CNXAPIBase '$api' is not a production service address")
 fi
 dump=$(mktemp)
 trap 'rm -f "$dump"' EXIT

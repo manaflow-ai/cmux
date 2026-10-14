@@ -17,6 +17,17 @@ export interface Env {
   readonly TURN_KEY_ID?: string
   readonly TURN_KEY_API_TOKEN?: string
   readonly ICE_TTL_SECONDS?: string
+  /** APNs (src/push.ts): all three or none. */
+  readonly APNS_KEY_P8?: string
+  readonly APNS_KEY_ID?: string
+  readonly APNS_TEAM_ID?: string
+  /** Comma-separated bundle ids a phone may register a push token for. */
+  readonly APNS_TOPICS?: string
+  /** Workers rate limiting bindings (absent in tests that do not configure them). */
+  readonly USER_LIMIT?: RateLimit
+  readonly ICE_LIMIT?: RateLimit
+  readonly INVITE_LIMIT?: RateLimit
+  readonly NOTIFY_LIMIT?: RateLimit
   // Test only (ENVIRONMENT=test).
   readonly STACK_TEST_JWKS?: string
   /** JSON {userId: [teamId]} for primary-project users, {"<projectId>:<userId>": [teamId]} for the others; replaces Stack membership calls. */

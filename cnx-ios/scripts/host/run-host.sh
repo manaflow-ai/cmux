@@ -21,20 +21,22 @@
 #                               production app build, dev.cmux.cnx.prod); state in
 #                               ~/.cnx-host-prod, beside a dev host (also with --sign-out)
 #   CNX_HOST_HOME               state, logs and sockets (default ~/.cnx-host, or ~/.cnx-host-prod)
-#   CNX_BASE_URL                service (default the dev Worker, which accepts both projects)
+#   CNX_BASE_URL                service (default the production Worker https://cnx-ios-api.cmux.dev
+#                               with --prod, else the dev Worker)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 bin=$here/bin
 prod=0
 for a in "$@"; do [[ "$a" != --prod ]] || prod=1; done
-base=${CNX_BASE_URL:-https://cnx-ios-api-dev.debussy.workers.dev}
 stack_api=${CNX_STACK_API:-https://api.stack-auth.com}
 if [[ $prod == 1 ]]; then
   # Production Stack project: no publishable key, the cmux.com email callback.
   home=${CNX_HOST_HOME:-$HOME/.cnx-host-prod}
+  base=${CNX_BASE_URL:-https://cnx-ios-api.cmux.dev}
   project=9790718f-14cd-4f7e-824d-eaf527a82b82 pck="" callback=https://cmux.com/auth/callback
 else
   home=${CNX_HOST_HOME:-$HOME/.cnx-host}
+  base=${CNX_BASE_URL:-https://cnx-ios-api-dev.debussy.workers.dev}
   project=${CNX_STACK_PROJECT_ID:-454ecd03-1db2-4050-845e-4ce5b0cd9895}
   pck=${CNX_STACK_PUBLISHABLE_KEY-pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g}
   callback=http://localhost:3000/auth/callback
