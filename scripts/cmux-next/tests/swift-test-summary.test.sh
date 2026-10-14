@@ -143,10 +143,13 @@ grep '^::error' <<<"$out" | grep -q 'SIGKILL' || fail "the error does not say a 
 
 # One test hangs while the others finish: past CMUX_NEXT_TEST_STUCK_SECONDS the
 # run fails within seconds, not at the whole-run limit, and one ::error names
-# the stuck test and how long it ran; finished tests are not named.
+# the stuck test and how long it ran; finished tests are not named, nor a
+# parameterized test that failed (its line says "with N test cases").
 cat > "$TMP/stuck.out" <<'EOF2'
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
+◇ Test eachFails(n:) started.
+✘ Test eachFails(n:) with 2 test cases failed after 0.002 seconds with 2 issues.
 ◇ Test stuckHere() started.
 EOF2
 started=$SECONDS
@@ -156,7 +159,8 @@ STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1
 stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
 [[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
 grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
-if grep -q 'aPasses' <<<"$stuck"; then fail "the stuck error names a finished test" "$stuck"; fi
+if grep -q 'aPasses\|eachFails' <<<"$stuck"; then fail "the stuck error names a finished test" "$stuck"; fi
+grep -q '::1 test still running' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
 grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the stuck test" "$summary"
 
 echo "ok swift-test-summary"

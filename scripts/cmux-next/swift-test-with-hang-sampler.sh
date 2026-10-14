@@ -50,7 +50,7 @@ helpers="$log.helpers"
 names_awk='
   function name_of(line) {
     sub(/^[^ ]+ Test /, "", line)
-    sub(/ (started\.|recorded an issue at .*|passed after .*|with [0-9]+ test cases? passed after .*|failed after .*|skipped.*)$/, "", line)
+    sub(/ (started\.|recorded an issue at .*|passed after .*|with [0-9]+ test cases? (passed|failed) after .*|failed after .*|skipped.*)$/, "", line)
     return line
   }'
 # The tests the log shows started and not finished, in start order. The
@@ -79,14 +79,14 @@ sample_and_kill() {
   for p in $tree; do
     kill "$p" 2>/dev/null
   done
-  kill "$test_pid"
+  kill "$test_pid" 2>/dev/null
 }
 (
   exec 3>&-
   # Killing the watcher also ends its sleep, so no orphan holds stdout open.
   sleeper=""
   trap '[ -z "$sleeper" ] || kill "$sleeper" 2>/dev/null; exit 0' TERM
-  seen="$log.seen" open="$log.open" stuck="$log.stuck"
+  seen="$log.seen" open="$log.open" stuck="$log.stuck" fired="$log.fired"
   : > "$seen"
   while :; do
     sleep "$poll" &
@@ -101,6 +101,7 @@ sample_and_kill() {
       esac
     done
     if (( now - started_at >= limit )); then
+      : > "$fired"
       echo "::error title=cmux-next swift test hang::swift test still running after ${limit}s; sampling the test processes"
       sample_and_kill
       exit 0
@@ -118,8 +119,10 @@ sample_and_kill() {
     ' "$seen" "$open" > "$stuck"
     mv "$seen.next" "$seen"
     if [ -s "$stuck" ]; then
+      : > "$fired"
       list="$(awk '{ printf "%s%s", (NR > 1 ? "; " : ""), $0 }' "$stuck")"
-      echo "::error title=cmux-next swift test stuck::$(wc -l < "$stuck" | tr -d ' ') tests still running after ${stuck_limit}s (CMUX_NEXT_TEST_STUCK_SECONDS): $list; sampling the test processes"
+      count=$(wc -l < "$stuck" | tr -d ' ')
+      echo "::error title=cmux-next swift test stuck::$count test$([ "$count" = 1 ] || echo s) still running after ${stuck_limit}s (CMUX_NEXT_TEST_STUCK_SECONDS): $list; sampling the test processes"
       if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
         printf '### Swift tests still running after %ss\n\n' "$stuck_limit" >> "$GITHUB_STEP_SUMMARY"
         # shellcheck disable=SC2016 # the backticks are Markdown, not a command
@@ -133,6 +136,15 @@ sample_and_kill() {
 watcher=$!
 wait "$test_pid"
 status=$?
+# Stop the watcher before reporting: the tests a lost helper left open stay
+# open in the log, and must not read as stuck while the report runs. A watcher
+# that fired is still ending the run's processes: let it finish.
+if [ -e "$log.fired" ]; then
+  wait "$watcher" 2>/dev/null
+else
+  kill "$watcher" 2>/dev/null
+  wait "$watcher" 2>/dev/null
+fi
 exec 3>&-
 # bash 3.2 cannot wait for a process substitution; tee then ends on its own.
 wait "$tee_pid" 2>/dev/null || true
@@ -143,7 +155,7 @@ report() {
   awk -v summary_file="${GITHUB_STEP_SUMMARY:-}" -v status="$status" '
     function name_of(line) {
       sub(/^[^ ]+ Test /, "", line)
-      sub(/ (started\.|recorded an issue at .*|passed after .*|with [0-9]+ test cases? passed after .*|failed after .*|skipped.*)$/, "", line)
+      sub(/ (started\.|recorded an issue at .*|passed after .*|with [0-9]+ test cases? (passed|failed) after .*|failed after .*|skipped.*)$/, "", line)
       return line
     }
     function join(list, count,    out, i, max) {
@@ -216,12 +228,8 @@ if (( report_status == 3 )) && [[ -z "$crash_signal" && "$(uname)" == Darwin ]] 
   done < "$helpers"
 fi
 
-if kill -0 "$watcher" 2>/dev/null; then
-  kill "$watcher" 2>/dev/null
-  wait "$watcher" 2>/dev/null
-  # A missing summary line fails the run even when swift test exited 0.
-  if (( report_status == 3 && status == 0 )); then exit 1; fi
-  exit "$status"
-fi
 # The watcher fired: always fail, whatever status the killed run reported.
-exit $(( status == 0 ? 1 : status ))
+if [ -e "$log.fired" ]; then exit $(( status == 0 ? 1 : status )); fi
+# A missing summary line fails the run even when swift test exited 0.
+if (( report_status == 3 && status == 0 )); then exit 1; fi
+exit "$status"
