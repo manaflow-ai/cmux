@@ -1336,9 +1336,7 @@ export class FreestyleProvider implements VMProvider {
           // pause/start pair as a control-plane recovery. It still avoids the
           // guest channel and preserves the machine's disk and memory.
           if (response.status === 404 || response.status === 405) {
-            const vm = fs.vms.ref(vmId);
-            await vm.pause();
-            await vm.start();
+            await this.restartViaPauseStart(fs, vmId);
             return;
           }
           throw new FreestyleApiError(
@@ -1355,6 +1353,28 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /**
+   * Use the documented lifecycle pair when the provider has not deployed the
+   * hard-restart route yet. A timeout after pause can leave the VM paused even
+   * though the caller saw an error, so a retry must reconcile provider state
+   * before trying to pause again.
+   */
+  private async restartViaPauseStart(fs: Freestyle, vmId: string): Promise<void> {
+    const vm = fs.vms.ref(vmId);
+    try {
+      await vm.pause();
+    } catch (pauseError) {
+      let state: string | undefined;
+      try {
+        state = (await vm.data()).state;
+      } catch {
+        throw pauseError;
+      }
+      if (state !== "paused" && state !== "stopped") throw pauseError;
+    }
+    await vm.start();
   }
 
   async setRuntimeBudget(vmId: string, remainingSeconds: number | null): Promise<void> {

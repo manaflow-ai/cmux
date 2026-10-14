@@ -732,6 +732,43 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(calls).toEqual(["pause", "start"]);
   });
 
+  test("reconciles a pause that timed out before retrying restart", async () => {
+    const calls: string[] = [];
+    let pauseAttempts = 0;
+    const client = {
+      fetch: async () => new Response(null, { status: 404 }),
+      vms: {
+        ref: () => ({
+          pause: async () => {
+            calls.push("pause");
+            pauseAttempts += 1;
+            if (pauseAttempts === 1) throw new Error("pause request timed out");
+          },
+          data: async () => ({ state: "paused" }),
+          start: async () => { calls.push("start"); return {}; },
+        }),
+      },
+    } as unknown as Freestyle;
+    await new FreestyleProvider({ client: () => client }).restart(VM_ID);
+    expect(calls).toEqual(["pause", "start"]);
+  });
+
+  test("does not hide an unrelated pause failure behind start", async () => {
+    const calls: string[] = [];
+    const client = {
+      fetch: async () => new Response(null, { status: 404 }),
+      vms: {
+        ref: () => ({
+          pause: async () => { calls.push("pause"); throw new Error("permission denied"); },
+          data: async () => ({ state: "running" }),
+          start: async () => { calls.push("start"); return {}; },
+        }),
+      },
+    } as unknown as Freestyle;
+    await expect(new FreestyleProvider({ client: () => client }).restart(VM_ID)).rejects.toThrow("restart");
+    expect(calls).toEqual(["pause"]);
+  });
+
   test("passes the rule inline and returns a snapshot-v2 machine without guest setup", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const handle = await providerWith(fake).create({
