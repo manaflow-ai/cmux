@@ -243,6 +243,10 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
 /// optchat-chief daemon.rs `names_from_env`), not the app's "Chief", so two
 /// Chiefs never show as two "Chief" rows. A rename reaches the next start:
 /// the brain restarts with the new name.
+///
+/// One cmux MCP server per Chief turn (hq-6d 2026-10-14): acpmux gives every
+/// agent chat its own `cmux mcp serve`, so a brain gets no
+/// `CMUX_MCP_COMMAND`, also from an app that still passes `mcp_command`.
 #[test]
 fn each_chief_brain_is_titled_with_its_own_name() {
     use std::os::unix::fs::PermissionsExt;
@@ -258,7 +262,8 @@ fn each_chief_brain_is_titled_with_its_own_name() {
         "executable": stub,
         "home": chief_home,
         "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
-                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false",
+                "mcp_command": "/opt/cmux-test/bin/cmux"},
     })
     .to_string();
     let mut owned = HeadlessServer::start_with_options(
@@ -279,6 +284,8 @@ fn each_chief_brain_is_titled_with_its_own_name() {
     };
     assert_eq!(title(&scout_home, 1).as_deref(), Some("Scout"));
     assert_eq!(title(&ops_home, 1).as_deref(), Some("Ops"));
+    let env = env_of(&scout_home.join("env.1"));
+    assert!(!env.contains_key("CMUX_MCP_COMMAND"), "{env:?}");
 
     let renamed = chief_cli(server, &["edit", &scout, "--name", "Scout Two", "--json"], "");
     assert_success(&renamed);
