@@ -47,29 +47,42 @@ public struct ToastDismissal: Equatable, Sendable {
     }
 }
 
-/// Where a bottom toast sits: above whatever occupies the bottom of the screen right now
-/// (the home indicator, a bottom toolbar, the keyboard and its key bar, a composer), with
-/// a gap. All values are heights measured up from the bottom edge of the screen.
+/// Where a workspace toast sits, by the screen's chrome.
+///
+/// - A tab page: TabsKit keeps every control at the bottom (the title pill, Back, page
+///   menu, Tabs, a chat composer, a terminal's composer and key bar, the keyboard), so the
+///   toast goes at the top, under the status bar, where a page has no controls and the
+///   keyboard never reaches.
+/// - The tab grid: its header (Back, the title, More) is at the top and every card has a
+///   close button at its top corner, so the toast goes at the bottom, just above the grid's
+///   bottom controls (New Tab, the tab count, Done). The grid has no keyboard.
 public struct ToastPlacement: Equatable, Sendable {
-    public var safeAreaBottom: CGFloat
-    public var bottomToolbar: CGFloat
-    public var keyboard: CGFloat
-    /// Chrome docked on top of the keyboard or the bottom (key bar, composer).
-    public var dockedAccessory: CGFloat
+    public enum Screen: Sendable, Equatable { case page, grid }
+
+    public var screen: Screen
+    /// Height of the grid's bottom controls above the bottom safe area.
+    public var gridControls: CGFloat
     public var gap: CGFloat = 8
 
-    public init(safeAreaBottom: CGFloat, bottomToolbar: CGFloat = 0, keyboard: CGFloat = 0, dockedAccessory: CGFloat = 0) {
-        self.safeAreaBottom = safeAreaBottom
-        self.bottomToolbar = bottomToolbar
-        self.keyboard = keyboard
-        self.dockedAccessory = dockedAccessory
+    public init(screen: Screen, gridControls: CGFloat = 56) {
+        self.screen = screen
+        self.gridControls = gridControls
     }
 
-    /// The toast's bottom edge, above the bottom of the screen.
-    public var bottomInset: CGFloat {
-        // The keyboard replaces the safe area and the toolbar when it is up; an accessory
-        // (key bar, composer) sits on top of whichever is higher.
-        let base = max(safeAreaBottom + bottomToolbar, keyboard)
-        return base + dockedAccessory + gap
+    /// The edge the toast enters from (and leaves by, with a swipe).
+    public var entry: ToastDismissal.Entry { screen == .page ? .top : .bottom }
+
+    /// Distance from the top safe area (page) or the bottom safe area (grid) to the toast.
+    public var inset: CGFloat { screen == .page ? gap : gridControls + gap }
+
+    /// The toast's frame in a screen `height` tall with `safeTop` / `safeBottom` insets.
+    public func frame(toastHeight: CGFloat, screenHeight: CGFloat, safeTop: CGFloat, safeBottom: CGFloat) -> CGRect {
+        let y = screen == .page ? safeTop + inset : screenHeight - safeBottom - inset - toastHeight
+        return CGRect(x: 0, y: y, width: .greatestFiniteMagnitude, height: toastHeight)
+    }
+
+    /// Whether the toast misses a control whose frame is `control` (screen coordinates).
+    public func clears(_ control: CGRect, toastHeight: CGFloat, screenHeight: CGFloat, safeTop: CGFloat, safeBottom: CGFloat) -> Bool {
+        !frame(toastHeight: toastHeight, screenHeight: screenHeight, safeTop: safeTop, safeBottom: safeBottom).intersects(control)
     }
 }

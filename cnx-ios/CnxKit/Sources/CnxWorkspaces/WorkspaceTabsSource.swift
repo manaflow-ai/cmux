@@ -254,6 +254,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    #if DEBUG
+    /// `-cnx-toast-demo`: the live report's refusal as a toast that stays until dismissed
+    /// (placement and gesture captures).
+    func showDemoToast() {
+        toastText = TabNotice(action: .open(optionTitle: "New Claude Chat"), macName: macName,
+                              reason: "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder").text
+    }
+    #endif
+
     /// The short line in the toast; the Mac's reason goes to the log only.
     private func show(_ notice: TabNotice) {
         tabsLog.error("tab request refused on \(self.macName, privacy: .public): \(notice.detail, privacy: .public)")
