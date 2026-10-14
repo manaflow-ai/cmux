@@ -235,11 +235,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         dropClosedParkedBrowsers(snapshot)
     }
 
-    /// A browser parked in this pane (`PaneContentView+Parking`) whose tab
-    /// closed, moved away or got a new view leaves the window.
+    /// A browser or agent page parked in this pane (`PaneContentView+Parking`)
+    /// whose tab closed, moved away or got a new view leaves the window.
     private func dropClosedParkedBrowsers(_ snapshot: Snapshot) {
         guard !view.parked.isEmpty else { return }
-        let live = Set(snapshot.items.compactMap { services.cache.existingBrowser($0.id.rawValue)?.chrome }.map(ObjectIdentifier.init))
+        let agentTabs = services.agentTabs
+        let live = Set(snapshot.items.flatMap { item -> [NSView] in
+            let key = item.id.rawValue
+            return [services.cache.existingBrowser(key)?.chrome, agentTabs.existingView(key)].compactMap { $0 }
+        }.map(ObjectIdentifier.init))
         view.prunePark { live.contains(ObjectIdentifier($0)) }
     }
 
