@@ -244,6 +244,18 @@ fn two_chiefs_on_one_acpmux_reach_only_their_own_sessions() {
 /// A host on `acpmux_home` (it starts the fake there), stopped with SIGTERM
 /// once the fake runs; the fake's pid.
 fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&Path>) -> i32 {
+    host_stops_after(dir, mux_home, acpmux_home, shared, |_| {})
+}
+
+/// [`host_stops`], with `before_stop` run on the fake's pid once it runs,
+/// before the host gets SIGTERM.
+fn host_stops_after(
+    dir: &Path,
+    mux_home: &Path,
+    acpmux_home: &Path,
+    shared: Option<&Path>,
+    before_stop: impl FnOnce(i32),
+) -> i32 {
     let bin = fake_acpmux(acpmux_home);
     let token = dir.join("agent-token");
     std::fs::write(&token, "secret\n").unwrap();
@@ -285,6 +297,7 @@ fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&P
         .parse()
         .unwrap();
     guard.0.push(fake);
+    before_stop(fake);
     // SAFETY: the pid is our own child.
     unsafe { libc::kill(host.id() as i32, libc::SIGTERM) };
     let mut status = None;
@@ -385,4 +398,145 @@ fn the_default_chiefs_host_starts_the_chief_homes_acpmux_without_its_credential(
         identity.get("OPTCHAT_CHIEF_PARTICIPANT").is_none(),
         "{identity}"
     );
+}
+
+/// The sessions of the default Chief (the Chief home `h` itself) and of the
+/// Chief `b` (`h/c/<id>`), whose turn is running.
+fn default_and_b(h: &Path, b: &Path) -> serde_json::Value {
+    let (ih, ib) = (home_id(h), home_id(b));
+    json!([
+        session("s-default-turn", &format!("optchat-{ih}-turn"),
+                json!({"cmux.chief": ih, "cmux.chief.role": "turn"})),
+        {
+            let mut running = session("s-b-turn", &format!("optchat-{ib}-turn"),
+                                      json!({"cmux.chief": ib, "cmux.chief.role": "turn"}));
+            running["status"] = json!("running");
+            running
+        },
+    ])
+}
+
+/// One JSON-RPC request to the fake on `socket`; its result.
+fn ask(socket: &Path, method: &str, params: serde_json::Value) -> serde_json::Value {
+    use std::io::{BufRead, BufReader, Write};
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let line = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+    stream.write_all(format!("{line}\n").as_bytes()).unwrap();
+    let mut reply = String::new();
+    BufReader::new(stream).read_line(&mut reply).unwrap();
+    serde_json::from_str::<serde_json::Value>(&reply).unwrap()["result"].clone()
+}
+
+/// Holds the host lock of the Chief at `home` (as its running host does)
+/// while the returned file is open.
+fn hold_host_lock(home: &Path) -> std::fs::File {
+    std::fs::create_dir_all(home.join("state")).unwrap();
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .append(true)
+        .create(true)
+        .open(home.join("state/host.lock"))
+        .unwrap();
+    file.try_lock().unwrap();
+    file
+}
+
+/// The default Chief's host started the Chief home's acpmux and stops
+/// (Quit, End Sessions, a handoff) while Chief B is mid-turn on it: it ends
+/// only its own sessions and leaves the daemon running, so B's turn
+/// completes; it never shuts the daemon down under another Chief.
+#[test]
+fn the_default_host_stops_while_chief_b_is_mid_turn_and_b_finishes() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let b = h.join("c/bbbb2222");
+    std::fs::create_dir_all(&b).unwrap();
+    let acpmux_home = h.join("acpmux");
+    std::fs::create_dir_all(&acpmux_home).unwrap();
+    std::fs::write(acpmux_home.join("sessions.json"), default_and_b(&h, &b).to_string()).unwrap();
+    let fake = host_stops(dir.path(), &h, &acpmux_home, None);
+    let _guard = Leftovers(vec![fake]);
+    assert_eq!(
+        calls(&acpmux_home),
+        ["_acpmux/kill s-default-turn"],
+        "the default host ended B's turn or the daemon"
+    );
+    assert!(alive(fake), "the Chief home's acpmux stopped under Chief B");
+    // B's turn goes on and answers on the same daemon.
+    let answer = ask(
+        &acpmux_home.join("acpmux.sock"),
+        "session/prompt",
+        json!({"sessionId": "s-b-turn"}),
+    );
+    assert_eq!(answer, json!({}), "B's turn got no answer");
+}
+
+/// An idle Chief whose host runs (its host lock held) also uses the
+/// daemon: the default host leaves it running.
+#[test]
+fn the_default_host_leaves_the_daemon_to_a_running_chief_host() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let b = h.join("c/bbbb2222");
+    let acpmux_home = h.join("acpmux");
+    std::fs::create_dir_all(&acpmux_home).unwrap();
+    let only_default = json!([session(
+        "s-default-turn",
+        &format!("optchat-{}-turn", home_id(&h)),
+        json!({"cmux.chief": home_id(&h), "cmux.chief.role": "turn"})
+    )]);
+    std::fs::write(acpmux_home.join("sessions.json"), only_default.to_string()).unwrap();
+    let _b_host = hold_host_lock(&b);
+    let fake = host_stops(dir.path(), &h, &acpmux_home, None);
+    let _guard = Leftovers(vec![fake]);
+    assert_eq!(calls(&acpmux_home), ["_acpmux/kill s-default-turn"]);
+    assert!(alive(fake), "the daemon stopped under a running Chief host");
+}
+
+/// The last user leaves: a Chief's shared host that stops when no other
+/// Chief uses the Chief home's acpmux (no other host runs, no other
+/// Chief's session is open) ends its sessions and stops the daemon.
+#[test]
+fn the_last_chief_to_leave_stops_the_chief_homes_acpmux() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let (a, b) = (h.join("c/aaaa1111"), h.join("c/bbbb2222"));
+    let acpmux_home = h.join("acpmux");
+    std::fs::create_dir_all(&acpmux_home).unwrap();
+    let only_a = json!([session(
+        "s-a-turn",
+        &format!("optchat-{}-turn", home_id(&a)),
+        json!({"cmux.chief": home_id(&a), "cmux.chief.role": "turn"})
+    )]);
+    std::fs::write(acpmux_home.join("sessions.json"), only_a.to_string()).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let fake = host_stops(dir.path(), &a, &acpmux_home, Some(&h));
+    let _guard = Leftovers(vec![fake]);
+    assert_eq!(calls(&acpmux_home), ["_acpmux/kill s-a-turn", "shutdown"]);
+    wait_for("the daemon ending", Duration::from_secs(5), || !alive(fake));
+}
+
+/// A handoff: the app stopped the daemon this host started (agents
+/// detach; the next build's daemon adopts them) before it stops the host.
+/// The host then stops nothing: no `daemon shutdown` reaches the next
+/// daemon, no session of its is ended.
+#[test]
+fn after_a_handoff_the_old_default_host_stops_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let acpmux_home = h.join("acpmux");
+    let socket = acpmux_home.join("acpmux.sock");
+    let fake = host_stops_after(dir.path(), &h, &acpmux_home, None, |fake| {
+        // SAFETY: the fake daemon this test's host started.
+        unsafe { libc::kill(fake, libc::SIGTERM) };
+        // Its socket stops answering (the host has not reaped it yet).
+        wait_for("the handed-off daemon ending", Duration::from_secs(5), || {
+            std::os::unix::net::UnixStream::connect(&socket).is_err()
+        });
+    });
+    let _guard = Leftovers(vec![fake]);
+    assert_eq!(calls(&acpmux_home), Vec::<String>::new(), "the old host stopped the next daemon");
 }
