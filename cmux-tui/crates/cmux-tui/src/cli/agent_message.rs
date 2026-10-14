@@ -639,10 +639,7 @@ fn sent_summary(message: &Value) -> String {
                 "queued" if recipient.starts_with("term_") => {
                     format!("queued for {recipient}; it reaches the agent at its next hook")
                 }
-                "held" => format!(
-                    "held for {recipient} until you approve it (cmux agent message release {id} \
-                     --recipient {recipient} --approve)"
-                ),
+                "held" => format!("held for {recipient} until you approve it in the cmux app"),
                 _ => format!("{state} to {recipient}"),
             }
         })

@@ -861,7 +861,9 @@ stored either way, and problems with older messages are reported on stderr.
 
 `agent message release` is the person's decision on a held delivery of
 `<message-id>` to `--recipient`: `--approve` queues it, `--decline` declines
-it (one `agent.message.release`; an agent's request is refused).
+it (one `agent.message.release`). Only the verified cmux app may decide, so
+from a terminal the command is refused with reason `release_needs_app`; the
+app's Approve and Decline controls make the same request.
 
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
 own address when it has one, else every message. `--state` is any delivery

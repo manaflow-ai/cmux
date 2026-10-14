@@ -159,26 +159,10 @@ pub(crate) fn send(
     now_ms: i64,
 ) -> anyhow::Result<Value> {
     let sender = context.agent.unwrap_or(CLI_SENDER);
-    if let Some(claimed) = &message.sender
-        && claimed != sender
-    {
-        return Err(invalid(
-            "sender",
-            "sender_mismatch",
-            format!("this request is sent by {sender}; it cannot claim to be {claimed}"),
-        ));
-    }
-    validate_body(&message.body)?;
-    if let Some(name) = &message.sender_name {
-        validate_sender_name(name)?;
-    }
-    if let Some(thread) = &message.thread_id {
-        validate_message_id("thread_id", thread)?;
-    }
+    validate(message, sender)?;
     expire_held(transaction, now_ms)?;
     let parent = match &message.in_reply_to {
         Some(parent_id) => {
-            validate_message_id("in_reply_to", parent_id)?;
             Some(load_envelope(transaction, parent_id)?.ok_or_else(|| not_found(parent_id))?)
         }
         None => None,
@@ -219,6 +203,9 @@ pub(crate) fn send(
             "message",
         ),
     };
+    if context.agent.is_some() {
+        policy::check_thread_member(transaction, sender, &thread_id)?;
+    }
     check_limits(
         transaction,
         &policy::Send {
@@ -254,6 +241,7 @@ pub(crate) fn send(
             serde_json::to_string(&references)?,
         ],
     )?;
+    policy::count_in_thread(transaction, &thread_id, now_ms)?;
     for (position, (recipient, start)) in recipients.iter().zip(starts).enumerate() {
         let (state, queued_at, held_until, reason) = match start {
             Start::Queued => ("queued", Some(now_ms), None, None),
@@ -278,6 +266,73 @@ pub(crate) fn send(
     }
     prune_settled(transaction)?;
     snapshot(transaction, session_id, message_id, now_ms)?.ok_or_else(|| not_found(message_id))
+}
+
+/// Every check of a send that needs no parent, terminal or workspace: the
+/// sender claim and the fields' format. `sender` is the verified sender.
+fn validate(message: &NewAgentMessage, sender: &str) -> anyhow::Result<()> {
+    if let Some(claimed) = &message.sender
+        && claimed != sender
+    {
+        return Err(invalid(
+            "sender",
+            "sender_mismatch",
+            format!("this request is sent by {sender}; it cannot claim to be {claimed}"),
+        ));
+    }
+    validate_body(&message.body)?;
+    if let Some(name) = &message.sender_name {
+        validate_sender_name(name)?;
+    }
+    if let Some(thread) = &message.thread_id {
+        validate_message_id("thread_id", thread)?;
+    }
+    if let Some(parent) = &message.in_reply_to {
+        validate_message_id("in_reply_to", parent)?;
+    }
+    if message.recipients.len() > MAX_RECIPIENTS {
+        return Err(bad_request(format!(
+            "the message has {} recipients; the limit is {MAX_RECIPIENTS}",
+            message.recipients.len()
+        )));
+    }
+    if let Some(recipient) = message.recipients.iter().find(|r| !is_recipient_address(r)) {
+        return Err(bad_request(format!(
+            "{recipient:?} is not a recipient; use a terminal id (term_...) or acp:<session id>"
+        )));
+    }
+    Ok(())
+}
+
+/// The checks a send passes before the daemon asks acpmux for workspaces:
+/// [`validate`], then the burst limit and each named recipient's limits,
+/// read-only. `send` checks them all again under the commit's lock. A
+/// retry of a stored send (`idempotency_key` in the ledger) skips them, so
+/// the commit returns the first result.
+pub(crate) fn precheck(
+    connection: &Connection,
+    idempotency_key: &str,
+    message: &NewAgentMessage,
+    agent: Option<&str>,
+    now_ms: i64,
+) -> anyhow::Result<()> {
+    let replay: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM resource_mutations WHERE idempotency_key = ?1)",
+        [idempotency_key],
+        |row| row.get(0),
+    )?;
+    if replay {
+        return Ok(());
+    }
+    let sender = agent.unwrap_or(CLI_SENDER);
+    validate(message, sender)?;
+    let mut recipients: Vec<String> = Vec::new();
+    for recipient in &message.recipients {
+        if !recipients.contains(recipient) {
+            recipients.push(recipient.clone());
+        }
+    }
+    policy::check_traffic(connection, sender, &recipients, &message.body, now_ms)
 }
 
 /// The distinct recipients of `message`: its own, else its parent's sender.

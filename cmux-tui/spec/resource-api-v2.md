@@ -694,7 +694,9 @@ agent-rooms envelope (`plans/feat-agent-rooms/DESIGN.md`): an id
 (`msg_<32 hex>`), a thread id, the sender address and an untrusted display
 name, the body, and the parent and ancestor ids of a reply. The sender is the
 request's verified actor: the terminal or ACP session its launch credential
-names, else `cli` (the person). A `sender` field that names anyone else is
+names, else `cli` (the person: the local user or the verified app; any other
+actor is addressed by its stored form and its workspace is never known). A
+`sender` field that names anyone else is
 refused (`validation.invalid`, reason `sender_mismatch`). The message and its
 receipts live in the session registry, so they survive a daemon restart.
 
@@ -706,17 +708,24 @@ workspace (a terminal's from its placement, an acpmux session's from
 daemon's `CMUX_AGENT_MESSAGE_CROSS_WORKSPACE` says: `hold` (the default;
 reason `cross_workspace`), `refuse` (the send fails, reason
 `cross_workspace`) or `allow`. `agent.message.release` is the person's
-decision on a held delivery: `approve` queues it, `decline` declines it; an
-agent's request is refused (reason `agent_release`). A held delivery nobody
+decision on a held delivery, made in the verified cmux app: `approve` queues
+it, `decline` declines it; any other request, a plain local connection or the
+CLI included, is refused (reason `release_needs_app`), because any local
+connection may be an agent that left out its launch credential. For the same
+reason holds are advisory against such an agent: it sends as the person until
+launch credentials are mandatory. A held delivery nobody
 decides on for 24 hours is declined with reason `expired`; a read reports it
 so at once, and the next agent message mutation stores it. The limits count
 stored rows, so a restart keeps them; each refusal is `operation.failed` with
 its `details.reason`: 5 sends in 10 seconds per sender and 20 a minute per
 sender and recipient (`rate_limited`), 50 queued or held deliveries per
 recipient (`queue_full`), replies at most 8 deep (`reply_depth`), 40 messages
-per thread (`thread_budget`), and the same body from the same sender to the
+per thread, counted apart from pruning (`thread_budget`), and the same body from the same sender to the
 same recipient within 10 seconds (`duplicate`). A body over 32768 bytes is
-`validation.invalid`, reason `body_too_large`.
+`validation.invalid`, reason `body_too_large`. An agent puts a message or a
+reply in an existing thread only when it sent one of the thread's messages or
+one was addressed to it (`thread_not_joined`). Format errors and the burst and
+per-recipient limits are checked before the daemon asks acpmux anything.
 
 `agent.message.mark` moves a receipt to `delivered`, `acknowledged` or
 `failed` and records the delivery path in `via`; receipts only move forward,

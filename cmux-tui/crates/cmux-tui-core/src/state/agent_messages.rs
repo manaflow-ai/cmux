@@ -38,6 +38,12 @@ impl Mux {
         // Minted before the commit; a replay returns the first id instead.
         let message_id = messages::new_message_id()?;
         let session_id = self.session_public_id.as_str().to_owned();
+        // Refuse what the fields and the limits already refuse before
+        // waiting on acpmux; the commit checks every rule again.
+        let now = policy::now_ms();
+        self.read_registry_state(|connection| {
+            messages::precheck(connection, &mutation.id, &message, agent.as_deref(), now)
+        })?;
         let acp_keys = self.acp_workspace_keys(agent.as_deref(), &message);
         let rule = CrossWorkspace::configured();
         self.commit_state(
@@ -161,9 +167,10 @@ impl Mux {
         )
     }
 
-    /// `agent.message.release`: the person approves or declines one held
-    /// delivery. An agent never decides on a held message, its own or
-    /// another's.
+    /// `agent.message.release`: the person, in the verified cmux app,
+    /// approves or declines one held delivery. Any local connection may be
+    /// an agent that left out its launch credential, so every other actor,
+    /// the plain local user included, is refused (as pairing approval is).
     pub(crate) fn agent_message_release(
         &self,
         mutation: &WorkspaceMutation,
@@ -173,11 +180,11 @@ impl Mux {
         recipient: &str,
         decision: &str,
     ) -> anyhow::Result<StateCommit> {
-        if let Some(agent) = policy::sender_address(&mutation.actor) {
+        if !matches!(mutation.actor, crate::workspace_registry::Actor::Frontend { .. }) {
             return Err(policy::refused_by(
                 "agent.message.release",
-                "agent_release",
-                format!("{agent} is an agent; only the person approves or declines a held message"),
+                "release_needs_app",
+                "only the person, in the cmux app, approves or declines a held message",
                 serde_json::json!({}),
             ));
         }

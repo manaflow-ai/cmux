@@ -58,13 +58,21 @@ impl CrossWorkspace {
     }
 }
 
-/// The verified sender of a request: an agent's address (its terminal, or
-/// `acp:<session>`), or the person ([`super::agent_message_store::CLI_SENDER`]).
+/// The verified sender of a request: `None` for the person (the local user
+/// or the verified app, [`super::agent_message_store::CLI_SENDER`]), else
+/// its address: a terminal id, `acp:<session>`, or the stored actor form
+/// (`peer:…`, `app:…`, …) of any other actor, whose workspace is never known.
+///
+/// A local process that leaves out its launch credential is the local user,
+/// so holds are advisory against an agent that hides its credential until
+/// credentials are mandatory.
 pub(crate) fn sender_address(actor: &Actor) -> Option<String> {
     match actor {
+        Actor::Frontend { .. } => None,
+        Actor::User { .. } if *actor == Actor::local_user() => None,
         Actor::Terminal { id } => Some(id.clone()),
         Actor::AcpSession { id, .. } => Some(format!("acp:{id}")),
-        _ => None,
+        other => Some(other.wire()),
     }
 }
 
@@ -152,11 +160,15 @@ pub(crate) fn check_limits(connection: &Connection, send: &Send<'_>) -> anyhow::
             json!({"limit": MAX_REPLY_DEPTH, "depth": send.depth}),
         ));
     }
-    let in_thread: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM agent_messages WHERE thread_id = ?1",
-        [send.thread_id],
-        |row| row.get(0),
-    )?;
+    // Counted in its own table: pruning old messages never resets it.
+    let in_thread: i64 = connection
+        .query_row(
+            "SELECT messages FROM agent_message_threads WHERE thread_id = ?1",
+            [send.thread_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(0);
     if in_thread >= THREAD_BUDGET {
         return Err(refused(
             "thread_budget",
@@ -164,6 +176,20 @@ pub(crate) fn check_limits(connection: &Connection, send: &Send<'_>) -> anyhow::
             json!({"limit": THREAD_BUDGET, "thread_id": send.thread_id}),
         ));
     }
+    check_traffic(connection, send.sender, send.recipients, send.body, send.now_ms)
+}
+
+/// The limits on how much one sender sends: duplicates, the burst, and each
+/// recipient's pair rate and waiting queue. Read-only, so a send runs them
+/// before it asks acpmux anything, and again in its commit.
+pub(crate) fn check_traffic(
+    connection: &Connection,
+    sender: &str,
+    recipients: &[String],
+    body: &str,
+    now_ms: i64,
+) -> anyhow::Result<()> {
+    let send = Traffic { sender, recipients, body, now_ms };
     for recipient in send.recipients {
         let duplicate: Option<String> = connection
             .query_row(
@@ -223,6 +249,68 @@ pub(crate) fn check_limits(connection: &Connection, send: &Send<'_>) -> anyhow::
     }
     Ok(())
 }
+
+struct Traffic<'a> {
+    sender: &'a str,
+    recipients: &'a [String],
+    body: &'a str,
+    now_ms: i64,
+}
+
+/// An agent may put a message in an existing thread only when it takes part
+/// in it: it sent one of the thread's messages or one was addressed to it.
+/// A thread with no stored message is open to anyone.
+pub(crate) fn check_thread_member(
+    connection: &Connection,
+    sender: &str,
+    thread_id: &str,
+) -> anyhow::Result<()> {
+    let (exists, member): (bool, bool) = connection.query_row(
+        "SELECT
+           EXISTS(SELECT 1 FROM agent_messages WHERE thread_id = ?1),
+           EXISTS(SELECT 1 FROM agent_messages AS m
+                  WHERE m.thread_id = ?1 AND (m.sender = ?2 OR EXISTS(
+                    SELECT 1 FROM agent_message_deliveries AS d
+                    WHERE d.message_id = m.message_id AND d.recipient = ?2)))",
+        params![thread_id, sender],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if exists && !member {
+        return Err(refused(
+            "thread_not_joined",
+            format!("{sender} takes no part in thread {thread_id}"),
+            json!({"thread_id": thread_id}),
+        ));
+    }
+    Ok(())
+}
+
+/// Count one more message in `thread_id`, and forget the counts of threads
+/// that have no stored message and no new one for a week.
+pub(crate) fn count_in_thread(
+    connection: &Connection,
+    thread_id: &str,
+    now_ms: i64,
+) -> anyhow::Result<()> {
+    connection.execute(
+        "INSERT INTO agent_message_threads(thread_id, messages, updated_at_ms)
+         VALUES(?1, 1, ?2)
+         ON CONFLICT(thread_id) DO UPDATE
+           SET messages = messages + 1, updated_at_ms = excluded.updated_at_ms",
+        params![thread_id, now_ms],
+    )?;
+    connection.execute(
+        "DELETE FROM agent_message_threads
+         WHERE updated_at_ms < ?1
+           AND NOT EXISTS(SELECT 1 FROM agent_messages AS m
+                          WHERE m.thread_id = agent_message_threads.thread_id)",
+        [now_ms.saturating_sub(THREAD_COUNT_KEEP_MS)],
+    )?;
+    Ok(())
+}
+
+/// How long the message count of a thread with no stored message is kept.
+const THREAD_COUNT_KEEP_MS: i64 = 7 * HOLD_MS;
 
 /// The recipient's deliveries still waiting: queued, or held and not expired.
 fn waiting(connection: &Connection, recipient: &str, now_ms: i64) -> anyhow::Result<i64> {

@@ -9,6 +9,10 @@
 //! their meaning, so each row keeps its state; the new timestamps are filled
 //! from what the old row knew. The new columns have defaults, so an older
 //! binary that opens the registry still inserts and reads its rows.
+//!
+//! `agent_message_threads` counts each thread's messages for the thread
+//! budget, so pruning old messages never resets it; a registry without it
+//! starts from the messages it holds.
 
 use rusqlite::{OptionalExtension, Transaction};
 
@@ -53,7 +57,14 @@ pub(crate) fn create_agent_message_schema(transaction: &Transaction<'_>) -> anyh
          CREATE INDEX IF NOT EXISTS agent_messages_thread
            ON agent_messages(thread_id, sequence);
          CREATE INDEX IF NOT EXISTS agent_messages_sender
-           ON agent_messages(sender, created_at_ms);",
+           ON agent_messages(sender, created_at_ms);
+         CREATE TABLE IF NOT EXISTS agent_message_threads (
+           thread_id TEXT PRIMARY KEY NOT NULL,
+           messages INTEGER NOT NULL CHECK(messages >= 0),
+           updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0)
+         );
+         INSERT OR IGNORE INTO agent_message_threads(thread_id, messages, updated_at_ms)
+           SELECT thread_id, COUNT(*), MAX(created_at_ms) FROM agent_messages GROUP BY thread_id;",
     )?;
     let existing: Option<String> = transaction
         .query_row(
