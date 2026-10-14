@@ -237,6 +237,8 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
 /// only: nothing is signed), then the question reads as answered and Chief
 /// replies. Layout and flow only.
 extension ChiefMockBackend: ChiefQuestionSource {
+    public func recheckQuestions() async throws {}
+
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer, signer: (any ChiefAnswerSigning)?,
                        approved: @escaping @Sendable () -> Void) async throws {
         await sleep(.milliseconds(1400))
