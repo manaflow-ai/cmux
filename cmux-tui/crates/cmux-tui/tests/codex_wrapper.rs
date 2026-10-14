@@ -105,6 +105,25 @@ impl Launch {
     }
 }
 
+impl Launch {
+    /// Answers the agent message lookups a finished hook left queued: a Stop
+    /// hook asks for queued messages again after its journal event, so a
+    /// later "nothing arrived" check must not count that lookup. Panics on any
+    /// other request.
+    fn drain_message_lookups(&self) {
+        while let Ok((stream, _)) = self.listener.accept() {
+            stream.set_nonblocking(false).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let mut line = String::new();
+            if BufReader::new(&stream).read_line(&mut line).unwrap_or(0) == 0 {
+                continue;
+            }
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["operation"], "agent.message.list", "{request}");
+        }
+    }
+}
+
 fn settings(argv: &[String]) -> toml::Value {
     let text = argv
         .windows(2)
@@ -303,7 +322,8 @@ impl ShellSession {
             .unwrap();
         let session = Self { root, socket, server };
         let deadline = Instant::now() + Duration::from_secs(15);
-        while !session.socket.exists() || session.try_cli(&["--json", "workspace", "list"]).is_none()
+        while !session.socket.exists()
+            || session.try_cli(&["--json", "workspace", "list"]).is_none()
         {
             assert!(
                 Instant::now() < deadline,
@@ -489,6 +509,7 @@ fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_in
     run_under_codex_daemon(installed, &inherited, false);
     let received = launch.event();
     assert_eq!(received["payload"]["native_event"], "Stop", "the control run must post");
+    launch.drain_message_lookups();
 
     run_under_codex_daemon(installed, &inherited, true);
     assert_eq!(
