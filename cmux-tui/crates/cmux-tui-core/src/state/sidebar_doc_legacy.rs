@@ -177,11 +177,10 @@ pub(crate) fn legacy_input(connection: &Connection) -> anyhow::Result<LegacyInpu
 pub(crate) fn project_layout(stored: &Document, doc: &Doc) -> Document {
     let mut projected = stored.clone();
     projected.revision = stored.revision + doc.revision;
-    let first_machine = doc
-        .sections()
-        .iter()
-        .filter(|s| s.kind.machine().is_some())
-        .min_by(|a, b| (a.region_rank(), &a.order, &a.id).cmp(&(b.region_rank(), &b.order, &b.id)));
+    let first_machine =
+        doc.sections().iter().filter(|s| s.kind.machine().is_some()).min_by(|a, b| {
+            (a.region_rank(), &a.order, &a.id).cmp(&(b.region_rank(), &b.order, &b.id))
+        });
     for section in &mut projected.sections {
         let source = if section.content == sidebar_layout::Content::Workspaces {
             first_machine
