@@ -101,6 +101,13 @@ extension IPhoneHostService {
             CmuxDialogCenter.shared.dismiss(open.id)
         }
         guard pairDialog == nil, !prompts.isQuiet(at: Date()), let request = prompts.pending.first else { return }
+        // In the app only, never a floating window: a sheet on the frontmost cmux window. With
+        // none on screen it waits (the banner, the Dock and Settings > Mobile still tell the
+        // person) and shows when a cmux window next becomes main or the app comes forward.
+        guard let scope = Self.pairScope(window: pairWindow?()) else {
+            watchForPairWindow()
+            return
+        }
         let name = Self.displayName(request)
         var lines = [IPhoneHostStrings.pairBody(account?.email ?? account?.userID ?? "")]
         if let registered = request.registeredAt { lines.append(IPhoneHostStrings.deviceRegistered(registered)) }
@@ -111,7 +118,7 @@ extension IPhoneHostService {
                       CmuxDialogButton(id: Self.allowButton, title: IPhoneHostStrings.pairAllow, role: .default)],
             identifier: Self.pairDialogIdentifier)
         var dialogID = 0
-        dialogID = CmuxDialogCenter.shared.present(spec, in: .app) { [weak self] answer in
+        dialogID = CmuxDialogCenter.shared.present(spec, in: scope) { [weak self] answer in
             // A prompt this service closed (answered in Settings, replaced, signed out) decides nothing.
             guard let self, pairDialog?.id == dialogID else { return }
             pairDialog = nil
@@ -121,6 +128,24 @@ extension IPhoneHostService {
         }
         // A dialog that ended at once (no place to show it) is not open.
         if CmuxDialogCenter.shared.record(dialogID) != nil { pairDialog = (dialogID, request) }
+    }
+
+    /// Where the prompt shows: a sheet on `window` when it is on screen; nil (wait) otherwise.
+    static func pairScope(window: NSWindow?) -> CmuxDialogScope? {
+        guard let window, window.isVisible, !window.isMiniaturized else { return nil }
+        return .window(window)
+    }
+
+    /// A waiting prompt shows when a cmux window becomes main or the app comes forward
+    /// (one pair of observers for the service's life; a pass with nothing waiting does nothing).
+    private func watchForPairWindow() {
+        guard pairWindowWatch.isEmpty else { return }
+        let center = NotificationCenter.default
+        for name in [NSWindow.didBecomeMainNotification, NSApplication.didBecomeActiveNotification] {
+            pairWindowWatch.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.showPairDialog() }
+            })
+        }
     }
 
     private func decide(_ request: CnxPairRequest, allow: Bool) {
