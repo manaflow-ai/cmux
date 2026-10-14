@@ -51,7 +51,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
 
     /// One event record: a `permission_request` or `permission_reissued` names its prompt's nonce and run.
     private func observeRecord(_ record: [String: Any]) {
-        guard let kind = record["kind"] as? String, kind == "permission_request" || kind == "permission_reissued",
+        // Only the daemon's own (`mux`) records name a prompt's nonce and run.
+        guard record["dir"] as? String == "mux",
+              let kind = record["kind"] as? String, kind == "permission_request" || kind == "permission_reissued",
               let session = record["sessionId"] as? String, let message = record["msg"] as? [String: Any] else { return }
         note(session: session, message, seq: (record["seq"] as? NSNumber)?.uint64Value)
     }
@@ -66,7 +68,8 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         let key = session + "\u{0}" + permission
         state.withLock { state in
             if let seq, let known = state.seqByKey[key], seq < known { return }
-            if let seq { state.seqByKey[key] = seq }
+            // An update without a seq is the newest the pane knows: no replayed record replaces it.
+            state.seqByKey[key] = seq ?? .max
             guard state.byKey.updateValue(Context(nonce: nonce, instance: instance), forKey: key) == nil else { return }
             state.order.append(key)
             if state.order.count > Self.limit {
