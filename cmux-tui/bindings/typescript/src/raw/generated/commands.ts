@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85. */
+/* cmux-tui mux protocol 12, IR 4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955. */
 
 
 import type * as T from "./types.js";
@@ -341,6 +341,8 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
+  /** Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change. */
+  "if_empty"?: boolean;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;

@@ -149,7 +149,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryVisitTitle
         | ResourceOperation::HistoryVisitRemove
         | ResourceOperation::HistoryVisitSummaries
-        | ResourceOperation::HistoryVisitImport => OperationOwner::History,
+        | ResourceOperation::HistoryVisitImport
+        | ResourceOperation::HistoryTrailRecord => OperationOwner::History,
         ResourceOperation::BrowserTabSetProfile => OperationOwner::BrowserProfile,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet

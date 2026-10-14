@@ -142,12 +142,14 @@ declare namespace Cmux {
   type GrantId = string
   type GroupColor = string
   type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
-  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string }
+  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string; window?: string; location?: Cmux.HistoryTrailLocation }
   type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
   type HistoryPurgeResult = { purged: number }
   type HistoryRange = "hour" | "today" | "week" | "month" | "all"
   type HistoryRemovalResult = { removed: number; restore_id: string | null }
   type HistoryRestoreResult = { restored: number }
+  type HistoryTrailLocation = { machine: string; tab: string; title: string; page?: string; workspace?: string; workspace_title?: string; pane?: string; screen?: string; room?: string; content?: string; machine_name?: string; url?: string; cwd?: string }
+  type HistoryTrailRecordResult = { id?: string; recorded: boolean }
   type HistoryVisitImportResult = { imported: number }
   type HistoryVisitRecordResult = { id: string }
   type HistoryVisitSummary = { url: string; title: string | null; visit_count: number; last_visit_ms: string }

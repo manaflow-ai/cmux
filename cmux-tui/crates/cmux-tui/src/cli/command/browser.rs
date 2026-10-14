@@ -201,11 +201,10 @@ fn parse_browser_profile(action: &str, flags: &mut Flags) -> Result<CommandPlan,
             insert_u32(&mut params, "index", "--index", flags.required("index")?)?;
             Ok(private_browser_command("move-browser-profile", params))
         }
-        "delete" => {
-            let mut params = Map::new();
-            params.insert("browser_profile".into(), Value::String(flags.required("profile")?));
-            Ok(private_browser_command("delete-browser-profile", params))
-        }
+        // Only a person deletes a browser profile, in the app (the daemon refuses every other caller).
+        "delete" => Err(UsageError::new(
+            "browser profile delete: only a person deletes a browser profile, in the cmux app (Settings, the palette or the menu)",
+        )),
         "open" => Err(UsageError::new("browser profile open needs a URL and an engine")),
         _ => usage("browser profile action"),
     }
