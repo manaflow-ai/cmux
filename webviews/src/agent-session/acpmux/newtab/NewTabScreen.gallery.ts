@@ -581,7 +581,7 @@ export default agentPaneEntry({
       },
     },
     "style-switch": {
-      note: "The New Tab style switch (Leo 2026-10-13): the five style names in one quiet row under the page, the current one on a small fill that slides to a pick. A pick shows in place and is saved as tabs.newTabTemplate.",
+      note: "The New Tab style dots (Leo 2026-10-14): one small round dot per style under the page, the current one in the accent and the accent dot sliding to a pick. A pointer over a dot shows its name; a pick shows the picked name for a moment, then fades it, and is saved as tabs.newTabTemplate.",
       ready: newTab({ template: "default" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
