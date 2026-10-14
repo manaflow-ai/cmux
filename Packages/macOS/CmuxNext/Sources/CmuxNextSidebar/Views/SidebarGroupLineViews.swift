@@ -103,11 +103,22 @@ final class GroupLineView: NSView {
     }
 
     override func updateLayer() {
-        let themed = withObservationTracking {
-            SidebarGroupPalette.tunable.value == .theme
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.needsDisplay = true }
-        }
+        let themed = observedThemed()
         performWithTheme { layer?.backgroundColor = color.lineColor(themed: themed).cgColor }
     }
+
+    /// Reads `sidebar.groupColors` and repaints once when it changes; one observation at a time.
+    private func observedThemed() -> Bool {
+        let read = { SidebarGroupPalette.tunable.value == .theme }
+        guard !observesPalette else { return read() }
+        observesPalette = true
+        return withObservationTracking(read) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observesPalette = false
+                self?.needsDisplay = true
+            }
+        }
+    }
+
+    private var observesPalette = false
 }

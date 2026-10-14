@@ -178,15 +178,20 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz); a change
     /// lays the header out and paints it again.
     private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
-        withObservationTracking {
-            (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
-        } onChange: { [weak self] in
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        guard !observesLook else { return read() }
+        observesLook = true
+        return withObservationTracking(read) { [weak self] in
             Task { @MainActor [weak self] in
+                self?.observesLook = false
                 self?.needsLayout = true
                 self?.needsDisplay = true
             }
         }
     }
+
+    /// One observation of the look is registered at a time.
+    private var observesLook = false
 
     override func updateLayer() {
         performWithTheme {
