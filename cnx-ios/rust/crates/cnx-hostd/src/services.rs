@@ -323,6 +323,35 @@ pub fn confine(roots: &[PathBuf], requested: &Path) -> Result<PathBuf, Refusal> 
     Ok(resolved)
 }
 
+/// Largest file the `file` service streams (artifact previews, not transfers).
+pub const MAXIMUM_FILE_BYTES: u64 = 64 << 20;
+
+/// The open file's real path (`F_GETPATH`) must still be inside a root.
+#[cfg(target_vendor = "apple")]
+fn confine_open(roots: &[PathBuf], file: &tokio::fs::File) -> Result<(), Refusal> {
+    use std::os::fd::AsRawFd;
+    let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+    // SAFETY: the descriptor is open for the duration of the call and the buffer
+    // holds PATH_MAX bytes, as F_GETPATH requires.
+    let ok = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } != -1;
+    if !ok {
+        return Err(Refusal::new("forbidden", "cannot check the opened file"));
+    }
+    let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
+    let opened = PathBuf::from(String::from_utf8_lossy(&buffer[..end]).into_owned());
+    let inside = roots
+        .iter()
+        .filter_map(|root| std::fs::canonicalize(root).ok())
+        .any(|root| opened.starts_with(&root));
+    if inside { Ok(()) } else { Err(Refusal::new("forbidden", "path is outside the workspace roots")) }
+}
+
+/// Elsewhere hostd does not run (it serves Macs); the path check before the open stands alone.
+#[cfg(not(target_vendor = "apple"))]
+fn confine_open(_roots: &[PathBuf], _file: &tokio::fs::File) -> Result<(), Refusal> {
+    Ok(())
+}
+
 /// `file`: stream one regular file inside a workspace root, then close
 /// with `eof`.
 async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
@@ -333,9 +362,15 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     let resolved = confine(&config.file_roots, Path::new(requested))?;
     let mut file =
         tokio::fs::File::open(&resolved).await.map_err(|_| Refusal::new("not_found", "cannot open"))?;
+    // A path component swapped for a symlink between the check and the open would
+    // escape the roots: check again where the open descriptor really points.
+    confine_open(&config.file_roots, &file)?;
     let metadata = file.metadata().await.map_err(|_| Refusal::new("not_found", "cannot stat"))?;
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
+    }
+    if metadata.len() > MAXIMUM_FILE_BYTES {
+        return Err(Refusal::new("too_large", "file is larger than 64 MiB"));
     }
     let mut buffer = vec![0u8; 64 * 1024];
     loop {

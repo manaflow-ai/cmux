@@ -1,7 +1,7 @@
 import CmuxNextCompat
-import CmuxNextMobile
-import Foundation
-import Observation
+public import CmuxNextMobile
+public import Foundation
+public import Observation
 import os
 
 /// Settings > Mobile: runs the bundled `cnx-hostd` (the cmux cnx phone host,
@@ -11,19 +11,27 @@ import os
 /// owns the process; this model follows the toggle and the account and
 /// projects the state for the Settings page.
 @MainActor @Observable
-final class IPhoneHostService {
+public final class IPhoneHostService {
     /// The signed-in account hostd registers under.
-    struct Account: Equatable, Sendable {
-        var userID: String
+    public struct Account: Equatable, Sendable {
+        /// The Stack user id (JWT `sub`).
+        public var userID: String
         /// The Stack team, or `personal-<userId>`.
-        var teamID: String
+        public var teamID: String
         /// The team's name; nil for the personal space.
-        var teamName: String?
+        public var teamName: String?
         /// The account's email, shown as "Registered as <email>" (phones sign in with the same one).
-        var email: String?
+        public var email: String?
+
+        public init(userID: String, teamID: String, teamName: String?, email: String?) {
+            self.userID = userID
+            self.teamID = teamID
+            self.teamName = teamName
+            self.email = email
+        }
     }
 
-    /// What the service needs from the app; set once by `AppServices`.
+    /// What the service needs from the app; ``wire(auth:daemon:acpmuxHost:settings:bundleID:computerName:processEnvironment:)`` sets it.
     struct Dependencies {
         /// The bundled hostd (`Contents/Resources/bin/cnx-hostd`), nil when this build has none.
         var executable: URL?
@@ -46,7 +54,12 @@ final class IPhoneHostService {
     private(set) var allowed = false
     private(set) var account: Account?
     private(set) var state = CnxHostState()
+    /// The account's phones on the cnx service (Settings > Mobile's list with Remove).
+    private(set) var knownPhones: [CnxKnownPhone] = []
+    /// Why the last list read or removal failed, shown under the list; nil when it worked.
+    private(set) var phonesError: String?
     @ObservationIgnored var dependencies: Dependencies?
+    @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored private let supervisor = CnxHostSupervisor()
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
@@ -56,21 +69,68 @@ final class IPhoneHostService {
     @ObservationIgnored private var running: Account?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
-    init() {
+    /// A host that runs nothing until it is wired and an account with the setting on arrives.
+    public init() {
         let states = supervisor.states
         // task-owner: lives as long as the app; follows the supervisor's state stream
         watching = Task { [weak self] in
             for await next in states {
-                self?.state = next
+                guard let self else { return }
+                let before = self.state
+                self.state = next
+                // The list follows what hostd reports: online, and each phone that comes or goes.
+                if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
+                    self.refreshPhones()
+                }
             }
         }
     }
 
+    /// Reads the account's phones from the cnx service (latest read wins).
+    public func refreshPhones() {
+        listing?.cancel()
+        guard allowed, account != nil, let dependencies else {
+            knownPhones = []
+            phonesError = nil
+            return
+        }
+        let directory = CnxDeviceDirectory(baseURL: dependencies.baseURL)
+        // task-owner: stored in `listing`; a newer read cancels it
+        listing = Task { [weak self] in
+            do {
+                let phones = try await directory.phones(token: dependencies.accessToken(false))
+                guard !Task.isCancelled else { return }
+                self?.knownPhones = phones
+                self?.phonesError = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.phonesError = IPhoneHostStrings.listFailed
+            }
+        }
+    }
+
+    /// Removes `id`'s phone on the cnx service (all its device ids) and re-reads the list.
+    /// The phone's open link ends with its signaling socket; a phone still signed in to the
+    /// account registers again when it next connects.
+    public func removePhone(id: String) async {
+        guard let dependencies, let phone = knownPhones.first(where: { $0.id == id }) else { return }
+        do {
+            try await CnxDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
+            knownPhones.removeAll { $0.id == id }
+            phonesError = nil
+        } catch {
+            logger.error("iPhone removal failed: \(String(describing: error), privacy: .public)")
+            phonesError = IPhoneHostStrings.removeFailed
+        }
+        refreshPhones()
+    }
+
     /// The account changed (sign-in, sign-out, team switch).
-    func accountChanged(_ account: Account?) {
+    public func accountChanged(_ account: Account?) {
         guard account != self.account else { return }
         self.account = account
         reconcile()
+        refreshPhones()
     }
 
     /// Follows the setting: every writer (the Settings page, `cmux settings`, an
@@ -89,10 +149,11 @@ final class IPhoneHostService {
         guard allowed != self.allowed else { return }
         self.allowed = allowed
         reconcile()
+        refreshPhones()
     }
 
     /// App quit: hostd ends with the app (closing its stdin ends it too).
-    func stop() {
+    public func stop() {
         running = nil
         following?.cancel()
         applying?.cancel()

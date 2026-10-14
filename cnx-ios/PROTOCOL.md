@@ -61,6 +61,8 @@ echoes the token),
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`) |
 | `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}` |
 | `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from each team's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
+| `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt}]}`: every device (Macs and phones) the caller registered, newest first. Added in 0.7.0 for device lists with Remove (the Mac's Settings > Mobile, the phone's Macs list). |
+| `DELETE /v1/devices/:deviceId` | → `{removed:true, deviceId}`: the owner removes one of its devices. The row is deleted; a Mac leaves its team's hub, the team gets `presence` with `online:false`, and the device's signaling socket closes with 4002 `removed` (it cannot open one again until it registers again). Another user's or a missing device is `404 not_found`. Added in 0.7.0. Removal forgets a device; a device still signed in to the account registers again when it next connects, so keeping a lost phone out also needs signing that session out. |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji}` for the caller (per user per team) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
@@ -84,7 +86,7 @@ registered to the caller in that team (else HTTP 403). The server selects
 subprotocol `cnx.v1` when offered (never the bearer entry). One socket per
 device: a newer connection closes the older with code 4000 `replaced` (no
 offline presence in between); a Mac re-registered into another team is closed
-with 4001 `moved`.
+with 4001 `moved`; a device its owner removed is closed with 4002 `removed`.
 
 - server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}`
 - server → all: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`

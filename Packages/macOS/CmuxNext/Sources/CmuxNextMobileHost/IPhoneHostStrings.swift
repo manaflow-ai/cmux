@@ -9,6 +9,19 @@ enum IPhoneHostStrings {
     static func registered(as email: String) -> String {
         String(format: String(localized: "iphone.account.registered", defaultValue: "Registered as %@", table: "IPhone", bundle: .module), email)
     }
+    static var notConnected: String { String(localized: "iphone.phone.notConnected", defaultValue: "Not connected", table: "IPhone", bundle: .module) }
+    static var remove: String { String(localized: "iphone.phone.remove", defaultValue: "Remove", table: "IPhone", bundle: .module) }
+    static var removeHelp: String {
+        String(localized: "iphone.phone.removeHelp",
+               defaultValue: "Removes this phone from your account's devices and ends its connection. A phone still signed in adds itself again when it reconnects.",
+               table: "IPhone", bundle: .module)
+    }
+    static var listFailed: String {
+        String(localized: "iphone.phones.listFailed", defaultValue: "Could not load your phones. Check your connection.", table: "IPhone", bundle: .module)
+    }
+    static var removeFailed: String {
+        String(localized: "iphone.phones.removeFailed", defaultValue: "Could not remove this phone. Try again.", table: "IPhone", bundle: .module)
+    }
     static var spaceTitle: String { String(localized: "iphone.space.title", defaultValue: "Space", table: "IPhone", bundle: .module) }
     static var statusTitle: String { String(localized: "iphone.status.title", defaultValue: "Status", table: "IPhone", bundle: .module) }
     static var off: String { String(localized: "iphone.status.off", defaultValue: "Off", table: "IPhone", bundle: .module) }
@@ -33,8 +46,8 @@ enum IPhoneHostStrings {
                defaultValue: "Install cmux cnx on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces.",
                table: "IPhone", bundle: .module)
     }
-    static var phonesTitle: String { String(localized: "iphone.phones.title", defaultValue: "Connected Phones", table: "IPhone", bundle: .module) }
-    static var phonesEmpty: String { String(localized: "iphone.phones.empty", defaultValue: "No phones are connected.", table: "IPhone", bundle: .module) }
+    static var phonesTitle: String { String(localized: "iphone.phones.title", defaultValue: "Phones", table: "IPhone", bundle: .module) }
+    static var phonesEmpty: String { String(localized: "iphone.phones.empty", defaultValue: "No phone has connected with this account yet.", table: "IPhone", bundle: .module) }
     static func phone(_ shortID: String) -> String {
         String(format: String(localized: "iphone.phone.title", defaultValue: "iPhone %@", table: "IPhone", bundle: .module), shortID)
     }

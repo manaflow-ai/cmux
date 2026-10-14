@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextPages

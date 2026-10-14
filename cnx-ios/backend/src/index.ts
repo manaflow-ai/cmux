@@ -166,6 +166,25 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return json({ device: publicDevice(env, r.device) })
   }
 
+  if (path === "/v1/me/devices" && method === "GET") {
+    // Every device the caller registered, Macs and phones, for a device list with Remove (PROTOCOL.md).
+    const rows = await withStore(env, ctx, (s) => s.listOwnerDevices(ownerKey(env, caller)))
+    return json({
+      devices: rows.map((d) => ({ deviceId: d.deviceId, kind: d.kind, name: d.name, teamId: d.teamId, createdAt: d.createdAt, updatedAt: d.updatedAt, lastSeenAt: d.lastSeenAt }))
+    })
+  }
+
+  const removal = path.match(/^\/v1\/devices\/([^/]+)$/)
+  if (removal && method === "DELETE") {
+    // Only the owner removes a device; another user's device answers 404 like a missing one.
+    const deviceId = decodeURIComponent(removal[1]!).toLowerCase()
+    if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
+    const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, ownerKey(env, caller)))
+    if (r === "not_found") throw new HttpError(404, "not_found", "no such device")
+    await hub(env, caller, r.teamId).removeDevice(deviceId)
+    return json({ removed: true, deviceId })
+  }
+
   if (path === "/v1/me/macs" && method === "GET") {
     // The caller's own Macs in every space they can reach (PROTOCOL.md): a phone finds its Mac whatever
     // team either side has selected. Only Macs the caller registered (the v1 admission rule), only teams

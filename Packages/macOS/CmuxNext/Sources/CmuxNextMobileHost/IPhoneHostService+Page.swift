@@ -1,13 +1,13 @@
 import CmuxNextMobile
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 
 /// The Mobile page's iPhone card (`iphone` in `cmux.settings.host.lists`), every text localized
 /// here. The switch above it is the schema row `mobile.allowIPhoneConnections`.
 extension IPhoneHostService {
-    var pageJSON: JSONValue {
-        let phones = allowed ? state.phones : []
-        return [
+    /// The card as the page reads it, every text localized.
+    public var pageJSON: JSONValue {
+        [
             "title": .string(IPhoneHostStrings.connectionTitle),
             "allowed": .bool(allowed),
             "status_title": .string(IPhoneHostStrings.statusTitle),
@@ -21,11 +21,31 @@ extension IPhoneHostService {
             "how": .string(IPhoneHostStrings.how),
             "phones_title": .string(IPhoneHostStrings.phonesTitle),
             "phones_empty": .string(IPhoneHostStrings.phonesEmpty),
-            "phones": .array(phones.map { phone in
-                ["id": .string(phone.sessionID), "title": .string(IPhoneHostStrings.phone(String(phone.phoneDeviceID.prefix(4)))),
-                 "subtitle": .string(Self.subtitle(phone)), "transport": .string(phone.transport), "path": .string(phone.path)]
-            }),
+            "phones": .array(phoneRows),
+            "phones_error": phonesError.map(JSONValue.string) ?? .null,
+            "remove_title": .string(IPhoneHostStrings.remove),
+            "remove_help": .string(IPhoneHostStrings.removeHelp),
         ]
+    }
+
+    /// The account's phones (known to the service) with their live link if one is up, then any
+    /// live link the list does not have yet. Only a known phone can be removed.
+    private var phoneRows: [JSONValue] {
+        guard allowed else { return [] }
+        let links = state.phones
+        var rows: [JSONValue] = knownPhones.map { phone in
+            let link = links.first { phone.owns($0.phoneDeviceID) }
+            return ["id": .string(phone.id), "title": .string(phone.name),
+                    "subtitle": .string(link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected),
+                    "connected": .bool(link != nil), "removable": .bool(true),
+                    "transport": link.map { .string($0.transport) } ?? .null, "path": link.map { .string($0.path) } ?? .null]
+        }
+        for link in links where !knownPhones.contains(where: { $0.owns(link.phoneDeviceID) }) {
+            rows.append(["id": .string(link.sessionID), "title": .string(IPhoneHostStrings.phone(String(link.phoneDeviceID.prefix(4)))),
+                         "subtitle": .string(Self.subtitle(link)), "connected": .bool(true), "removable": .bool(false),
+                         "transport": .string(link.transport), "path": .string(link.path)])
+        }
+        return rows
     }
 
     private var phaseName: String {

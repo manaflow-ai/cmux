@@ -24,7 +24,38 @@ const state: IPhoneHostState = {
   how: "Install cmux cnx",
   phones_title: "Connected Phones",
   phones_empty: "No phones are connected.",
-  phones: [{ id: "s1", title: "iPhone 1a2b", subtitle: "WireGuard · Relayed", transport: "wireguard", path: "relay" }],
+  phones: [
+    {
+      id: "p1",
+      title: "Aziz's iPhone",
+      subtitle: "WireGuard · Relayed",
+      connected: true,
+      removable: true,
+      transport: "wireguard",
+      path: "relay",
+    },
+    {
+      id: "p2",
+      title: "Old iPhone",
+      subtitle: "Not connected",
+      connected: false,
+      removable: true,
+      transport: null,
+      path: null,
+    },
+    {
+      id: "s9",
+      title: "iPhone 9f3c",
+      subtitle: "WebRTC · Direct",
+      connected: true,
+      removable: false,
+      transport: "webrtc",
+      path: "direct",
+    },
+  ],
+  phones_error: null,
+  remove_title: "Remove",
+  remove_help: "Removes this phone",
 };
 
 test("Mobile is its own category with the allow switch; Accounts has no iPhone card", async () => {
@@ -51,7 +82,12 @@ test("the card shows status, space and phones with their transport, and follows 
   expect(element.textContent).toContain("Personal");
   expect(element.textContent).toContain("Registered as me@example.com");
   const phone = element.querySelector<HTMLElement>("[data-mobile-phone]")!;
-  expect([phone.dataset.transport, phone.dataset.path]).toEqual(["wireguard", "relay"]);
+  expect([phone.dataset.transport, phone.dataset.path, phone.dataset.connected]).toEqual([
+    "wireguard",
+    "relay",
+    "true",
+  ]);
+  expect(element.querySelectorAll("[data-remove-phone]").length).toBe(2);
   await act(async () => page.provider.setHost({ ...page.provider.host, iphone: { ...state, phones: [] } }));
   await settle();
   expect(card(page.container)!.textContent).toContain("No phones are connected.");
@@ -75,5 +111,25 @@ test("the switch writes the setting through cmux.settings.set", async () => {
   await settle();
   const writes = page.provider.log.filter((entry) => entry.op === "cmux.settings.set");
   expect(writes.map((entry) => (entry.params as { key: string }).key)).toContain("mobile.allowIPhoneConnections");
+  page.unmount();
+});
+
+test("Remove sends cmux.settings.mobile.remove_phone for that phone and the list drops it", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: state }));
+  await settle();
+  await act(async () => card(page.container)!.querySelector<HTMLButtonElement>('[data-remove-phone="p2"]')!.click());
+  await settle();
+  const sent = page.provider.log.filter((entry) => entry.op === "cmux.settings.mobile.remove_phone");
+  expect(sent.map((entry) => (entry.params as { id: string }).id)).toEqual(["p2"]);
+  expect(card(page.container)!.querySelector('[data-mobile-phone="p2"]')).toBeNull();
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      iphone: { ...state, phones_error: "Could not remove this phone." },
+    }),
+  );
+  await settle();
+  expect(card(page.container)!.querySelector("[data-mobile-error]")!.textContent).toBe("Could not remove this phone.");
   page.unmount();
 });

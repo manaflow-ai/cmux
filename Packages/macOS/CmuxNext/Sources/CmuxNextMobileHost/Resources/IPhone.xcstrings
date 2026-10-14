@@ -1049,6 +1049,399 @@
         }
       }
     },
+    "iphone.phone.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije povezan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke forbundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non connesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានតភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결 안 됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilkoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niepołączony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não conectado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не подключён"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้เชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlı değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не підключено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未連線"
+          }
+        }
+      }
+    },
+    "iphone.phone.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إزالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដកចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除"
+          }
+        }
+      }
+    },
+    "iphone.phone.removeHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removes this phone from your account's devices and ends its connection. A phone still signed in adds itself again when it reconnects."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يزيل هذا الهاتف من أجهزة حسابك وينهي اتصاله. الهاتف الذي لا يزال مسجّل الدخول يضيف نفسه مجددًا عند إعادة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uklanja ovaj telefon s uređaja vašeg računa i prekida njegovu vezu. Telefon koji je i dalje prijavljen ponovo se dodaje kada se ponovo poveže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjerner telefonen fra kontoens enheder og afbryder dens forbindelse. En telefon, der stadig er logget ind, tilføjer sig selv igen, når den forbinder igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entfernt dieses Telefon aus den Geräten deines Kontos und beendet seine Verbindung. Ein noch angemeldetes Telefon fügt sich beim nächsten Verbinden wieder hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina este teléfono de los dispositivos de tu cuenta y termina su conexión. Un teléfono que siga con la sesión iniciada se vuelve a añadir al reconectarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprime ce téléphone des appareils de votre compte et met fin à sa connexion. Un téléphone toujours connecté au compte se rajoute lorsqu’il se reconnecte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuove questo telefono dai dispositivi del tuo account e ne termina la connessione. Un telefono ancora connesso all’account si aggiunge di nuovo quando si riconnette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この電話をアカウントのデバイスから削除し、接続を終了します。サインインしたままの電話は、再接続時に自動で再追加されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដកទូរសព្ទនេះចេញពីឧបករណ៍របស់គណនីអ្នក ហើយបញ្ចប់ការតភ្ជាប់របស់វា។ ទូរសព្ទដែលនៅតែចូល នឹងបន្ថែមខ្លួនវិញនៅពេលតភ្ជាប់ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 휴대폰을 계정의 기기에서 제거하고 연결을 끊습니다. 계속 로그인된 휴대폰은 다시 연결할 때 자신을 다시 추가합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjerner telefonen fra kontoens enheter og avslutter tilkoblingen. En telefon som fortsatt er pålogget, legger seg til igjen når den kobler til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuwa ten telefon z urządzeń konta i kończy jego połączenie. Telefon, który nadal jest zalogowany, doda się ponownie przy następnym połączeniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove este telefone dos dispositivos da sua conta e encerra a conexão. Um telefone que continua conectado à conta se adiciona de novo ao reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удаляет телефон из устройств учётной записи и разрывает его подключение. Телефон, на котором вы всё ещё вошли, снова добавится при переподключении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบโทรศัพท์นี้ออกจากอุปกรณ์ของบัญชีและยุติการเชื่อมต่อ โทรศัพท์ที่ยังลงชื่อเข้าใช้อยู่จะเพิ่มตัวเองกลับเมื่อเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu telefonu hesabınızın cihazlarından kaldırır ve bağlantısını sonlandırır. Oturumu hâlâ açık olan bir telefon yeniden bağlandığında kendini tekrar ekler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видаляє телефон із пристроїв облікового запису й розриває його підключення. Телефон, на якому ви досі ввійшли, знову додасться під час повторного підключення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa điện thoại này khỏi thiết bị của tài khoản và ngắt kết nối. Điện thoại vẫn đăng nhập sẽ tự thêm lại khi kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从账户的设备中移除此手机并断开其连接。仍处于登录状态的手机重新连接时会再次添加自己。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從帳號的裝置中移除此手機並中斷其連線。仍保持登入的手機重新連線時會再次加入自己。"
+          }
+        }
+      }
+    },
     "iphone.phone.since": {
       "extractionState": "manual",
       "localizations": {
@@ -1317,127 +1710,389 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No phones are connected."
+            "value": "No phone has connected with this account yet."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد هواتف متصلة."
+            "value": "لم يتصل أي هاتف بهذا الحساب بعد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nijedan telefon nije povezan."
+            "value": "Nijedan telefon se još nije povezao s ovim računom."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen telefoner er forbundet."
+            "value": "Ingen telefon har forbundet med denne konto endnu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine Telefone verbunden."
+            "value": "Mit diesem Konto hat sich noch kein Telefon verbunden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay teléfonos conectados."
+            "value": "Ningún teléfono se ha conectado con esta cuenta todavía."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun téléphone n’est connecté."
+            "value": "Aucun téléphone ne s’est encore connecté avec ce compte."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun telefono connesso."
+            "value": "Nessun telefono si è ancora connesso con questo account."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "接続中の電話はありません。"
+            "value": "このアカウントで接続した電話はまだありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានទូរសព្ទណាត្រូវបានតភ្ជាប់ទេ។"
+            "value": "មិនទាន់មានទូរសព្ទណាតភ្ជាប់ជាមួយគណនីនេះនៅឡើយទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "연결된 휴대폰이 없습니다."
+            "value": "아직 이 계정으로 연결된 휴대폰이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen telefoner er tilkoblet."
+            "value": "Ingen telefon har koblet til med denne kontoen ennå."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak połączonych telefonów."
+            "value": "Żaden telefon nie połączył się jeszcze z tym kontem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum telefone conectado."
+            "value": "Nenhum telefone se conectou com esta conta ainda."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет подключённых телефонов."
+            "value": "С этой учётной записью ещё не подключался ни один телефон."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีโทรศัพท์ที่เชื่อมต่อ"
+            "value": "ยังไม่มีโทรศัพท์เชื่อมต่อกับบัญชีนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bağlı telefon yok."
+            "value": "Bu hesapla henüz hiçbir telefon bağlanmadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає підключених телефонів."
+            "value": "З цим обліковим записом ще не підключався жоден телефон."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có điện thoại nào được kết nối."
+            "value": "Chưa có điện thoại nào kết nối với tài khoản này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有已连接的手机。"
+            "value": "还没有手机使用此账户连接过。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有已連線的手機。"
+            "value": "還沒有手機使用此帳號連線過。"
+          }
+        }
+      }
+    },
+    "iphone.phones.listFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load your phones. Check your connection."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تحميل هواتفك. تحقّق من اتصالك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće učitati vaše telefone. Provjerite vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke indlæse dine telefoner. Tjek din forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Telefone konnten nicht geladen werden. Prüfe deine Verbindung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudieron cargar tus teléfonos. Revisa tu conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de charger vos téléphones. Vérifiez votre connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile caricare i tuoi telefoni. Controlla la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "電話を読み込めませんでした。接続を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចផ្ទុកទូរសព្ទរបស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "휴대폰 목록을 불러오지 못했습니다. 연결을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke laste inn telefonene dine. Sjekk tilkoblingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się wczytać telefonów. Sprawdź połączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar seus telefones. Verifique sua conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось загрузить ваши телефоны. Проверьте подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหลดโทรศัพท์ของคุณไม่ได้ ตรวจสอบการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefonlarınız yüklenemedi. Bağlantınızı kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося завантажити ваші телефони. Перевірте підключення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không tải được danh sách điện thoại. Hãy kiểm tra kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法加载你的手机。请检查网络连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法載入你的手機。請檢查網路連線。"
+          }
+        }
+      }
+    },
+    "iphone.phones.removeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not remove this phone. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّرت إزالة هذا الهاتف. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće ukloniti ovaj telefon. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke fjerne telefonen. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Telefon konnte nicht entfernt werden. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo eliminar este teléfono. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de supprimer ce téléphone. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile rimuovere questo telefono. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この電話を削除できませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចដកទូរសព្ទនេះចេញបានទេ។ សូមព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 휴대폰을 제거하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke fjerne telefonen. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się usunąć tego telefonu. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível remover este telefone. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось удалить телефон. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบโทรศัพท์นี้ไม่ได้ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu telefon kaldırılamadı. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося видалити телефон. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không xóa được điện thoại này. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法移除此手机。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法移除此手機。請再試一次。"
           }
         }
       }
@@ -1448,127 +2103,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connected Phones"
+            "value": "Phones"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الهواتف المتصلة"
+            "value": "الهواتف"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Povezani telefoni"
+            "value": "Telefoni"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Forbundne telefoner"
+            "value": "Telefoner"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verbundene Telefone"
+            "value": "Telefone"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Teléfonos conectados"
+            "value": "Teléfonos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Téléphones connectés"
+            "value": "Téléphones"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Telefoni connessi"
+            "value": "Telefoni"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "接続中の電話"
+            "value": "電話"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទូរសព្ទដែលបានតភ្ជាប់"
+            "value": "ទូរសព្ទ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "연결된 휴대폰"
+            "value": "휴대폰"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilkoblede telefoner"
+            "value": "Telefoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Połączone telefony"
+            "value": "Telefony"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Telefones conectados"
+            "value": "Telefones"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Подключённые телефоны"
+            "value": "Телефоны"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โทรศัพท์ที่เชื่อมต่อ"
+            "value": "โทรศัพท์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bağlı telefonlar"
+            "value": "Telefonlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Підключені телефони"
+            "value": "Телефони"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Điện thoại đã kết nối"
+            "value": "Điện thoại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已连接的手机"
+            "value": "手机"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已連線的手機"
+            "value": "手機"
           }
         }
       }

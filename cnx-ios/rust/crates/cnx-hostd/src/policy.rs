@@ -295,6 +295,25 @@ mod tests {
         }
     }
 
+    /// The phone is a remote client, never the app: it cannot prove the install key
+    /// (`client-hello`), so the daemon gives its lane origin `agent` and Gate A2
+    /// (`user`-only operations) refuses it there too.
+    #[test]
+    fn the_phone_cannot_claim_the_app_identity() {
+        for line in [
+            br#"{"cmd":"client-hello","id":"h1","role":"main","install_id":"x"}"#.as_slice(),
+            br#"{"cmd":"client-hello","id":"h2","role":"page_relay","page":"settings"}"#,
+            br#"{"cmd":"origin.confirmation.issue","id":"h3"}"#,
+            br#"{"cmd":"apps.install","id":"h4"}"#,
+        ] {
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
+        }
+    }
+
     #[test]
     fn refuses_unlisted_and_command_bearing_requests() {
         for line in [
