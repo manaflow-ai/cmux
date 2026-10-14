@@ -14,7 +14,9 @@ import Testing
         var chat = TabSnapshot(surface: 1, kind: .conversation, title: "about:blank", url: "about:blank")
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "local", session: "s-chat", harness: "claude"))
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [chat])
-        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [pane])
+        // One viewport column, as the daemon reports a new workspace's screen (`viewport-splits-v1`).
+        let column = ColumnSnapshot(id: 10, width: 1, layout: .leaf(PaneID(rawValue: 1)))
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), columns: [column], panes: [pane])
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w1", screens: [screen])])
     }
 
