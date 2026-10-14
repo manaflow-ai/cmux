@@ -396,11 +396,7 @@ final class AppControl {
             // The Passwords reveal sheet with a fixture secret (no store, no device owner prompt), so a
             // live check proves the sheet stays out of screen capture (cx-bkyn9).
             .mainActor("debug.passwords_reveal") { [weak services] call in
-                let bytes = Array((call.params["secret"]?.stringValue ?? "fixture").utf8)
-                let secret = SecretBytes(capacity: bytes.count) { buffer in
-                    bytes.withUnsafeBytes { buffer.copyMemory(from: $0) }
-                    return bytes.count
-                }
+                let secret = SecretBytes(copying: Array((call.params["secret"]?.stringValue ?? "fixture").utf8))
                 let surface = NativePasswordSecretSurface(), anchor = services?.windows.active?.window?.contentView
                 // task-owner: the reveal sheet's own lifetime; it ends when the sheet is answered or the app quits
                 Task { await surface.reveal(secret, site: call.params["site"]?.stringValue ?? "example.com", username: "proof", anchor: anchor) }
