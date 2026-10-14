@@ -176,9 +176,13 @@ acpmux, hostd and the phone each have a test with the same fixed vectors.
 ### App lock (`CnxShell/AppLock.swift`)
 
 With Settings → Require Face ID on, cmux opens locked and locks again when it
-goes to the background. Face ID, or the passcode, unlocks it. The app
-switcher snapshot shows the lock. A device with no passcode cannot check the
-owner, so it stays unlocked.
+goes to the background. Face ID, or the passcode, unlocks it. The lock is its
+own window above alerts, so it covers sheets and full-screen covers too, and
+the same window covers the app while it is inactive, so the app switcher
+snapshot shows the lock. Only a return from the background (or the launch)
+asks for Face ID by itself; a cancelled Face ID stays cancelled until the
+person taps Unlock. A device with no passcode cannot check the owner, so it
+stays unlocked.
 
 ## Security analysis
 
@@ -209,7 +213,12 @@ Following the relay rules in the repository's CLAUDE.md:
     as the existing same-uid file-write risk in acpmux (`hub/person.rs`: an
     agent that edits `config.json` can already widen the policy).
   - The first pairing prompt asks the person at the Mac. If nobody is there,
-    the phone waits 120 s and retries on its next link.
+    the phone waits 120 s; Retry (Workspaces) asks again on the same link,
+    so an Allow given on the Mac since takes effect.
+  - Prompt fatigue: hostd limits prompts per device id and in all, and a
+    refusal silences that device id for 10 minutes whatever key it brings
+    (PROTOCOL.md "Pairing"). The dialog can show the device's registration
+    date (`registered_at_ms`).
 
 ## Tests
 
@@ -247,9 +256,9 @@ Following the relay rules in the repository's CLAUDE.md:
   visible prompt. A system notification that opens the prompt would fix it.
 - The dialog is excluded from screen capture (`CmuxDialogCaptureExcludedHost`),
   so the live record below has its accessibility text, not a picture.
-- The Feed marks a permission "Allowed" as soon as Allow is tapped, before
-  Face ID. A cancelled or failed Face ID puts the card back with "Not
-  approved: Face ID was cancelled."
+- (Fixed 2026-10-14.) The Feed used to mark a permission "Allowed" before
+  Face ID. It now says "Waiting for Face ID…" until the signed Allow went
+  out; a cancelled or failed Face ID puts the card back with the reason.
 - acpmux refuses a paired phone's answer for a session whose mode is not one
   of the harness's web asking modes, even when signed ("this session runs in
   mode normal, which does not ask before it acts …"). Real harnesses declare
