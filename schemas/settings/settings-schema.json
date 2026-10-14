@@ -17,7 +17,8 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.startAgentGlobalHotKey"
+              "app.startAgentGlobalHotKey",
+              "app.hideDockIconWithoutWindows"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -1534,6 +1535,57 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.hideDockIconWithoutWindows.help",
+        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.hideDockIconWithoutWindows",
+      "keywords" : [
+        "dock",
+        "icon",
+        "menu bar",
+        "background",
+        "app switcher",
+        "command tab",
+        "accessory",
+        "windows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "hideDockIconWithoutWindows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.hideDockIconWithoutWindows",
+        "text" : "Hide Dock Icon When No Windows Are Open"
       },
       "validation" : "portable"
     },
@@ -23480,7 +23532,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bbd69c17c7d4fc6e50ec942ba5808c81d70f037c9db0953d96ac637616c9560a",
+  "schema_hash" : "79ba0b66fc126d687eb79e0c9bea69f92e4a99b526d0f57f793ab8fdb25479ac",
   "sections" : [
     {
       "id" : "general",
