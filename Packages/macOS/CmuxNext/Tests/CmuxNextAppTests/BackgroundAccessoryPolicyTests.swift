@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
+@testable import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -37,6 +39,14 @@ struct BackgroundAccessoryPolicyTests {
         app.setActivationPolicy(.regular)
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppProcessRoot.shared.adopt(services)
+        // A cmux.json of its own (Settings needs one loaded), with the setting unset: on.
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let configURL = root.appendingPathComponent("cmux.json")
+        try Data("{}".utf8).write(to: configURL)
+        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: configURL,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        services.settings = settings
         AppActions.bind(services)
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false
@@ -48,7 +58,6 @@ struct BackgroundAccessoryPolicyTests {
         }
         services.windows.restoreWhenLoaded()
         defer {
-            for controller in services.windows.controllers { controller.window?.close() }
             app.setActivationPolicy(policyBefore)
             try? FileManager.default.removeItem(at: root)
         }
@@ -82,6 +91,17 @@ struct BackgroundAccessoryPolicyTests {
         #expect(windows.controllers.count == 1, "Settings opened no window")
         #expect(app.activationPolicy() == .regular)
         #expect(presented.policies == [.regular], "the Settings window was ordered in under \(presented.policies)")
+
+        // `app.hideDockIconWithoutWindows: false` keeps the old behavior: regular with no window.
+        try Data(#"{"app":{"hideDockIconWithoutWindows":false}}"#.utf8).write(to: configURL)
+        await settings.reload()
+        #expect(settings.snapshot.hideDockIconWithoutWindows == false)
+        _ = services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
+        await Self.wait(within: .seconds(5)) { windows.controllers.isEmpty }
+        // A background switch would land on the next main-actor turn; test-only wait.
+        try? await Task.sleep(for: .milliseconds(500))
+        #expect(windows.controllers.isEmpty)
+        #expect(app.activationPolicy() == .regular, "the setting is off: the Dock icon stays with no window")
 
         if let connection = services.daemon.connection, let identity = services.daemon.identity {
             _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),

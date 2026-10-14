@@ -20,7 +20,7 @@ import CmuxNextSettings
 /// the policy, so services a test builds leave the test process alone.
 @MainActor
 final class BackgroundActivation {
-    private unowned let manager: WindowManager
+    private weak var manager: WindowManager?
     /// The menu bar item while in background mode.
     private var item: NSStatusItem?
     private var settlePending = false
@@ -32,7 +32,7 @@ final class BackgroundActivation {
     /// In background mode: accessory, with the menu bar item.
     var isBackground: Bool { item != nil }
 
-    private var drivesPolicy: Bool { AppProcessRoot.shared.services === manager.services }
+    private var drivesPolicy: Bool { manager.map { AppProcessRoot.shared.services === $0.services } ?? false }
 
     /// A window closed: once nothing replaces it this turn (a tear-off, the
     /// launch window handing over), no open window means background mode.
@@ -62,21 +62,22 @@ final class BackgroundActivation {
 
     private func settle() {
         settlePending = false
+        guard let manager, drivesPolicy, !isBackground else { return }
         let enabled = manager.services.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback
-        guard drivesPolicy, enabled, !isBackground, !manager.isTerminating, !manager.services.quit.isQuitting, manager.controllers.isEmpty,
+        guard enabled, !manager.isTerminating, !manager.services.quit.isQuitting, manager.controllers.isEmpty,
               NSApp.activationPolicy() == .regular else { return }
         NSApp.setActivationPolicy(.accessory)
         showItem()
     }
 
     private func showItem() {
+        guard let registry = manager?.services.registry else { return }
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
             let image = NSImage.icon(.appCmux, size: 16)
             image.accessibilityDescription = Strings.appName
             button.image = image
         }
-        let registry = manager.services.registry
         let menu = NSMenu()
         for id: ActionID in ["showMainWindow", "newWindow", "openSettings"] {
             if let entry = registry.makeMenuItem(for: id) { menu.addItem(entry) }

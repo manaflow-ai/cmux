@@ -315,7 +315,7 @@ final class WindowManager {
     /// Orders a new window in without taking focus under no-activate.
     private func present(_ controller: WindowController) {
         // Tests: never on screen. Else under no-activate behind the others (front on a test screen), never key. Regular first.
-        let behind = behindWindows.remove(controller.state.id) != nil; background.windowWillAppear(activates: !behind)
+        let behind = behindWindows.remove(controller.state.id) != nil; background.windowWillAppear(activates: !behind && ordersWindowsIn)
         if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
         onPresent?(controller)
         enterRestoredFullScreens()
