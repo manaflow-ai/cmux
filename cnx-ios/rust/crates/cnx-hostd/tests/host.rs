@@ -301,6 +301,8 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(value["link"], 2);
     assert!(value["hostd"].is_string());
+    // This fixture has a browser host: a phone may offer browser tabs.
+    assert_eq!(value["capabilities"], serde_json::json!(["removal-v1", "browser-stream-v1"]));
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
     // and responses stay whole lines in order.

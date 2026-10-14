@@ -292,11 +292,12 @@ public final class IPhoneHostService {
                                                        stateDirectory: dependencies.stateDirectory).loadOrCreate()
                 let name = await dependencies.computerName()
                 guard !Task.isCancelled, self?.running == key else { return }
-                let launch = CnxHostLaunch(
+                var launch = CnxHostLaunch(
                     executable: executable, baseURL: dependencies.baseURL, teamID: want.teamID, userID: want.userID,
                     deviceID: deviceID, deviceName: name, daemonSocket: socket,
                     stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
                     stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
+                launch.browserHosts = dependencies.browserHosts != nil
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false),

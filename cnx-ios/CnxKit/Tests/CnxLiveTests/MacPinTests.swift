@@ -93,3 +93,13 @@ import Testing
         }
     }
 }
+
+/// New Browser Tab only for a Mac that streams browser tabs (`browser-stream-v1`).
+@Suite struct BrowserTabOptionTests {
+    @Test func aMacThatSaysItCannotStreamHidesNewBrowserTab() {
+        #expect(LiveWorkspaceCreationBackend.streamsBrowser(nil))
+        #expect(LiveWorkspaceCreationBackend.streamsBrowser([]))
+        #expect(LiveWorkspaceCreationBackend.streamsBrowser(["removal-v1", "browser-stream-v1"]))
+        #expect(!LiveWorkspaceCreationBackend.streamsBrowser(["removal-v1"]))
+    }
+}
