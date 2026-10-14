@@ -12,13 +12,21 @@ import Foundation
 /// another scheme shows its label as text.
 /// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
+///
+/// cmux (streaming, round 4 capture): an agent's reply arrives a few words at a time, so its last
+/// line can hold an opener whose closer has not arrived yet (`**focused`). On the last line, an
+/// opener at the start of a word (after the line start, a space or punctuation) with text right
+/// after it and no closer styles the rest of the line, so no raw marker is drawn while the reply
+/// streams in. Elsewhere an unclosed opener stays as written.
 enum HomeMarkdown {
     static func render(_ source: String) -> (text: String, runs: [TextRun]) {
         var out = Output()
         var inFence = false
         var first = true
-        for raw in source.split(separator: "\n", omittingEmptySubsequences: false) {
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, raw) in lines.enumerated() {
             let line = String(raw)
+            let last = index == lines.count - 1
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 inFence.toggle()
@@ -34,16 +42,16 @@ enum HomeMarkdown {
             let body = Substring(line.dropFirst(indent.count))
             let pad = String(repeating: "   ", count: min(4, indent.count / 2))
             if let (level, rest) = heading(body), level > 0 {
-                Inline.parse(Array(rest), into: &out, styles: ["bold"], link: nil)
+                Inline.parse(Array(rest), into: &out, styles: ["bold"], link: nil, openEnded: last)
             } else if let rest = bullet(body) {
                 out.append(pad + "• ", [])
-                Inline.parse(Array(rest), into: &out, styles: [], link: nil)
+                Inline.parse(Array(rest), into: &out, styles: [], link: nil, openEnded: last)
             } else if let (number, rest) = numbered(body) {
                 out.append(pad + number + " ", [])
-                Inline.parse(Array(rest), into: &out, styles: [], link: nil)
+                Inline.parse(Array(rest), into: &out, styles: [], link: nil, openEnded: last)
             } else {
                 out.append(String(indent), [])
-                Inline.parse(Array(body), into: &out, styles: [], link: nil)
+                Inline.parse(Array(body), into: &out, styles: [], link: nil, openEnded: last)
             }
         }
         return (out.text, out.runs)
@@ -93,7 +101,9 @@ enum HomeMarkdown {
     }
 
     enum Inline {
-        static func parse(_ c: [Character], into out: inout Output, styles: [String], link: String?) {
+        /// `openEnded`: `c` ends the text (the last line); an unclosed opener at a word start styles
+        /// the rest (a reply still streaming in).
+        static func parse(_ c: [Character], into out: inout Output, styles: [String], link: String?, openEnded: Bool = false) {
             var i = 0
             var plain = ""
             func flush() { out.append(plain, styles, link: link); plain = "" }
@@ -110,6 +120,11 @@ enum HomeMarkdown {
                         flush()
                         out.append(code, add("code", to: styles), link: link)
                         i = close + ticks; continue
+                    }
+                    if openEnded, opensWord(c, i, ticks) {
+                        flush()
+                        out.append(String(c.slice(i + ticks, c.count)), add("code", to: styles), link: link)
+                        i = c.count; continue
                     }
                     plain += String(repeating: "`", count: ticks); i += ticks; continue
                 }
@@ -133,11 +148,24 @@ enum HomeMarkdown {
                         parse(Array(c.slice(i + width, close)), into: &out, styles: add(style, to: styles), link: link)
                         i = close + width; continue
                     }
+                    if openEnded, let (style, width) = delimiter(ch, n), n == width, opensWord(c, i, width) {
+                        flush()
+                        parse(Array(c.slice(i + width, c.count)), into: &out, styles: add(style, to: styles), link: link, openEnded: true)
+                        i = c.count; continue
+                    }
                     plain += String(repeating: String(ch), count: n); i += n; continue
                 }
                 plain.append(ch); i += 1
             }
             flush()
+        }
+
+        /// An opener of `width` at `i` starts a word: after the start, a space or punctuation, and
+        /// followed by text that is not a space.
+        private static func opensWord(_ c: [Character], _ i: Int, _ width: Int) -> Bool {
+            guard let after = c[checked: i + width], !after.isWhitespace else { return false }
+            guard i > 0, let before = c[checked: i - 1] else { return true }
+            return before.isWhitespace || (before.isPunctuation && before != c[checked: i])
         }
 
         private static func add(_ s: String, to styles: [String]) -> [String] { styles.contains(s) ? styles : styles + [s] }

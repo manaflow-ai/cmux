@@ -116,10 +116,10 @@ enum HomeMapping {
               !(markdown && (text.contains("```") || text.contains("~~~"))) else {
             return [part(p, media: media, progress: progress, markdown: markdown, links: links)]
         }
-        return TextParts.parts(for: text).map { shown in
+        return Self.textParts(text).map { shown in
             switch shown {
             case let .text(t, _) where markdown:
-                let (rendered, runs) = HomeMarkdown.render(t)
+                let (rendered, runs) = Self.markdown(t)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
@@ -166,7 +166,7 @@ enum HomeMapping {
                      links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
-            let (shown, runs) = HomeMarkdown.render(text)
+            let (shown, runs) = Self.markdown(text)
             return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {

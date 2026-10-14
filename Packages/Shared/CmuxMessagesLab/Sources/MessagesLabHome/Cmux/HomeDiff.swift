@@ -91,8 +91,10 @@ struct HomeDiff: Equatable {
         if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
         // MessagesLab's `.edit` replaces one text bubble: a text that shows as
         // several (Messages' link rule) before or after the edit is a rebuild.
-        let split = owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count
-        if o.editedAt != n.editedAt, !n.isRetracted, !split, let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
+        // cmux: worked out only for an edited message (it maps both texts; every message of the window
+        // passes here on every update).
+        func split() -> Bool { owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count }
+        if o.editedAt != n.editedAt, !n.isRetracted, let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first, !split() {
             d.actions.append(.edit(id, text))
         } else if o.parts != n.parts {
             return false
