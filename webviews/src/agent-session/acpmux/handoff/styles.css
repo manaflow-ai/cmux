@@ -53,7 +53,7 @@
   min-width: 160px;
   border-radius: 10px;
   background: var(--surface-popup);
-  box-shadow: 0 4px 16px color-mix(in srgb, var(--agent-text) 12%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .acpmux-handoff-targets button { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px; background: none; color: var(--agent-text); padding: 8px; font: inherit; cursor: pointer; }
 .acpmux-handoff-targets button:hover { background: var(--acpmux-menu-hover); }

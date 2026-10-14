@@ -24,6 +24,7 @@ Usage (under `zsh -lic`, for the subrouter route):
   home-streaming-live.py --tag <tag> --app <path to cmux DEV <tag>.app> --out DIR [--late-turn]
 """
 import argparse, fcntl, glob, json, os, shutil, signal, socket, subprocess, sys, tempfile, threading, time
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -162,9 +163,9 @@ def cleanup():
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
     # Both acpmux daemons of the tag: the Chief's (its home) and the app's
-    # agent daemon (~/.acpmux/tags/<slug>, AcpmuxEnvironment.tagSlug); a
+    # agent daemon (~/.acpmux/builds/<build key>, AcpmuxEnvironment); a
     # daemon left running keeps its agent harnesses (and their PTYs) alive.
-    for home in (os.path.join(MUX_HOME, "acpmux"), os.path.expanduser(f"~/.acpmux/tags/{tag_slug(TAG)}")):
+    for home in (os.path.join(MUX_HOME, "acpmux"), os.path.expanduser("~/.acpmux/builds/com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip("."))):
         done = subprocess.run([ACPMUX, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": home},
                               capture_output=True, text=True, timeout=60)
         with open(os.path.join(opts.out, "cleanup.log"), "a") as log:

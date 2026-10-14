@@ -27,6 +27,7 @@ Usage: home-hidden-messages.py --tag <tag> [--out DIR] [--no-launch]
 Exit 0 when every check passes, 1 otherwise.
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import SKIPPED, check_rows  # noqa: E402
@@ -237,7 +238,7 @@ finally:
         if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
             rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
         poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
-        acp = f"{home}/.acpmux/tags/{opts.tag}"
+        acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
         subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
                        env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
