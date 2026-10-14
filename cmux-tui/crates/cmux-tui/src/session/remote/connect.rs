@@ -1,6 +1,7 @@
 //! Connecting a remote session: transports, provider authority, and initialization.
 
 use super::*;
+use crate::session::sidebar_doc::SIDEBAR_DOC_CAPABILITY;
 use cmux_tui_core::server::OPEN_DEVICE_KINDS_CAPABILITY;
 
 impl RemoteSession {
@@ -203,6 +204,12 @@ impl RemoteSession {
         // daemon's incomplete sequence must arrive separately.
         if self.supports_capability(TERMINAL_PENDING_SEQUENCE_CAPABILITY) {
             negotiated.push(TERMINAL_PENDING_SEQUENCE_CAPABILITY);
+        }
+        // The TUI reads the workspace order from the sidebar document, never
+        // from `workspace_placement` changes: the daemon then sends no
+        // placement restatement when a new workspace shifts the others.
+        if self.supports_capability(SIDEBAR_DOC_CAPABILITY) {
+            negotiated.push(SIDEBAR_DOC_CAPABILITY);
         }
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);
