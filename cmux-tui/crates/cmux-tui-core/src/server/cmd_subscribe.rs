@@ -155,6 +155,17 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A Chief change only to a connection that asked for it in
+                // set-client-info (`chief-events-v1`).
+                MuxEvent::Conversation(event)
+                    if event.is_chief()
+                        && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
+                        ) =>
+                {
+                    continue;
+                }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
                 MuxEvent::CloudConversation(_) if !conversation_client => {

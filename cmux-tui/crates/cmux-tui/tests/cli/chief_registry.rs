@@ -3,6 +3,7 @@
 //! delete`; a Chief, on its own bound connection, changes its own picture and
 //! only the fields the person allowed; other agents are refused.
 
+use super::super::conversation_tree::{TOKEN, Ws, ws_addr};
 use super::*;
 use serde_json::{Value, json};
 
@@ -519,4 +520,75 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
         &[],
     ));
     assert_eq!(person["value"]["role"], "Boss", "{person}");
+}
+
+/// The Chief and the change of the next `chief-changed` event on the page's WebSocket.
+fn next_chief_change(page: &mut Ws) -> (String, String) {
+    loop {
+        let event = page.events.pop_front().unwrap_or_else(|| page.read());
+        if event["event"] == "chief-changed" {
+            let field = |name: &str| event[name].as_str().unwrap_or_default().to_owned();
+            return (field("chief"), field("change"));
+        }
+    }
+}
+
+#[test]
+fn every_chief_change_reaches_the_subscribers_that_asked() {
+    use base64::Engine as _;
+    // cx-ebm.60.4: Home and the Channels page redraw their Chiefs on an
+    // event, not by polling chief.profile.list.
+    let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
+    let server = HeadlessServer::start_with_config("chief-changed", Some(&config));
+    let mut page = Ws::open(&ws_addr(&server));
+    let identity = page.request("identify", json!({}));
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|c| c == "chief-events-v1"),
+        "{identity}"
+    );
+    page.request("set-client-info", json!({"name": "page", "capabilities": ["chief-events-v1"]}));
+    page.request("subscribe", json!({}));
+    // A subscriber that did not ask hears none of it.
+    let mut quiet = Conn::open(&server.socket);
+    quiet.request("subscribe", json!({}));
+    let mut home = Conn::open(&server.socket);
+
+    let made = ok(&v2(
+        &mut home,
+        "chief.profile.create",
+        json!({"display_name": "Scout", "role": "Research"}),
+        Some("changed-make"),
+    ));
+    let scout = made["value"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(next_chief_change(&mut page), (scout.clone(), "created".to_owned()));
+
+    ok(&v2(
+        &mut home,
+        "chief.profile.update",
+        json!({"chief": scout, "display_name": "Boss"}),
+        Some("changed-edit"),
+    ));
+    assert_eq!(next_chief_change(&mut page), (scout.clone(), "updated".to_owned()));
+
+    ok(&v2(
+        &mut home,
+        "chief.profile.avatar.set",
+        json!({"chief": scout, "media_type": "image/png",
+               "data": base64::engine::general_purpose::STANDARD.encode(PNG)}),
+        Some("changed-picture"),
+    ));
+    assert_eq!(next_chief_change(&mut page), (scout.clone(), "updated".to_owned()));
+
+    // A refused write changes nothing and says nothing.
+    let refused = v2(&mut home, "chief.profile.delete", json!({"chief": "agent_mux"}), Some("x"));
+    assert_eq!(refused["ok"], false, "{refused}");
+    ok(&v2(&mut home, "chief.profile.delete", json!({"chief": scout}), Some("changed-delete")));
+    assert_eq!(next_chief_change(&mut page), (scout, "deleted".to_owned()));
+
+    quiet.request("identify", json!({}));
+    assert!(
+        !quiet.events.iter().any(|event| event["event"] == "chief-changed"),
+        "{:?}",
+        quiet.events
+    );
 }

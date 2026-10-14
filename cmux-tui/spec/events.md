@@ -48,6 +48,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
 | `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
 | `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
+| `chief-changed` | subscribe | `chief` | protocol 12 additive extension; capability `chief-events-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
@@ -581,6 +582,24 @@ change: it carries no conversation `rev` and never reaches
 local connections that echoed `participant-avatars-v1` in `set-client-info`.
 A client reads the bytes with `participant.avatar.get` (once per `sha256`). Not
 a conversation change: it carries no conversation or `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### chief-changed
+
+| Field | Value |
+| --- | --- |
+| event | `chief-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-events-v1` |
+
+`object{event:"chief-changed", chief:string, change:"created"|"updated"|"deleted"}`,
+published after a committed `chief.profile.create`, `chief.profile.update`,
+`chief.profile.avatar.set` (also through `participant.avatar.set`) or
+`chief.profile.delete` (a replayed request publishes nothing), only to trusted
+local connections that echoed `chief-events-v1` in `set-client-info`. A client
+reads the record with `chief.profile.get` or `chief.profile.list`. Home and
+the Channels page redraw their Chiefs on it instead of polling. Not a
+conversation change: it carries no conversation or `rev` and never reaches
 `conversation.events` or the remote relay.
 
 ### cloud-conversation-run-changed
