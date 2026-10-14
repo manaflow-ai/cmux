@@ -74,6 +74,7 @@ import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { ComposerQueue } from "./ComposerQueue";
 import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
@@ -4585,9 +4586,19 @@ function AcpmuxPane() {
   );
   const composer = !reviewing && !handoffLoading && (
     <>
-      {/* The queued prompts' place: over the transcript's foot, above the pull requests and
-          notices over the composer (ComposerQueue.tsx). */}
-      <div className="acpmux-queue-slot" />
+      {/* The queued prompts' own place, under the transcript and any question waiting for an
+          answer, above the pull requests and notices over the composer (ComposerQueue.tsx). */}
+      <div className="acpmux-queue-slot">
+        <ComposerQueue
+          queue={snapshot.queue}
+          paused={snapshot.summary?.queuePaused === true}
+          t={t}
+          onRemove={removeQueued}
+          onChange={editQueued}
+          onLost={(text) => composerHandle.current?.restore(text, [])}
+          onLeave={() => composerHandle.current?.focus()}
+        />
+      </div>
       <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       <DictationNotice dictation={dictation} />
       {importError && (
@@ -4785,6 +4796,7 @@ function AcpmuxPane() {
           onQueueChange={editQueued}
           // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
           onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+          queueSlot
           onProject={chooseProject}
           onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
           // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).

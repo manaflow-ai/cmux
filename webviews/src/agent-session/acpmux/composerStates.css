@@ -264,9 +264,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--agent-accent);
 }
 
-/* The queue's place at the top of the composer's stack (App.tsx): the list hangs above it. */
-.acpmux-queue-slot {
-  position: relative;
-  height: 0;
-  z-index: var(--layer-raised);
+/* The queue's place at the top of the composer's stack (App.tsx), in the page's flow: lined up
+   with the composer box's text, with its own gap above the pull requests and the box. */
+.acpmux-queue-slot:not(:empty) {
+  flex-shrink: 0;
+  padding: 0 calc(var(--cv-inset, max(18px, calc((100% - 760px) / 2))) + 16px) 8px;
 }

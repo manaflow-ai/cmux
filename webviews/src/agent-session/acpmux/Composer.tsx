@@ -148,6 +148,8 @@ type Props = {
   onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
   /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
   onQueueLost?(text: string): void;
+  /// The chat draws the queue in its own place above the pull requests (App.tsx's queue slot).
+  queueSlot?: boolean;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -230,6 +232,7 @@ export function Composer({
   onQueueRemove,
   onQueueChange,
   onQueueLost,
+  queueSlot,
   draft,
   leading,
   permissionStatus,
@@ -776,7 +779,9 @@ export function Composer({
     }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
-      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      // The list draws in the chat's queue slot, outside the form (ComposerQueue.tsx).
+      const chat = form.current?.closest(".acpmux-main") ?? form.current;
+      const rows = chat?.querySelectorAll<HTMLElement>(".acpmux-composer-queue .acpmux-queued");
       const last = rows?.[rows.length - 1];
       if (last) {
         event.preventDefault();
@@ -987,15 +992,18 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
-        <ComposerQueue
-          queue={snapshot.queue}
-          paused={snapshot.summary?.queuePaused === true}
-          t={t}
-          onRemove={onQueueRemove}
-          onChange={onQueueChange}
-          onLost={onQueueLost}
-          onLeave={() => field.current?.focus()}
-        />
+        {!queueSlot && (
+          <ComposerQueue
+            queue={snapshot.queue}
+            paused={snapshot.summary?.queuePaused === true}
+            t={t}
+            onRemove={onQueueRemove}
+            onChange={onQueueChange}
+            onLost={onQueueLost}
+            onLeave={() => field.current?.focus()}
+            floating
+          />
+        )}
         {contextFirst && context}
         <input
           ref={importInput}

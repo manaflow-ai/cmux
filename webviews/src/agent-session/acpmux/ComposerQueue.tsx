@@ -1,6 +1,7 @@
-// Prompts waiting for the running turn, as compact rows attached to the composer's top edge. The
-// list is laid over the transcript's foot, not in the layout, so a prompt being queued, sent or
-// removed never moves the composer or the transcript.
+// Prompts waiting for the running turn, as compact rows over the composer. The list takes its own
+// place at the top of the composer's stack (App.tsx's queue slot), so the transcript, a question
+// waiting for an answer and the pull requests above the composer each keep theirs: none is cut
+// off or drawn over, and the transcript scrolls in what is left.
 //
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
@@ -31,6 +32,7 @@ export function ComposerQueue({
   onChange,
   onLost,
   onLeave,
+  floating,
 }: {
   queue: AcpmuxSnapshot["queue"];
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
@@ -44,10 +46,9 @@ export function ComposerQueue({
   onLost?(text: string): void;
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
+  /// Drawn over the composer box, for a surface without the chat's queue slot (App.tsx).
+  floating?: boolean;
 }) {
-  // How far above the composer box the list hangs: the height of what sits between the box and
-  // the slot at the top of the composer's stack (App.tsx), the pull requests and notices.
-  const [lift, setLift] = useState(0);
   // A row leaves as soon as it is removed or sent; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<string>();
@@ -64,8 +65,6 @@ export function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
-  // Laid over the transcript's foot, but never over a question waiting for an answer: the list's
-  // height is the chat's --acpmux-queue-space, which the permission panel keeps clear (hq #1893).
   const reserve = useCallback((node: HTMLOListElement | null) => {
     list.current = node;
   }, []);
@@ -81,45 +80,6 @@ export function ComposerQueue({
       setEditing(undefined);
     }
   }, [queue, editing, onLost]);
-  useLayoutEffect(() => {
-    const node = list.current;
-    const chat = node?.closest<HTMLElement>(".acpmux-main");
-    if (!node || !chat) return;
-    const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight}px`);
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    update();
-    return () => {
-      observer.disconnect();
-      chat.style.removeProperty("--acpmux-queue-space");
-    };
-  }, [queue, leaving]);
-  // Above the pull requests and notices between the slot at the top of the composer's stack
-  // (App.tsx) and the composer box, so none of them draws over a queued prompt. Without the slot
-  // (a surface that has none) it hangs right over the box.
-  const hasRows = queue.some((entry) => !leaving.has(entry.id));
-  useLayoutEffect(() => {
-    const box = list.current?.parentElement;
-    const slot = box?.closest(".acpmux-main")?.querySelector<HTMLElement>(".acpmux-queue-slot");
-    const stack = slot?.parentElement;
-    if (!hasRows || !box || !slot || !stack) return setLift(0);
-    const measure = () =>
-      setLift(Math.max(0, Math.round(box.getBoundingClientRect().top - slot.getBoundingClientRect().top)));
-    // A notice or the pull requests appear, change or leave between the two.
-    const sizes = new ResizeObserver(measure);
-    const watch = () => {
-      sizes.disconnect();
-      for (const child of stack.children) sizes.observe(child);
-      measure();
-    };
-    const children = new MutationObserver(watch);
-    children.observe(stack, { childList: true });
-    watch();
-    return () => {
-      sizes.disconnect();
-      children.disconnect();
-    };
-  }, [hasRows]);
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
@@ -324,7 +284,7 @@ export function ComposerQueue({
     <ol
       ref={reserve}
       className="acpmux-composer-queue"
-      style={lift ? { bottom: `calc(100% + ${lift}px)` } : undefined}
+      data-floating={floating ? "" : undefined}
       aria-label={`${t("composer.queue")} (${shown.length})`}
     >
       {waiting > 0 && (
