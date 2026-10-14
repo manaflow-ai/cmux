@@ -1,17 +1,17 @@
-public import AppKit
+import AppKit
 
 /// The pane's input surface, over the video. It takes keyboard focus on
 /// click; while it is first responder in control mode, keys, pointer,
 /// buttons and scroll go to the host. Coordinates are flipped like stream
 /// pixels. The local cursor stays the system arrow (control mode draws the
 /// native cursor locally, RD6).
-public final class RemoteInputCaptureView: NSView {
-    public let controller = RemoteInputController()
+final class RemoteInputCaptureView: NSView {
+    let controller = RemoteInputController()
     /// The current image placement, from the video view.
-    public var geometry: () -> RemoteViewGeometry? = { nil }
+    var geometry: () -> RemoteViewGeometry? = { nil }
     /// Called when focus or the mode changes so the pane can update chrome.
-    public var onFocusChange: ((Bool) -> Void)?
-    public var controlMode = false {
+    var onFocusChange: ((Bool) -> Void)?
+    var controlMode = false {
         didSet { updateActive() }
     }
 
@@ -70,7 +70,7 @@ public final class RemoteInputCaptureView: NSView {
     }
 
     /// Gives the keyboard back to the viewer.
-    public func releaseKeyboard() {
+    func releaseKeyboard() {
         guard let window, window.firstResponder === self else { return }
         window.makeFirstResponder(nil)
     }

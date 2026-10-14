@@ -61,7 +61,7 @@ public final class MacScreenPane {
     public let model: MacScreenPaneModel
     public let view: MacScreenPaneView
     public var handlers = MacScreenPaneHandlers() {
-        didSet { view.capture.controller.isLocalShortcut = handlers.isLocalShortcut }
+        didSet { view.input.isLocalShortcut = handlers.isLocalShortcut }
     }
 
     /// How long a hidden tab keeps its stream (switching tabs back and forth stays live).
@@ -81,7 +81,7 @@ public final class MacScreenPane {
         let sink = MacScreenInputSink(session: session)
         inputSink = sink
         view = MacScreenPaneView(model: model)
-        view.capture.controller.sink = sink
+        view.input.sink = sink
         wire(session)
     }
 
@@ -112,7 +112,7 @@ public final class MacScreenPane {
             self?.model.displays = sizes
             self?.model.currentDisplay = current
         }
-        view.capture.onFocusChange = { [weak self] focused in self?.model.capturesKeyboard = focused }
+        view.input.onFocusChange = { [weak self] focused in self?.model.capturesKeyboard = focused }
         let actions = view.chrome.actions
         actions.connect = { [weak self] in self?.reconnect() }
         actions.disconnect = { [weak self] in self?.disconnectByPerson() }
@@ -164,7 +164,7 @@ public final class MacScreenPane {
     }
 
     public var session: ScreenSession? { model.session }
-    public var focusTarget: NSView { view.capture }
+    public var focusTarget: NSView { view.input.view }
 
     /// The tab is shown: connect (unless a person stopped it or it waits for Connect).
     public func resume() {
@@ -187,7 +187,7 @@ public final class MacScreenPane {
     public func pause() {
         guard visible else { return }
         visible = false
-        view.capture.releaseKeyboard()
+        view.input.releaseKeyboard()
         hideTask?.cancel()
         hideTask = Task { [weak self, grace = hiddenGrace] in
             try? await Task.sleep(for: grace) // intentional bounded delay: keep a briefly hidden tab live
@@ -210,7 +210,7 @@ public final class MacScreenPane {
 
     public func focus() {
         guard let window = view.window else { return }
-        window.makeFirstResponder(view.capture)
+        window.makeFirstResponder(view.input.view)
     }
 
     private func reconnect() {
@@ -221,7 +221,7 @@ public final class MacScreenPane {
 
     private func disconnectByPerson() {
         stoppedByPerson = true
-        view.capture.releaseKeyboard()
+        view.input.releaseKeyboard()
         session?.disconnect()
     }
 }
@@ -230,7 +230,8 @@ public final class MacScreenPane {
 /// below, a state card over the screen while there is no picture.
 public final class MacScreenPaneView: NSView {
     let video = ScreenVideoView(frame: .zero)
-    let capture = RemoteInputCaptureView(frame: .zero)
+    let input = RemoteInputSurface()
+    var capture: NSView { input.view }
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
     static let toolbarHeight: CGFloat = 34
@@ -245,8 +246,8 @@ public final class MacScreenPaneView: NSView {
         addSubview(capture)
         addSubview(chrome.toolbar)
         addSubview(chrome.card)
-        capture.geometry = { [weak self] in self?.geometry }
-        capture.controlMode = true
+        input.geometry = { [weak self] in self?.geometry }
+        input.controlMode = true
         observe()
     }
 
