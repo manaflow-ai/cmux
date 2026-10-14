@@ -38,7 +38,7 @@ public struct SidebarDocBatch: Sendable, Hashable {
     /// The batch as the mirror's FFI reads it.
     public var json: JSONValue {
         var object: [String: JSONValue] = ["changes": .array(changes)]
-        if let revision { object["revision"] = .string(String(revision)) }
+        if let revision { object["revision"] = .string(revision.description) }
         if let idempotencyKey { object["idempotency_key"] = .string(idempotencyKey) }
         return .object(object)
     }

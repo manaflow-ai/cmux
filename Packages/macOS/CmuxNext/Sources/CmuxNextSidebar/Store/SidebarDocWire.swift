@@ -54,7 +54,7 @@ nonisolated enum SidebarDocWire {
 
         init(from decoder: any Decoder) throws {
             let c = try decoder.singleValueContainer()
-            if let text = try? c.decode(String.self) { value = UInt64(text) } else { value = try? c.decode(UInt64.self) }
+            if let text = try? c.decode(String.self) { value = UInt64(text, radix: 10) } else { value = try? c.decode(UInt64.self) }
         }
     }
 

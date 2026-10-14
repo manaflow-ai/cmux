@@ -80,8 +80,8 @@ public struct SidebarDocMutation: Sendable, Hashable {
     /// The document revision on the wire: a decimal string (or a number from an older build).
     public static func revision(_ value: JSONValue) -> UInt64? {
         switch value {
-        case .string(let text): UInt64(text)
-        case .number(let number): number >= 0 && number.rounded() == number ? UInt64(number) : nil
+        case .string(let text): UInt64(text, radix: 10)
+        case .number(let number): UInt64(exactly: number)
         default: nil
         }
     }
