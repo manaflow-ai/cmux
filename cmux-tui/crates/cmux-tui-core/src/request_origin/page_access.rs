@@ -322,13 +322,13 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineSet
         | Op::ChiefStop
         // A page never reads or edits the person's Chiefs.
-        | Op::ChiefList
-        | Op::ChiefGet
-        | Op::ChiefCreate
-        | Op::ChiefUpdate
-        | Op::ChiefDelete
-        | Op::ChiefAvatarSet
-        | Op::ChiefAvatarGet
+        | Op::ChiefProfileList
+        | Op::ChiefProfileGet
+        | Op::ChiefProfileCreate
+        | Op::ChiefProfileUpdate
+        | Op::ChiefProfileDelete
+        | Op::ChiefProfileAvatarSet
+        | Op::ChiefProfileAvatarGet
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet

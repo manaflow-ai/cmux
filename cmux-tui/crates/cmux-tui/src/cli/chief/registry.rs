@@ -1,6 +1,6 @@
 //! `cmux chief list|new|edit|delete`: the person's Chiefs, through the
-//! daemon's Chief registry (`chief.list`, `chief.create`, `chief.update`,
-//! `chief.delete`, `chief.avatar.set`). One call per command on the Chief
+//! daemon's Chief registry (`chief.profile.list`, `chief.profile.create`, `chief.profile.update`,
+//! `chief.profile.delete`, `chief.profile.avatar.set`). One call per command on the Chief
 //! home's owner, as `cmux chief engine` finds it; nothing is started. A
 //! CHIEF argument is an id or a display name that names one Chief.
 
@@ -13,6 +13,9 @@ use serde_json::{Map, Value, json};
 use super::link::{Link, LinkError};
 use super::{GlobalArgs, Target};
 use crate::cli::OutputMode;
+
+/// The largest picture the daemon takes.
+const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
 
 /// The registry words `cmux chief` takes first.
 pub(super) const WORDS: [&str; 4] = ["list", "new", "edit", "delete"];
@@ -41,6 +44,7 @@ struct Text {
     deleted: &'static str,
     default_mark: &'static str,
     unsupported: &'static str,
+    picture_not_set: &'static str,
 }
 
 static ENGLISH: Text = Text {
@@ -53,7 +57,8 @@ static ENGLISH: Text = Text {
     updated: "updated {name} ({id}, rev {rev})",
     deleted: "deleted {name} ({id})",
     default_mark: "default",
-    unsupported: "this needs a newer cmux daemon (the chief.list operation); stop it and run the command again",
+    unsupported: "this needs a newer cmux daemon (the chief.profile.list operation); stop it and run the command again",
+    picture_not_set: "the picture was not set",
 };
 
 static JAPANESE: Text = Text {
@@ -66,7 +71,8 @@ static JAPANESE: Text = Text {
     updated: "{name} を更新しました ({id}、rev {rev})",
     deleted: "{name} を削除しました ({id})",
     default_mark: "既定",
-    unsupported: "これには新しい cmux デーモン (chief.list 操作) が必要です。デーモンを停止してから、もう一度実行してください",
+    unsupported: "これには新しい cmux デーモン (chief.profile.list 操作) が必要です。デーモンを停止してから、もう一度実行してください",
+    picture_not_set: "画像は設定されていません",
 };
 
 fn text() -> &'static Text {
@@ -137,6 +143,20 @@ fn parse(args: &[String]) -> Result<Request, String> {
     if request.avatar.is_some() && request.clear_avatar {
         return Err("give --avatar or --clear-avatar, not both".into());
     }
+    if word != "edit" && request.clear_avatar {
+        return Err("--clear-avatar goes with cmux chief edit".into());
+    }
+    if word == "list" && request.avatar.is_some() {
+        return Err("cmux chief list takes no --avatar".into());
+    }
+    if word == "edit"
+        && !request.help
+        && request.fields.is_empty()
+        && request.avatar.is_none()
+        && !request.clear_avatar
+    {
+        return Err("cmux chief edit needs at least one change".into());
+    }
     Ok(request)
 }
 
@@ -185,12 +205,17 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             eprintln!("cmux: {message}");
             3
         }
-        Err(Failure::Link(LinkError::Rejected { code, .. })) if code == "validation.invalid" => {
+        Err(Failure::Unsupported) => {
             eprintln!("cmux: {}", t.unsupported);
             1
         }
         Err(Failure::Link(LinkError::Rejected { code, message })) => {
             eprintln!("cmux: {code}: {message}");
+            1
+        }
+        Err(Failure::Partial { done, error }) => {
+            eprintln!("cmux: {done}");
+            eprintln!("cmux: {error}");
             1
         }
     }
@@ -199,6 +224,10 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
 enum Failure {
     Usage(String),
     Link(LinkError),
+    /// The daemon has no Chief registry (an older build).
+    Unsupported,
+    /// An earlier write of the command committed, a later one failed.
+    Partial { done: String, error: LinkError },
 }
 
 impl From<LinkError> for Failure {
@@ -210,7 +239,14 @@ impl From<LinkError> for Failure {
 fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(), Failure> {
     let t = text();
     let json_out = request.json || super::json_output(output);
-    let chiefs = link.call("chief.list", json!({}), None)?;
+    // The first call: an older daemon refuses the unknown operation.
+    let chiefs = match link.call("chief.profile.list", json!({}), None) {
+        Ok(chiefs) => chiefs,
+        Err(LinkError::Rejected { code, .. }) if code.starts_with("validation.invalid") => {
+            return Err(Failure::Unsupported);
+        }
+        Err(error) => return Err(error.into()),
+    };
     let records = chiefs.get("chiefs").and_then(Value::as_array).cloned().unwrap_or_default();
     if request.word == "list" {
         if json_out {
@@ -228,7 +264,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
             return Err(Failure::Usage(t.needs_name.into()));
         }
         let key = super::link::new_message_id();
-        let created = link.call("chief.create", Value::Object(request.fields.clone()), Some(&key))?;
+        let created = link.call("chief.profile.create", Value::Object(request.fields.clone()), Some(&key))?;
         created.get("value").cloned().unwrap_or(Value::Null)
     } else {
         let wanted = request.chief.as_deref().ok_or_else(|| Failure::Usage(t.needs_chief.into()))?;
@@ -237,7 +273,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         if request.word == "delete" {
             let key = super::link::new_message_id();
             let params = json!({"chief": id, "expected_rev": found["rev"]});
-            let deleted = link.call("chief.delete", params, Some(&key))?;
+            let deleted = link.call("chief.profile.delete", params, Some(&key))?;
             let value = deleted.get("value").cloned().unwrap_or(Value::Null);
             print_result(&value, t.deleted, json_out);
             return Ok(());
@@ -248,22 +284,34 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
             params.insert("chief".into(), json!(id));
             params.insert("expected_rev".into(), current["rev"].clone());
             let key = super::link::new_message_id();
-            let updated = link.call("chief.update", Value::Object(params), Some(&key))?;
+            let updated = link.call("chief.profile.update", Value::Object(params), Some(&key))?;
             current = updated.get("value").cloned().unwrap_or(Value::Null);
         }
         if request.clear_avatar {
             let key = super::link::new_message_id();
-            let cleared =
-                link.call("chief.avatar.set", json!({"chief": id, "clear": true}), Some(&key))?;
-            current = cleared.get("value").cloned().unwrap_or(Value::Null);
+            let params = json!({"chief": id, "clear": true});
+            match link.call("chief.profile.avatar.set", params, Some(&key)) {
+                Ok(cleared) => current = cleared.get("value").cloned().unwrap_or(Value::Null),
+                Err(error) if !request.fields.is_empty() => {
+                    let done = format!("{}; {}", fill(&current, t.updated), t.picture_not_set);
+                    return Err(Failure::Partial { done, error });
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
         current
     };
     if let Some((media_type, bytes)) = avatar {
         let key = super::link::new_message_id();
         let params = json!({"chief": record["id"], "media_type": media_type, "data": STANDARD.encode(bytes)});
-        let set = link.call("chief.avatar.set", params, Some(&key))?;
-        record = set.get("value").cloned().unwrap_or(Value::Null);
+        match link.call("chief.profile.avatar.set", params, Some(&key)) {
+            Ok(set) => record = set.get("value").cloned().unwrap_or(Value::Null),
+            Err(error) => {
+                let template = if request.word == "new" { t.created } else { t.updated };
+                let done = format!("{}; {}", fill(&record, template), t.picture_not_set);
+                return Err(Failure::Partial { done, error });
+            }
+        }
     }
     let template = if request.word == "new" { t.created } else { t.updated };
     print_result(&record, template, json_out);
@@ -275,14 +323,15 @@ fn print_result(record: &Value, template: &str, json_out: bool) {
         println!("{record}");
         return;
     }
+    println!("{}", fill(record, template));
+}
+
+fn fill(record: &Value, template: &str) -> String {
     let rev = record.get("rev").map(Value::to_string).unwrap_or_default();
-    println!(
-        "{}",
-        template
-            .replace("{name}", text_of(record, "display_name"))
-            .replace("{id}", text_of(record, "id"))
-            .replace("{rev}", &rev)
-    );
+    template
+        .replace("{name}", text_of(record, "display_name"))
+        .replace("{id}", text_of(record, "id"))
+        .replace("{rev}", &rev)
 }
 
 /// `id  name  role  [default]`, tab-separated.
@@ -314,6 +363,10 @@ fn resolve(records: &[Value], wanted: &str) -> Result<Value, String> {
 
 /// The picture at `path` and its media type, from its first bytes.
 fn read_avatar(path: &Path) -> Result<(&'static str, Vec<u8>), String> {
+    let size = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?.len();
+    if size > MAX_AVATAR_BYTES {
+        return Err(format!("{}: the picture is larger than 1 MiB", path.display()));
+    }
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"

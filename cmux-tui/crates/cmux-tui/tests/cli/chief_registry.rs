@@ -107,7 +107,7 @@ fn the_person_makes_edits_and_deletes_chiefs_with_the_cli() {
     assert_eq!(edited["display_name"], "Ops 2");
     assert!(edited["rev"].as_u64().unwrap() > made["rev"].as_u64().unwrap(), "{edited}");
     let mut home = Conn::open(&server.socket);
-    let avatar = ok(&v2(&mut home, "chief.avatar.get", json!({"chief": id}), None));
+    let avatar = ok(&v2(&mut home, "chief.profile.avatar.get", json!({"chief": id}), None));
     use base64::Engine as _;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(avatar["avatar"]["data"].as_str().unwrap())
@@ -117,7 +117,7 @@ fn the_person_makes_edits_and_deletes_chiefs_with_the_cli() {
     // An unknown tool is refused and changes nothing.
     let refused = chief_cli(&server, &["edit", &id, "--tools", "root_shell"], "");
     assert_eq!(refused.status.code(), Some(1), "{}", String::from_utf8_lossy(&refused.stderr));
-    let after = ok(&v2(&mut home, "chief.get", json!({"chief": id}), None));
+    let after = ok(&v2(&mut home, "chief.profile.get", json!({"chief": id}), None));
     assert_eq!(after["tools"], json!(["spawn", "tell"]));
 
     // The default Chief cannot be deleted; the new one can, and its id is gone.
@@ -128,7 +128,7 @@ fn the_person_makes_edits_and_deletes_chiefs_with_the_cli() {
     assert_eq!(deleted["id"], json!(id));
     let listed = stdout_json(&chief_cli(&server, &["list", "--json"], ""));
     assert_eq!(ids(&listed), vec!["agent_mux"]);
-    assert_eq!(reason(&v2(&mut home, "chief.get", json!({"chief": id}), None)), "chief_not_found");
+    assert_eq!(reason(&v2(&mut home, "chief.profile.get", json!({"chief": id}), None)), "chief_not_found");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -136,18 +136,18 @@ fn the_person_makes_edits_and_deletes_chiefs_with_the_cli() {
 fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
     let server = HeadlessServer::start("chief-registry-self");
     let mut home = Conn::open(&server.socket);
-    let made = ok(&v2(&mut home, "chief.create",
+    let made = ok(&v2(&mut home, "chief.profile.create",
                       json!({"display_name": "Scout", "role": "Research"}), Some("make-scout")));
     assert_eq!(made["replayed"], false);
     let scout = made["value"]["id"].as_str().unwrap().to_owned();
     assert_eq!(made["value"]["self_edit"], json!(["avatar"]), "the default self_edit");
 
     // A retry under the same key is the same Chief; other params under it are refused.
-    let again = ok(&v2(&mut home, "chief.create",
+    let again = ok(&v2(&mut home, "chief.profile.create",
                        json!({"display_name": "Scout", "role": "Research"}), Some("make-scout")));
     assert_eq!(again["replayed"], true);
     assert_eq!(again["value"]["id"], json!(scout));
-    let clash = v2(&mut home, "chief.create", json!({"display_name": "Other"}), Some("make-scout"));
+    let clash = v2(&mut home, "chief.profile.create", json!({"display_name": "Other"}), Some("make-scout"));
     assert_eq!(reason(&clash), "idempotency.conflict");
 
     // The Chief on its own bound connection.
@@ -161,47 +161,47 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
         use base64::Engine as _;
         base64::engine::general_purpose::STANDARD.encode(PNG)
     };
-    let set = ok(&v2(&mut chief, "chief.avatar.set",
+    let set = ok(&v2(&mut chief, "chief.profile.avatar.set",
                      json!({"chief": scout, "media_type": "image/png", "data": data}), Some("pic-1")));
     assert_eq!(set["value"]["avatar"]["bytes"], PNG.len());
 
     // Everything outside self_edit is the person's.
     for (operation, params) in [
-        ("chief.update", json!({"chief": scout, "display_name": "Boss"})),
-        ("chief.update", json!({"chief": scout, "tools": ["browser", "cloud_vms"]})),
-        ("chief.update", json!({"chief": scout, "self_edit": ["avatar", "instructions"]})),
-        ("chief.update", json!({"chief": scout, "harness": "codex"})),
-        ("chief.update", json!({"chief": "agent_mux", "role": "x"})),
-        ("chief.avatar.set", json!({"chief": "agent_mux", "clear": true})),
-        ("chief.delete", json!({"chief": scout})),
-        ("chief.create", json!({"display_name": "Stronger", "tools": ["browser"]})),
+        ("chief.profile.update", json!({"chief": scout, "display_name": "Boss"})),
+        ("chief.profile.update", json!({"chief": scout, "tools": ["browser", "cloud_vms"]})),
+        ("chief.profile.update", json!({"chief": scout, "self_edit": ["avatar", "instructions"]})),
+        ("chief.profile.update", json!({"chief": scout, "harness": "codex"})),
+        ("chief.profile.update", json!({"chief": "agent_mux", "role": "x"})),
+        ("chief.profile.avatar.set", json!({"chief": "agent_mux", "clear": true})),
+        ("chief.profile.delete", json!({"chief": scout})),
+        ("chief.profile.create", json!({"display_name": "Stronger", "tools": ["browser"]})),
     ] {
         let key = format!("deny-{operation}-{params}");
         let refused = v2(&mut chief, operation, params.clone(), Some(&key));
         assert_eq!(reason(&refused), "chief_self_edit_denied", "{operation} {params}: {refused}");
     }
-    let unchanged = ok(&v2(&mut home, "chief.get", json!({"chief": scout}), None));
+    let unchanged = ok(&v2(&mut home, "chief.profile.get", json!({"chief": scout}), None));
     assert_eq!(unchanged["display_name"], "Scout");
     assert_eq!(unchanged["tools"], json!(["spawn", "tell", "workspaces"]));
     assert_eq!(unchanged["self_edit"], json!(["avatar"]));
 
     // The person allows the role; then the Chief may change it.
     let rev = unchanged["rev"].as_u64().unwrap();
-    ok(&v2(&mut home, "chief.update",
+    ok(&v2(&mut home, "chief.profile.update",
            json!({"chief": scout, "expected_rev": rev, "self_edit": ["avatar", "role"]}), Some("allow-role")));
-    let stale = v2(&mut home, "chief.update", json!({"chief": scout, "expected_rev": rev, "role": "x"}), Some("stale"));
+    let stale = v2(&mut home, "chief.profile.update", json!({"chief": scout, "expected_rev": rev, "role": "x"}), Some("stale"));
     assert_eq!(reason(&stale), "rev_mismatch");
-    let renamed = ok(&v2(&mut chief, "chief.update", json!({"chief": scout, "role": "Lead researcher"}), Some("role-1")));
+    let renamed = ok(&v2(&mut chief, "chief.profile.update", json!({"chief": scout, "role": "Lead researcher"}), Some("role-1")));
     assert_eq!(renamed["value"]["role"], "Lead researcher");
 
     // A picture whose bytes are not its type is refused.
-    let fake = v2(&mut chief, "chief.avatar.set",
+    let fake = v2(&mut chief, "chief.profile.avatar.set",
                   json!({"chief": scout, "media_type": "image/png", "data": "R0lGODlhAQABAAAAACw="}), Some("pic-bad"));
     assert_eq!(reason(&fake), "validation.invalid", "{fake}");
 
     // A Chief reads every record.
-    let listed = ok(&v2(&mut chief, "chief.list", json!({}), None));
-    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), scout.clone()]);
+    let listed = ok(&v2(&mut chief, "chief.profile.list", json!({}), None));
+    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), scout]);
 
     // An agent that is not a Chief reads nothing.
     let other_token = home.request("conversation-agent-token", json!({"participant": "agent_helper"}))["token"]
@@ -210,5 +210,5 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
         .to_owned();
     let mut helper = Conn::open(&server.socket);
     helper.request("conversation-bind", json!({"participant": "agent_helper", "token": other_token}));
-    assert_eq!(reason(&v2(&mut helper, "chief.list", json!({}), None)), "origin.forbidden");
+    assert_eq!(reason(&v2(&mut helper, "chief.profile.list", json!({}), None)), "origin.forbidden");
 }

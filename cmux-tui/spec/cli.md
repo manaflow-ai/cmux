@@ -706,8 +706,8 @@ Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
 `/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
 commands. `chief engine` and `chief stop` make one such call without the
 chat. `chief list`, `chief new`, `chief edit` and `chief delete` make the
-person's Chiefs with the Chief registry (`chief.list`, `chief.create`,
-`chief.update`, `chief.delete`, `chief.avatar.set`): `<chief>` is an id or one
+person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
+`chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
 Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
 `--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
 `--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,

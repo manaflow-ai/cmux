@@ -31,6 +31,8 @@ use sha2::{Digest, Sha256};
 pub(crate) const CHIEFS_FILE: &str = "chiefs.sqlite3";
 /// The default Chief's id: the participant `agent_mux` of every install.
 pub(crate) const DEFAULT_CHIEF: &str = "agent_mux";
+/// Idempotency keys kept per caller (the oldest go first).
+const LEDGER_KEYS_PER_ACTOR: i64 = 256;
 /// The largest avatar image (decoded bytes).
 pub(crate) const MAX_AVATAR_BYTES: usize = 1024 * 1024;
 /// Chiefs one home may have (tombstones not counted).
@@ -58,8 +60,9 @@ pub(crate) enum Refusal {
     IsDefault,
     /// `expected_rev` is not the record's revision (the current one).
     RevMismatch(u64),
-    /// The idempotency key was used for another request.
-    KeyConflict,
+    /// The idempotency key was used for another request: the operation it
+    /// committed.
+    KeyConflict(String),
     TooMany,
 }
 
@@ -70,13 +73,15 @@ impl Refusal {
             Self::NotFound => "chief_not_found",
             Self::IsDefault => "chief_is_default",
             Self::RevMismatch(_) => "rev_mismatch",
-            Self::KeyConflict => "idempotency_conflict",
+            Self::KeyConflict(_) => "idempotency_conflict",
             Self::TooMany => "too_many_chiefs",
         }
     }
 }
 
 pub(crate) type Outcome<T> = Result<T, Refusal>;
+/// A Chief's picture: its reference and its bytes.
+pub(crate) type AvatarBytes = Option<(AvatarRef, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct AvatarRef {
@@ -165,11 +170,13 @@ impl ChiefStore {
                data BLOB NOT NULL
              );
              CREATE TABLE IF NOT EXISTS op_ledger (
+               seq INTEGER PRIMARY KEY AUTOINCREMENT,
                actor TEXT NOT NULL,
                key TEXT NOT NULL,
+               operation TEXT NOT NULL,
                fingerprint TEXT NOT NULL,
                result TEXT NOT NULL,
-               PRIMARY KEY (actor, key)
+               UNIQUE (actor, key)
              );",
         )?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -236,7 +243,7 @@ impl ChiefStore {
     }
 
     /// The avatar bytes of a live Chief: its reference and the bytes.
-    pub(crate) fn avatar(&self, id: &str) -> anyhow::Result<Outcome<Option<(AvatarRef, Vec<u8>)>>> {
+    pub(crate) fn avatar(&self, id: &str) -> anyhow::Result<Outcome<AvatarBytes>> {
         let Some(record) = load(&self.connection, id)? else { return Ok(Err(Refusal::NotFound)) };
         let Some(avatar) = record.avatar else { return Ok(Ok(None)) };
         let data: Vec<u8> = self.connection.query_row(
@@ -249,27 +256,29 @@ impl ChiefStore {
 
     /// Runs `write` once per (`actor`, `key`): a replay with the same
     /// `request` answers the committed result with `replayed` true; another
-    /// request under the key is [`Refusal::KeyConflict`].
+    /// request under the key is [`Refusal::KeyConflict`]. The newest
+    /// [`LEDGER_KEYS_PER_ACTOR`] keys of each actor are kept.
     pub(crate) fn mutate(
         &mut self,
         actor: &str,
         key: &str,
+        operation: &str,
         request: &Value,
         write: impl FnOnce(&rusqlite::Transaction<'_>) -> anyhow::Result<Outcome<ChiefRecord>>,
     ) -> anyhow::Result<Outcome<(ChiefRecord, bool)>> {
         let fingerprint = fingerprint(request)?;
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let committed: Option<(String, String)> = transaction
+        let committed: Option<(String, String, String)> = transaction
             .query_row(
-                "SELECT fingerprint, result FROM op_ledger WHERE actor = ?1 AND key = ?2",
+                "SELECT fingerprint, result, operation FROM op_ledger WHERE actor = ?1 AND key = ?2",
                 params![actor, key],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
-        if let Some((stored, result)) = committed {
+        if let Some((stored, result, committed_operation)) = committed {
             if stored != fingerprint {
-                return Ok(Err(Refusal::KeyConflict));
+                return Ok(Err(Refusal::KeyConflict(committed_operation)));
             }
             return Ok(Ok((serde_json::from_str(&result)?, true)));
         }
@@ -278,8 +287,14 @@ impl ChiefStore {
             Err(refusal) => return Ok(Err(refusal)),
         };
         transaction.execute(
-            "INSERT INTO op_ledger (actor, key, fingerprint, result) VALUES (?1, ?2, ?3, ?4)",
-            params![actor, key, fingerprint, serde_json::to_string(&record)?],
+            "INSERT INTO op_ledger (actor, key, operation, fingerprint, result)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![actor, key, operation, fingerprint, serde_json::to_string(&record)?],
+        )?;
+        transaction.execute(
+            "DELETE FROM op_ledger WHERE actor = ?1 AND seq NOT IN
+               (SELECT seq FROM op_ledger WHERE actor = ?1 ORDER BY seq DESC LIMIT ?2)",
+            params![actor, LEDGER_KEYS_PER_ACTOR],
         )?;
         collect_avatars(&transaction)?;
         transaction.commit()?;
@@ -287,7 +302,7 @@ impl ChiefStore {
     }
 }
 
-/// `chief.create`'s write: a new record from `fields` (already checked by
+/// `chief.profile.create`'s write: a new record from `fields` (already checked by
 /// [`validate_fields`]).
 pub(crate) fn create(
     tx: &rusqlite::Transaction<'_>,
@@ -328,7 +343,7 @@ pub(crate) fn create(
     Ok(Ok(record))
 }
 
-/// `chief.update`'s write: `fields` (already checked) on `id`, guarded by
+/// `chief.profile.update`'s write: `fields` (already checked) on `id`, guarded by
 /// `expected_rev` when given; `avatar` sets or clears the image.
 pub(crate) fn update(
     tx: &rusqlite::Transaction<'_>,
@@ -338,8 +353,7 @@ pub(crate) fn update(
     avatar: Option<AvatarChange>,
 ) -> anyhow::Result<Outcome<ChiefRecord>> {
     let Some(mut record) = load(tx, id)? else { return Ok(Err(Refusal::NotFound)) };
-    if let Some(expected) = expected_rev.filter(|e| *e != record.rev) {
-        let _ = expected;
+    if expected_rev.is_some_and(|e| e != record.rev) {
         return Ok(Err(Refusal::RevMismatch(record.rev)));
     }
     let before = record.clone();
@@ -368,7 +382,7 @@ pub(crate) fn update(
     Ok(Ok(record))
 }
 
-/// `chief.delete`'s write: the record becomes a tombstone (the id is never
+/// `chief.profile.delete`'s write: the record becomes a tombstone (the id is never
 /// reused); the answer is the record as it was.
 pub(crate) fn delete(
     tx: &rusqlite::Transaction<'_>,
@@ -400,7 +414,7 @@ pub(crate) fn validate_fields(fields: &Map<String, Value>) -> Option<Refusal> {
         if count < min || count > max {
             return Some(Refusal::Invalid(name, format!("must be {min} to {max} characters")));
         }
-        let single_line = matches!(name, "display_name" | "role");
+        let single_line = matches!(name, "display_name" | "role" | "harness" | "model" | "effort");
         if text.chars().any(|c| c.is_control() && (single_line || !matches!(c, '\n' | '\t'))) {
             return Some(Refusal::Invalid(name, "has a control character".into()));
         }

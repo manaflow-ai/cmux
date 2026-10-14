@@ -188,13 +188,13 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.stop"
                         // `cmux chief list|new|edit|delete` send these
                         // (cli/chief/registry.rs), outside the noun grammar.
-                        | "chief.list"
-                        | "chief.get"
-                        | "chief.create"
-                        | "chief.update"
-                        | "chief.delete"
-                        | "chief.avatar.set"
-                        | "chief.avatar.get"
+                        | "chief.profile.list"
+                        | "chief.profile.get"
+                        | "chief.profile.create"
+                        | "chief.profile.update"
+                        | "chief.profile.delete"
+                        | "chief.profile.avatar.set"
+                        | "chief.profile.avatar.get"
                         // Launch credentials: acpmux and owners call these
                         // on the socket; an agent never mints or rotates.
                         | "credential.verify"

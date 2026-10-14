@@ -1,6 +1,6 @@
-//! The Chief registry on `cmux.protocol/2`: `chief.list`, `chief.get`,
-//! `chief.create`, `chief.update`, `chief.delete`, `chief.avatar.set` and
-//! `chief.avatar.get` (chief_registry.rs; hq .cmux-scratch/hq6d-multi-chief
+//! The Chief registry on `cmux.protocol/2`: `chief.profile.list`, `chief.profile.get`,
+//! `chief.profile.create`, `chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set` and
+//! `chief.profile.avatar.get` (chief_registry.rs; hq .cmux-scratch/hq6d-multi-chief
 //! DESIGN.md, bead cx-ebm.60).
 //!
 //! Callers. The owner: a registered Unix client with no link peer record
@@ -31,13 +31,13 @@ use ResourceOperation as Op;
 pub(super) const fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
-        Op::ChiefList
-            | Op::ChiefGet
-            | Op::ChiefCreate
-            | Op::ChiefUpdate
-            | Op::ChiefDelete
-            | Op::ChiefAvatarSet
-            | Op::ChiefAvatarGet
+        Op::ChiefProfileList
+            | Op::ChiefProfileGet
+            | Op::ChiefProfileCreate
+            | Op::ChiefProfileUpdate
+            | Op::ChiefProfileDelete
+            | Op::ChiefProfileAvatarSet
+            | Op::ChiefProfileAvatarGet
     )
 }
 
@@ -67,19 +67,19 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
     with_store(mux, operation, |store| {
         let caller = caller(mux, client, store)?;
         match operation {
-            Op::ChiefList => {
+            Op::ChiefProfileList => {
                 let chiefs: Vec<Value> =
                     store.list().map_err(|e| internal(operation, &e))?.iter().map(chief_registry::wire).collect();
                 Ok(json!({"chiefs": chiefs}))
             }
-            Op::ChiefGet => {
+            Op::ChiefProfileGet => {
                 let chief = chief_field(fields);
                 match store.get(chief).map_err(|e| internal(operation, &e))? {
                     Some(record) => Ok(chief_registry::wire(&record)),
                     None => Err(refused(operation, &Refusal::NotFound)),
                 }
             }
-            Op::ChiefAvatarGet => {
+            Op::ChiefProfileAvatarGet => {
                 let chief = chief_field(fields);
                 match store.avatar(chief).map_err(|e| internal(operation, &e))? {
                     Err(refusal) => Err(refused(operation, &refusal)),
@@ -117,7 +117,7 @@ fn mutate(
     let chief = chief_field(fields).to_owned();
     let expected_rev = fields.get("expected_rev").and_then(Value::as_u64);
     let avatar = match operation {
-        Op::ChiefAvatarSet => Some(avatar_change(operation, fields)?),
+        Op::ChiefProfileAvatarSet => Some(avatar_change(operation, fields)?),
         _ => None,
     };
     if let Caller::Chief(me) = caller {
@@ -129,10 +129,10 @@ fn mutate(
     };
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
     let outcome = store
-        .mutate(&actor, &key, &body, |tx| match operation {
-            Op::ChiefCreate => chief_registry::create(tx, &profile),
-            Op::ChiefUpdate => chief_registry::update(tx, &chief, expected_rev, &profile, None),
-            Op::ChiefAvatarSet => chief_registry::update(tx, &chief, expected_rev, &Map::new(), avatar),
+        .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
+            Op::ChiefProfileCreate => chief_registry::create(tx, &profile),
+            Op::ChiefProfileUpdate => chief_registry::update(tx, &chief, expected_rev, &profile, None),
+            Op::ChiefProfileAvatarSet => chief_registry::update(tx, &chief, expected_rev, &Map::new(), avatar),
             _ => chief_registry::delete(tx, &chief, expected_rev),
         })
         .map_err(|e| internal(operation, &e))?;
@@ -142,8 +142,8 @@ fn mutate(
             Ok(json!({"value": chief_registry::wire(&record), "generation": generation,
                       "revision": record.rev.to_string(), "replayed": replayed}))
         }
-        Err(Refusal::KeyConflict) => {
-            Err(ResourceError::idempotency_conflict(&key, operation.wire_name()))
+        Err(Refusal::KeyConflict(committed)) => {
+            Err(ResourceError::idempotency_conflict(&key, &committed))
         }
         Err(refusal) => Err(refused(operation, &refusal)),
     }
@@ -164,7 +164,7 @@ fn self_edit_allowed(
             json!({"message": why, "fields": fields}),
         ))
     };
-    if !matches!(operation, Op::ChiefUpdate | Op::ChiefAvatarSet) {
+    if !matches!(operation, Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet) {
         return deny(Vec::new(), "only the person creates or deletes Chiefs");
     }
     if chief != me {
@@ -175,7 +175,7 @@ fn self_edit_allowed(
         .map_err(|e| internal(operation, &e))?
         .ok_or_else(|| refused(operation, &Refusal::NotFound))?;
     let wanted: Vec<String> = match operation {
-        Op::ChiefAvatarSet => vec!["avatar".to_owned()],
+        Op::ChiefProfileAvatarSet => vec!["avatar".to_owned()],
         _ => profile.keys().cloned().collect(),
     };
     let denied: Vec<String> =

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "4c30b5422ffbbe5d04df1c0aed9e1996983a3dba7f02252a3081ba46c29d23fc",
+  "catalog_sha256": "b9ad4e5d6d99e2b88e7a4697acc5188b8de6a580fa545b2ea6b3bd511f4a330b",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -79,34 +79,34 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
-    "chief.avatar.get": {
-      "class": "read"
-    },
-    "chief.avatar.set": {
-      "class": "mutation"
-    },
-    "chief.create": {
-      "class": "mutation"
-    },
-    "chief.delete": {
-      "class": "mutation"
-    },
     "chief.engine.get": {
       "class": "read"
     },
     "chief.engine.set": {
       "class": "mutation"
     },
-    "chief.get": {
+    "chief.profile.avatar.get": {
       "class": "read"
     },
-    "chief.list": {
-      "class": "read"
-    },
-    "chief.stop": {
+    "chief.profile.avatar.set": {
       "class": "mutation"
     },
-    "chief.update": {
+    "chief.profile.create": {
+      "class": "mutation"
+    },
+    "chief.profile.delete": {
+      "class": "mutation"
+    },
+    "chief.profile.get": {
+      "class": "read"
+    },
+    "chief.profile.list": {
+      "class": "read"
+    },
+    "chief.profile.update": {
+      "class": "mutation"
+    },
+    "chief.stop": {
       "class": "mutation"
     },
     "client.cell_pixels.set": {
