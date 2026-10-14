@@ -59,7 +59,8 @@ out = args[args.index("-o") + 1] if "-o" in args else None
 if "/actions/runs/" in url:
     if os.environ["FAKE_SOURCE_STATUS"] == "fail":
         sys.exit(22)
-    print(json.dumps({"status": os.environ["FAKE_SOURCE_STATUS"]}))
+    print(json.dumps({"status": os.environ["FAKE_SOURCE_STATUS"], "event": os.environ["FAKE_SOURCE_EVENT"],
+                      "head_branch": os.environ["FAKE_SOURCE_BRANCH"]}))
     sys.exit(0)
 if "/actions/" in url:
     print("{}")
@@ -86,7 +87,7 @@ elif not out:
 """
 
 
-def run_preflight(source_status, source_run="77", marker="0"):
+def run_preflight(source_status, source_run="77", marker="0", event="push", branch="feat-cmux-next"):
     """tree-preflight's inspect step for a next-batch push whose tree is published."""
     steps = jobs()["tree-preflight"]["steps"]
     script = next(step["run"] for step in steps if step.get("id") == "inspect")
@@ -105,29 +106,37 @@ def run_preflight(source_status, source_run="77", marker="0"):
                    SHA=sha, SOURCE_COMMIT=sha, HEAD_REPOSITORY="manaflow-ai/cmux", REPOSITORY="manaflow-ai/cmux",
                    SERVER_URL="https://github.invalid", API_URL="https://api.github.invalid", RUN_ID="5",
                    GITHUB_RUN_ID="5", GH_TOKEN="x", GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, FAKE_LOG=log,
-                   FAKE_SOURCE_STATUS=source_status, FAKE_SOURCE_RUN=source_run, FAKE_MARKER=marker)
+                   FAKE_SOURCE_STATUS=source_status, FAKE_SOURCE_RUN=source_run, FAKE_MARKER=marker,
+                   FAKE_SOURCE_EVENT=event, FAKE_SOURCE_BRANCH=branch)
         result = subprocess.run(["bash", "-e", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         values = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
         return result, values, open(log).read()
 
 
 def check_preflight_retest():
-    """cx-y0nf2: an unmarked published tree is re-tested only once its publisher run ended.
+    """cx-y0nf2: an unmarked published tree waits only for an active feat-cmux-next push publisher.
 
-    Every publisher publishes before its own daemon tests end. Re-testing in
-    that window put a second test job on the promote runner for every
-    feat-cmux-next push of the key; the publisher's own tests write the marker.
+    Every publisher publishes before its own daemon tests end. An active
+    feat-cmux-next push tests the tree and requests the promotion itself, and
+    re-testing in that window put a second job on the promote runner. Any other
+    active publisher may never test it (a lane-branch push, in progress for its
+    macOS cross jobs) or never request the promotion (a pull request or
+    dispatch run), so the tree is tested now.
     """
+    feat = ("push", "feat-cmux-next")
     cases = [
-        ("in_progress", "77", "0", "true", "an active publisher's unmarked tree is not re-tested"),
-        ("queued", "77", "0", "true", "a queued publisher's unmarked tree is not re-tested"),
-        ("completed", "77", "0", "false", "an ended publisher's unmarked tree is re-tested"),
-        ("fail", "77", "0", "false", "a publisher whose state cannot be read: re-tested"),
-        ("in_progress", "5", "0", "false", "this run's own unmarked tree (a re-run attempt) is re-tested"),
-        ("in_progress", "77", "1", "true", "a marked tree needs no test and no run lookup"),
+        ("in_progress", "77", "0", feat, "true", "an active feat-cmux-next push publisher's tree is not re-tested"),
+        ("queued", "77", "0", feat, "true", "a queued feat-cmux-next push publisher's tree is not re-tested"),
+        ("in_progress", "77", "0", ("push", "op-next-idle-caret"), "false", "an active lane-branch push publisher's tree is re-tested"),
+        ("in_progress", "77", "0", ("pull_request_target", "op-next-idle-caret"), "false", "an active pull request publisher's tree is re-tested"),
+        ("in_progress", "77", "0", ("workflow_dispatch", "feat-cmux-next"), "false", "an active dispatch publisher's tree is re-tested"),
+        ("completed", "77", "0", feat, "false", "an ended publisher's unmarked tree is re-tested"),
+        ("fail", "77", "0", feat, "false", "a publisher whose state cannot be read: re-tested"),
+        ("in_progress", "5", "0", feat, "false", "this run's own unmarked tree (a re-run attempt) is re-tested"),
+        ("in_progress", "77", "1", feat, "true", "a marked tree needs no test and no run lookup"),
     ]
-    for status, run, marker, want, why in cases:
-        result, values, log = run_preflight(status, run, marker)
+    for status, run, marker, (event, branch), want, why in cases:
+        result, values, log = run_preflight(status, run, marker, event, branch)
         got = values.get("daemon_tested")
         _check(result.returncode == 0 and values.get("tree_ready") == "true" and got == want,
                f"{why}: daemon_tested {got!r}, want {want!r} (exit {result.returncode}: {result.stderr.strip()[-300:]})")

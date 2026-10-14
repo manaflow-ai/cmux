@@ -58,7 +58,7 @@ if "/actions/runs/" in url:
     if os.environ["FAKE_OWNER_STATUS"] == "fail":
         sys.exit(22)
     print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", ""),
-                      "event": "push", "head_branch": os.environ.get("FAKE_OWNER_BRANCH", "feat-cmux-next"),
+                      "event": os.environ.get("FAKE_OWNER_EVENT", "push"), "head_branch": os.environ.get("FAKE_OWNER_BRANCH", "feat-cmux-next"),
                       "head_sha": os.environ.get("FAKE_OWNER_SHA", "b" * 40)}))
     sys.exit(0)
 if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
@@ -290,16 +290,30 @@ def main():
     result, out, log = run_wait("")
     _check(result.returncode == 0 and "takeover=true" in out, f"the owner itself builds ({out.strip()!r})")
 
-    # Every publisher publishes before its daemon tests end (cx-y0nf2), and a
-    # lane-branch owner never runs them. While the owner is active, its own
-    # tests write the marker: re-testing here would queue a second job on the
-    # promote runner for every feat-cmux-next push of the key. An owner that
-    # ended without the marker failed or skipped them: this run tests the tree.
+    # Every publisher publishes before its daemon tests end (cx-y0nf2). A run
+    # defers only to an active feat-cmux-next push, which tests the tree and
+    # requests the promotion: re-testing would queue a second job on the
+    # promote runner. Any other owner is re-tested even while active: a
+    # lane-branch push never tests (and stays in progress for its macOS cross
+    # jobs), and a pull request or dispatch run never requests the promotion.
     for status in ("in_progress", "queued"):
         result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS=status,
-                                    FAKE_OWNER_BRANCH="cmux-tui-pin-0123456789ab")
+                                    FAKE_OWNER_BRANCH="feat-cmux-next")
         _check(result.returncode == 0 and "takeover=false" in out and "unmarked=false" in out,
-               f"an unmarked tree whose owner is {status} is not re-tested ({out.strip()!r})")
+               f"an unmarked tree whose feat-cmux-next push owner is {status} is not re-tested ({out.strip()!r})")
+    for event, branch, why in (("push", "op-next-idle-caret", "lane-branch push"),
+                               ("pull_request_target", "op-next-idle-caret", "pull request"),
+                               ("workflow_dispatch", "feat-cmux-next", "feat-cmux-next dispatch")):
+        result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
+                                    FAKE_OWNER_EVENT=event, FAKE_OWNER_BRANCH=branch)
+        _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
+               f"an unmarked tree whose active owner is a {why} run is re-tested ({out.strip()!r})")
+    # A branch owner that a feat-cmux-next builder replaced: the run deferred
+    # to is that builder, so its state decides, not the branch owner's.
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
+                                FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9", FAKE_BUILDER_STATUS="in_progress")
+    _check(result.returncode == 0 and "owner=9" in out and "unmarked=false" in out,
+           f"an unmarked tree an active feat-cmux-next builder publishes is not re-tested ({out.strip()!r})")
     for branch in ("cmux-tui-pin-0123456789ab", "feat-cmux-next"):
         result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="completed",
                                     FAKE_OWNER_CONCLUSION="failure", FAKE_OWNER_BRANCH=branch)
