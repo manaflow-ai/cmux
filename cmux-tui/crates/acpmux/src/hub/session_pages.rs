@@ -5,8 +5,9 @@
 //! sends `limit` gets that many sessions and a `nextCursor` naming the last one
 //! (null when the list is done); `cursor` starts the page after the session it
 //! names. A session that moves to the top or leaves meanwhile neither repeats
-//! nor skips another one. Without `limit` the reply is the whole list, as
-//! before.
+//! nor skips another one; one that moves to the top before its page is read is
+//! not in a later page, and reaches a watching client as `_acpmux/session_changed`.
+//! Without `limit` the reply is the whole list, as before.
 
 use super::*;
 
@@ -25,8 +26,8 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
         None | Some(Value::Null) => None,
         Some(v) => Some(
             v.as_u64()
-                .ok_or_else(|| RpcError::invalid_params("limit must be a positive integer"))?
-                .max(1),
+                .filter(|&n| n > 0)
+                .ok_or_else(|| RpcError::invalid_params("limit must be a positive integer"))?,
         ),
     };
     let cursor =
