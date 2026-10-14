@@ -301,6 +301,15 @@ public final class TerminalModel {
         sticky = surface.input.sticky
     }
 
+    /// The composer is about to insert `text`. With ctrl or alt on, the key
+    /// goes to the terminal instead (SPEC M1); returns false then.
+    func composerShouldInsert(_ text: String) -> Bool {
+        guard let surface = controller?.surface, let actions = surface.input.composerKey(text) else { return true }
+        surface.perform(actions)
+        sticky = surface.input.sticky
+        return false
+    }
+
     func joystick(_ direction: JoystickDirection) {
         keyBar(direction.key)
     }

@@ -3,77 +3,21 @@ import AudioToolbox
 import CnxDesign
 import SwiftUI
 
-/// A key of the key bar (SPEC 10.2).
-enum KeyBarKey: Hashable, Sendable {
-    case escape, tab, shiftTab, control, alternate, up, down, left, right, paste, hideKeyboard
-    case chord(Character)
-    case symbol(String)
-
-    var label: String {
-        switch self {
-        case .escape: "esc"
-        case .tab: "tab"
-        case .shiftTab: "⇧tab"
-        case .control: "ctrl"
-        case .alternate: "alt"
-        case .up: "↑"
-        case .down: "↓"
-        case .left: "←"
-        case .right: "→"
-        case .paste: "paste"
-        case .hideKeyboard: ""
-        case .chord(let letter): "^" + String(letter).uppercased()
-        case .symbol(let text): text
-        }
-    }
-
-    var accessibilityLabel: String {
-        switch self {
-        case .escape: "Escape"
-        case .tab: "Tab"
-        case .shiftTab: "Shift Tab"
-        case .control: "Control"
-        case .alternate: "Alt"
-        case .up: "Up Arrow"
-        case .down: "Down Arrow"
-        case .left: "Left Arrow"
-        case .right: "Right Arrow"
-        case .paste: "Paste"
-        case .hideKeyboard: "Hide Keyboard"
-        case .chord(let letter): "Control " + String(letter).uppercased()
-        case .symbol(let text): text
-        }
-    }
-
-    /// Arrows repeat while held.
-    var repeats: Bool {
-        switch self {
-        case .up, .down, .left, .right: true
-        default: false
-        }
-    }
-
-    static let middle: [KeyBarKey] = [
-        .tab, .shiftTab, .left, .down, .up, .right, .chord("c"), .chord("d"), .chord("z"), .chord("l"), .chord("r"),
-        .paste, .symbol("|"), .symbol("~"), .symbol("/"), .symbol("-"), .symbol("`"), .symbol("{"), .symbol("}"),
-        .symbol("["), .symbol("]"), .chord("b"),
-    ]
-}
-
-/// The key bar over the keyboard: fixed esc / ctrl / alt, a scrolling middle,
-/// and the joystick plus hide-keyboard at the trailing end, in one glass capsule.
+/// The key bar over the keyboard (SPEC B2): pinned `esc` `ctrl` `^C`, a
+/// full-width scroller that snaps to whole keys and fades its edges, and the
+/// joystick plus hide-keyboard at the trailing end, in one glass capsule.
 struct TerminalKeyBar: View {
     let model: TerminalModel
-    /// Middle-row keys clipped under the pinned keys or the joystick
-    /// (`KeyBarClipping`): hidden from accessibility, offered as row actions.
+    /// Middle-row keys clipped at the scroller's edges (`KeyBarClipping`):
+    /// hidden from accessibility, offered as row actions.
     @State private var clipped: Set<KeyBarKey> = []
+    @State private var edges = KeyBarScrollEdges()
 
     var body: some View {
         HStack(spacing: 6) {
-            KeyCap(key: .escape, model: model)
-            KeyCap(key: .control, model: model)
-            KeyCap(key: .alternate, model: model)
-            Divider().frame(height: 22)
+            ForEach(KeyBarKey.pinned, id: \.self) { key in
+                KeyCap(key: key, model: model)
+            }
             ScrollView(.horizontal) {
                 HStack(spacing: 6) {
                     ForEach(KeyBarKey.middle, id: \.self) { key in
@@ -86,10 +30,30 @@ struct TerminalKeyBar: View {
                             .accessibilityHidden(clipped.contains(key))
                     }
                 }
-                .padding(.horizontal, 2)
+                .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
-            .scrollClipDisabled(false)
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
+            .onScrollGeometryChange(for: KeyBarScrollEdges.self) { geometry in
+                KeyBarScrollEdges(offset: geometry.contentOffset.x, contentWidth: geometry.contentSize.width,
+                                  visibleWidth: geometry.containerSize.width)
+            } action: { _, new in
+                edges = new
+            }
+            .mask {
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: KeyBarScrollEdges.fade)
+                        .opacity(edges.fadesLeading ? 1 : 0)
+                        .background(Color.black.opacity(edges.fadesLeading ? 0 : 1))
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: KeyBarScrollEdges.fade)
+                        .opacity(edges.fadesTrailing ? 1 : 0)
+                        .background(Color.black.opacity(edges.fadesTrailing ? 0 : 1))
+                }
+            }
+            .frame(maxWidth: .infinity)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("More keys")
             .accessibilityActions {
@@ -97,7 +61,6 @@ struct TerminalKeyBar: View {
                     Button(key.accessibilityLabel) { model.keyBar(key) }
                 }
             }
-            Divider().frame(height: 22)
             Joystick(engine: model.joystickEngine)
             Button {
                 model.keyBar(.hideKeyboard)
@@ -112,6 +75,7 @@ struct TerminalKeyBar: View {
         }
         .padding(.horizontal, 5)
         .frame(height: 44)
+        .background(Color(uiColor: CnxGhosttyApp.background).opacity(0.85), in: .capsule)
         .glassEffect(.regular, in: .capsule)
         .padding(.horizontal, 8)
         .tint(.primary)
@@ -145,13 +109,13 @@ struct KeyCap: View {
         } label: {
             Text(key.label)
                 .font(.system(size: 15, weight: .medium, design: .monospaced))
-                .foregroundStyle(locked ? Color(uiColor: .systemBackground) : .primary)
+                .foregroundStyle(locked || armed ? Color.white : .primary)
         }
         .buttonStyle(KeyCapStyle(locked: locked, armed: armed))
         .buttonRepeatBehavior(key.repeats ? .enabled : .disabled)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
-        .accessibilityValue(locked ? "Locked" : armed ? "On for the next key" : "")
+        .accessibilityValue(locked ? "locked" : armed ? "armed" : "")
     }
 }
 
@@ -175,10 +139,17 @@ struct KeyCapStyle: ButtonStyle {
             .padding(.horizontal, 8)
             .frame(minWidth: 40, minHeight: 34)
             .background(
+                // Armed: accent fill, white label. Locked: the same plus a
+                // 2 pt underline (SPEC M1). Rest: the quiet fill.
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(locked ? AnyShapeStyle(Color.primary)
-                          : AnyShapeStyle(Color.primary.opacity(configuration.isPressed ? 0.22 : armed ? 0.16 : 0.08)))
+                    .fill(locked || armed ? AnyShapeStyle(Color(uiColor: .systemBlue).opacity(configuration.isPressed ? 0.8 : 1))
+                          : AnyShapeStyle(Color.primary.opacity(configuration.isPressed ? 0.22 : 0.08)))
             )
+            .overlay(alignment: .bottom) {
+                if locked {
+                    Capsule().fill(Color.white).frame(height: 2).padding(.horizontal, 8).padding(.bottom, 3)
+                }
+            }
             .scaleEffect(configuration.isPressed ? 0.92 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
             .contentShape(.rect)

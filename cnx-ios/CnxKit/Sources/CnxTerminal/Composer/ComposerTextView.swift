@@ -15,6 +15,9 @@ struct ComposerTextView: UIViewRepresentable {
     var focusOnAppear = false
     let onFocusChange: (Bool) -> Void
     let onReturn: () -> Void
+    /// Asked before typed text is inserted; false: the key went elsewhere
+    /// (the terminal, with the key bar's ctrl or alt on).
+    var shouldInsert: (String) -> Bool = { _ in true }
 
     static let maxLines = 6
 
@@ -37,6 +40,12 @@ struct ComposerTextView: UIViewRepresentable {
         view.smartDashesType = .no
         view.smartInsertDeleteType = .no
         view.inlinePredictionType = .no
+        // A shell line is not prose (SPEC M2): no QuickType bar, no AutoFill
+        // callout, no Writing Tools.
+        view.textContentType = nil
+        view.writingToolsBehavior = .none
+        view.inputAssistantItem.leadingBarButtonGroups = []
+        view.inputAssistantItem.trailingBarButtonGroups = []
         view.returnKeyType = .send
         view.accessibilityIdentifier = "terminal.composer.field"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -77,7 +86,7 @@ struct ComposerTextView: UIViewRepresentable {
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             // Return sends (SPEC 10.2); a pasted multi-line text stays as is.
-            guard text == "\n" else { return true }
+            guard text == "\n" else { return text.isEmpty || parent.shouldInsert(text) }
             parent.onReturn()
             return false
         }

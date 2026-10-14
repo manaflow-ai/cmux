@@ -87,7 +87,8 @@ struct TerminalComposer: View {
                     if isFocused { model.composerFocusOnAppear = false }
                     if isFocused { model.directTyping = false }
                 },
-                onReturn: { model.send() }
+                onReturn: { model.send() },
+                shouldInsert: { model.composerShouldInsert($0) }
             )
         }
         .padding(.leading, 4)

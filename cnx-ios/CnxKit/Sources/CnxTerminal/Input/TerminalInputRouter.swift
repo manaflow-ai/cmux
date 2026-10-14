@@ -107,6 +107,16 @@ public struct TerminalInputRouter: Sendable {
         return [.preedit(""), .text(text)]
     }
 
+    /// A key typed into the composer while the key bar's ctrl or alt is
+    /// armed or locked (SPEC M1): it goes to the terminal as that chord
+    /// (`c` with ctrl is 0x03), never into the composer's text, and an armed
+    /// modifier disarms. Nil: no modifier is on, or the text is not one key
+    /// (a paste, dictation, Return), and the composer keeps it.
+    public mutating func composerKey(_ text: String) -> [TerminalInputAction]? {
+        guard sticky.isActive(.control) || sticky.isActive(.alternate), text.count == 1, text != "\n" else { return nil }
+        return insertText(text)
+    }
+
     // MARK: Key bar
 
     /// Arms or locks a sticky modifier (key bar `ctrl` / `alt`) at `time`.

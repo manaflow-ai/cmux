@@ -20,3 +20,23 @@ public struct KeyBarClipping: Sendable {
         return key.midX > visible.minX && key.midX < visible.maxX
     }
 }
+
+/// The key bar scroller's edge fades (SPEC B2): 12 pt gradient masks, the
+/// leading one only once the row is scrolled (at rest the first key starts
+/// at a hard edge), the trailing one while more keys wait to the right.
+public struct KeyBarScrollEdges: Equatable, Sendable {
+    public static let fade: CGFloat = 12
+
+    public var offset: CGFloat
+    public var contentWidth: CGFloat
+    public var visibleWidth: CGFloat
+
+    public init(offset: CGFloat = 0, contentWidth: CGFloat = 0, visibleWidth: CGFloat = 0) {
+        self.offset = offset
+        self.contentWidth = contentWidth
+        self.visibleWidth = visibleWidth
+    }
+
+    public var fadesLeading: Bool { offset > 0.5 }
+    public var fadesTrailing: Bool { offset + visibleWidth < contentWidth - 0.5 }
+}
