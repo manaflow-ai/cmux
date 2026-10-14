@@ -134,25 +134,60 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
             self?.presentQuestion(question.id)
         }
         bar.resized = { [weak self] in self?.view.setNeedsLayout() }
+        bar.fading = { [weak self] out, duration in
+            guard let self else { return }
+            UIView.animate(withDuration: duration) { self.topBand.alpha = out ? 0 : 1 }
+        }
         let host = UIHostingController(rootView: bar)
         host.view.backgroundColor = .clear
         host.sizingOptions = .intrinsicContentSize
         return host
     }()
 
+    /// One solid band from the top of the screen to just below the bar
+    /// (R3-1): no scrolled-out bubble shows behind the clock or around the
+    /// bar, so the status bar and the bar read as one top bar. Goes once the
+    /// package can host the bar under its header (UPSTREAM-REQUESTS.md U8).
+    private let topBand: UIView = {
+        let band = UIView()
+        band.backgroundColor = .systemBackground
+        band.isUserInteractionEnabled = false
+        band.alpha = 0
+        return band
+    }()
+
     private func installQuestionBar() {
+        view.addSubview(topBand)
         addChild(questionBar)
         view.addSubview(questionBar.view)
         questionBar.didMove(toParent: self)
     }
 
-    /// Below the header's name pill, over the top of the transcript.
+    /// The bar takes its own room (R2-1), as Messages' pinned rows do:
+    /// the conversation is inset from the top by the bar's height + 8 pt, so
+    /// its header and transcript start below the bar and nothing in the
+    /// conversation is ever under it. The bar sits in that room, under the
+    /// status bar. (CmuxConversation pins its header to the safe area and the
+    /// transcript to the header, so a safe-area inset moves both; a hook to
+    /// put the bar under the header is upstream request U8.)
     private func layoutQuestionBar() {
         guard questionBar.parent === self else { return }
-        let name = conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.header.name" }
-        let top = name.map { $0.convert($0.bounds, to: view).maxY + 10 } ?? view.safeAreaInsets.top + 64
         let size = questionBar.sizeThatFits(in: CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude))
-        questionBar.view.frame = CGRect(x: 0, y: top, width: view.bounds.width, height: size.height)
+        let height = size.height < 1 ? 0 : size.height
+        let top = view.safeAreaInsets.top + 4
+        questionBar.view.frame = CGRect(x: 0, y: top, width: view.bounds.width, height: height)
+        if height > 0 { topBand.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top + height + 4) }
+        let inset: CGFloat = height > 0 ? height + 8 : 0
+        guard conversation.additionalSafeAreaInsets.top != inset else { return }
+        let apply = { [conversation] in
+            conversation.additionalSafeAreaInsets.top = inset
+            conversation.view.layoutIfNeeded()
+        }
+        if view.window != nil, !UIAccessibility.isReduceMotionEnabled {
+            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.allowUserInteraction], animations: apply)
+        } else {
+            apply()
+        }
     }
 
     public func presentQuestion(_ id: String) {

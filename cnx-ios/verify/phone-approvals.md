@@ -277,11 +277,13 @@ Following the relay rules in the repository's CLAUDE.md:
 - Settings → Mobile rows for paired phones (with Remove) are for the Mobile
   page's owner (`feat-cnx-ios-machost`): the service publishes `paired` and
   `revokePhone(id:)`.
-- The pairing prompt is an app-scope cmux dialog. While cmux is not the
+- On a Mac without PR https://github.com/manaflow-ai/cmux/pull/20491, the
+  pairing prompt is only an app-scope cmux dialog. While cmux is not the
   active app, macOS may refuse its activation, and the dialog shows only when
-  the person brings cmux forward. A first pairing from the phone while the
-  person works in another app therefore waits (up to 120 s per link) with no
-  visible prompt. A system notification that opens the prompt would fix it.
+  the person brings cmux forward. #20491 (`feat-cnx-ios-approvals`, f8afcd1d
+  and later) adds a system notification with Review, a Dock bounce, and
+  Settings → Mobile → Connection Requests. The phone's banner says "Look for
+  cmux on your Mac", which is true with or without #20491.
 - The dialog is excluded from screen capture (`CmuxDialogCaptureExcludedHost`),
   so the live record below has its accessibility text, not a picture.
 - (Fixed 2026-10-14.) The Feed used to mark a permission "Allowed" before

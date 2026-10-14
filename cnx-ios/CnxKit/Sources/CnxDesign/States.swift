@@ -211,16 +211,18 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public static func connecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Connecting to \(mac)…") }
     /// A dial that keeps failing (for example WebRTC with no TURN path).
     public static func failed(_ text: String) -> Self { Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text) }
-    /// The Mac shows "Allow … to connect?" for this phone as a notification
-    /// (verify/phone-approvals.md): the banner points there, on two lines.
+    /// The Mac asks "Allow … to connect?" for this phone
+    /// (verify/phone-approvals.md): a notification, a Dock bounce and
+    /// Settings → Mobile on a Mac with #20491, only a cmux dialog on an older
+    /// one. "Look for cmux" is true for both.
     public static func waitingForPairing(on mac: String) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone on \(mac)"),
-             detail: String(localized: "Check your Mac's notification"))
+             detail: String(localized: "Look for cmux on your Mac"))
     }
     /// The same after the phone replaced an unreadable stored key.
     public static func waitingForPairingAfterNewKeys(on mac: String) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
-             detail: String(localized: "Its keys were reset. Check your Mac's notification"))
+             detail: String(localized: "Its keys were reset. Look for cmux on your Mac"))
     }
 }
 
@@ -281,16 +283,20 @@ public struct CnxToast: Sendable, Hashable, Identifiable {
 }
 
 extension View {
-    /// Shows `state` as a banner under the top safe area, entering from y - 12.
+    /// Shows `state` as a banner under the top safe area, entering from
+    /// y - 12. It takes its own room: the content below (a list) is inset
+    /// by the banner's height at every text size, so it covers nothing (R2-4).
     public func cnxBanner(_ state: ConnectionBannerState?) -> some View {
-        overlay(alignment: .top) {
+        safeAreaInset(edge: .top, spacing: 0) {
             ZStack {
                 if let state {
                     ConnectionBanner(state)
                         .padding(.top, 8)
+                        .padding(.bottom, 8)
                         .transition(.opacity.combined(with: .offset(y: -12)))
                 }
             }
+            .frame(maxWidth: .infinity)
             .animation(theme.motion.snappy.animation, value: state)
         }
     }

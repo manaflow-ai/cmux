@@ -59,6 +59,7 @@ struct DevicesPage: View {
     @State private var removalError: ServiceFailureMessage?
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
     @State private var removing: Set<String> = []
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         List {
@@ -83,7 +84,7 @@ struct DevicesPage: View {
             } footer: {
                 if directory != nil { Text("Remove a Mac you no longer use. It comes back if cmux on that Mac signs in again.") }
             }
-            if directory != nil {
+            if directory != nil, !phones.isEmpty {
                 Section {
                     ForEach(phones) { phone in
                         removableRow(phone)
@@ -103,12 +104,16 @@ struct DevicesPage: View {
         .toolbar { if directory != nil { EditButton() } }
         .refreshable { await list.load(directory) }
         .task { await list.load(directory) }
-        .confirmationDialog(
+        // A centered alert, with no arrow: a popover from the page pointed at
+        // whichever row it chose, so with same-name Macs it could point at the
+        // other Mac. A dialog attached to the swiped row does not present in a
+        // List on iOS 27. The title names the Mac with its tag.
+        .alert(
             pendingRemoval.map { "Remove \(displayName($0))?" } ?? "",
             isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
-            titleVisibility: .visible,
             presenting: pendingRemoval
         ) { device in
+            Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { Task { await remove(device) } }
         } message: { device in
             Text(Self.removalExplanation(device, connected: isConnected(device), honorsRemoval: honorsRemoval(device),
@@ -126,15 +131,16 @@ struct DevicesPage: View {
     private var phones: [SettingsDevice] { list.phones }
 
     /// Tags for Macs that share a name ("Aziz's MacBook Pro" twice), so
-    /// the rows and the remove confirmation say which one.
+    /// the rows and the remove confirmation say which one. Over the account's
+    /// Macs, as Workspaces computes them, so a Mac has one tag everywhere.
     private var sameNames: MacNameDisambiguation {
-        MacNameDisambiguation(macs.map { (id: $0.id, name: $0.name) })
+        MacNameDisambiguation(account: store.teams)
     }
 
     /// The name with its tag when another Mac has the same name: the text the
     /// row shows (name, then the tag capsule) and the confirmation's title.
     private func displayName(_ device: SettingsDevice) -> String {
-        device.kind == .mac ? sameNames.taggedName(id: device.id, name: device.name) : device.name
+        device.kind == .mac ? sameNames.displayName(id: device.id, name: device.name) : device.name
     }
 
     private func canRemove(_ device: SettingsDevice) -> Bool {
@@ -142,9 +148,8 @@ struct DevicesPage: View {
     }
 
     /// A row with its Remove paths: the trailing swipe, the context menu, and
-    /// Edit's delete control (`onDelete`). The confirmation is the page's: a
-    /// dialog attached to a List row does not present on iOS 27 (tried for
-    /// design item 14).
+    /// Edit's delete control (`onDelete`). The confirmation is a centered
+    /// alert (see `body`).
     @ViewBuilder private func removableRow(_ device: SettingsDevice) -> some View {
         row(device)
             .opacity(removing.contains(device.id) ? 0.5 : 1)
@@ -208,10 +213,16 @@ struct DevicesPage: View {
             // Centered on the name's line, not the two-line block.
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 6 }
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(device.name).font(theme.type.rowTitle)
-                    if device.kind == .mac, let tag = sameNames.tag(for: device.id) {
-                        DeviceTag(tag)
+                let tag = device.kind == .mac ? sameNames.tag(for: device.id) : nil
+                if typeSize.isAccessibilitySize {
+                    // The tag on its own line: beside the name it would squeeze
+                    // the name into one word per line.
+                    UnbrokenText(device.name)
+                    if let tag { MacNameTag(tag) }
+                } else {
+                    HStack(spacing: 6) {
+                        Text(device.name).font(theme.type.rowTitle)
+                        if let tag { MacNameTag(tag) }
                     }
                 }
                 Text(subtitle(device)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
@@ -236,7 +247,9 @@ struct DevicesPage: View {
         if device.online == true {
             presence = status(device)?.text ?? "Online"
         } else if let seen = device.lastSeenAt {
-            presence = "Last seen \(seen.formatted(.relative(presentation: .named)))"
+            // The formatter and clock Workspaces uses ("Last seen 2h ago"); reading
+            // the clock redraws the page on each minute tick.
+            presence = RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: seen)
         } else {
             presence = "Offline"
         }
@@ -278,23 +291,6 @@ struct DevicesPage: View {
             removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)): \(error.localizedDescription)")
             theme.haptics.error()
         }
-    }
-}
-/// The tag that tells same-name Macs apart: "3F2A" in a small capsule.
-struct DeviceTag: View {
-    let tag: String
-
-    init(_ tag: String) {
-        self.tag = tag
-    }
-
-    var body: some View {
-        Text(verbatim: tag)
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .foregroundStyle(theme.colors.label2)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
-            .background(theme.colors.fillSelected, in: .rect(cornerRadius: 6, style: .continuous))
     }
 }
 #endif

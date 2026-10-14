@@ -316,7 +316,7 @@ struct PinnedGrid: View {
                 .frame(maxWidth: .infinity)
                 // The bubble rides above the avatar: room for it, so it
                 // keeps clear of the search field at every size (F3).
-                .padding(.top, showsBubble ? 14 + Self.bubbleClearance : 14)
+                .padding(.top, showsBubble ? 14 + bubbleClearance : 14)
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
@@ -346,10 +346,12 @@ struct PinnedGrid: View {
 
     private var showsBubble: Bool { session.isTyping || showsPreview }
 
-    /// Extra top room while a bubble shows. Without it the bubble (26 pt
-    /// above the avatar) came within 3 pt of the search field at Large and
-    /// touched it at AX5 (round 1 review); 10 pt leaves 13 pt and 8 pt.
-    static let bubbleClearance: CGFloat = 10
+    /// Extra top room while a bubble shows, growing with the text (the
+    /// search field does too). Measured round 2: 10 pt left 8 pt at Large
+    /// and 4 pt at AX5; scaled, capped at 18 pt, it leaves at least 6 pt at
+    /// every size (R2-7).
+    @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10
+    private var bubbleClearance: CGFloat { min(max(scaledClearance, 10), 18) }
 
     private var previewText: String { plainPreview(session.preview) }
 

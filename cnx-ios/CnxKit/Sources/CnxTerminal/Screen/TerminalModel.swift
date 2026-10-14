@@ -39,6 +39,20 @@ public final class TerminalModel {
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
     public var uploader: (@MainActor (_ data: Data, _ name: String) async throws -> String)?
+    /// The composer shows its `+` menu: a Mac can receive attachments, or
+    /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
+    var attachmentsAvailable: Bool {
+        if uploader != nil { return true }
+        #if DEBUG
+        return session is MockTerminalSession
+        #else
+        return false
+        #endif
+    }
+    /// The terminal surface is first responder (keys go straight to the PTY).
+    var surfaceFocused = false
+    /// The terminal or its composer has focus: the key bar shows (SPEC M4).
+    var inputFocused: Bool { surfaceFocused || composerFocused }
     /// Attachments are being sent; the composer waits.
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
@@ -299,6 +313,15 @@ public final class TerminalModel {
         case .hideKeyboard: controller?.hideKeyboard()
         }
         sticky = surface.input.sticky
+    }
+
+    /// The composer is about to insert `text`. With ctrl or alt on, the key
+    /// goes to the terminal instead (SPEC M1); returns false then.
+    func composerShouldInsert(_ text: String) -> Bool {
+        guard let surface = controller?.surface, let actions = surface.input.composerKey(text) else { return true }
+        surface.perform(actions)
+        sticky = surface.input.sticky
+        return false
     }
 
     func joystick(_ direction: JoystickDirection) {

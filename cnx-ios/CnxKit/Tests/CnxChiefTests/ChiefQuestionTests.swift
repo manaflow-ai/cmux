@@ -55,6 +55,46 @@ import Testing
             == "Not sent: your Mac didn't accept this iPhone's approval.")
     }
 
+    /// R2-5: a lost reply after sending is "couldn't confirm", never "Not
+    /// sent"; Check settles it from the Mac's own state.
+    @Test func lostReplyIsUnconfirmedUntilChecked() {
+        struct LinkDropped: Error {}
+        var flow = ChiefAnswerFlow()
+        _ = flow.begin()
+        flow.approved()
+        flow.failed(LinkDropped())
+        #expect(flow.state == .unconfirmed)
+        #expect(flow.statusText == "Couldn't confirm. Chief may have it.")
+        // No second answer on top of one the Mac may have.
+        let again = flow.begin()
+        #expect(!again)
+        let checking = flow.beginCheck()
+        #expect(checking)
+        #expect(flow.statusText == "Checking with your Mac…")
+        flow.stored()
+        #expect(flow.state == .sent)
+
+        var pending = ChiefAnswerFlow()
+        _ = pending.begin()
+        pending.approved()
+        pending.failed(LinkDropped())
+        _ = pending.beginCheck()
+        pending.checkedStillPending()
+        #expect(pending.state == .failed("Not sent: your Mac doesn't have this answer. Try again."))
+
+        // Before signing, a failure is truly "Not sent".
+        var unsigned = ChiefAnswerFlow()
+        _ = unsigned.begin()
+        unsigned.failed(LinkDropped())
+        #expect(unsigned.state == .failed("Not sent: Chief on your Mac didn't take the answer. Try again."))
+        // A refusal the Mac returned after sending is "Not sent" too.
+        var refused = ChiefAnswerFlow()
+        _ = refused.begin()
+        refused.approved()
+        refused.failed(ConversationBackendError(code: -32000, message: "conversation_rejected: invalid_answer"))
+        #expect(refused.state == .failed("Not sent: the answer doesn't fit the question."))
+    }
+
     @Test func questionPartsAreFoundByAddress() {
         let message: [String: Any] = [
             "id": "msg_9", "seq": 9, "author": "agent_mux",
@@ -166,6 +206,16 @@ final class RecordingSigner: ChiefAnswerSigning, @unchecked Sendable {
             if case .connected = event { Issue.record("must not reconnect") }
         }
         #expect(changed?.participants.first { $0.id == "agent_mux" }?.initials == "🦊")
+        // R2-6: an event without an `avatar` key leaves Chief as drawn (a
+        // reset would surface "C" before "AB"); the next explicit one applies.
+        daemon.queue(["event": "chief-profile-changed"])
+        daemon.queue(["event": "chief-profile-changed", "avatar": "AB"])
+        await backend.setTyping(false)
+        changed = nil
+        while changed == nil, let event = await events.next() {
+            if case .conversationChanged(let info) = event { changed = info }
+        }
+        #expect(changed?.participants.first { $0.id == "agent_mux" }?.initials == "AB")
         // A picture (null) or a file name draws "C" again.
         daemon.queue(["event": "chief-profile-changed", "avatar": "avatar.png"])
         await backend.setTyping(false)
@@ -174,6 +224,19 @@ final class RecordingSigner: ChiefAnswerSigning, @unchecked Sendable {
             if case .conversationChanged(let info) = event { changed = info }
         }
         #expect(changed?.participants.first { $0.id == "agent_mux" }?.initials == "C")
+        backend.close()
+    }
+
+    /// R2-5: Check fetches the conversation again; the Mac's answered state
+    /// reaches the feed before it returns.
+    @Test func recheckReadsTheMacsState() async throws {
+        let daemon = FakeDaemon()
+        _ = daemon.seedChiefQuestion()
+        let backend = try await ChiefDaemonBackend.open(link: MockMacLink { _, request in daemon.respond(request) })
+        var events = backend.events().makeAsyncIterator()
+        _ = await events.next()
+        try await backend.recheckQuestions()
+        #expect(backend.questionFeed.current.first?.isPending == true)
         backend.close()
     }
 }

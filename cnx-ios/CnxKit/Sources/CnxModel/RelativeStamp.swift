@@ -1,7 +1,10 @@
 import Foundation
 
-/// Compact relative times for workspace rows (SPEC 11.1 `meta`): "now",
-/// "4m", "3h", "2d", then a short date.
+/// Compact relative times (SPEC 11.1 `meta`): "now", "4m", "3h", "2d", then
+/// a short date. The one formatter for a Mac's "Last seen" on every surface
+/// (Workspaces rows and filter, Settings → Devices). The surfaces pass the
+/// shared `MinuteClock`'s `now`, so they all agree; the elapsed time itself is
+/// exact ("1m" from 60 s, "2m" from 120 s).
 public struct RelativeStamp: Sendable {
     public var now: Date
     public var calendar: Calendar

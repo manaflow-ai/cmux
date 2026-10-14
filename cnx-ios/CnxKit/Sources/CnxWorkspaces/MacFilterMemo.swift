@@ -10,7 +10,9 @@ import Foundation
 /// body already read from the store.
 @MainActor
 public final class MacFilterMemo {
-    /// One Filter menu row: the Mac's name and its subtitle.
+    /// One Filter menu row: the Mac's name ("Aziz's MacBook Pro 3F2A" when
+    /// it shares the name: a menu row is text only, so the tag is spelled as
+    /// in every other text) and its subtitle.
     public struct Entry: Equatable, Sendable, Identifiable {
         public let id: String
         public let title: String
@@ -20,19 +22,31 @@ public final class MacFilterMemo {
     /// Everything a Filter row's text depends on. `minute` makes offline
     /// Macs' "Last seen 4m ago" move on.
     public struct Input: Equatable {
+        /// The clock's time the rows are formatted against; the cache keys on
+        /// its minute (`minute`), not on this.
+        public var now: Date
         public var macs: [MacDevice]
+        /// Every Mac on the account (all teams): the tags' scope.
+        public var accountMacs: [MacDevice]
         public var connection: [String: MacConnection]
         public var linkStatus: [String: String]
         public var live: Bool
         public var minute: Int
 
-        public init(macs: [MacDevice], connection: [String: MacConnection], linkStatus: [String: String], live: Bool,
-                    now: Date = Date()) {
+        public init(macs: [MacDevice], accountMacs: [MacDevice]? = nil, connection: [String: MacConnection],
+                    linkStatus: [String: String], live: Bool, now: Date = Date()) {
             self.macs = macs
+            self.accountMacs = accountMacs ?? macs
             self.connection = connection
             self.linkStatus = linkStatus
             self.live = live
+            self.now = now
             minute = Int(now.timeIntervalSince1970 / 60)
+        }
+
+        public static func == (lhs: Input, rhs: Input) -> Bool {
+            lhs.macs == rhs.macs && lhs.accountMacs == rhs.accountMacs && lhs.connection == rhs.connection
+                && lhs.linkStatus == rhs.linkStatus && lhs.live == rhs.live && lhs.minute == rhs.minute
         }
     }
 
@@ -46,7 +60,7 @@ public final class MacFilterMemo {
 
     public init() {}
 
-    /// The disambiguation for `macs`, recomputed only when an id or a name changed.
+    /// The disambiguation for `macs` (pass the account's Macs), recomputed only when an id or a name changed.
     public func names(_ macs: [MacDevice]) -> MacNameDisambiguation {
         if let namesKey, namesKey.count == macs.count,
            zip(namesKey, macs).allSatisfy({ $0.id == $1.id && $0.name == $1.name }) {
@@ -61,13 +75,13 @@ public final class MacFilterMemo {
     /// The Filter menu's Mac rows (online first), recomputed only when `input` changed.
     public func entries(_ input: Input) -> [Entry] {
         if entriesKey == input { return cachedEntries }
-        let names = names(input.macs)
-        let stamp = RelativeStamp(now: Date(timeIntervalSince1970: TimeInterval(input.minute) * 60))
+        let names = names(input.accountMacs)
+        let stamp = RelativeStamp(now: input.now)
         cachedEntries = MacScope.menuOrder(input.macs).map { mac in
             let presence = stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
             let status = MacStatusLine.make(mac: mac, connection: input.connection[mac.id], live: input.live, presence: presence).text
-            let detail = [status, names.detail(for: mac.id), input.linkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
-            return Entry(id: mac.id, title: mac.name, detail: detail)
+            let detail = [status, input.linkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
+            return Entry(id: mac.id, title: names.displayName(mac), detail: detail)
         }
         entriesKey = input
         entryComputations += 1

@@ -46,7 +46,17 @@ public struct TerminalTabPage: View {
             .background(Color.black)
             // Not attached yet: the honest placeholder over the empty surface.
             .overlay {
-                if !model.connectionState.isAttached {
+                if case .reattaching = model.connectionState {
+                    // Reattaching: a warm surface keeps its last frame live
+                    // under no overlay; a cold tab shows its frame dimmed. The
+                    // title pill says "Reattaching…" after 400 ms (SPEC P5).
+                    if let frame = model.coldFrame {
+                        TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: frame, showsLabel: false)
+                            .ignoresSafeArea()
+                            .padding(.bottom, insets.bottom)
+                            .transition(.opacity)
+                    }
+                } else if !model.connectionState.isAttached {
                     // A tab back from the warm set shows its last frame at once.
                     TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame)
                         .ignoresSafeArea()
@@ -71,6 +81,11 @@ public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
 
+    private var isReattaching: Bool {
+        if case .reattaching = model.connectionState { return true }
+        return false
+    }
+
     public init(model: TerminalModel, insets: EdgeInsets) {
         self.model = model
         self.insets = insets
@@ -81,7 +96,8 @@ public struct TerminalTabCard: View {
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
                 if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot)
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot,
+                                           showsLabel: !isReattaching)
                 } else if let image = model.snapshot {
                     Image(uiImage: image)
                         .resizable()

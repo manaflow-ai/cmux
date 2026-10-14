@@ -27,6 +27,8 @@ struct AccountPage: View {
     @State private var confirmsDeletion = false
     @State private var deleting = false
     @State private var deletionError: String?
+    /// The sign-in glyph grows with Dynamic Type like the other row icons.
+    @ScaledMetric(relativeTo: .body) private var signInGlyph: CGFloat = 18
 
     var body: some View {
         List {
@@ -64,9 +66,9 @@ struct AccountPage: View {
                 case .loaded(let list):
                     ForEach(list) { method in
                         HStack(spacing: 14) {
-                            SignInMethodGlyph(method, size: 18)
+                            SignInMethodGlyph(method, size: min(signInGlyph, 34))
                                 .foregroundStyle(theme.colors.label)
-                                .frame(width: theme.metrics.settingsIconFrame)
+                                .frame(width: min(signInGlyph + 4, theme.metrics.settingsIconFrame * 2))
                             UnbrokenText(method.title)
                             if let detail = method.detail(accountEmail: auth.user?.email) {
                                 Spacer(minLength: 8)
@@ -166,6 +168,9 @@ struct TeamPage: View {
     let edit: () -> Void
     let invite: () -> Void
     @State private var members: SettingsLoad<[TeamMember]> = .loading
+    /// The 28 pt avatar column every row's text starts after (it grows with
+    /// Dynamic Type as the avatars do), so all titles share one x.
+    @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
     var body: some View {
         List {
@@ -204,10 +209,18 @@ struct TeamPage: View {
                     }
                 }
             }
+            // The personal space is just you: nobody to invite.
+            if !team.isPersonalSpace {
             Section {
                 Button(action: invite) {
-                    SettingsLabel("Invite to team", symbol: "person.badge.plus")
+                    HStack(spacing: 14) {
+                        SettingsIcon("person.badge.plus")
+                            .foregroundStyle(theme.colors.label)
+                            .frame(width: 28 * min(scale, 2))
+                        Text("Invite to team").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                    }
                 }
+            }
             }
         }
         .settingsPage(LocalizedStringKey(team.name))

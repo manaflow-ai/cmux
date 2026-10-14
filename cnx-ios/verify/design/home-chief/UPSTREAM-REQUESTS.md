@@ -225,3 +225,40 @@ public func focusComposer()
 ```
 
 **Default:** n/a, because it is only called by a host.
+
+## U8. Host rows under the header that push the transcript down (new, round 3)
+
+**Need:** Chief shows a pinned row while it asks a question ("Chief is
+asking · Answer"), as Messages pins a business chat's request or "Report
+Junk" under its navigation bar. Messages' pinned rows push the transcript
+down; they never cover a bubble (round 2 review, R2-1).
+
+**Code today:** `ConversationViewController.updateInsets()` sets the
+transcript's top inset to `header.frame.maxY + 3.33`, and the header is
+pinned to `view.safeAreaLayoutGuide.topAnchor`. A host's
+`additionalSafeAreaInsets.top` therefore moves the header and the transcript
+together. A row placed under the header still covers the transcript.
+
+**Workaround in cnx (no package change):** the conversation gets
+`additionalSafeAreaInsets.top = bar height + 8`, and the bar sits in that
+room above the header (`ChiefConversationContainer.layoutQuestionBar`). No
+bubble is ever under it, but the bar is above the avatar instead of under
+the name pill.
+
+**Proposal:**
+
+```swift
+// ConversationViewController
+/// A host view pinned under the header, full width. The transcript's top
+/// inset grows by its height (plus 8 pt), animated with it, so no row is
+/// ever under it; nil removes it.
+public func setHeaderAccessory(_ view: UIView?, animated: Bool)
+```
+
+- **Default:** no accessory, so the layout is unchanged.
+- **Chief passes:** the question bar.
+- **When it lands, cnx removes:** the `additionalSafeAreaInsets.top` room and
+  the solid top band behind the status bar and the bar
+  (`ChiefConversationContainer.topBand`, round 3 review R3-1). The band exists
+  only because the bar sits above the header; under the header, the
+  package's own header wash covers it.

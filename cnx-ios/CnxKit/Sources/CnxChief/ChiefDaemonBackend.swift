@@ -418,6 +418,16 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             continuation?.yield(.message(message, eventSeq: eventSeq))
         }
 
+        /// Fetches the conversation again (after an unconfirmed answer):
+        /// the store refetches the newest page, and the question feed hears
+        /// whether the Mac has the answer.
+        func resync() async throws {
+            let id = try await resolve()
+            try await connect(id: id, lagged: true)
+            // Read the newest page here too, so the feed is settled when this returns.
+            _ = try await history(beforeSeq: nil, limit: 50)
+        }
+
         /// Draws Chief with `text` (nil: the default "C") from now on, and
         /// tells the store, so the header and every avatar change in place.
         func applyAvatar(_ text: String?) {
@@ -442,7 +452,12 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             // The Mac's Chief Settings changed the avatar (capability
             // chief-profile-events-v1): no conversation, only the text.
             if event == ChiefDaemonBackend.profileEvent {
-                applyAvatar(ChiefEngineReport.avatarText(object["avatar"] as? String))
+                // Only an explicit `avatar` changes it: null clears it (a
+                // picture, or none); a profile event about something else
+                // (no key) leaves Chief as drawn (R2-6).
+                if object.keys.contains("avatar") {
+                    applyAvatar(ChiefEngineReport.avatarText(object["avatar"] as? String))
+                }
                 return
             }
             guard object["conversation"] as? String == conversationID else { return }

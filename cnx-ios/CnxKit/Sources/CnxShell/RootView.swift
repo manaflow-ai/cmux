@@ -26,6 +26,9 @@ public struct ShellLaunchOptions: Sendable {
     public var setupPairDemo = false
     /// DEBUG: open Settings on this page (`SettingsRoute` case name).
     public var settingsPage: String?
+    /// A launch with no demo or forced page goes back to the workspace and
+    /// tab that were open (design/terminal P10). `-cnx-no-restore` opts out.
+    public var restoresLastLocation = true
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         func value(_ flag: String) -> String? {
@@ -41,7 +44,10 @@ public struct ShellLaunchOptions: Sendable {
         setupPairDemo = arguments.contains("-cnx-setup-pair")
         if setupPairDemo { forceSetup = true }
         settingsPage = value("-cnx-settings-page")
+        restoresLastLocation = initialTab == nil && settingsPage == nil && demo == nil && !sidebarOpen
+            && !arguments.contains("-CnxDemo") && DeveloperOptions.launchDemo == nil
         #endif
+        if arguments.contains("-cnx-no-restore") { restoresLastLocation = false }
     }
 }
 
@@ -242,6 +248,8 @@ public struct RootView: View {
         setupPlan = nil
         asksNotifications = nil
         store.resetForSignOut()
+        // The next account starts on Home, not in this one's workspace.
+        LastOpenMemory.standard.save(nil)
         if !auth.isMock {
             DeviceIdentity.reset()
             LiveCoordinator.forgetSnapshots()
@@ -421,7 +429,32 @@ struct ShellView: View {
             guard let route else { return }
             if shell.open(route) { NotificationRouter.shared.pending = nil }
         }
+        // Design/terminal P10: remember where the user is; finish a launch
+        // restore once the workspace is listed (or its Mac says it is gone).
+        // Back to the workspace and tab that were open (P10), once, on the
+        // model SwiftUI keeps. Not from `init`: RootView re-creates this view
+        // (and a throwaway model) on every update, and a restore there wrote
+        // the shared store from each one: an endless update loop at launch.
+        // A tapped notification decides where the app opens instead.
+        .onAppear {
+            if options.restoresLastLocation, NotificationRouter.shared.pending == nil { shell.beginRestore() }
+        }
+        .onChange(of: shell.lastOpenLocation) { _, location in
+            shell.locationChanged(location)
+        }
+        .onChange(of: shell.store.activeWorkspaces) { _, _ in
+            shell.continueRestore()
+        }
+        .onChange(of: shell.store.macData) { _, _ in
+            shell.continueRestore()
+        }
+        .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
+            shell.terminalTabs.liveDataChanged()
+        }
         .onChange(of: shell.store.workspaces) { _, _ in
+            // A terminal page shown before the tree arrived (a launch
+            // restore) attaches now (design/terminal R1-0).
+            shell.terminalTabs.liveDataChanged()
             guard let route = NotificationRouter.shared.pending else { return }
             // One retry after the tree arrives; then the Feed is where it is.
             shell.open(route)

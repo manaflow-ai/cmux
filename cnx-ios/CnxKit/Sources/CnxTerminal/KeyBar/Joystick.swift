@@ -35,7 +35,7 @@ final class JoystickEngine {
 
     @ObservationIgnored private var repeatTask: Task<Void, Never>?
     @ObservationIgnored private let clock: any Clock<Duration>
-    @ObservationIgnored private let selection = UISelectionFeedbackGenerator()
+    @ObservationIgnored private let impact = UIImpactFeedbackGenerator(style: .light)
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         self.clock = clock
@@ -97,7 +97,7 @@ final class JoystickEngine {
     private func fire(_ direction: JoystickDirection) {
         keysSent += 1
         send(direction)
-        if gear < 3 || keysSent % 4 == 0 { selection.selectionChanged() }
+        if gear < 3 || keysSent % 4 == 0 { impact.impactOccurred(intensity: 0.6) }
     }
 
     private func restartRepeat() {
@@ -112,27 +112,44 @@ final class JoystickEngine {
     }
 }
 
-/// 36 pt glass circle with a 14 pt thumb.
+/// 36 pt glass circle with a 14 pt thumb and four faint chevrons, so it
+/// reads as a joystick, not a radio button (SPEC P8). The thumb grows 1.2x
+/// while touched; each cursor step is a light haptic (`JoystickEngine`).
 struct Joystick: View {
     let engine: JoystickEngine
+    @State private var touching = false
 
     var body: some View {
         ZStack {
             Circle()
                 .fill(Color.primary.opacity(engine.gear > 0 ? 0.16 : 0.08))
                 .frame(width: 36, height: 36)
+            ForEach(Array(["chevron.up", "chevron.right", "chevron.down", "chevron.left"].enumerated()), id: \.offset) { index, name in
+                Image(systemName: name)
+                    .font(.system(size: 6, weight: .bold))
+                    .foregroundStyle(Color.primary.opacity(0.3))
+                    .offset(x: [0, 12, 0, -12][index], y: [-12, 0, 12, 0][index])
+            }
             Circle()
                 .fill(Color.secondary)
                 .frame(width: 14, height: 14)
+                .scaleEffect(touching ? 1.2 : 1)
                 .offset(engine.thumb)
                 .animation(engine.gear == 0 ? .spring(response: 0.3, dampingFraction: 0.6) : nil, value: engine.thumb)
+                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: touching)
         }
         .frame(width: 40, height: 40)
         .contentShape(.circle)
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { engine.update($0.translation) }
-                .onEnded { _ in engine.release() }
+                .onChanged { value in
+                    if !touching { touching = true }
+                    engine.update(value.translation)
+                }
+                .onEnded { _ in
+                    touching = false
+                    engine.release()
+                }
         )
         .accessibilityElement()
         .accessibilityLabel("Cursor joystick")

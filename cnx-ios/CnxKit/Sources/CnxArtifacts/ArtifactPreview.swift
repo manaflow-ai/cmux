@@ -25,6 +25,30 @@ public struct ArtifactPreview: View {
 
     private var rendersAsWeb: Bool { artifact.kind == .html || artifact.kind == .markdown }
 
+    /// Accessibility identifier of the view shown when the Mac refuses the
+    /// file (or it can't be read): the E2E rig's non-blank end state.
+    public static let refusedIdentifier = "artifacts.preview.refused"
+    /// Accessibility identifier of the view shown for an empty file.
+    public static let emptyIdentifier = "artifacts.preview.empty"
+
+    /// Nothing to preview (refused, unreadable, empty): no Preview/Source
+    /// toggle and no content actions, only Copy Path (design/terminal M7).
+    private var isDeadEnd: Bool {
+        switch content {
+        case .failure: true
+        case .success(let loaded): loaded.isEmptyFile
+        case nil: false
+        }
+    }
+
+    /// The loaded content wants the whole screen (images and videos, P4).
+    private var wantsLargeSheet: Bool {
+        switch content {
+        case .success(.image), .success(.file): true
+        default: false
+        }
+    }
+
     public var body: some View {
         Group {
             switch content {
@@ -33,25 +57,41 @@ public struct ArtifactPreview: View {
                     .accessibilityIdentifier("artifact.loading")
             case .failure(let error):
                 // Never a blank page: what the Mac said, and a way to try again.
-                ContentUnavailableView {
-                    Label("Can't open \(artifact.name)", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error.localizedDescription)
-                } actions: {
+                ArtifactDeadEnd(
+                    headline: artifact.kind == .directory ? "Can't open this folder" : "Can't open this file",
+                    systemImage: "exclamationmark.triangle", name: artifact.name, message: error.localizedDescription
+                ) {
                     Button("Try Again") {
                         content = nil
                         attempt += 1
                     }
                     .accessibilityIdentifier("artifact.retry")
                 }
+                .accessibilityIdentifier(Self.refusedIdentifier)
+            case .success(let loaded) where loaded.isEmptyFile:
+                ArtifactDeadEnd(headline: "This file is empty", systemImage: artifact.systemImage, name: artifact.name, message: nil) {
+                    EmptyView()
+                }
+                .accessibilityIdentifier(Self.emptyIdentifier)
             case .success(let loaded):
                 view(for: loaded)
             }
         }
         .navigationTitle(artifact.name)
         .navigationBarTitleDisplayMode(.inline)
+        .background {
+            if wantsLargeSheet { SheetDetentExpander() }
+        }
         .toolbar {
-            if rendersAsWeb {
+            // The name truncates in the middle, so its extension stays visible.
+            ToolbarItem(placement: .principal) {
+                Text(artifact.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            if rendersAsWeb, !isDeadEnd {
                 ToolbarItem(placement: .topBarTrailing) {
                     Picker("View", selection: $showSource) {
                         Image(systemName: "eye").tag(false).accessibilityLabel("Preview")
@@ -67,17 +107,19 @@ public struct ArtifactPreview: View {
                     Button("Open in Safari", systemImage: "safari") { openURL(url) }
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
-                    if case .success(.text(let text)) = content {
-                        Button("Copy contents", systemImage: "text.document") { UIPasteboard.general.string = text }
-                        ShareLink(item: text, preview: SharePreview(artifact.name)) { Label("Share", systemImage: "square.and.arrow.up") }
+            if content != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
+                        if !isDeadEnd, case .success(.text(let text)) = content {
+                            Button("Copy Contents", systemImage: "text.document") { UIPasteboard.general.string = text }
+                            ShareLink(item: text, preview: SharePreview(artifact.name)) { Label("Share", systemImage: "square.and.arrow.up") }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
+                    .accessibilityLabel("More")
                 }
-                .accessibilityLabel("More")
             }
         }
         .task(id: ArtifactLoad(artifact: artifact, attempt: attempt)) {
@@ -112,9 +154,71 @@ public struct ArtifactPreview: View {
             .listStyle(.plain)
         case .binary(let description):
             ContentUnavailableView {
-                Label(artifact.name, systemImage: artifact.systemImage)
+                Label {
+                    Text(artifact.name).lineLimit(1).truncationMode(.middle)
+                } icon: {
+                    Image(systemName: artifact.systemImage)
+                }
             } description: {
                 Text(description).font(.footnote.monospaced())
+            }
+        }
+    }
+}
+
+/// A preview with nothing to show (refused, unreadable, empty): a short
+/// headline, the file name on its own line (middle truncation, never
+/// hyphen-wrapped), why, and an optional action. One accessibility
+/// container, so its identifier reaches the rig and VoiceOver reads it in order.
+struct ArtifactDeadEnd<Actions: View>: View {
+    let headline: String
+    let systemImage: String
+    let name: String
+    let message: String?
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(headline, systemImage: systemImage)
+        } description: {
+            VStack(spacing: 6) {
+                Text(name)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let message {
+                    Text(message)
+                }
+            }
+        } actions: {
+            actions
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// Moves the enclosing sheet to its large detent when it appears (images
+/// and videos fill the screen, design/terminal P4). Does nothing outside a
+/// sheet, or for a sheet without a large detent.
+struct SheetDetentExpander: UIViewRepresentable {
+    func makeUIView(context: Context) -> ExpanderView { ExpanderView() }
+    func updateUIView(_ view: ExpanderView, context: Context) {}
+
+    final class ExpanderView: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else { return }
+            var responder: UIResponder? = next
+            while let current = responder, !(current is UIViewController) { responder = current.next }
+            var controller = responder as? UIViewController
+            while let current = controller {
+                if let sheet = current.sheetPresentationController {
+                    guard sheet.detents.contains(where: { $0.identifier == .large }), sheet.selectedDetentIdentifier != .large else { return }
+                    sheet.animateChanges { sheet.selectedDetentIdentifier = .large }
+                    return
+                }
+                controller = current.parent
             }
         }
     }
