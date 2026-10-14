@@ -14,8 +14,8 @@ extension AppServices {
     /// at the first signed-out agent request, never here.
     func startFreeTier() -> Task<Void, Never>? {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AgentTabPaneSource.paneEnvironment(tag: environment.tag, bundledBinDirectory: bin,
-                                                               environment: ProcessInfo.processInfo.environment),
+        guard let acpmux = AcpmuxEnvironment.resolve(tag: environment.tag, bundledBinDirectory: bin,
+                                                     environment: ProcessInfo.processInfo.environment),
               let origin = HomeCloudLease.origin(feed.apiBaseURL) else { return nil }
         let provider = FreeTierAttestProvider(
             environment: acpmux, attest: AppleDeviceAttest(service: .shared, device: .current),
