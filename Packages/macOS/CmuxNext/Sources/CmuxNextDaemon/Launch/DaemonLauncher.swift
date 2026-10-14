@@ -1,17 +1,16 @@
 public import Foundation
 import os
-import CmuxNextCompat
+public import CmuxNextCompat
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached
 /// (`setsid`) one that survives app quit.
 ///
-/// Isolation: release builds use session `cmux-app` and cmux-tui's default
-/// state root; a tagged dev build (`CMUX_TAG`) uses `cmux-app-<tag>` and a
-/// tag-private `CMUX_TUI_STATE_DIR`, so dev state never shares a root with
-/// release state. An untagged nightly, rc or staging build is isolated the
-/// same way under its channel name (`cmux-app-nightly`, ``daemonTag(tag:bundleID:)``),
-/// so it runs beside release with its own daemon and state. `run_ensure` does not
+/// Isolation: one session and `CMUX_TUI_STATE_DIR` per build
+/// (``BuildIdentity/appSession``, per-build isolation S3): release keeps `cmux-app`
+/// and cmux-tui's default root, a channel or reload.sh DEV build keeps
+/// `cmux-app-<channel or tag>`, every other build (the untagged DEV build too)
+/// has `cmux-app--<key hash>`. `run_ensure` does not
 /// forward `--state`, so the env var is the only way the owner sees it.
 public struct DaemonLauncher: Sendable {
     public struct Configuration: Sendable, Hashable {
@@ -121,15 +120,14 @@ public struct DaemonLauncher: Sendable {
         self.clock = clock
     }
 
-    /// The standard app launcher: bundled binary, session from the app's own
-    /// tag or channel (``daemonTag(tag:bundleID:)``; never an inherited `CMUX_TAG`), login-shell environment captured
+    /// The standard app launcher: bundled binary, session and state of the app's own
+    /// build (``appNames(build:applicationSupport:)``; never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
     /// `daemonEnvironment` joins only `server ensure`; every cmux-tui process takes `CMUX_APPS_FIRST_PARTY_DIR` out of its
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     public static func forApp(
-        tag: String?,
-        bundleID: String?,
+        build: BuildIdentity,
         terminalEnvironment: [String: String],
         daemonEnvironment: [String: String] = [:], webSocketPageOrigins: [String] = [],
         bundle: Bundle = .main,
@@ -137,11 +135,9 @@ public struct DaemonLauncher: Sendable {
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
         applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()
     ) throws -> DaemonLauncher {
-        let tag = daemonTag(tag: tag, bundleID: bundleID)
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
-        let session = try sessionName(tag: tag)
-        let stateDirectory = tag.map { tagStateDirectory(tag: $0, applicationSupport: applicationSupport) }
+        let (session, stateDirectory) = appNames(build: build, applicationSupport: applicationSupport, log: true)
         let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
@@ -243,18 +239,8 @@ public struct DaemonLauncher: Sendable {
         ("com.cmuxterm.app.staging", "staging"),
     ]
 
-    /// The tag that names an app's daemon session and state directory: the
-    /// build's own tag, else the channel of an untagged nightly, rc or
-    /// staging bundle id, else nil (release, `cmux-app`). A tagged channel
-    /// bundle (`com.cmuxterm.app.nightly.cmux-next`) already carries its tag.
-    public static func daemonTag(tag: String?, bundleID: String?) -> String? {
-        if let tag, !tag.isEmpty { return tag }
-        let bundle = bundleID?.trimmingCharacters(in: .whitespaces) ?? ""
-        return channelBundleIDs.first { $0.0 == bundle }?.1
-    }
-
     /// `cmux-app`, or `cmux-app-<tag>` with the tag reduced to a safe single
-    /// path component. `tag` is a ``daemonTag(tag:bundleID:)``.
+    /// path component (a kept name, ``BuildIdentity/appSession``).
     public static func sessionName(tag: String?) throws -> String {
         guard let tag else { return "cmux-app" }
         let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")

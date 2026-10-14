@@ -1568,6 +1568,13 @@ export class AcpmuxDirectClient {
         // reply still streams after the steer's row and stays in its row above it, and the next
         // message's text starts below (cx-f51kv). Without message ids that end cannot be told.
         if (msg.steer !== true || !this.streamingAssistantMessageId) this.endAssistantSegment();
+        // A call id names a call within its prompt: an adapter that numbers calls per process
+        // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
+        // splits a turn whose calls may still update.
+        if (msg.steer !== true) {
+          this.toolRows.clear();
+          this.planCalls.clear();
+        }
         this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,

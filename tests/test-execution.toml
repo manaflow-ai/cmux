@@ -1317,5 +1317,17 @@ path = "tests/test_cmux_tui_lane_daemon_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_superseded_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_tour_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_feat_publish_order.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_intent_familiar_warning.py"
 lane = "linux-guard"
