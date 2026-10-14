@@ -56,12 +56,19 @@ fn a_silent_app_shows_progress_and_times_out_with_the_next_command() {
     assert!(stderr.contains("cmux identify"), "no next command: {stderr}");
     assert!(human.stdout.is_empty());
 
-    // JSON output: stdout stays empty, stderr is exactly the error object
-    // (a pipe is not a terminal, so no progress lines are mixed in).
+    // JSON output: stdout stays empty and every stderr line is a JSON object
+    // (a pipe is not a terminal, so no progress lines are mixed in): the
+    // error, then the run's idempotency key report.
     assert_eq!(json.status.code(), Some(3));
     assert!(json.stdout.is_empty());
     let text = String::from_utf8_lossy(&json.stderr);
-    let error: Value = serde_json::from_str(text.trim()).unwrap_or_else(|_| panic!("{text}"));
+    let lines = text
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap_or_else(|_| panic!("{text}")))
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert_eq!(lines[1]["code"], "mutation.outcome_unknown", "{text}");
+    let error = &lines[0];
     assert_eq!(error["code"], "app.transport", "{error}");
     let details = &error["details"];
     assert_eq!(details["owner"], "app", "{error}");
