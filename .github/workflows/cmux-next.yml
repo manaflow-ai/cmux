@@ -1028,6 +1028,8 @@ jobs:
         run: |
           git submodule update --init --depth 1 --filter=blob:none ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
+          # Ghostty's themes survive the Resources phase in either order (Xcode, fleet Linux builder).
+          bash scripts/cmux-next/tests/bundle-resources-layout.test.sh
 
       # The bundled terminfo (Ghostty's entries with cmux's overlay on top)
       # carries ghostty-next's capabilities and cmux's 256-color 8-15 patch.
