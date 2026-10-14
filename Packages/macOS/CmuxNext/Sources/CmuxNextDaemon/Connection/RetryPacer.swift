@@ -85,7 +85,9 @@ public final class RetryWake: Sendable {
         var waiter: CheckedContinuation<Cause, Never>?
         var timer: DemandTimer?
         var file: String?
-        var baseline: Identity?
+        /// Files beside `file` that wake too (a daemon's ready marker).
+        var companions: [String] = []
+        var baseline: [Identity?] = []
         var source: (any DispatchSourceFileSystemObject)?
     }
 
@@ -104,15 +106,20 @@ public final class RetryWake: Sendable {
     }
 
     /// Watches `path`'s directory; a change of `path` itself (created,
-    /// removed, replaced) fires. Replaces an earlier watch of another file.
-    public func watch(file path: String) {
+    /// removed, replaced) fires, and so does a change of any of `companions`
+    /// (files in the same directory, such as the daemon's ready marker
+    /// `<socket>.websocket.json`, written once its restore is done: a restore
+    /// that ends behind the same socket then wakes too). Replaces an earlier
+    /// watch of other files.
+    public func watch(file path: String, companions: [String] = []) {
         let directory = (path as NSString).deletingLastPathComponent
         let changed = state.withLock { state -> Bool in
-            guard state.file != path else { return false }
+            guard state.file != path || state.companions != companions else { return false }
             state.source?.cancel()
             state.source = nil
             state.file = path
-            state.baseline = Self.identity(of: path)
+            state.companions = companions
+            state.baseline = Self.identities(of: [path] + companions)
             return true
         }
         guard changed else { return }
@@ -135,7 +142,7 @@ public final class RetryWake: Sendable {
     public func rebaseline() {
         state.withLock { state in
             state.latched = false
-            state.baseline = state.file.flatMap(Self.identity(of:))
+            state.baseline = state.file.map { Self.identities(of: [$0] + state.companions) } ?? []
         }
     }
 
@@ -185,13 +192,15 @@ public final class RetryWake: Sendable {
     private func directoryChanged() {
         let changed = state.withLock { state -> Bool in
             guard let file = state.file else { return false }
-            let now = Self.identity(of: file)
+            let now = Self.identities(of: [file] + state.companions)
             guard now != state.baseline else { return false }
             state.baseline = now
             return true
         }
         if changed { fire() }
     }
+
+    private static func identities(of paths: [String]) -> [Identity?] { paths.map(identity(of:)) }
 
     private static func identity(of path: String) -> Identity? {
         var info = stat()
