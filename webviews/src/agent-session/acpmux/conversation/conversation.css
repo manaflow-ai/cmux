@@ -751,6 +751,143 @@ pre.cv-math-source {
   padding-right: var(--cv-inset);
 }
 
+/* A tool permission ask (permissions/Panel.tsx, Leo 2026-10-14): the transcript's tool row (its
+   glyph, a verb and the command once, regular weight, one line) on the card's thin rim, with
+   small answers at its right end while it waits. A click opens the request in plain words. */
+.acpmux-ask {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 3px 4px 3px 8px;
+  border: 0.5px solid var(--cv-card-ring);
+  border-radius: 8px;
+  background: var(--cv-card-fill);
+  box-shadow: none;
+  color: var(--cv-tool-strong);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 20px;
+}
+.acpmux-ask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 28px;
+}
+.acpmux-ask-toggle {
+  all: unset;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border-radius: 5px;
+  cursor: default;
+}
+.acpmux-ask-chevron {
+  flex: none;
+  color: var(--cv-text-dim);
+  transition: transform 120ms ease-out;
+}
+.acpmux-ask-chevron.is-open {
+  transform: rotate(90deg);
+}
+.acpmux-ask-icon {
+  display: flex;
+  flex: none;
+}
+.acpmux-ask-verb {
+  flex: none;
+  color: var(--cv-text);
+}
+.acpmux-ask-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+.acpmux-ask-subject.is-code {
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+}
+.acpmux-ask-state {
+  flex: none;
+  color: var(--cv-text-dim);
+}
+.acpmux-ask-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  margin-left: auto;
+}
+.acpmux-ask-action {
+  all: unset;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--cv-text);
+  font-size: var(--text-detail);
+  line-height: 22px;
+  cursor: default;
+}
+.acpmux-ask-action:hover {
+  background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
+}
+.acpmux-ask-action.is-primary {
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, #fff);
+}
+.acpmux-ask-action.is-primary:hover {
+  background: color-mix(in srgb, var(--agent-accent) 88%, var(--cv-fg));
+}
+.acpmux-ask-action:disabled {
+  opacity: 0.5;
+}
+.acpmux-ask-toggle:focus-visible,
+.acpmux-ask-action:focus-visible {
+  outline: 1.5px solid var(--agent-accent);
+  outline-offset: 1px;
+}
+.acpmux-ask-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 2px 4px 6px 18px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+}
+.acpmux-ask-details p,
+.acpmux-ask-details ul {
+  margin: 0;
+}
+.acpmux-ask-details ul {
+  padding-left: 16px;
+  overflow-wrap: anywhere;
+}
+.acpmux-ask-input {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--cv-mono);
+}
+.acpmux-ask-note {
+  padding: 0 0 4px 18px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-ask-chevron {
+    transition: none;
+  }
+}
+
 /* ---------- Turn rows (TurnRows.tsx) ---------- */
 
 :root {

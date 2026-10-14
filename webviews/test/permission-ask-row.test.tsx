@@ -209,8 +209,8 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
     ),
   );
   const answered = document.querySelector<HTMLElement>(".acpmux-permission-panel");
-  expect(
-    [...(answered?.querySelectorAll("button") ?? [])].map((button) => button.textContent?.trim()),
-  ).not.toContain("Allow");
+  expect([...(answered?.querySelectorAll("button") ?? [])].map((button) => button.textContent?.trim())).not.toContain(
+    "Allow",
+  );
   await act(async () => root.unmount());
 });
