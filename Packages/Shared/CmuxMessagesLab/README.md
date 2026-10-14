@@ -52,8 +52,11 @@ and render-server field animation, blurred header and native scrolling.
   `LongTextCenter.handler` (the last view made gets the long-text height
   changes), `DisplayScale.colorSpace` (two displays of different colour
   spaces share one), and the appkit-native screen-change handler
-  (`ChatController.windowDidChangeScreen` sets the shared colour space and
-  drops every row bitmap).
+  (`ChatController.windowDidChangeScreen`, `Cmux/PaneHost+Scale.swift`, sets
+  the shared colour space and keeps the row bitmap cache: no `removeAll`, no
+  `setInactive` toggle; a cached bitmap keeps its own colour space. Residual
+  limit: a second pane on another display still changes the one process-wide
+  colour space, and every pane's next row drawings use that space).
   Known limit (upstream, measured 2026-10-14 on cmux-lawrence-2): after a
   move to a 1x screen, the visible rows keep their 2x bitmaps for up to
   0.32 s. `RowCell.configureScoped` (vendored Transcript.swift, about lines

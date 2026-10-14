@@ -30,6 +30,25 @@ extension ChatController {
     }
 }
 
+extension ChatController {
+    /// Another display: new bitmaps draw in its colour space (no conversion at commit). One process-wide colour space
+    /// (`DisplayScale.colorSpace`). cmux 258b385: the row bitmap cache is not dropped and `setInactive` is not toggled
+    /// (both emptied every pane's cache and redrew every visible row: a window back on its 2x display showed its 1x
+    /// bitmaps until the off-main ones landed, depending on whether this notification came before or after the
+    /// backing scale change). Dropping only this pane's rows would race the same way (at the scale it goes back to).
+    /// A cached bitmap carries its own colour space, so a bitmap of the old space still shows the right colours; the
+    /// next drawing of a row uses the new space.
+    func windowDidChangeScreen() {
+        guard let cs = window?.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace, let demo else { return }
+        DisplayScale.colorSpace = cs
+        // MessagesLab 7518134: the palette glyphs are drawn again in the new colour space now, not
+        // inside the next menu's open on main.
+        MenuGlyphs.removeAll()
+        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm() }
+        demo.compose.rescale()
+    }
+}
+
 /// Keeps every content-less layer of the hosted trees at its pane's scale.
 /// Layers the shared code creates without a contentsScale (typing dots, masks)
 /// would otherwise keep Core Animation's default of 1. A layer with contents

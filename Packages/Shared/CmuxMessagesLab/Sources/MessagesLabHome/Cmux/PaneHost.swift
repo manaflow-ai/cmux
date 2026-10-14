@@ -719,18 +719,5 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func windowDidResize() { host.needsLayout = true }
 
-    /// Another display: draw bitmaps in its color space (no conversion at commit).
-    func windowDidChangeScreen() {
-        guard let cs = window?.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace, let demo else { return }
-        DisplayScale.colorSpace = cs
-        RowBitmaps.shared.removeAll()
-        // MessagesLab 7518134: the palette glyphs are drawn again in the new colour space now, not
-        // inside the next menu's open on main.
-        MenuGlyphs.removeAll()
-        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm() }
-        let inactive = Fixture.inactive
-        demo.setInactive(!inactive)
-        demo.setInactive(inactive)
-        demo.compose.rescale()
-    }
+    // windowDidChangeScreen: PaneHost+Scale.swift (this pane's rows only).
 }
