@@ -116,9 +116,11 @@ fn last_ws_addr(server: &HeadlessServer) -> String {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let tail = server.stderr_tail();
-        if let Some(rest) = tail.rsplit("WebSocket control at ws://").next().filter(|_| {
-            tail.contains("WebSocket control at ws://")
-        }) {
+        if let Some(rest) = tail
+            .rsplit("WebSocket control at ws://")
+            .next()
+            .filter(|_| tail.contains("WebSocket control at ws://"))
+        {
             return rest.split_whitespace().next().unwrap().to_owned();
         }
         assert!(Instant::now() < deadline, "no WebSocket listener in the log: {tail}");
@@ -176,10 +178,7 @@ fn a_person_pins_and_marks_conversations_unread_privately_and_the_state_survives
     let mut page = Ws::open(&last_ws_addr(&server));
     let identity = page.request("identify", json!({}));
     let capabilities = identity["capabilities"].as_array().unwrap();
-    assert!(
-        capabilities.iter().any(|value| value == "conversation-inbox-state-v1"),
-        "{identity}"
-    );
+    assert!(capabilities.iter().any(|value| value == "conversation-inbox-state-v1"), "{identity}");
     page.request("subscribe", json!({}));
     let release = page.create_channel("inbox-release", "release");
     let design = page.create_channel("inbox-design", "design");
@@ -263,10 +262,7 @@ fn a_person_pins_and_marks_conversations_unread_privately_and_the_state_survives
     let chief_pin = chief.request("conversation-inbox-op", pin(&release, true, None));
     assert_eq!(chief_pin["participant"], "agent_mux", "{chief_pin}");
     assert_eq!(chief_pin["pin_position"], 0, "{chief_pin}");
-    assert_eq!(
-        listed(&chief.request("conversation-list", json!({})), &release)["pin_position"],
-        0
-    );
+    assert_eq!(listed(&chief.request("conversation-list", json!({})), &release)["pin_position"], 0);
     // Sent with a plain request (not `sent`, which drops the events it reads),
     // so every event before this message stays in the page's queue.
     page.request(

@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{
-    self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data, mutation_data,
-    read_body, read_value, require_conversation, snapshot_data,
+    self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data,
+    mutation_data, read_body, read_value, require_conversation, snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};

@@ -300,7 +300,8 @@ pub(super) fn inbox_op(mux: &Mux, client: u64, params: InboxOpParams) -> anyhow:
         },
     )?;
     let mut reply = json!({"conversation": conversation, "participant": actor});
-    if let (Value::Object(fields), Value::Object(state)) = (&mut reply, serde_json::to_value(state)?)
+    if let (Value::Object(fields), Value::Object(state)) =
+        (&mut reply, serde_json::to_value(state)?)
     {
         fields.extend(state);
     }

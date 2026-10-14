@@ -140,7 +140,11 @@ fn state(position: Option<i64>, unread: i64) -> InboxState {
     InboxState { pinned: pin_position.is_some(), pin_position, marked_unread: unread != 0 }
 }
 
-fn load(connection: &Connection, participant: &str, conversation: &str) -> anyhow::Result<InboxState> {
+fn load(
+    connection: &Connection,
+    participant: &str,
+    conversation: &str,
+) -> anyhow::Result<InboxState> {
     let row: Option<(Option<i64>, i64)> = connection
         .query_row(
             "SELECT pin_position, marked_unread FROM inbox_state
@@ -160,6 +164,9 @@ fn next_position(connection: &Connection, participant: &str) -> anyhow::Result<u
         |row| row.get(0),
     )?;
     let next = last.and_then(|last| u64::try_from(last).ok()).map_or(0, |last| last + 1);
-    anyhow::ensure!(next <= MAX_PIN_POSITION, "bad request: no pin position is left after the last pin");
+    anyhow::ensure!(
+        next <= MAX_PIN_POSITION,
+        "bad request: no pin position is left after the last pin"
+    );
     Ok(next)
 }

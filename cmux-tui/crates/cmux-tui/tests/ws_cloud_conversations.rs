@@ -493,8 +493,12 @@ fn the_persons_page_pins_a_cloud_conversation_through_the_daemon() {
     assert_eq!(marked["ok"], true, "{marked}");
     let requests = cloud.requests();
     assert_eq!(requests.len(), 2, "{requests:?}");
-    assert!(requests.iter().all(|(path, bearer, _)| path == "/v1/ops"
-        && *bearer == format!("Bearer {token}")), "{requests:?}");
+    assert!(
+        requests
+            .iter()
+            .all(|(path, bearer, _)| path == "/v1/ops" && *bearer == format!("Bearer {token}")),
+        "{requests:?}"
+    );
     assert_eq!(
         requests[0].2,
         json!({"op":"inbox.pin","params":{"pinned":true,"position":1_760_000_000_000_u64,
@@ -509,8 +513,10 @@ fn the_persons_page_pins_a_cloud_conversation_through_the_daemon() {
     );
 
     // Default deny: another inbox op, a conversation op, a malformed id.
-    for op in [json!({"kind":"inbox.archive","archived":true}),
-               json!({"kind":"message.send","client_msg_id":"x","parts":[]})] {
+    for op in [
+        json!({"kind":"inbox.archive","archived":true}),
+        json!({"kind":"message.send","client_msg_id":"x","parts":[]}),
+    ] {
         let refused = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
             "idempotency_key":"deny","op":op}));
         assert_eq!(refused["ok"], false, "{refused}");
