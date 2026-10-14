@@ -29,14 +29,22 @@ const rows = [
   row("permission", 0, { permission }),
 ];
 const individual = chat(rows, { isWorking: true, permission, queue });
-const prQueue = chat([
-  user("Open the pull request", 1),
-  activity([tool("gh pr create --fill", "execute", "completed", {
-    command: "gh pr create --fill",
-    output: "https://github.com/acme/atlas-web/pull/128\n",
-    exitCode: 0,
-  })], 0),
-], { isWorking: true, queue, sessionId: "pr-queue-session" });
+const prQueue = chat(
+  [
+    user("Open the pull request", 1),
+    activity(
+      [
+        tool("gh pr create --fill", "execute", "completed", {
+          command: "gh pr create --fill",
+          output: "https://github.com/acme/atlas-web/pull/128\n",
+          exitCode: 0,
+        }),
+      ],
+      0,
+    ),
+  ],
+  { isWorking: true, queue, sessionId: "pr-queue-session" },
+);
 const grouped = {
   ...individual,
   permissionGroups: {
@@ -113,7 +121,11 @@ const checkPrQueue: Play = async (ctx) => {
   geometry(ctx);
   const scope = ctx.find({ selector: ".acpmux-composer-context" });
   const style = ctx.document.defaultView!.getComputedStyle(scope);
-  if (style.backgroundColor !== "rgba(0, 0, 0, 0)" || style.boxShadow !== "none" || parseFloat(style.borderTopWidth) !== 0)
+  if (
+    style.backgroundColor !== "rgba(0, 0, 0, 0)" ||
+    style.boxShadow !== "none" ||
+    parseFloat(style.borderTopWidth) !== 0
+  )
     throw new Error("The folder/host strip paints a separate surface");
 };
 async function samplePinned(ctx: PlayContext, frames = 8) {
