@@ -1723,7 +1723,11 @@ export function VirtualTranscript({
     // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
     // changes. While the reader is following, keep the viewport at the new end and do not let
     // that synthetic event clear the follow state. A real wheel/touch/key event marks itself first.
-    if (followingRef.current && programmatic) {
+    // A layout-driven scroll keeps the previous offset; a reader scroll changes it. The latter is
+    // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
+    // programmatic-looking event as layout work.
+    const layoutDriven = followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= 0.5;
+    if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       if (Math.abs(next - latest) > 0.5) node.scrollTop = latest;
       scrolledTo.current = { top: latest, atLatest: true };
