@@ -247,10 +247,25 @@ class PublicationTests(unittest.TestCase):
 
     def test_missing_release_is_created_draft_and_existing_release_is_untouched(self):
         client = publisher.GitHub("owner/repo", "fake-token")
-        with patch.object(client, "request", side_effect=[publisher.RequestError("missing", status=404), {"id": 9}]) as request:
+        with patch.object(client, "request", side_effect=[publisher.RequestError("missing", status=404), [], {"id": 9}]) as request:
             self.assertEqual(client.release_id("nightly"), 9)
         self.assertEqual(request.call_args.args[0], "POST")
         self.assertIn(b'"draft": true', request.call_args.kwargs["body"])
+
+    def test_rerun_adopts_the_existing_draft_instead_of_staging_another(self):
+        # The tags endpoint 404s for drafts. Staging a second draft on a rerun
+        # left two full asset sets: the publish action finalizes the lowest id
+        # while R2 gets this attempt's appcast, signed for DMGs never published.
+        client = publisher.GitHub("owner/repo", "fake-token")
+        listing = [
+            {"id": 11, "tag_name": "v1.2.3", "draft": False},
+            {"id": 8, "tag_name": "v1.2.4", "draft": True},
+            {"id": 7, "tag_name": "v1.2.3", "draft": True},
+            {"id": 5, "tag_name": "v1.2.3", "draft": True},
+        ]
+        with patch.object(client, "request", side_effect=[publisher.RequestError("missing", status=404), listing]) as request:
+            self.assertEqual(client.release_id("v1.2.3"), 5)
+        self.assertNotIn("POST", [call.args[0] for call in request.call_args_list])
 
     def test_asset_listing_is_paginated(self):
         client = publisher.GitHub("owner/repo", "fake-token")
@@ -285,6 +300,21 @@ class PublicationTests(unittest.TestCase):
         self.assertIn("--tag", text[upload:finalize])
         self.assertIn("draft: false", text[finalize:])
         self.assertIn("prerelease: false", text[finalize:])
+
+    def test_stable_release_clears_staged_prerelease_before_finalizing(self):
+        # publish-release-assets.py stages a missing release as a draft
+        # prerelease. GitHub refuses make_latest on a prerelease, and the
+        # publish action does not clear the flag on the draft it adopts, so
+        # v0.65.1 failed with "Latest release cannot be draft or prerelease".
+        text = (ROOT / ".github/workflows/release.yml").read_text()
+        upload = text.index("- name: Upload release asset")
+        clear = text.index("- name: Clear prerelease on staged drafts")
+        finalize = text.index("- name: Publish verified release")
+        self.assertLess(upload, clear)
+        self.assertLess(clear, finalize)
+        step = text[clear:finalize]
+        self.assertIn(".draft", step)
+        self.assertIn("prerelease=false", step)
 
 
 class TransportTests(unittest.TestCase):
