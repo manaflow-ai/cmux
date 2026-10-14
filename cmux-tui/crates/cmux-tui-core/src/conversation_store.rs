@@ -348,7 +348,10 @@ impl ConversationStore {
         if let Some((stored, conversation)) = existing {
             if stored != fingerprint {
                 let error = rejected(Reject::IdempotencyConflict);
-                let takes_part = load_head(&transaction, &conversation)?
+                // A failed lookup only leaves the detail out: the refusal stays.
+                let takes_part = load_head(&transaction, &conversation)
+                    .ok()
+                    .flatten()
                     .is_some_and(|head| head.participants.iter().any(|p| p.id == actor));
                 return Err(if takes_part {
                     error.context(KeyedConversation(conversation))
