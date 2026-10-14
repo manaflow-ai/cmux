@@ -90,7 +90,25 @@ const createCMUXFeed = async (ctx, options = {}) => {
     return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
   };
 
-  const failureMessage = (event) => {
+  // Mirrors AgentHookNotificationPolicy.redactSensitiveErrorDetail: Feed
+  // receives this text directly, so credentials are redacted here. Paths and
+  // model names stay readable because they are the useful part of the error.
+  const redactErrorDetail = (value) => {
+    if (!value) return value;
+    const redacted = [
+      [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "<email>"],
+      [/\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b/gi, "<token>"],
+      [/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer <token>"],
+      [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gi, "<token>"],
+      [/\b(?:x[-_])?(?:api[-_]?key|password|secret|token|authorization|cookie)\s*[:=]\s*(?:Bearer\s+)?(?:'[^']*'|"[^"]*"|[^\s'";&|,]+)/gi, "<credential>:<token>"],
+      [/\b(?:sk|rk|sess)-[A-Za-z0-9._:-]{8,}\b/gi, "<token>"],
+    ].reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value);
+    return redacted.replace(/<[a-z]+>|[\s\p{P}]/gu, "") ? redacted : null;
+  };
+
+  const failureMessage = (event) => redactErrorDetail(rawFailureMessage(event));
+
+  const rawFailureMessage = (event) => {
     const props = eventProperties(event);
     const raw = props.error || props.failure || props.reason;
     if (typeof raw === "string") return normalizeText(raw, 500);
@@ -127,24 +145,23 @@ const createCMUXFeed = async (ctx, options = {}) => {
         assistantPreamble: null,
         cwd: null,
         lastStopKind: null,
-        turnKeys: new Set(),
       });
     }
     return sessions.get(key);
   };
 
-  // A turn publishes exactly one terminal stop. Only a turn identity this
-  // session has not seen clears it, so a repeated update for the same prompt
-  // cannot reopen a finished turn. A missing identity starts a new turn.
-  const beginTurn = (sessionId, turnKey) => {
-    const state = sessionState(sessionId);
-    if (turnKey) {
-      if (state.turnKeys.has(turnKey)) return;
-      state.turnKeys.add(turnKey);
-      if (state.turnKeys.size > 50) state.turnKeys.delete(state.turnKeys.values().next().value);
-    }
-    state.lastStopKind = null;
+  // A turn publishes exactly one terminal stop. Only a run signal (session
+  // creation, busy status, a promoted prompt or an execution start) opens the
+  // next turn. Message updates and queued prompts do not: a queued prompt's
+  // message arrives while the previous turn is still running, and a repeated
+  // update after a stop must not reopen a finished turn.
+  const beginTurn = (sessionId) => {
+    sessionState(sessionId).lastStopKind = null;
   };
+
+  // OpenCode keeps an execution interrupted by shutdown and resumes it.
+  const isResumableInterruption = (event) =>
+    event?.type === "session.execution.interrupted" && eventProperties(event).reason === "shutdown";
 
   const contextForSession = (sessionId) => {
     const state = sessionState(sessionId);
@@ -706,7 +723,6 @@ const createCMUXFeed = async (ctx, options = {}) => {
       if (!sid || !text) return null;
       const state = sessionState(sid);
       state.lastUserMessage = text;
-      beginTurn(sid, firstString(item.id, props.id, event.id));
       return base(sid, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
@@ -726,7 +742,6 @@ const createCMUXFeed = async (ctx, options = {}) => {
       const role = info.role || props.role;
       if (messageId && sessionId && role) {
         messageRoles.set(messageId, { sessionId, role });
-        if (role === "user") beginTurn(sessionId, messageId);
         if (messageRoles.size > 300) {
           messageRoles.delete(messageRoles.keys().next().value);
         }
@@ -744,7 +759,6 @@ const createCMUXFeed = async (ctx, options = {}) => {
     const state = sessionState(meta.sessionId);
     if (meta.role === "user") {
       state.lastUserMessage = text;
-      beginTurn(meta.sessionId, part.messageID);
       return base(meta.sessionId, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
@@ -822,7 +836,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           const props = eventProperties(event);
           const info = props.info || {};
           const sid = sessionIdFromProperties(props) || "unknown";
-          beginTurn(sid, null);
+          beginTurn(sid);
           const state = sessionState(sid);
           state.cwd = info.directory || props.location?.directory || event.location?.directory || ctx?.location?.directory || ctx?.directory || state.cwd;
           pushTelemetry(base(sid, {
@@ -834,8 +848,10 @@ const createCMUXFeed = async (ctx, options = {}) => {
         case "session.status": {
           const props = eventProperties(event);
           const sid = sessionIdFromProperties(props);
-          // Busy carries no turn identity; prompts and user messages own it.
-          if (sid && sessionStatusType(props.status) === "busy") break;
+          if (sid && sessionStatusType(props.status) === "busy") {
+            beginTurn(sid);
+            break;
+          }
           if (!sessionStatusIsIdle(props.status)) break;
           if (!sid || !shouldEmitStop(sid, "success")) break;
           pushTelemetry(base(sid, {
@@ -846,6 +862,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
         case "session.execution.succeeded":
         case "session.execution.interrupted": {
           const sid = sessionIdFromEvent(event);
+          if (isResumableInterruption(event)) break;
           if (sid && shouldEmitStop(sid, "success")) pushTelemetry(base(sid, { hook_event_name: "Stop" }));
           break;
         }
@@ -880,11 +897,12 @@ const createCMUXFeed = async (ctx, options = {}) => {
           }));
           break;
         }
+        // Admission queues a prompt behind the running turn; promotion and
+        // execution start are when it actually runs.
         case "session.next.prompted":
-        case "session.next.prompt.admitted": {
+        case "session.execution.started": {
           const sid = sessionIdFromEvent(event);
-          const props = eventProperties(event);
-          if (sid) beginTurn(sid, firstString(props.messageID, props.promptID, props.id, event.id));
+          if (sid) beginTurn(sid);
           break;
         }
         case "session.deleted": {

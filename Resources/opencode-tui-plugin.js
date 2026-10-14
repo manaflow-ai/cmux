@@ -177,6 +177,9 @@ function launchEnvironment(cwdValue, baseEnvironment = process.env) {
   // A shell started inside another agent inherits that agent's launch
   // capture. Only reuse a capture that already describes OpenCode.
   if (env.CMUX_AGENT_LAUNCH_KIND !== "opencode" || !env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+    delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND;
+    delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND;
+    delete env.CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT;
     const argv = launchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "opencode";
     env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
@@ -211,6 +214,8 @@ function sessionEventName(event) {
   if (event?.type === "session.created") return "session-start";
   if (event?.type === "session.deleted") return "session-end";
   if (event?.type === "session.updated") return data.info?.time?.archived ? "session-end" : null;
+  // OpenCode keeps an execution interrupted by shutdown and resumes it.
+  if (event?.type === "session.execution.interrupted" && data.reason === "shutdown") return null;
   if (["session.execution.succeeded", "session.execution.interrupted"].includes(event?.type)) return "stop";
   if (["session.execution.failed", "session.next.step.failed", "session.error"].includes(event?.type)) return "stop-failure";
   if (event?.type === "session.idle") return "stop";
@@ -218,51 +223,28 @@ function sessionEventName(event) {
   return null;
 }
 
-// Identity of a new turn, or null when the event does not start one. Busy
-// status carries no identity; prompts and user messages own the turn.
-function turnStart(event) {
-  const data = properties(event);
-  if (["session.next.prompted", "session.next.prompt.admitted", "session.inbox.enqueued"].includes(event?.type)) {
-    return { key: firstString(data.item?.id, data.messageID, data.promptID, data.id, event?.id) };
-  }
-  if (event?.type === "message.updated") {
-    const info = data.info || data.message || {};
-    if ((info.role || data.role) === "user") return { key: firstString(info.id, data.messageID) };
-  }
-  return null;
+// True when the event shows the session running a turn. Message updates and
+// queued prompts are not run signals: a queued prompt's message arrives while
+// the previous turn is still running, and a repeated update after a stop must
+// not reopen a finished turn.
+function isTurnStart(event) {
+  if (["session.created", "session.next.prompted", "session.execution.started"].includes(event?.type)) return true;
+  return event?.type === "session.status" && statusType(properties(event).status) === "busy";
 }
 
-// A turn publishes exactly one terminal stop. Only a turn identity the session
-// has not seen clears it, so a repeated update for the same prompt cannot
-// reopen a finished turn. The first terminal event settles the turn: a
-// published stop cannot be reclassified, so later idle or failure is dropped.
+// A turn publishes exactly one terminal stop, and only a run signal opens the
+// next one. The first terminal event settles the turn: a published stop cannot
+// be reclassified, so a later idle or failure for the same turn is dropped.
 function createTurnLedger() {
-  const sessions = new Map();
-  const state = (id) => {
-    let entry = sessions.get(id);
-    if (!entry) {
-      entry = { stopped: false, keys: new Set() };
-      sessions.set(id, entry);
-    }
-    return entry;
-  };
+  const stopped = new Set();
   return {
-    begin(id, key) {
-      const entry = state(id);
-      if (key) {
-        if (entry.keys.has(key)) return;
-        entry.keys.add(key);
-        if (entry.keys.size > 50) entry.keys.delete(entry.keys.values().next().value);
-      }
-      entry.stopped = false;
-    },
+    begin(id) { stopped.delete(id); },
     settle(id) {
-      const entry = state(id);
-      if (entry.stopped) return false;
-      entry.stopped = true;
+      if (stopped.has(id)) return false;
+      stopped.add(id);
       return true;
     },
-    end(id) { sessions.delete(id); },
+    end(id) { stopped.delete(id); },
   };
 }
 
@@ -279,11 +261,8 @@ function reportError(ctx, _error) {
 }
 
 async function deliverEvent(ctx, feed, event, id, environment, turns) {
-  const started = turnStart(event);
-  if (started) turns.begin(id, started.key);
   const hook = sessionEventName(event);
   let admittedHook = hook;
-  if (hook === "session-start") turns.begin(id, null);
   if (hook === "session-end") turns.end(id);
   if ((hook === "stop" || hook === "stop-failure") && !turns.settle(id)) admittedHook = null;
   if (admittedHook) {
@@ -309,6 +288,9 @@ async function handleEvent(ctx, ownership, feed, details, environment, retrySess
   const id = sessionID(event);
   const hook = sessionEventName(event);
   if (!id) return;
+  // Track turn boundaries even while the session is hidden, so a turn that
+  // starts in a background tab still publishes its stop once visible again.
+  if (isTurnStart(event)) turns?.begin(id);
   if (hook === "session-end") retrySessionStart?.cancel(id);
   if (!ownership.belongs(id)) {
     if (hook === "session-start") retrySessionStart?.enqueue(event, id);

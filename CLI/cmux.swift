@@ -36460,7 +36460,6 @@ function sessionState(sessionId) {
       assistantPreamble: null,
       cwd: null,
       lastStopKind: null,
-      turnKeys: new Set(),
       updatedAt: Date.now(),
     });
   }
@@ -36524,17 +36523,18 @@ function sessionStatusType(status) {
   return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
 }
 
-// A turn publishes exactly one terminal stop. Only a turn identity this
-// session has not seen clears it, so a repeated update for the same prompt
-// cannot reopen a finished turn. A missing identity starts a new turn.
-function beginTurn(sessionId, turnKey) {
-  const state = sessionState(sessionId);
-  if (turnKey) {
-    if (state.turnKeys.has(turnKey)) return;
-    state.turnKeys.add(turnKey);
-    if (state.turnKeys.size > 50) state.turnKeys.delete(state.turnKeys.values().next().value);
-  }
-  state.lastStopKind = null;
+// A turn publishes exactly one terminal stop. Only a run signal (session
+// creation, busy status, a promoted prompt or an execution start) opens the
+// next turn. Message updates and queued prompts do not: a queued prompt's
+// message arrives while the previous turn is still running, and a repeated
+// update after a stop must not reopen a finished turn.
+function beginTurn(sessionId) {
+  sessionState(sessionId).lastStopKind = null;
+}
+
+// OpenCode keeps an execution interrupted by shutdown and resumes it.
+function isResumableInterruption(event) {
+  return event?.type === "session.execution.interrupted" && eventProperties(event).reason === "shutdown";
 }
 
 // The first terminal event settles the turn. A published stop cannot be
@@ -36645,6 +36645,9 @@ function hookEnvironment(cwd) {
   // A shell started inside another agent inherits that agent's launch
   // capture. Only reuse a capture that already describes OpenCode.
   if (env.CMUX_AGENT_LAUNCH_KIND !== "opencode" || !env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+    delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND;
+    delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND;
+    delete env.CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT;
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "opencode";
     env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
@@ -36699,7 +36702,6 @@ function trackMessage(event) {
     const role = info.role || props.role;
     if (messageId && sessionId && role) {
       messageRoles.set(messageId, { sessionId, role });
-      if (role === "user") beginTurn(sessionId, messageId);
       if (messageRoles.size > 300) {
         messageRoles.delete(messageRoles.keys().next().value);
       }
@@ -36724,10 +36726,12 @@ function trackMessage(event) {
 
 // Busy status carries no turn identity; prompts and user messages own it.
 function resetTurnFromEvent(event) {
-  if (!["session.next.prompted", "session.next.prompt.admitted", "session.inbox.enqueued"].includes(event?.type)) return;
-  const sessionId = sessionIdFor(event);
   const props = eventProperties(event);
-  if (sessionId) beginTurn(sessionId, firstString(props.item?.id, props.messageID, props.promptID, props.id, event.id));
+  const running = ["session.next.prompted", "session.execution.started"].includes(event?.type)
+    || (event?.type === "session.status" && sessionStatusType(props.status) === "busy");
+  if (!running) return;
+  const sessionId = sessionIdFor(event);
+  if (sessionId) beginTurn(sessionId);
 }
 
 function sendStop(ctx, event, failed = false) {
@@ -36747,7 +36751,7 @@ const createCMUXSessionRestore = async (ctx) => {
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
-          beginTurn(sessionIdFor(event), null);
+          beginTurn(sessionIdFor(event));
           sendHook("session-start", ctx, event);
           break;
         case "session.updated":
@@ -36766,7 +36770,7 @@ const createCMUXSessionRestore = async (ctx) => {
           break;
         case "session.execution.succeeded":
         case "session.execution.interrupted":
-          sendStop(ctx, event);
+          if (!isResumableInterruption(event)) sendStop(ctx, event);
           break;
         case "session.execution.failed":
         case "session.next.step.failed":
