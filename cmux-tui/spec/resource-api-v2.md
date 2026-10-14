@@ -97,7 +97,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Browser device emulation (the built-in device list compiled into the daemon, the user's custom devices, and each browser tab's emulated device shown as the tab's `extra.emulation`; `browser-devices-v1`) | personal (home session) and the tab | `browser.devices.list`, `browser.devices.add_custom`, `browser.devices.remove_custom`, `browser.tab.emulate`, `browser.tab.emulate.clear` |
 | A browser tab's profile (its frontend browser record's, shown as the tab's `extra.browser_profile_id`; the app that shows the tab makes its page in that profile's store; `browser-profile-agent-v1`) | the tab | `browser.tab.set_profile` |
 | Sidebar section layout (one per user: sections in top, middle and bottom regions; plans/cmux-next/sidebar-sections.md) | personal (home session) | `sidebar_layout.get`, `sidebar_layout.update` |
-| Sidebar document (one per user: ordered sections of ordered items; every machine's workspace list, Pinned, custom, app and built-in sections; `sidebar-doc-v1`) | personal (home session) | `sidebar.get`, `sidebar.move`, `sidebar.pin`, `sidebar.unpin`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.update`, `sidebar.section.add`, `sidebar.section.update`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.group.create`, `sidebar.group.update`, `sidebar.group.ungroup`, `sidebar.adopt`, `sidebar.apply` |
+| Sidebar document (one per user: ordered sections of ordered items; every machine's workspace list, Pinned, custom, app and built-in sections; `sidebar-doc-v1`) | personal (home session) | `sidebar.get`, `sidebar.move`, `sidebar.pin`, `sidebar.unpin`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.section.add`, `sidebar.section.update`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.group.create`, `sidebar.group.update`, `sidebar.group.ungroup`, `sidebar.adopt`, `sidebar.apply`, `sidebar.reset` |
 | Palette usage history (one per user: used rows and learned picks per query start; plans/cmux-next/palette-ranking.md 5.2) | personal (home session) | `palette_usage.get`, `palette_usage.record`, `palette_usage.import`, `palette_usage.hide`, `palette_usage.forget` |
 | Project list (the folders the user works in, imported from agent and editor sources, with the user's rename, pin, hide and order; plans/cmux-next/projects.md) | personal (home session) | `project.list`, `project.observe`, `project.add`, `project.update`, `project.remove`, `project.sync`, `project.source.update` |
 
@@ -384,7 +384,20 @@ kind and region (built-in and Pinned fixed, machine flow, custom and app
 fixed at the top and bottom and flow in the middle), and `section.move` into
 another region moves a default value with it. `max_rows` (1 to 50) lets a
 section grow with its content up to that many rows, then scroll inside
-itself; without it the section grows without limit. A `url` item's body has
+itself; without it the section grows without limit. `align` (`leading`,
+`center`, `trailing` or `fill`; default `leading`) places an inline or grid
+section's rows or tiles on their line, and `gap` (0 to 32 points; absent is
+the look's default spacing) is the space between them: the old layout's
+`arrangement.align` and `arrangement.gap`, migrated, copied once at open
+into a document migrated before they existed, and followed when an old
+client changes them through `sidebar_layout.update`. `sidebar.reset` (and
+the old `layout.reset`) restores the default sections: Home and App Store
+(`sec_top`), an empty Pinned, every machine section with its default look,
+the recent agent chats and the account band; it keeps each workspace and
+group (those in Pinned or a removed section go to the end of their machine
+section) and removes this machine's closed workspaces and every other item
+of the removed sections and Pinned. `sidebar.item.remove_ref {ref}` removes
+every item that shows an old layout ref ("Remove from Sidebar"). A `url` item's body has
 `icon_url` (its favicon, set by `sidebar.item.update`); an older client's
 `extra.icon_url` moves into the body when the item is added and, for stored
 items, once at open. `sidebar.move {items, to}`, `sidebar.pin`,

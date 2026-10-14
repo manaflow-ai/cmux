@@ -4,19 +4,22 @@
 //! clients. The `sec_pinned` tiles are the sidebar document's Pinned items
 //! (sidebar-doc-v1): an op reduces on that projection, and a tile it adds,
 //! removes or reorders is a Pinned op on the document in the same commit.
+//! A section's `align` or `gap` follows into the document's section (every
+//! machine section for the old workspaces section), and `layout.reset` is the
+//! document's `reset`.
 
 use serde_json::json;
 
 use crate::mux::*;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
-use crate::state::sidebar_doc_legacy::{mint_item_id, pinned_ops, project_layout};
+use crate::state::sidebar_doc_legacy::{mint_item_id, pinned_ops, project_layout, section_field_ops};
 use crate::state::sidebar_doc_store as doc_store;
 use crate::state::sidebar_layout::{self, Op};
 use crate::state::sidebar_layout_store::{self as store, ID, RESOURCE};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
 use crate::workspace_registry::personal_store::commit_personal;
-use cmux_layout_reducer::sidebar_doc::reduce;
+use cmux_layout_reducer::sidebar_doc::{Op as DocOp, reduce};
 
 /// The largest op a client may send (a section with its items).
 const MAX_OP_BYTES: usize = 64 * 1024;
@@ -63,8 +66,16 @@ impl Mux {
                     if reduced.revision == current.revision {
                         return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
                     }
-                    let ops =
-                        if migrated { pinned_ops(&current, &reduced, doc) } else { Vec::new() };
+                    let mut ops = if !migrated {
+                        Vec::new()
+                    } else if matches!(parsed, Op::Reset) {
+                        vec![DocOp::Reset]
+                    } else {
+                        let mut ops = pinned_ops(&current, &reduced, doc);
+                        ops.extend(section_field_ops(&current, &reduced, doc));
+                        ops
+                    };
+                    crate::state::sidebar_doc_ops::closes_for_reset(transaction, doc, &mut ops)?;
                     let mut events = Vec::new();
                     if !ops.is_empty() {
                         let previous_revision = doc.revision;

@@ -259,6 +259,7 @@ const fn access(operation: Op) -> Access {
         | Op::SidebarItemAdd
         | Op::SidebarItemRemove
         | Op::SidebarItemUpdate
+        | Op::SidebarItemRemoveRef
         | Op::SidebarSectionAdd
         | Op::SidebarSectionUpdate
         | Op::SidebarSectionMove
@@ -268,6 +269,7 @@ const fn access(operation: Op) -> Access {
         | Op::SidebarGroupUngroup
         | Op::SidebarAdopt
         | Op::SidebarApply
+        | Op::SidebarReset
         | Op::BrowserDevicesList
         | Op::BrowserDevicesAddCustom
         | Op::BrowserDevicesRemoveCustom

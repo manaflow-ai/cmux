@@ -24,6 +24,10 @@ pub(crate) const DOC_RESOURCE: &str = "sidebar_doc";
 pub(crate) const DOC_ID: &str = "user";
 const REVISION_KEY: &str = "sidebar_doc_revision";
 const MIGRATED_KEY: &str = "sidebar_doc_v1_migrated";
+/// Set once the old layout's section `align` and `gap` are in the document
+/// (the migration copies them; a document migrated before sections had
+/// them gets them once at open, [`backfill_arrangement`]).
+const ARRANGEMENT_KEY: &str = "sidebar_doc_arrangement_v1";
 /// A fresh token per document write: the key of the parsed-document cache.
 const EPOCH_KEY: &str = "sidebar_doc_epoch";
 
@@ -337,6 +341,11 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
             eprintln!("cmux-tui: repaired the stored sidebar document");
         }
         changed |= lift_icon_urls(&mut repaired);
+        if meta(&tx, ARRANGEMENT_KEY)?.is_none() {
+            let layout = super::sidebar_layout_store::document(&tx)?;
+            changed |= backfill_arrangement(&layout, &mut repaired);
+            set_meta(&tx, ARRANGEMENT_KEY, "1")?;
+        }
         if changed {
             super::sidebar_doc_sync::commit_derived(&tx, &before, &repaired)?;
         }
@@ -357,8 +366,45 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
     write_changes(&tx, 0, doc.revision, &changes, None)?;
     super::sidebar_doc_sync::clear_dirty(&tx)?;
     set_meta(&tx, MIGRATED_KEY, "1")?;
+    set_meta(&tx, ARRANGEMENT_KEY, "1")?;
     tx.commit()?;
     Ok(())
+}
+
+/// Copy the old layout's section `align` and `gap` into a document
+/// migrated before its sections had them: onto the section of the same id,
+/// and the old workspaces section's onto every machine section. Only a
+/// section still at the defaults (leading, no gap) takes them.
+fn backfill_arrangement(
+    layout: &cmux_layout_reducer::sidebar_layout::Document,
+    doc: &mut Doc,
+) -> bool {
+    use cmux_layout_reducer::sidebar_layout::{Alignment, Content};
+    let (mut sections, items) = doc.to_parts();
+    let mut changed = false;
+    for old in &layout.sections {
+        let (align, gap) = (&old.arrangement.align, old.arrangement.gap);
+        if *align == Alignment::Leading && gap.is_none() {
+            continue;
+        }
+        for section in &mut sections {
+            let matches = if old.content == Content::Workspaces {
+                section.kind.machine().is_some()
+            } else {
+                section.id == old.id
+            };
+            if !matches || section.align != Alignment::Leading || section.gap.is_some() {
+                continue;
+            }
+            section.align = align.clone();
+            section.gap = gap.filter(|gap| cmux_layout_reducer::sidebar_doc::GAP_RANGE.contains(gap));
+            changed = true;
+        }
+    }
+    if changed {
+        *doc = Doc::from_parts(doc.revision, sections, items);
+    }
+    changed
 }
 
 /// Move every url item's old `extra.icon_url` into its body.

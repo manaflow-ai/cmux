@@ -15,6 +15,7 @@
 //! - [`check`]: the invariants (the touched rows per op; all at open).
 //! - [`view`]: the flat rows one window draws.
 //! - [`accept`]: the drop acceptance table of one drag.
+//! - [`reset`]: the default sections again, and removal by old layout ref.
 //! - [`migrate`]: the one-time move from the old sidebar stores.
 
 pub mod accept;
@@ -24,6 +25,7 @@ pub mod migrate;
 pub mod model;
 pub mod order_key;
 pub mod reduce;
+pub mod reset;
 pub mod view;
 
 pub use doc::Doc;
