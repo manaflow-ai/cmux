@@ -221,6 +221,10 @@ await requireBrowserLane("agent-pane-summary-panel.test.ts", async () => {
     const context = await browser!.newContext({ viewport: { width: 760, height: 800 } });
     const page = await context.newPage();
     await open(page);
+    // A pane that starts narrow starts with it closed: it would cover the transcript's right side.
+    await page.waitForTimeout(300);
+    expect(await panel(page).count()).toBe(0);
+    await page.getByRole("button", { name: "Chat summary" }).click();
     await panel(page).waitFor({ timeout: 5_000 });
     await settle(page);
     // Over the chat's column, which keeps the pane's width.

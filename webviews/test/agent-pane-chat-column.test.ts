@@ -159,6 +159,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   async function open(chat: Chat, width: number, height = 700): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
+    // The column on its own: an open summary card moves it aside in a wide pane (summary.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.acpmux.summaryPanel", "hidden"));
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat.id}`);

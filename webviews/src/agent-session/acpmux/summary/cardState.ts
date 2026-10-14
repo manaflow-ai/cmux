@@ -3,10 +3,11 @@
 // closes it; only that button, its close button or Escape does. A pane with room makes room for it:
 // the chat's column moves left so the card sits beside the transcript (`push`). A narrow pane lays
 // it over the transcript and the chat keeps its width. Resizing between the two moves the chat, not
-// the card (summary.css).
+// the card (summary.css), and an open card stays open.
 //
 // Closing it is one choice for every chat (localStorage, shared by the panes, which follow each
-// other's change), so closing it once is enough.
+// other's change), so closing it once is enough. A pane that starts narrow starts with it closed,
+// though, so it does not cover a prompt's buttons or an agent's offer until its button opens it.
 import { useCallback, useEffect, useId, useState, useSyncExternalStore } from "react";
 
 /// The room the card takes from the chat in a wide pane: its 300px width, 10px from the pane's edge
@@ -81,10 +82,21 @@ export function useSummaryRoom(blocked: boolean): boolean {
 /// as the pane changes between the two.
 export function useSummaryCard(push: boolean) {
   const closed = useSyncExternalStore(subscribe, readHidden, () => false);
-  const shown = !closed;
-  const show = useCallback(() => setHidden(false), []);
-  const close = useCallback(() => setHidden(true), []);
-  const toggle = useCallback(() => setHidden(shown), [shown]);
+  // Open in this pane without room: it was open beside the chat, or its button opened it here.
+  const [kept, setKept] = useState(false);
+  useEffect(() => {
+    if (push && !closed) setKept(true);
+  }, [push, closed]);
+  const shown = !closed && (push || kept);
+  const show = useCallback(() => {
+    setKept(true);
+    setHidden(false);
+  }, []);
+  const close = useCallback(() => {
+    setKept(false);
+    setHidden(true);
+  }, []);
+  const toggle = useCallback(() => (shown ? close() : show()), [shown, close, show]);
   // The card's id, for the header's button (aria-controls).
   const id = useId();
   return { id, shown, push, toggle, show, close };
