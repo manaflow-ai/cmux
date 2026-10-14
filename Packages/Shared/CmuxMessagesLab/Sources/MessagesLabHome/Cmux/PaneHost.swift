@@ -51,6 +51,9 @@ final class HostView: NSView {
     let morphHost = LayerHostView()
     let composeHost = LayerHostView()
     let above = LayerHostView()
+    /// cmux: the window view's thread layer (ThreadBackdrop and the thread's rows), over the header
+    /// (PaneHost+ThreadLayer.swift).
+    let threadHost = LayerHostView()
     /// `--scroll-trace` uses a scroll view that takes the probe's posted
     /// events (README: responsive scrolling).
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
@@ -94,6 +97,11 @@ final class HostView: NSView {
         addSubview(below)
         addSubview(scrollView)
         addSubview(headerBackdrop)
+        // cmux: the in-pane header under the thread layer, so an open thread or reply view blurs
+        // and darkens it with the transcript, as Messages does (PaneHost+ThreadLayer.swift).
+        addSubview(paneHeader)
+        addSubview(threadHost)
+        liftThreadLayer(demo)
         addSubview(selectionHost)
         // The selected bubble's highlight under the text selection's (Host.swift; TranscriptSelection.selectBubble).
         if let c = controller { for l in [c.selection.bubbleLayer, c.selection.layer] { selectionHost.root.addSublayer(l) } }
@@ -109,7 +117,6 @@ final class HostView: NSView {
         // The field's clip, its scroll view and the text view (ComposeTextView, as Host.swift):
         // the text view is the scroll view's document, so the clip is what the pane holds.
         addSubview(demo.compose.textView.clip)
-        addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,
         // avatar, pill, video button), which is for captures only.
@@ -132,7 +139,7 @@ final class HostView: NSView {
 
     override func layout() {
         super.layout()
-        for v in [below, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
+        for v in [below, threadHost, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let demo, demo.frame != bounds {
             demo.frame = bounds
@@ -359,9 +366,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) lazy var swipe = SwipeReply(controller: self)
     /// cmux: the thread and reply view's Esc and clicks (PaneHost+Thread.swift).
     private(set) lazy var thread = PaneThread(controller: self)
-    /// cmux: the header blurred and darkened with the transcript under an open thread or reply view
-    /// (PaneHost+ThreadHeader.swift).
-    private(set) lazy var threadHeader = ThreadHeaderCover(controller: self)
     static let args = ProcessInfo.processInfo.arguments
     /// Test modes never take focus.
     static let noFocus = args.contains("--bench") || args.contains("--audit-resolution") || args.contains("--scroll-trace")
@@ -553,7 +557,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let sc = host.scrollView.verticalScroller, (sc.alphaValue == 0) != threadOpen {
             NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.28; sc.animator().alphaValue = threadOpen ? 0 : 1 }
         }
-        threadHeader.follow(open: threadOpen)
         prefetchNextReceipt()
         scheduleWake()
     }
