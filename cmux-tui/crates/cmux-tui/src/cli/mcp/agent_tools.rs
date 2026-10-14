@@ -29,8 +29,9 @@ pub(super) struct AgentTool {
     description: &'static str,
 }
 
-const RECEIPT: &str = " Answers {action, result, state}: the owner's result and a fresh \
-    agents_snapshot-shaped state, so no screenshot is needed to check the change.";
+const RECEIPT: &str = " Answers {action, result, idempotency_key, state}: the owner's result, \
+    the key a change carried and a fresh agents_snapshot-shaped state, so no screenshot is \
+    needed to check the change. A state too large to return reads {truncated, hint}.";
 
 pub(super) const TOOLS: &[AgentTool] = &[
     AgentTool {
@@ -89,7 +90,7 @@ pub(super) const TOOLS: &[AgentTool] = &[
         name: "agents_dialog_answer",
         verb: Verb::DialogAnswer,
         title: "Answer dialog",
-        description: "Reply to another agent's dialog from agents_dialog_list (`cmux agents \
+        description: "Reply to other agents' dialogs from agents_dialog_list (`cmux agents \
             dialog answer`): deny a permission request with mode \"deny\", or answer a \
             question with one or more selections. Give exactly one of mode or selections. \
             Permissions can only be denied here; a person approves them in cmux.",
