@@ -185,7 +185,7 @@ export function ComposerContext({
 function BranchPicker({ branch }: { branch: string }) {
   const { control, anchor, open, setOpen, side } = useLocationPopover();
   return (
-    <span ref={control} className="acpmux-location-picker" title={branch}>
+    <span ref={control} className="acpmux-location-picker">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
@@ -390,7 +390,7 @@ function FolderMenu({
   useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
-    <span ref={control} className="acpmux-location-picker" title={current}>
+    <span ref={control} className="acpmux-location-picker">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
           <LocationFace icon={<FolderIcon />} value={value} chevron />

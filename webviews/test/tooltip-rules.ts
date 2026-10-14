@@ -17,6 +17,8 @@ const ICON = /icon|glyph|svg|mark|spinner|avatar|dot|image|img/i;
 const HIDDEN = /hidden-label|visually-hidden|sr-only/;
 /** The page's developer tools, not the app's. */
 const TOOLS = new Set(["gallery", "optchat-inspector"]);
+/** A component's props that hold the text it draws. */
+const TEXT_PROPS = new Set(["text", "label"]);
 
 export interface TooltipViolation {
   file: string;
@@ -40,16 +42,19 @@ function showsText(node: ts.Node): boolean {
   if (ts.isJsxText(node)) return /[\p{L}\p{N}]/u.test(node.text);
   if (ts.isJsxExpression(node)) return node.expression !== undefined && showsText(node.expression);
   if (ts.isParenthesizedExpression(node)) return showsText(node.expression);
-  if (ts.isJsxElement(node)) {
-    const open = node.openingElement;
-    if (!intrinsic(open.tagName)) return false;
-    const className = open.attributes.properties.find(
-      (attr) => ts.isJsxAttribute(attr) && attr.name.getText() === "className",
-    );
-    return !(className && HIDDEN.test(className.getText())) && node.children.some(showsText);
+  if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+    const open = ts.isJsxElement(node) ? node.openingElement : node;
+    const attrs = open.attributes.properties.filter(ts.isJsxAttribute);
+    const children = ts.isJsxElement(node) ? node.children : ts.factory.createNodeArray<ts.JsxChild>();
+    if (!intrinsic(open.tagName)) {
+      // A component draws text it is handed (`<Highlight text=…>`) or holds, unless it is an icon.
+      if (ICON.test(open.tagName.getText())) return false;
+      return attrs.some((attr) => TEXT_PROPS.has(attr.name.getText())) || children.some(showsText);
+    }
+    const className = attrs.find((attr) => attr.name.getText() === "className");
+    return !(className && HIDDEN.test(className.getText())) && children.some(showsText);
   }
   if (ts.isJsxFragment(node)) return node.children.some(showsText);
-  if (ts.isJsxSelfClosingElement(node)) return false;
   if (ts.isConditionalExpression(node)) return showsText(node.whenTrue) || showsText(node.whenFalse);
   if (ts.isBinaryExpression(node)) {
     const op = node.operatorToken.kind;

@@ -188,6 +188,8 @@ export function installTooltips(doc: Document): () => void {
   const dismiss = () => {
     const under = target;
     hide();
+    // Only moving from one control to the next keeps tooltips quick, not a click or a scroll.
+    warmUntil = 0;
     target = under;
   };
   const onScroll = () => {

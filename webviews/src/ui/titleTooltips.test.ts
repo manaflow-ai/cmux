@@ -137,7 +137,7 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
   a.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: b }));
   await hover(b, 0);
   expect(tip().hidden).toBe(true);
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  await pause(TOOLTIP_DELAY + 300);
   expect(tip().hidden).toBe(false);
   expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Second");
 });
