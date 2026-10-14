@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "newTabPage.openFailed": {
+      "comment": "Agent pane: under the New Tab page's field when the terminal or browser tab it asked for did not open",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تُفتح علامة التبويب. اضغط على Return للمحاولة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica se nije otvorila. Pritisnite Return da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen blev ikke åbnet. Tryk på Retur for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Tab wurde nicht geöffnet. Drücke den Zeilenschalter, um es erneut zu versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab didn't open. Press Return to try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pestaña no se abrió. Pulsa Retorno para volver a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'onglet ne s'est pas ouvert. Appuyez sur Retour pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La scheda non si è aperta. Premi A capo per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブを開けませんでした。Return キーを押してもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងមិនបានបើកទេ។ ចុច Return ដើម្បីព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭이 열리지 않았습니다. Return 키를 눌러 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen ble ikke åpnet. Trykk på Retur for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta się nie otworzyła. Naciśnij Return, aby spróbować ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A aba não abriu. Pressione Return para tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка не открылась. Нажмите Return, чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บไม่เปิด กด Return เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme açılmadı. Yeniden denemek için Return tuşuna basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка не відкрилася. Натисніть Return, щоб спробувати ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab không mở được. Nhấn Return để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页未能打开。按 Return 键重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁未能打開。按下 Return 鍵再試一次。"
+          }
+        }
+      }
+    },
     "newTab.template.classic": {
       "extractionState": "manual",
       "localizations": {
@@ -149883,138 +150015,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法開始聊天。"
-          }
-        }
-      }
-    },
-    "newTabPage.openFailed": {
-      "comment": "Agent pane: under the New Tab page's field when the terminal or browser tab it asked for did not open",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم تُفتح علامة التبويب. اضغط على Return للمحاولة مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kartica se nije otvorila. Pritisnite Return da pokušate ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fanen blev ikke åbnet. Tryk på Retur for at prøve igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Tab wurde nicht geöffnet. Drücke den Zeilenschalter, um es erneut zu versuchen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The tab didn't open. Press Return to try again."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La pestaña no se abrió. Pulsa Retorno para volver a intentarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L'onglet ne s'est pas ouvert. Appuyez sur Retour pour réessayer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La scheda non si è aperta. Premi A capo per riprovare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "タブを開けませんでした。Return キーを押してもう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំងមិនបានបើកទេ។ ចុច Return ដើម្បីព្យាយាមម្ដងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "탭이 열리지 않았습니다. Return 키를 눌러 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fanen ble ikke åpnet. Trykk på Retur for å prøve igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Karta się nie otworzyła. Naciśnij Return, aby spróbować ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A aba não abriu. Pressione Return para tentar novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладка не открылась. Нажмите Return, чтобы повторить попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แท็บไม่เปิด กด Return เพื่อลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sekme açılmadı. Yeniden denemek için Return tuşuna basın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладка не відкрилася. Натисніть Return, щоб спробувати ще раз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab không mở được. Nhấn Return để thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "标签页未能打开。按 Return 键重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "分頁未能打開。按下 Return 鍵再試一次。"
           }
         }
       }
