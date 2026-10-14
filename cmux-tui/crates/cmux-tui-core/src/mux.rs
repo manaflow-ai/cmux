@@ -1302,7 +1302,15 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     // snapshot boundary. Treat it like any other rejected checkpoint so a
     // metadata write or journal repair cannot make startup fail permanently.
     if host.cursor > 0 {
-        let journal_head = registry.session_journal_head()?;
+        let journal_head = match registry.session_journal_head() {
+            Ok(head) => head,
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: agent roster journal head unavailable; starting empty: {error}"
+                );
+                return Ok(AgentRosterHost::default());
+            }
+        };
         if host.cursor > journal_head {
             host = AgentRosterHost::default();
             needs_repair = true;
@@ -1312,10 +1320,31 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     // The roster ignores terminal output, so replay reads only the other
     // records up to the head and then stands on the head: startup no longer
     // decodes every output chunk printed since the last agent event.
-    let head = registry.session_journal_head()?;
+    let head = match registry.session_journal_head() {
+        Ok(head) => head,
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: agent roster journal head unavailable; starting empty: {error}"
+            );
+            return Ok(AgentRosterHost::default());
+        }
+    };
     while host.cursor < head {
         let (records, reached) =
-            registry.session_journal_without_output_after(host.cursor, head, 512)?;
+            match registry.session_journal_without_output_after(host.cursor, head, 512) {
+                Ok(page) => page,
+                Err(error) => {
+                    // The roster is derived state. A malformed history page must
+                    // not keep the daemon in a supervisor crash loop; discard the
+                    // in-memory roster and fence its cursor at the known head.
+                    eprintln!(
+                        "cmux-tui: agent roster journal tail unavailable; resetting: {error}"
+                    );
+                    host = AgentRosterHost { roster: AgentRoster::default(), cursor: head };
+                    needs_repair = true;
+                    break;
+                }
+            };
         for record in &records {
             host.roster.apply(&RosterEvent::from_record(record));
         }

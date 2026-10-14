@@ -13,6 +13,14 @@ fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cmux-registry-{label}-{}", new_uuid_v4()))
 }
 
+struct TempRoot(PathBuf);
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     RegistryWorkspace {
         id,
@@ -5366,9 +5374,9 @@ fn registry_open_cache_misses(registry: &WorkspaceRegistry) -> i32 {
 
 fn reopen_cost_after_terminal_output(label: &str, records: usize) -> i32 {
     const BATCH_SIZE: usize = 1_024;
-    let root = temp_root(label);
+    let root = TempRoot(temp_root(label));
     {
-        let mut registry = WorkspaceRegistry::open(&root, label).unwrap();
+        let mut registry = WorkspaceRegistry::open(&root.0, label).unwrap();
         commit_terminal_topology(&mut registry, &format!("{label}-seed"));
         let terminal_id = Arc::new(terminal_resource(TERMINAL_ONE));
         let chunk = vec![b'x'; 256];
@@ -5386,10 +5394,9 @@ fn reopen_cost_after_terminal_output(label: &str, records: usize) -> i32 {
             written += registry.append_journal_ingress_events(&references).unwrap().len();
         }
     }
-    let registry = WorkspaceRegistry::open(&root, label).unwrap();
+    let registry = WorkspaceRegistry::open(&root.0, label).unwrap();
     let misses = registry_open_cache_misses(&registry);
     drop(registry);
-    fs::remove_dir_all(root).unwrap();
     misses
 }
 
@@ -5400,8 +5407,12 @@ fn registry_reopen_cost_does_not_scale_with_terminal_output_history() {
     // and the journal's recent edge, never the whole output history.
     let small = reopen_cost_after_terminal_output("startup-scale-small", 16);
     let large = reopen_cost_after_terminal_output("startup-scale-large", 16 * 1_024);
+    // The two cases use separate databases, so the small run is the control
+    // for SQLite/schema startup variation. A history-sized increase indicates
+    // that open touched the output archive rather than only the bounded state
+    // tables. Keep this margin below one 4 KiB SQLite page per 16 records.
     assert!(
-        large <= small + 256,
+        large <= small + 16,
         "reopen read {large} pages after 16Ki output records but {small} after 16"
     );
 }

@@ -1392,23 +1392,42 @@ fn query_session_journal_without_output_after(
     if sequence >= through {
         return Ok((Vec::new(), through));
     }
-    if let Some(result) = archived_non_output_after(connection, sequence, through, limit)? {
-        return Ok(result);
-    }
-    // Sealed segments are decoded whole; filter them after decoding.
-    let archived = archived_records_after(connection, sequence, limit)?;
-    if archived.first().is_some_and(|record| record.sequence <= through) {
-        let covered = archived
-            .into_iter()
-            .take_while(|record| record.sequence <= through)
-            .collect::<Vec<_>>();
-        let reached = covered.last().map_or(through, |record| record.sequence);
-        let records =
-            covered.into_iter().filter(|record| record.kind != "terminal.output").collect();
-        return Ok((records, reached));
+    let archive_end = query_archived_journal_head(connection)?;
+    let archive_through = through.min(archive_end);
+    let mut records = Vec::new();
+    let mut reached = sequence;
+    if sequence < archive_through {
+        if let Some((archived, archived_reached)) =
+            archived_non_output_after(connection, sequence, archive_through, limit)?
+        {
+            records = archived;
+            reached = archived_reached;
+        } else {
+            // Older sealed segments predate journal_segment_kinds. Decode those
+            // segments with the validating legacy path, then use the indexed
+            // active query below for any remaining tail.
+            let archived = archived_records_after(connection, sequence, limit)?;
+            let covered = archived
+                .into_iter()
+                .take_while(|record| record.sequence <= archive_through)
+                .collect::<Vec<_>>();
+            reached = covered.last().map_or(archive_through, |record| record.sequence);
+            records.extend(
+                covered.into_iter().filter(|record| record.kind != "terminal.output"),
+            );
+            if records.len() >= limit || reached >= through {
+                records.truncate(limit);
+                return Ok((records, reached));
+            }
+        }
+        if records.len() >= limit || reached >= through {
+            records.truncate(limit);
+            return Ok((records, reached));
+        }
     }
     // Two ranges of the (kind, sequence) index around 'terminal.output'
     // visit only the other kinds' entries, however much output there is.
+    let remaining = limit - records.len();
     let mut statement = connection.prepare(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                 occurred_at_ms, committed_at_ms, producer_json, authority_json,
@@ -1428,23 +1447,33 @@ fn query_session_journal_without_output_after(
          ORDER BY sequence ASC
          LIMIT ?3",
     )?;
-    let records = statement
+    let active = statement
         .query_map(
             params![
                 i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
                 i64::try_from(through).context("journal sequence exceeds SQLite range")?,
-                i64::try_from(limit).context("journal page limit exceeds SQLite range")?,
+                i64::try_from(remaining).context("journal page limit exceeds SQLite range")?,
             ],
             stored_record_row,
         )?
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let reached = if records.len() < limit {
+    reached = if active.len() < remaining {
         through
     } else {
-        records.last().map_or(through, |record| record.sequence)
+        active.last().map_or(reached, |record| record.sequence)
     };
+    records.extend(active);
     Ok((records, reached))
+}
+
+fn query_archived_journal_head(connection: &Connection) -> anyhow::Result<u64> {
+    let end: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+        [],
+        |row| row.get(0),
+    )?;
+    u64::try_from(end).context("archived journal sequence is negative")
 }
 
 /// Uses the seal-time kind map to skip output-only compressed segments without
@@ -1457,27 +1486,18 @@ fn archived_non_output_after(
     limit: usize,
 ) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
     let mut statement = connection.prepare(
-        "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
-                content, uncompressed_bytes, sha256
+        "SELECT segment_id, start_sequence, end_sequence
          FROM journal_segments
          WHERE end_sequence > ?1 AND start_sequence <= ?2
          ORDER BY start_sequence ASC",
     )?;
     let rows = statement
-        .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], journal_segment_row)?
+        .query_map(
+            params![i64::try_from(sequence)?, i64::try_from(through)?],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+        )?
         .collect::<Result<Vec<_>, _>>()?;
-    let archive_end: i64 = connection.query_row(
-        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
-        [],
-        |row| row.get(0),
-    )?;
-    // The active table owns the tail. Let the normal indexed query handle
-    // mixed archive/active ranges; this fast path is only for a fully sealed
-    // range and never claims an empty/active range as covered.
-    if rows.is_empty()
-        || i64::try_from(sequence)? >= archive_end
-        || archive_end < i64::try_from(through)?
-    {
+    if rows.is_empty() {
         return Ok(None);
     }
     let first_start = rows.first().map(|row| row.1).unwrap_or_default();
@@ -1499,23 +1519,24 @@ fn archived_non_output_after(
     let mut reached = sequence;
     let mut records = Vec::new();
     for row in rows {
-        let segment_id = row.0.clone();
-        let known: Option<bool> = connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1),
-                        EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1 AND kind != 'terminal.output')",
-                [segment_id.as_str()],
-                |r| Ok((r.get::<_, bool>(0)?, r.get::<_, bool>(1)?)),
-            )
-            .ok()
-            .and_then(|(present, non_output)| present.then_some(non_output));
-        let Some(has_non_output) = known else { return Ok(None) };
+        let segment_id = row.0.as_str();
+        let (has_kind_rows, has_non_output): (bool, bool) = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1),
+                    EXISTS(SELECT 1 FROM journal_segment_kinds
+                           WHERE segment_id = ?1 AND kind != 'terminal.output')",
+            [segment_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if !has_kind_rows {
+            return Ok(None);
+        }
         let end = u64::try_from(row.2)?.min(through);
         if !has_non_output {
             reached = reached.max(end);
             continue;
         }
-        let decoded = decode_journal_segment(row)?;
+        let segment = load_journal_segment(connection, segment_id)?;
+        let decoded = decode_journal_segment(segment)?;
         for record in decoded.records.into_iter().filter(|r| {
             r.sequence > sequence && r.sequence <= through && r.kind != "terminal.output"
         }) {
@@ -1528,6 +1549,25 @@ fn archived_non_output_after(
         reached = reached.max(end);
     }
     Ok(Some((records, reached.max(through.min(reached)))))
+}
+
+fn load_journal_segment(
+    connection: &Connection,
+    segment_id: &str,
+) -> anyhow::Result<JournalSegmentRow> {
+    let mut statement = connection.prepare(
+        "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                content, uncompressed_bytes, sha256
+         FROM journal_segments
+         WHERE segment_id = ?1
+           AND length(content) <= ?2",
+    )?;
+    statement
+        .query_row(
+            params![segment_id, i64::try_from(MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES)?],
+            journal_segment_row,
+        )
+        .with_context(|| format!("load journal segment {segment_id}"))
 }
 
 fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
@@ -2503,6 +2543,34 @@ mod tests {
                 .to_string()
                 .contains("exceeds")
         );
+    }
+
+    #[test]
+    fn output_only_archived_segments_skip_corrupt_content() {
+        let registry = WorkspaceRegistry::in_memory("output-only-archive").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec,
+                   content, uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES('output-only-corrupt', 1, 1, 1, 'gzip-json-v1', X'00', 1, ?1, 1)",
+                [vec![0_u8; 32]],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segment_kinds(segment_id, kind)
+                 VALUES('output-only-corrupt', 'terminal.output')",
+                [],
+            )
+            .unwrap();
+
+        let (records, reached) =
+            registry.session_journal_without_output_after(0, 1, 512).unwrap();
+        assert!(records.is_empty());
+        assert_eq!(reached, 1);
     }
 
     #[test]

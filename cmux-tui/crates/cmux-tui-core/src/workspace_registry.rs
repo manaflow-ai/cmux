@@ -3960,13 +3960,14 @@ fn migrate_resource_api_frontend_projection_envelopes(
 /// with every terminal output chunk (millions of rows, gigabytes on a
 /// long-lived machine) and are append-only or sealed archives whose records
 /// are validated when they are read, so the open-time check skips them.
-const JOURNAL_HISTORY_TABLES: [&str; 6] = [
+const JOURNAL_HISTORY_TABLES: [&str; 7] = [
     "session_journal",
     "journal_subject_index",
     "journal_event_index",
     "journal_segments",
     "journal_checkpoints",
     "journal_content_blobs",
+    "journal_segment_kinds",
 ];
 
 /// Structural check of the registry state on open. An unscoped quick_check
