@@ -37,6 +37,7 @@ mod page;
 mod run;
 mod settings;
 mod skew;
+mod wait;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
@@ -602,10 +603,10 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
-    let response = match request_with_retry(stream, method, &params, timeout) {
+    let response = match wait::request(global, stream, method, &params, timeout) {
         Ok(response) => response,
         Err(error) => {
-            let code = failure("app.transport", &error, global.output, 3);
+            let code = super::wire::print_local_error(&error, global.output, 3);
             report.finish(global.output);
             return Ran::Done(code);
         }
@@ -890,10 +891,9 @@ pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), St
 }
 
 fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
-    let messages = &crate::localization::catalog().app_control;
     match (error.kind(), timeout) {
         (std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut, Some(timeout)) => {
-            messages.timeout.replace("{seconds}", &timeout.as_secs().to_string())
+            wait::timeout_message(timeout)
         }
         _ => error.to_string(),
     }

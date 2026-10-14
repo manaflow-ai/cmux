@@ -1,7 +1,9 @@
 //! Raw protocol handlers for local conversation attachments
 //! (`local-attachments-v1`, conversation_attachments.rs): chunked uploads
-//! by SHA-256 and chunked reads, on trusted local connections only. The
-//! actor is always the connection's principal. Refusals carry `error_code`
+//! by SHA-256, chunked reads and download links, on trusted local
+//! connections and, with `ws-attachments-v1`, authenticated WebSocket
+//! connections (the same clients as `ws-conversations-v1`). The actor is
+//! always the connection's principal. Refusals carry `error_code`
 //! `attachment_rejected` (or `conversation_rejected` for a participant or
 //! conversation refusal) and the reason as the error text.
 
@@ -13,6 +15,12 @@ use super::Mux;
 use crate::conversation_store::attachments::{
     DerivedDeclaration, MAX_CHUNK_BYTES, Piece, UploadDeclaration,
 };
+
+/// Attachment uploads, reads and download links on an authenticated
+/// WebSocket connection (a page that presented the daemon's credential or
+/// an approved pairing), and `GET /attachments/<token>` on the listener
+/// (attachment_http.rs, byte ranges for video).
+pub const WS_ATTACHMENTS_CAPABILITY: &str = "ws-attachments-v1";
 
 /// `conversation-attachment-upload`. `op` selects the step and the fields
 /// it reads: `begin` (`conversation` and the declaration), `chunk`
@@ -90,17 +98,33 @@ fn derived(value: Option<Value>, field: &str) -> anyhow::Result<Option<DerivedDe
         .transpose()
 }
 
-fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+/// `conversation-attachment-link`: a download link to one variant of a
+/// record the caller may read (the same rule as `conversation-attachment-read`).
+/// `name` (optional, checked like a part's name) is the file name the
+/// download offers.
+#[derive(Deserialize)]
+pub(super) struct LinkParams {
+    conversation: String,
+    hash: String,
+    #[serde(default)]
+    variant: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// The person's own clients: a Unix socket connection or an authenticated
+/// WebSocket connection (never a relayed remote device).
+fn require_owner_client(mux: &Mux, client: u64) -> anyhow::Result<()> {
     anyhow::ensure!(
-        mux.control_clients.is_unix(client),
-        "local attachments require a trusted local connection"
+        mux.control_clients.is_owner_client(client),
+        "local attachments require a trusted local or authenticated WebSocket connection"
     );
     Ok(())
 }
 
 /// `conversation-attachment-upload`, one step per call.
 pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Result<Value> {
-    require_local(mux, client)?;
+    require_owner_client(mux, client)?;
     let actor = mux.conversation_principal(client);
     match params.op.as_str() {
         "begin" => {
@@ -157,7 +181,7 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
 }
 
 pub(super) fn read(mux: &Mux, client: u64, params: ReadParams) -> anyhow::Result<Value> {
-    require_local(mux, client)?;
+    require_owner_client(mux, client)?;
     let actor = mux.conversation_principal(client);
     let ReadParams { conversation, hash, variant, offset, length } = params;
     let variant = piece(variant, "variant")?;
@@ -174,5 +198,36 @@ pub(super) fn read(mux: &Mux, client: u64, params: ReadParams) -> anyhow::Result
         "offset": reply.offset,
         "data": base64::engine::general_purpose::STANDARD.encode(&reply.data),
         "eof": reply.eof,
+    }))
+}
+
+/// `conversation-attachment-link`: `{path, expires_in_ms}`. `path` is
+/// `/attachments/<token>` on this daemon's WebSocket listener (HTTP `GET` or
+/// `HEAD`, byte ranges); the token ends after `expires_in_ms` or a restart.
+pub(super) fn link(mux: &Mux, client: u64, params: LinkParams) -> anyhow::Result<Value> {
+    require_owner_client(mux, client)?;
+    let actor = mux.conversation_principal(client);
+    let LinkParams { conversation, hash, variant, name } = params;
+    let variant = piece(variant, "variant")?;
+    let name = match name {
+        None => None,
+        // The upload rules for a name: never an executable or active-document extension.
+        Some(name)
+            if cmux_conversation::valid_attachment_name(&name)
+                && !cmux_conversation::is_denied_name(&name) =>
+        {
+            Some(name)
+        }
+        Some(_) => anyhow::bail!(crate::conversation_store::attachments::AttachmentRejected(
+            "validation_invalid"
+        )),
+    };
+    let token = mux.with_conversations(|store| {
+        store.attachment_link(&actor, &conversation, &hash, variant, name)
+    })?;
+    let ttl = crate::conversation_store::attachments::links::LINK_TTL;
+    Ok(json!({
+        "path": format!("/attachments/{token}"),
+        "expires_in_ms": u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX),
     }))
 }

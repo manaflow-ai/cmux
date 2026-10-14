@@ -233,9 +233,18 @@ pub fn turn_preset(
 }
 
 /// The built-in tools a turn is offered (an allowlist: a built-in a later
-/// Claude Code adds is not offered); the Chief's MCP tools come on top,
-/// loaded with the turn (no ToolSearch, `session_dir::TURN_SETTINGS_ENV`).
-pub const TURN_TOOLS: [&str; 6] = ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"];
+/// Claude Code adds is not offered). On top, the Chief's own MCP tools load
+/// with the turn and the cmux MCP tools wait behind ToolSearch
+/// (`session_dir::TURN_SETTINGS_ENV`).
+pub const TURN_TOOLS: [&str; 7] = [
+    "Bash",
+    "Read",
+    "Edit",
+    "Write",
+    "WebFetch",
+    "WebSearch",
+    "ToolSearch",
+];
 
 /// The Claude Code args of an isolated turn: no user or local setting
 /// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
@@ -518,8 +527,11 @@ fn start(
     let pinned = crate::cmux_env::pinned_subset(&session_env);
     // Each turn reads the person's Home workspace with the CLI the turns use (home_view).
     let home_view = crate::home_view::HomeView {
-        cli: crate::cmux_env::bundled_bin(&exe)
-            .map_or_else(|| std::path::PathBuf::from("cmux"), |bin| bin.join("cmux")),
+        cli: crate::home_view::HomeView::cli_for(
+            pinned
+                .get(crate::cmux_env::BUNDLED_CLI_KEY)
+                .map(std::path::Path::new),
+        ),
         env: pinned.clone(),
     };
     // One setting picks the harness of turns and compactor alike.
@@ -1331,7 +1343,8 @@ fn start(
     });
     // A default Chief that could not read its record at start reads it each
     // time the link comes up, until it has it (zoom and date only until then).
-    let sink = crate::chief_profile::read_record_on_up(chief_tools.clone(), sink, brain_log.clone());
+    let sink =
+        crate::chief_profile::read_record_on_up(chief_tools.clone(), sink, brain_log.clone());
     match source {
         Source::Local { token_file } => {
             let (display_name, title) = LinkConfig::names_from_env();
