@@ -113,6 +113,26 @@ if [ "$ref" = --revert ]; then
   exec python3 "$script_dir/ci/revert_pr.py" "$@"
 fi
 
+# One line at exit, merged or refused: what was checked and how long it waited.
+# outcome becomes merged only after the merge succeeds; the gate is unknown until
+# the base is read. The trap also removes the temp files a refusal or Ctrl-C
+# leaves behind (tmp_files).
+gate_mode=unknown
+gate_checked=''
+waited_seconds=0
+outcome=refused
+started_at=$(date +%s)
+tmp_files=()
+print_summary() {
+  local took=$(( $(date +%s) - started_at ))
+  [ "${#tmp_files[@]}" -eq 0 ] || rm -f -- "${tmp_files[@]}"
+  printf 'gh-merge-green: %s %s (%s gate: %s; waited %dm%02ds, %ds in all)\n' "$outcome" "$ref" "$gate_mode" \
+    "${gate_checked:-nothing reported}" $((waited_seconds / 60)) $((waited_seconds % 60)) "$took" >&2
+}
+trap print_summary EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
 fix=0
@@ -212,17 +232,6 @@ fast=0
 gate_mode=full
 [ "$fast" -eq 1 ] && gate_mode=fast
 [ "$fix" -eq 1 ] && gate_mode=main-fix
-gate_checked=''
-waited_seconds=0
-outcome=refused
-started_at=$(date +%s)
-# One line at exit, merged or refused: what was checked and how long it waited.
-print_summary() {
-  local took=$(( $(date +%s) - started_at ))
-  printf 'gh-merge-green: %s %s (%s gate: %s; waited %dm%02ds, %ds in all)\n' "$outcome" "$ref" "$gate_mode" \
-    "${gate_checked:-nothing reported}" $((waited_seconds / 60)) $((waited_seconds % 60)) "$took" >&2
-}
-trap print_summary EXIT
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
   if [ ! -f "$validator" ]; then
@@ -604,6 +613,7 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
     red_lanes+=("'$name'")
   done
   excuse_errors=$(mktemp)
+  tmp_files+=("$excuse_errors")
   if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
       "${excuse_args[@]}" 2>"$excuse_errors"); then
     why=$(cat "$excuse_errors")
@@ -637,6 +647,7 @@ fast_gate() {
   fi
   [ -n "$covered" ] && covered_flag=(--next-covered)
   gate_err=$(mktemp)
+  tmp_files+=("$gate_err")
   if ! gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" \
       "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err"); then
     local why
@@ -661,6 +672,7 @@ fast_gate() {
   local excuse_args=()
   while IFS= read -r name; do excuse_args+=(--check "$name"); done <<<"$reds"
   excuse_errors=$(mktemp)
+  tmp_files+=("$excuse_errors")
   if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
       "${excuse_args[@]}" 2>"$excuse_errors"); then
     local why

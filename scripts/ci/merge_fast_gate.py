@@ -45,15 +45,25 @@ def gh_json(*args: str) -> dict:
 
 
 def latest(rollup: list[dict]) -> dict[str, tuple[str, str]]:
-    """name -> (status, conclusion), upper case; a later entry of a name wins (a rerun)."""
+    """name -> (status, conclusion), upper case. The rollup is not ordered by time, so of
+    several CheckRuns of one name (a rerun) the latest startedAt wins, then completedAt,
+    then list order; one not started yet (no startedAt, not completed) counts as newest."""
     checks: dict[str, tuple[str, str]] = {}
-    for item in rollup:
+    newest: dict[str, tuple] = {}
+    for index, item in enumerate(rollup):
         if item.get("__typename") == "StatusContext" or "context" in item:
             state = (item.get("state") or "").upper()
             checks[item.get("context", "")] = ("COMPLETED" if state not in ("PENDING", "EXPECTED") else "IN_PROGRESS",
                                                {"ERROR": "FAILURE"}.get(state, state))
-        else:
-            checks[item.get("name", "")] = ((item.get("status") or "").upper(), (item.get("conclusion") or "").upper())
+            continue
+        name = item.get("name", "")
+        status = (item.get("status") or "").upper()
+        started = item.get("startedAt") or ("\uffff" if status != "COMPLETED" else "")
+        key = (started, item.get("completedAt") or "", index)
+        if name in newest and newest[name] > key:
+            continue
+        newest[name] = key
+        checks[name] = (status, (item.get("conclusion") or "").upper())
     return checks
 
 
@@ -79,7 +89,12 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
     if touches_next and routed and "cmux-next fast tier" not in checks:
         waiting.append("cmux-next fast tier")
     if any(f.startswith("webviews/") for f in files) and not any(n.endswith("react-apps-check") for n in checks):
-        waiting.append("react-apps-check")
+        # The caller job "web" finishing without one means none is coming: a red caller is a red.
+        status, conclusion = checks.get("web", ("", ""))
+        if status != "COMPLETED":
+            waiting.append("react-apps-check")
+        elif conclusion not in PASSING:
+            reds.append("web")
     return waiting, seen, reds
 
 
