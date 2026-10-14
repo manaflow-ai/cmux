@@ -481,73 +481,12 @@ export function NewTabScreen(props: Props) {
       data-all-chats={allChats || undefined}
     >
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
-          bar with the agent's model chip, the mic and Send, then the location row with the project
-          the chat starts in (ComposerContext, the composer's own). */}
-      <div ref={setBox} className="nt-box">
-        {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
-            browser's address bar does; the text itself keeps its own press (caret, selection).
-            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
-        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
-        <div className="nt-input" onMouseDown={focusFromRow}>
-          {shell ? (
-            <span className="nt-shell-glyph" aria-hidden="true">
-              !
-            </span>
-          ) : (
-            sections.prompt && (
-              <span className="nt-prompt-glyph" aria-hidden="true">
-                &gt;
-              </span>
-            )
-          )}
-          <input
-            ref={field}
-            className="nt-field"
-            data-focus-ring="none"
-            aria-label={shell ? t("composer.shell") : nt("placeholder")}
-            placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
-            value={text}
-            aria-controls="nt-rows"
-            aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
-            spellCheck={!shell}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(event) => edit(event.target.value)}
-            onKeyDown={keyDown}
-            onMouseDown={() => setDismissed(undefined)}
-            onCompositionStart={() => {
-              composing.current = true;
-            }}
-            onCompositionEnd={() => {
-              composing.current = false;
-            }}
-          />
-        </div>
-        {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
-            this page draws no context ring. */}
-        <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-          <div className="nt-pickers" onPointerDownCapture={touch}>
-            {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
-              switch is the one Enter reuses. */}
-            {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-            <span className="acpmux-composer-actions">
-              {props.accessory}
-              {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
-              <button
-                type="button"
-                className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
-                aria-label={t("composer.send")}
-                title={t("composer.sendTooltip")}
-                disabled={!text.trim()}
-                onClick={send}
-              >
-                <ArrowUpIcon />
-              </button>
-            </span>
-          </div>
-        </ChromeArea>
+          bar with the agent's model chip, the mic and Send. The location strip with the project the
+          chat starts in heads it, a tab on its top edge (ComposerContext, the composer's own; hq#1957
+          composer location strip). */}
+      <div className="nt-composer">
         {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
-            composer's location row; never the home ~ the tab inherited (cx-7fje0). */}
+            composer's location strip; never the home ~ the tab inherited (cx-7fje0). */}
         <div className="nt-location" onPointerDownCapture={touch}>
           <ComposerContext
             summary={{
@@ -563,6 +502,70 @@ export function NewTabScreen(props: Props) {
             onProject={(cwd) => pickProject(cwd)}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}
           />
+        </div>
+        <div ref={setBox} className="nt-box">
+          {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
+            browser's address bar does; the text itself keeps its own press (caret, selection).
+            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
+          {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
+          <div className="nt-input" onMouseDown={focusFromRow}>
+            {shell ? (
+              <span className="nt-shell-glyph" aria-hidden="true">
+                !
+              </span>
+            ) : (
+              sections.prompt && (
+                <span className="nt-prompt-glyph" aria-hidden="true">
+                  &gt;
+                </span>
+              )
+            )}
+            <input
+              ref={field}
+              className="nt-field"
+              data-focus-ring="none"
+              aria-label={shell ? t("composer.shell") : nt("placeholder")}
+              placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
+              value={text}
+              aria-controls="nt-rows"
+              aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
+              spellCheck={!shell}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => edit(event.target.value)}
+              onKeyDown={keyDown}
+              onMouseDown={() => setDismissed(undefined)}
+              onCompositionStart={() => {
+                composing.current = true;
+              }}
+              onCompositionEnd={() => {
+                composing.current = false;
+              }}
+            />
+          </div>
+          {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
+            this page draws no context ring. */}
+          <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
+            <div className="nt-pickers" onPointerDownCapture={touch}>
+              {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+              switch is the one Enter reuses. */}
+              {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+              <span className="acpmux-composer-actions">
+                {props.accessory}
+                {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
+                <button
+                  type="button"
+                  className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+                  aria-label={t("composer.send")}
+                  title={t("composer.sendTooltip")}
+                  disabled={!text.trim()}
+                  onClick={send}
+                >
+                  <ArrowUpIcon />
+                </button>
+              </span>
+            </div>
+          </ChromeArea>
         </div>
       </div>
       {rows.length > 0 && box && (
