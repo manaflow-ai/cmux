@@ -2370,6 +2370,7 @@ function AcpmuxPane() {
   // Every harness this Mac's acpmux last found signed out, for the model picker's rail (cx-ae9eb):
   // read with the chat's own health, and again when a Log In comes back.
   const [signedOut, setSignedOut] = useState<Record<string, string>>({});
+  const signedOutRechecked = useRef(0);
   useEffect(() => {
     const client = directClient.current;
     if (!connected || !client || !healthLocal) {
@@ -2377,8 +2378,11 @@ function AcpmuxPane() {
       return;
     }
     let live = true;
+    // After a Log In, acpmux checks again: its last rows would still say signed out.
+    const refresh = healthRecheck !== signedOutRechecked.current;
+    signedOutRechecked.current = healthRecheck;
     void Promise.resolve()
-      .then(() => client.harnessHealthRows())
+      .then(() => client.harnessHealthRows(refresh ? { refresh: true } : {}))
       .then((rows) => live && setSignedOut(signedOutHarnesses(rows)))
       .catch(() => undefined);
     return () => {

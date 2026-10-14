@@ -310,8 +310,9 @@ export function ModelPicker(props: ModelPickerProps) {
           for (const model of choicesFor(entry)) if (fitsQuery(model, entry.name, parsed)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
-        for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
-    } else if (selected) {
+        if (loginFor(entry) === undefined)
+          for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
+    } else if (selected && loginFor(selected) === undefined) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
       const { latest, older } = shownSections(selected, runsHere);
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
