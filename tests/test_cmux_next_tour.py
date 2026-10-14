@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""scripts/cmux-next/media/tour.py, run as the CLI against a fake app: with no screen
-capture route, the step shots and the video frames come from the app's own window
-(`debug.window_snapshot` on its control socket), and a snapshot error lands on the step."""
+"""scripts/cmux-next/media/tour.py, run as the CLI against a fake app: the step shots
+and the video frames come from the app's own window (`debug.window_snapshot` on its
+control socket) without touching the desktop, and a snapshot error lands on the step."""
 
 from __future__ import annotations
 
@@ -130,6 +130,13 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertTrue(all(params.get("kind") == "main" for params in snapshots))
         # No raw window image is left behind outside the published folders.
         self.assertEqual(sorted(path.name for path in out.iterdir()), ["app.log", "frames", "manifest.json", "shots"])
+
+    def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
+        # A desktop capture shows whatever covers the window (permission
+        # prompts, other jobs' windows), so it is only the fallback.
+        done, _ = self.run_tour()
+        self.assertIn("screen capture: app window (debug.window_snapshot)", done.stdout)
+        self.assertNotIn("no screen capture route", done.stdout)
 
     def test_a_snapshot_error_is_recorded_on_each_step(self) -> None:
         _, manifest = self.run_tour(FAKE_SNAPSHOT_ERROR="no such window")
