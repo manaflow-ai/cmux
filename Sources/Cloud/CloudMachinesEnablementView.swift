@@ -209,6 +209,12 @@ struct CloudMachinesEnablementView: View {
         if isPlanKnown && isProActive {
             return String(localized: "cloud.welcome.note.included", defaultValue: "Included in your plan.")
         }
+        if hasCloudTeamAccess {
+            return String(
+                localized: "cloud.welcome.note.teamAvailable",
+                defaultValue: "Cloud can be enabled through your team; machine access follows the team’s plan."
+            )
+        }
         return String(localized: "cloud.welcome.note.available", defaultValue: "Cloud is available on cmux Pro and Max.")
     }
 

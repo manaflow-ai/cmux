@@ -326,6 +326,9 @@ private struct CloudWelcomeAccountView: View {
             ),
             onNotNow: onNotNow,
             onNext: onNext,
+            hasCloudTeamAccess: CloudWelcomeNextStep.hasSharedTeamAccess(
+                availableTeamCount: accountFlow?.availableTeams.count ?? 0
+            ),
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
             posterHeadline: posterHeadline,

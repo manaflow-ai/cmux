@@ -40,6 +40,8 @@ struct CloudWelcomeView: View {
     let nextStep: CloudWelcomeNextStep
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
+    /// Whether the account has an accepted team in addition to its personal scope.
+    var hasCloudTeamAccess = false
     /// Where each slide's clip lives (the lab points this at a folder).
     var mediaURL: (CloudWelcomeSlide) -> URL? = CloudWelcomeMediaCarousel.bundledMediaURL
     // Lab toggles while the slider is designed.
@@ -352,6 +354,12 @@ struct CloudWelcomeView: View {
         )
         switch nextStep {
         case .enable:
+            if hasCloudTeamAccess {
+                return [String(
+                    localized: "cloud.welcome.note.teamIncluded",
+                    defaultValue: "Included through your team’s plan."
+                )]
+            }
             return [String(localized: "cloud.welcome.note.alreadyIncluded", defaultValue: "Already included in your plan.")]
         case .signIn, .upgrade, .openCloud:
             return [available]
