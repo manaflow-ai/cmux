@@ -1,0 +1,383 @@
+//! `agents_<verb>`: the `cmux agents` actions as tools. A call builds the
+//! words `cmux agents <verb>` takes and runs the CLI's own parser and
+//! `agents::execute`, so it answers what the CLI prints: a receipt
+//! `{action, result, state}` whose `state` is a fresh composed snapshot, and
+//! the agent never has to screenshot to check what changed.
+
+use serde_json::{Map, Value, json};
+
+use super::super::GlobalArgs;
+use super::super::agents::{self, AgentCommand, AgentFailure};
+use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verb {
+    WorkspaceSelect,
+    WorkspaceCreate,
+    TabSelect,
+    TerminalFocus,
+    TerminalSplit,
+    PaletteOpen,
+    DialogList,
+    DialogAnswer,
+}
+
+pub(super) struct AgentTool {
+    pub name: &'static str,
+    verb: Verb,
+    title: &'static str,
+    description: &'static str,
+}
+
+const RECEIPT: &str = " Answers {action, result, state}: the owner's result and a fresh \
+    agents_snapshot-shaped state, so no screenshot is needed to check the change.";
+
+pub(super) const TOOLS: &[AgentTool] = &[
+    AgentTool {
+        name: "agents_workspace_select",
+        verb: Verb::WorkspaceSelect,
+        title: "Select workspace",
+        description: "Select a workspace and show it in the cmux window (`cmux agents \
+            workspace select`). Its purpose is focus, so it moves the user's focus.",
+    },
+    AgentTool {
+        name: "agents_workspace_create",
+        verb: Verb::WorkspaceCreate,
+        title: "Create workspace",
+        description: "Create a workspace (`cmux agents workspace create`), with a terminal \
+            unless empty is true. The cmux window keeps showing the user's workspace.",
+    },
+    AgentTool {
+        name: "agents_tab_select",
+        verb: Verb::TabSelect,
+        title: "Select tab",
+        description: "Select a tab and show it in the cmux window (`cmux agents tab select`). \
+            Its purpose is focus, so it moves the user's focus.",
+    },
+    AgentTool {
+        name: "agents_terminal_focus",
+        verb: Verb::TerminalFocus,
+        title: "Focus terminal",
+        description: "Focus a terminal tab and show it in the cmux window (`cmux agents \
+            terminal focus`). Its purpose is focus, so it moves the user's focus.",
+    },
+    AgentTool {
+        name: "agents_terminal_split",
+        verb: Verb::TerminalSplit,
+        title: "Split terminal",
+        description: "Split a pane (the current one unless pane is given) and open a \
+            terminal beside it (`cmux agents terminal split`). The cmux window keeps the \
+            user's focus.",
+    },
+    AgentTool {
+        name: "agents_palette_open",
+        verb: Verb::PaletteOpen,
+        title: "Open command palette",
+        description: "Open the cmux command palette (`cmux agents palette open`). Its purpose \
+            is to show the palette, so it takes the user's focus.",
+    },
+    AgentTool {
+        name: "agents_dialog_list",
+        verb: Verb::DialogList,
+        title: "List dialogs",
+        description: "List the agent permission and question dialogs waiting for an answer \
+            (`cmux agents dialog list`); all includes answered ones. Changes nothing.",
+    },
+    AgentTool {
+        name: "agents_dialog_answer",
+        verb: Verb::DialogAnswer,
+        title: "Answer dialog",
+        description: "Answer a dialog from agents_dialog_list (`cmux agents dialog answer`): \
+            a permission dialog with mode, a question with one or more selections. Give \
+            exactly one of mode or selections.",
+    },
+];
+
+pub(super) fn find(name: &str) -> Option<&'static AgentTool> {
+    TOOLS.iter().find(|tool| tool.name == name)
+}
+
+fn id_schema(description: &str) -> Value {
+    json!({"type": "string", "minLength": 1, "pattern": "^[^-]", "description": description})
+}
+
+impl AgentTool {
+    fn read_only(&self) -> bool {
+        self.verb == Verb::DialogList
+    }
+
+    /// Daemon changes and `action.run` take a key; the app's feed replies
+    /// do not.
+    fn keyed(&self) -> bool {
+        !matches!(self.verb, Verb::DialogList | Verb::DialogAnswer)
+    }
+
+    /// Daemon requests route to a session; the app has one.
+    fn routed(&self) -> bool {
+        matches!(
+            self.verb,
+            Verb::WorkspaceSelect
+                | Verb::WorkspaceCreate
+                | Verb::TabSelect
+                | Verb::TerminalFocus
+                | Verb::TerminalSplit
+        )
+    }
+
+    pub(super) fn descriptor_json(&self) -> Value {
+        let idempotent =
+            !matches!(self.verb, Verb::WorkspaceCreate | Verb::TerminalSplit | Verb::DialogAnswer);
+        json!({
+            "name": self.name,
+            "title": self.title,
+            "description": format!("{}{RECEIPT}", self.description),
+            "inputSchema": self.input_schema(),
+            "annotations": {
+                "readOnlyHint": self.read_only(),
+                "destructiveHint": false,
+                "idempotentHint": idempotent,
+                "openWorldHint": false,
+            },
+        })
+    }
+
+    fn input_schema(&self) -> Value {
+        let mut properties = Map::new();
+        let mut required = Vec::new();
+        match self.verb {
+            Verb::WorkspaceSelect => {
+                properties.insert(
+                    "workspace".into(),
+                    id_schema("The workspace (ws_ id, unique prefix or <session>:<id>)."),
+                );
+                required.push("workspace");
+            }
+            Verb::WorkspaceCreate => {
+                properties.insert(
+                    "name".into(),
+                    json!({"type": "string", "minLength": 1, "description": "The name."}),
+                );
+                properties.insert(
+                    "empty".into(),
+                    json!({"type": "boolean", "description": "Create it with no terminal."}),
+                );
+            }
+            Verb::TabSelect | Verb::TerminalFocus => {
+                properties.insert(
+                    "tab".into(),
+                    id_schema("The tab (tab_ id, unique prefix or <session>:<id>)."),
+                );
+                required.push("tab");
+            }
+            Verb::TerminalSplit => {
+                properties.insert(
+                    "direction".into(),
+                    json!({"type": "string", "enum": ["left", "right", "up", "down"]}),
+                );
+                properties.insert(
+                    "pane".into(),
+                    id_schema("The pane to split (pane_ id); default the current pane."),
+                );
+                required.push("direction");
+            }
+            Verb::PaletteOpen => {}
+            Verb::DialogList => {
+                properties.insert(
+                    "all".into(),
+                    json!({"type": "boolean", "description": "Include answered dialogs."}),
+                );
+            }
+            Verb::DialogAnswer => {
+                properties.insert(
+                    "request_id".into(),
+                    id_schema("The dialog's request id from agents_dialog_list."),
+                );
+                properties.insert(
+                    "mode".into(),
+                    id_schema("The permission answer, one of the dialog's modes."),
+                );
+                properties.insert(
+                    "selections".into(),
+                    json!({
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string", "minLength": 1, "pattern": "^[^-]"},
+                        "description": "The question's chosen options.",
+                    }),
+                );
+                required.push("request_id");
+            }
+        }
+        if self.routed() {
+            properties.insert(
+                "session".into(),
+                json!({
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The named cmux session to use, as `cmux --session`.",
+                }),
+            );
+        }
+        if self.keyed() {
+            properties.insert(
+                "idempotency_key".into(),
+                json!({
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Names this change so a retry cannot apply it twice. \
+                        Generated when absent; a failed call returns it.",
+                }),
+            );
+        }
+        json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+            "additionalProperties": false,
+        })
+    }
+
+    pub(super) fn call<B: Backend>(&self, backend: &B, arguments: &Map<String, Value>) -> Value {
+        let not_run =
+            |message: String| tool_error(envelope(v2_tools::invalid(message), "not_run", None));
+        let (command, session, key) = match self.command(arguments) {
+            Ok(call) => call,
+            Err(message) => return not_run(message),
+        };
+        match agents::execute(backend, session.as_deref(), &command, key.as_deref()) {
+            Ok(receipt) => success(receipt, !self.read_only()),
+            Err(AgentFailure::Usage(message)) => not_run(message),
+            Err(AgentFailure::Owner(failure)) => failure_result(failure),
+        }
+    }
+
+    /// The `cmux agents` command these arguments name, its session and key.
+    fn command(
+        &self,
+        arguments: &Map<String, Value>,
+    ) -> Result<(AgentCommand, Option<String>, Option<String>), String> {
+        let schema = self.input_schema();
+        if let Some(name) = arguments.keys().find(|name| schema["properties"].get(*name).is_none())
+        {
+            return Err(format!("{} has no argument {name:?}", self.name));
+        }
+        let args = Arguments { tool: self.name, values: arguments };
+        let mut words = Vec::new();
+        match self.verb {
+            Verb::WorkspaceSelect => {
+                words.extend(["workspace".into(), "select".into(), args.word("workspace")?]);
+            }
+            Verb::WorkspaceCreate => {
+                words.extend(["workspace".into(), "create".into()]);
+                if let Some(name) = args.text("name")? {
+                    // Inline, so a name that starts with `--` stays a value.
+                    words.push(format!("--name={name}"));
+                }
+                if args.flag("empty")? {
+                    words.push("--empty".into());
+                }
+            }
+            Verb::TabSelect => words.extend(["tab".into(), "select".into(), args.word("tab")?]),
+            Verb::TerminalFocus => {
+                words.extend(["terminal".into(), "focus".into(), args.word("tab")?]);
+            }
+            Verb::TerminalSplit => {
+                let direction = args.word("direction")?;
+                if !matches!(direction.as_str(), "left" | "right" | "up" | "down") {
+                    return Err(format!(
+                        "{}: direction must be left, right, up or down",
+                        self.name
+                    ));
+                }
+                words.extend(["terminal".into(), "split".into(), direction]);
+                if args.values.contains_key("pane") {
+                    words.extend(["--surface".into(), args.word("pane")?]);
+                }
+            }
+            Verb::PaletteOpen => words.extend(["palette".into(), "open".into()]),
+            Verb::DialogList => {
+                words.extend(["dialog".into(), "list".into()]);
+                if args.flag("all")? {
+                    words.push("--all".into());
+                }
+            }
+            Verb::DialogAnswer => {
+                words.extend(["dialog".into(), "answer".into(), args.word("request_id")?]);
+                if args.values.contains_key("mode") {
+                    words.extend(["--mode".into(), args.word("mode")?]);
+                }
+                for selection in args.words("selections")? {
+                    words.extend(["--selection".into(), selection]);
+                }
+            }
+        }
+        let key = match args.text("idempotency_key")? {
+            Some(key) => {
+                cmux_tui_core::resource::validate_idempotency_key(&key)
+                    .map_err(|error| error.message)?;
+                Some(key)
+            }
+            None => None,
+        };
+        let mut global = GlobalArgs { session: args.text("session")?, ..GlobalArgs::default() };
+        agents::normalize_qualified_targets(&mut global, &mut words).map_err(|error| error.0)?;
+        let command = agents::command(&words).map_err(|error| error.0)?;
+        Ok((command, global.session, key))
+    }
+}
+
+/// A tool call's arguments, read as the words `cmux agents` takes.
+struct Arguments<'a> {
+    tool: &'static str,
+    values: &'a Map<String, Value>,
+}
+
+impl Arguments<'_> {
+    /// A nonempty string, when given.
+    fn text(&self, name: &str) -> Result<Option<String>, String> {
+        match self.values.get(name) {
+            None => Ok(None),
+            Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
+            Some(_) => Err(format!("{}: {name} must be a nonempty string", self.tool)),
+        }
+    }
+
+    /// A required word: a string that the CLI grammar cannot read as a flag.
+    fn word(&self, name: &str) -> Result<String, String> {
+        let value = self.text(name)?.ok_or_else(|| format!("{}: {name} is required", self.tool))?;
+        checked_word(self.tool, name, value)
+    }
+
+    /// Each string of an array argument, as words; none when absent.
+    fn words(&self, name: &str) -> Result<Vec<String>, String> {
+        match self.values.get(name) {
+            None => Ok(Vec::new()),
+            Some(Value::Array(items)) if !items.is_empty() => items
+                .iter()
+                .map(|item| match item {
+                    Value::String(value) if !value.is_empty() => {
+                        checked_word(self.tool, name, value.clone())
+                    }
+                    _ => Err(format!("{}: {name} must hold nonempty strings", self.tool)),
+                })
+                .collect(),
+            Some(_) => Err(format!("{}: {name} must be a nonempty array of strings", self.tool)),
+        }
+    }
+
+    fn flag(&self, name: &str) -> Result<bool, String> {
+        match self.values.get(name) {
+            None => Ok(false),
+            Some(Value::Bool(value)) => Ok(*value),
+            Some(_) => Err(format!("{}: {name} must be true or false", self.tool)),
+        }
+    }
+}
+
+fn checked_word(tool: &str, name: &str, value: String) -> Result<String, String> {
+    if value.starts_with('-') {
+        return Err(format!("{tool}: {name} must not start with '-'"));
+    }
+    Ok(value)
+}
