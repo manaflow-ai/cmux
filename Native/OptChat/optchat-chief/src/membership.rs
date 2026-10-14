@@ -142,7 +142,7 @@ impl Membership {
             format!(
                 "## Channels\n\nYou take part in group conversations (channels) beside your \
 conversation with the user. Every message there from a person or another Chief reaches you, \
-labelled `[in conv <id> \"<title>\" from \"<name>\"]`, whether or not it names you. Act on \
+labelled `[in conv <id> \"<title>\" from person|Chief \"<name>\"]`, whether or not it names you. Act on \
 your own when a message concerns your role or you can move the work forward: answer, take \
 the task, or start it. Your reply goes into that message's thread. When a message needs \
 nothing from you, reply with exactly `{NO_REPLY}` and nothing else: then nothing is posted. \

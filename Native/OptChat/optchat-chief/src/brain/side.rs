@@ -290,14 +290,11 @@ impl Brain {
         }
         // At the newest message read (of the thread, of the conversation):
         // the reply goes after it.
-        let key = message.thread_root.as_deref();
+        let root = cmux_chief::rules::reply_thread(message);
         let thread_tail = read
             .iter()
             .rev()
-            .find(|m| match key {
-                Some(root) => m.thread_root.as_deref() == Some(root) || m.id == root,
-                None => m.thread_root.is_none(),
-            })
+            .find(|m| m.thread_root.as_deref() == Some(root) || m.id == root)
             .filter(|m| m.seq > message.seq)
             .unwrap_or(message);
         let tail = read
@@ -331,19 +328,24 @@ impl Brain {
     }
 }
 
-/// [`labelled`] with the author's name (local side conversations, where
-/// people and other Chiefs write): `[in conv <id> "<title>" from "<name>"]`.
-/// The name is cleaned as the title is.
+/// [`labelled`] with the author's kind and name (local side conversations,
+/// where people and other Chiefs write):
+/// `[in conv <id> "<title>" from person|Chief|agent "<name>"]`. The name is
+/// cleaned as the title is; the kind comes from the participant record, so a
+/// Chief named like a person still reads as a Chief.
 fn labelled_from(summary: &Summary, author: &str, text: &str) -> String {
-    let name = summary
-        .participants
-        .iter()
-        .find(|p| p.id == author)
-        .map_or(author, |p| p.display_name.as_str());
-    let name = clean_label(name);
+    let participant = summary.participants.iter().find(|p| p.id == author);
+    let name = clean_label(participant.map_or(author, |p| p.display_name.as_str()));
+    let kind = if cmux_chief::rules::is_chief(summary, author) {
+        "Chief"
+    } else if participant.is_some_and(|p| p.kind == cmux_conversation::ParticipantKind::Human) {
+        "person"
+    } else {
+        "agent"
+    };
     let base = labelled(summary, "");
     let head = base.trim_end().trim_end_matches(']');
-    format!("{head} from \"{name}\"] {text}")
+    format!("{head} from {kind} \"{name}\"] {text}")
 }
 
 /// Longest title (characters) in a side message's label.

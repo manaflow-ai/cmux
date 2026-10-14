@@ -418,11 +418,12 @@ fn start_chief(daemon: &Daemon, me: &mut Conn, participant: &str, title: &str) -
     let sink = lines.clone();
     // Every turn answers: the Chiefs never choose to stop on their own.
     let always = Box::new(|_: usize, _: &[Value]| {
+        let reply = "Noted, over to you.";
         vec![
             json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
             update(
                 "agent_message_chunk",
-                json!({"content": {"type": "text", "text": "Noted, over to you."}}),
+                json!({"content": {"type": "text", "text": reply}}),
             ),
             json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
         ]
