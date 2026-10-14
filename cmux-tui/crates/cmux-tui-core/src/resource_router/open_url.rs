@@ -17,10 +17,13 @@
 //!    navigates through its frontend record (`update-frontend-browser-tab`
 //!    URL semantics: the hosting app loads the new URL), a daemon-rendered
 //!    one through the browser's navigation queue (raw `browser-navigate`
-//!    semantics): the request answers once the navigation is queued, never
-//!    after the page answers, so a slow or stuck page cannot hold the
-//!    caller (the CLI gives up after 10 seconds); a browser still starting
-//!    loads the link when it attaches.
+//!    semantics). The answer means the navigation is queued, not that the
+//!    page loaded, so a slow or stuck page cannot hold the caller (the CLI
+//!    gives up after 10 seconds). A browser still starting loads the link
+//!    when it attaches; a navigation that fails after the answer shows as
+//!    the browser's status, not as an error of this request; a newer
+//!    open-url or navigation of the same browser supersedes one still
+//!    pending (latest wins).
 //! 4. Else a new browser tab in the first of those panes. When a connected
 //!    client renders browser tabs itself (it declared
 //!    `frontend-browser-tabs-v1`: the cmux app), the daemon makes a frontend
@@ -40,10 +43,11 @@
 //! a retry with the same key and request answers the first result (the
 //! same tab, no second navigation) even after the selection changed, and the
 //! same key with another workspace or URL is `idempotency.conflict`. Each
-//! step that changes the topology also runs under a key derived from the
-//! request's key, so a retry after a step that committed before the ledger
-//! did replays that step; a retry after a queued daemon navigation that the
-//! ledger missed queues the same URL again.
+//! creation, split, focus and tab selection step also runs under a key
+//! derived from the request's key, so a retry after a step that committed
+//! before the ledger did replays that step. The daemon navigation has no
+//! step key: a retry after a queued navigation that the ledger missed
+//! queues the same URL again.
 //! Errors of a step (`engine_unavailable` with no browser provider, a
 //! browser that failed for good) are returned as they are and record
 //! nothing.

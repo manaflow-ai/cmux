@@ -293,16 +293,26 @@ workspace (`selector.not_found`, scope `workspace`, without one). On the
 workspace's focused screen, the right side is every pane outside a docked
 column whose dock has role `agent_chat` or edge `left`. The selected browser tab
 of the focused right-side pane, else of the right-side pane focused most
-recently, else any browser tab there, navigates to `url` (as `browser.navigate`)
-and becomes its pane's selected tab; the keyboard focus does not move, so the
-person keeps typing in the chat. Else a new browser tab (as `tab.create_browser`)
+recently, else any browser tab there, navigates to `url` and becomes its
+pane's selected tab; the keyboard focus does not move, so the person keeps
+typing in the chat. A daemon-rendered tab's navigation is queued (raw
+`browser-navigate` semantics), not confirmed: the reply means the navigation
+is queued, not that the page loaded. A browser still starting loads it when
+it attaches. A navigation that fails after the reply shows as the browser's
+status, not as an error of this request, and a newer `workspace.open_url` or
+navigation of the same browser supersedes one still pending. A frontend tab
+navigates through its record (the app loads the new URL). Else a new browser tab (as `tab.create_browser`)
 opens in the first of those panes, or in the screen `tab.create_browser` makes
 for a workspace with none; with only the dock, it opens in a new viewport
 column right of the dock, and the focus goes back to the pane that had it. The result is `{kind: "browser", workspace_id,
-screen_id, pane_id, tab_id, browser_id, reused}`. Errors of the navigation or
-the creation are returned as they are (with no browser provider:
-`operation.failed`, `extra.code` `engine_unavailable`). Each step runs under a
-key derived from the request's key, so a retry replays it.
+screen_id, pane_id, tab_id, browser_id, reused}`. Errors of the creation,
+and a navigation the browser refuses before it is queued (a browser that
+failed for good), are returned as they are (with no browser provider:
+`operation.failed`, `extra.code` `engine_unavailable`). The request's key
+records the result, so a retry answers it. Each creation, split, focus and
+tab selection step runs under a key derived from the request's key, so a
+retry replays it; the navigation has no step key, so a retry after a queued
+navigation that the result missed queues the same URL again.
 `closed.reopen` and `saved_tab_group.reopen` compose several creations; the request's key records the whole result, so a retry replays it.
 
 A window record holds one app window's state (shown workspace, listed
