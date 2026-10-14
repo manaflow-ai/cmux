@@ -41,7 +41,11 @@ fn tabs(screen: &Value, id: &Value) -> usize {
 /// A workspace `name` with a left dock `dock` holding one chat terminal and
 /// two right-side panes: its public id, the dock pane id and the right-side
 /// pane ids in layout order.
-fn docked_workspace(server: &HeadlessServer, name: &str, dock: Value) -> (String, Value, Vec<Value>) {
+fn docked_workspace(
+    server: &HeadlessServer,
+    name: &str,
+    dock: Value,
+) -> (String, Value, Vec<Value>) {
     raw(server, json!({"cmd": "new-workspace", "name": name, "cols": 160, "rows": 40}));
     let first = screen(server, name);
     let left = first["panes"][0]["id"].clone();
@@ -54,9 +58,9 @@ fn docked_workspace(server: &HeadlessServer, name: &str, dock: Value) -> (String
         .find(|id| *id != left)
         .unwrap();
     raw(server, json!({"cmd": "new-tab", "pane": right}));
-    let chat = pane(&screen(server, name), &right)["tabs"].as_array().unwrap().last().unwrap()
-        ["surface"]
-        .clone();
+    let chat =
+        pane(&screen(server, name), &right)["tabs"].as_array().unwrap().last().unwrap()["surface"]
+            .clone();
     raw(server, json!({"cmd": "move-tab-to-column", "surface": chat, "pane": right, "dock": dock}));
     let docked = screen(server, name);
     assert_eq!(docked["columns"][0]["dock"], dock, "{docked}");
@@ -142,7 +146,11 @@ fn a_tab_created_in_a_workspace_with_the_chat_dock_focused_goes_right() {
 #[test]
 fn a_tab_created_in_a_workspace_with_a_left_dock_focused_goes_right() {
     let server = HeadlessServer::start("dock-tab-left");
-    assert_created_on_the_right(&server, "dock-tab-left", json!({"edge": "left", "mode": "docked"}));
+    assert_created_on_the_right(
+        &server,
+        "dock-tab-left",
+        json!({"edge": "left", "mode": "docked"}),
+    );
 }
 
 /// Without a dock, a tab still goes to the focused pane.

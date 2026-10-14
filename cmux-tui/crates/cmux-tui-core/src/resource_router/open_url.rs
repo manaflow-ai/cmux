@@ -227,6 +227,27 @@ struct RightPane {
     tabs: Vec<(SurfaceId, Arc<Surface>)>,
 }
 
+/// The pane a new tab of `workspace` goes to when the request names no pane
+/// or screen and the workspace's focused pane is its left chat dock: the
+/// right-side pane a link would open in (focused most recently, then layout
+/// order), so a tab never lands in the chat dock (cx-ebm.59.5). `None` keeps
+/// the focused pane (no dock focused, or no right side).
+pub(super) fn right_pane_beside_focused_dock(
+    mux: &Mux,
+    selectors: &ResourceSelectors,
+) -> Option<PanePublicId> {
+    if selectors.workspace.is_none() || selectors.screen.is_some() || selectors.pane.is_some() {
+        return None;
+    }
+    let workspace =
+        mux.resolve_resource_path(ResourceTarget::Workspace, selectors).ok()?.workspace?;
+    mux.with_state(|state| {
+        let side = right_side(state, &workspace)?;
+        let dock_focused = side.dock.is_some() && side.dock == side.focused;
+        dock_focused.then(|| side.ranked.first().map(|pane| pane.id.clone())).flatten()
+    })
+}
+
 /// The target screen's right side, best pane first, its dock pane, and the
 /// pane that has the screen's focus.
 struct RightSide {
