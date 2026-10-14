@@ -53,6 +53,26 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.65.2": {
+    title: "Reliable Agent Restores, Steadier Cloud, Calmer Sign-In",
+    features: [
+      {
+        title: "Reliable Agent Restores",
+        description:
+          "Agent sessions come back after a relaunch: Codex retries a busy lock, Claude Code resumes in the right directory, agy and OpenCode auto-resume, and Running/Idle stays accurate when a Stop hook never arrives. Codex no longer asks to review cmux's own hooks.",
+      },
+      {
+        title: "Steadier Cloud",
+        description:
+          "Cloud connects on the first try, recovers frozen machines and dead tunnels, and explains a full resource pool instead of reporting a missing plan. Shared team members can enable Cloud, and the upgrade offer shows your next plan tier.",
+      },
+      {
+        title: "Calmer Sign-In",
+        description:
+          "Sign-in refreshes its token only near expiry, retries when the sign-in service is busy instead of failing, and shows the error details when it does fail.",
+      },
+    ],
+  },
   "0.65.1": {
     title: "Keyboard Navigation, Session Search, Smarter Cmd-Click, Smaller Download",
     features: [
