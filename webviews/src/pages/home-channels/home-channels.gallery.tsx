@@ -451,6 +451,22 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
         await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
+        // Every harness shows checked (the owner's default means every harness).
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
+      },
+    },
+    "new-chief-defaults": {
+      note: "Create with the grant left as it is: the sheet names no tools or harnesses, so the owner applies its defaults.",
+      props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
+        await ctx.click({ selector: ".lg-form-actions .primary" });
+        await ctx.waitFor(() => {
+          const sent = ctx.document.documentElement.dataset.mockChiefCreate ?? "";
+          return sent.includes("display_name") && !sent.includes("tools") && !sent.includes("harnesses");
+        });
       },
     },
     "edit-chief": {
