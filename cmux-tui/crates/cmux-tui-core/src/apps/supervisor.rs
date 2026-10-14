@@ -266,6 +266,15 @@ impl Supervisor {
                 seeded = true;
             }
         }
+        // The user's customization app installs itself the first time it appears.
+        if let Some(next) = catalog
+            .packages
+            .get(catalog::CUSTOMIZE_APP)
+            .and_then(|package| super::local_reload::seed_customize(&mirror, package))
+        {
+            mirror = next;
+            seeded = true;
+        }
         for app in &catalog.defaults {
             let Some(package) = catalog.packages.get(app) else { continue };
             let seed = Op::Seed { app: app.clone(), hidden: package.hidden_by_default() };
@@ -312,6 +321,7 @@ impl Supervisor {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
         supervisor.start_always_servers();
+        supervisor.start_local_watch();
         supervisor
     }
 
@@ -522,7 +532,7 @@ impl Supervisor {
     }
 
     /// Writes `apps.json` durably: temp file, fsync, rename.
-    fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
+    pub(super) fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
         use std::io::Write as _;
         let Some(dir) = &self.config.state_dir else { return Ok(()) };
         // A fresh daemon may not have created its state directory yet.
