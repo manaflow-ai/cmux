@@ -16,10 +16,12 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     /// Folded to its compact bar; `expandedHeight` is the height it opens back to.
     var isCollapsed = false
     var expandedHeight: CGFloat?
-    let frames = FloatingChatFrames(defaults: .standard)
+    let frames: FloatingChatFrames
     let grip = FloatingChatGrip()
 
-    init() {
+    /// `identifier` and `framesKey`: Palette AI's panel (cx-vtxi7) is a second one.
+    init(identifier: String = "cmux.quickComposer", framesKey: String = FloatingChatFrames.key) {
+        frames = FloatingChatFrames(defaults: .standard, key: framesKey)
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.size),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
@@ -37,7 +39,7 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
         isMovableByWindowBackground = true
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
-        setAccessibilityIdentifier("cmux.quickComposer")
+        setAccessibilityIdentifier(identifier)
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.autoresizingMask = [.width, .height]
         surface.frame = NSRect(origin: .zero, size: Self.size)

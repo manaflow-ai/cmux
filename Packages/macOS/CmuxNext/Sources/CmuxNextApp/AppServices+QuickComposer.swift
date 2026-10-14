@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextDaemon
 import CmuxNextDesign
 
 extension AppServices {
@@ -31,7 +32,7 @@ extension AppServices {
             makeChat: { [weak self] session in
                 self?.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick), session: session)
             },
-            makeWindow: { QuickComposerPanel() },
+            makeWindow: { QuickComposerPanel(identifier: "cmux.paletteAsk", framesKey: "paletteAsk.frames") },
             openInWindow: { [weak self] session in self?.convertPaletteChat(session: session) ?? false },
             startInBackground: { _ in true }, floating: { true },
             context: { [weak self] in await FloatingChatContext.focused(in: self) },
@@ -44,14 +45,24 @@ extension AppServices {
               let chat = agentTabs.standaloneView(seed: AgentPaneSeed(prompt: question, promptBy: .person, surface: .quick),
                                                   context: true, palette: true)
         else { return }
+        let projects = NewTabPage.handler(self, cwd: nil) { _, _ in }
+        chat.model.onListProjects = { query in await projects.listProjects(query) }
         paletteAsk.ask(with: chat)
     }
 
-    /// Convert to Workspace: `agent.openSessionWorkspace`'s path for the palette chat's session.
+    /// Convert to Workspace: `agent.openSessionWorkspace`'s path for the palette chat's session, then
+    /// the active window shows that workspace (the person asked for it). False before the chat has a
+    /// session or when the workspace cannot be made: the chat stays in the panel.
     private func convertPaletteChat(session: String?) -> Bool {
-        guard let session, let work = try? AgentSessionWorkspace.open(session: session, name: nil, cwd: nil, services: self)
+        let key = WorkspaceKey.generate()
+        guard let session, let work = try? AgentSessionWorkspace.open(session: session, name: nil, key: key, cwd: nil, services: self)
         else { return false }
         registry.track(work)
+        // task-owner: one-shot reveal of the converted workspace once it exists
+        Task { [weak self] in
+            guard await work.value == nil, let self, let state = self.windows.active?.state else { return }
+            self.windows.show(workspaceID: key.rawValue, in: state)
+        }
         return true
     }
 

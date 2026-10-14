@@ -1862,7 +1862,7 @@ export class AcpmuxDirectClient {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
-      if (context) this.host = { ...this.host, workspaceContext: undefined };
+      if (context) this.host = { ...this.host, workspaceContext: undefined, contextKind: undefined };
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);

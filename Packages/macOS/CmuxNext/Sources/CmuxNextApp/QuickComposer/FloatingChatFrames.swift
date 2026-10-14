@@ -11,18 +11,20 @@ struct FloatingChatFrames {
     static let barHeight: CGFloat = 44
 
     let defaults: UserDefaults
+    /// The defaults key (Palette AI's panel keeps its own frames).
+    var key = Self.key
 
     /// The frame saved on display `id`, if any.
     func frame(onDisplay id: String) -> CGRect? {
-        guard let saved = (defaults.dictionary(forKey: Self.key) as? [String: String])?[id] else { return nil }
+        guard let saved = (defaults.dictionary(forKey: key) as? [String: String])?[id] else { return nil }
         let frame = NSRectFromString(saved)
         return frame.width > 0 && frame.height > 0 ? frame : nil
     }
 
     func save(_ frame: CGRect, onDisplay id: String) {
-        var all = defaults.dictionary(forKey: Self.key) as? [String: String] ?? [:]
+        var all = defaults.dictionary(forKey: key) as? [String: String] ?? [:]
         all[id] = NSStringFromRect(frame)
-        defaults.set(all, forKey: Self.key)
+        defaults.set(all, forKey: key)
     }
 
     /// `saved`, kept inside `visible`; without one, the default size with its

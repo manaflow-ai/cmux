@@ -117,8 +117,11 @@ final class QuickComposerController {
     /// window, and the panel starts over empty next time.
     func openChatInWindow(session: String?) {
         hide()
-        // Nowhere to open it (no window yet): the chat stays in the panel.
-        guard openInWindow(session ?? chat?.model.sessionId) else { return }
+        // Nowhere to open it (no window yet): the chat stays in the panel; a held chat shows again.
+        guard openInWindow(session ?? chat?.model.sessionId) else {
+            if holdsChat { show() }
+            return
+        }
         releaseChat()
     }
 
