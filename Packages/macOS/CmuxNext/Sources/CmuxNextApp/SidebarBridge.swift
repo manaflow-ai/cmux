@@ -64,6 +64,7 @@ final class SidebarBridge {
         SidebarWorkspacePins.wire(self)
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
+        container.sidebarView.customization = services.sidebarCustomization
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()
@@ -107,7 +108,12 @@ final class SidebarBridge {
         let services = services
         guard let windowState = state else { return }
         let feed = rowFeed
-        feed.onChange = { [weak self] changed in self?.rows.patch(changed) }
+        // Decorations go on after the feed: the pass names rows by stub (no title yet), and a patched row is undecorated.
+        let customization = services.sidebarCustomization
+        feed.onChange = { [weak self] changed in
+            let decorations = customization.rowDecorations
+            self?.rows.patch(changed.map { $0.decorated(by: decorations) })
+        }
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
             // The layout too: removing the Home item lists the home workspace.
@@ -118,7 +124,7 @@ final class SidebarBridge {
             // one slide, not a slide of the old rows and then a row reload.
             // The band's layout comes with the rows it projects too (cx-odqn):
             // a pinned workspace leaves the list in the turn it joins the band.
-            for await (sections, launching, failed, profiles, active, shown, creating) in ObservationStream({
+            for await ((sections, decorations), launching, failed, profiles, active, shown, creating) in ObservationStream({
                 // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
                 let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
                 feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
@@ -127,12 +133,12 @@ final class SidebarBridge {
                     newTabPages: pages, muted: muted,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                     tabTitle: Self.tabTitle(services), rows: feed.rowSource)
-                return (sections, launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+                return ((sections, services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                         SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id))
             }) {
                 guard let self else { return }
                 self.showProfiles(profiles, active: active, launching: launching)
-                self.show(feed.fill(sections), layout: shown, launching: launching, failed: failed, creating: creating)
+                self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: creating)
                 // A workspace the window lists shows its own row from here on (cx-9a7wx).
                 let membership = WindowProfiles.membership(machines)
                 PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue))) { id in
@@ -258,6 +264,8 @@ final class SidebarBridge {
                                      tabTitle: tabTitle, rows: rows)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
+        // Debug Settings: sample rows with 1 to 7 pending items, to compare the row badges.
+        if SidebarTunables.rowBadgePreview.value { sections += SidebarSection.rowBadgePreview() }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
     }

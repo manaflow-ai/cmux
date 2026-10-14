@@ -213,6 +213,7 @@ impl Mux {
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
+            chiefs: Default::default(),
             cloud_conversations: OnceLock::new(),
             history_search: OnceLock::new(),
             #[cfg(test)]
@@ -305,6 +306,7 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_presence: Mutex::new(HashMap::new()),
+            agent_prompts: Mutex::new(HashMap::new()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             placement_notifications: Mutex::new(HashMap::new()),

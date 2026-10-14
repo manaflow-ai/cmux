@@ -135,7 +135,7 @@ final class AppControl {
             .mainActor("debug.layers") { [weak services] call in
                 guard let services else { return .value(.null) }
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
-                return .value(DebugLayers.report(services: services))
+                return .value(DebugLayers.report(services: services, params: call.params))
             },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).

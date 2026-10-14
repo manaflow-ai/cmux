@@ -26,10 +26,12 @@ public nonisolated enum SidebarSurface: String, Sendable, CaseIterable, Codable 
     ///   - separateShade: The shade of the separate look in this theme.
     ///   - lineSeparates: Whether a drawn line parts the sidebar from the
     ///     main pane (a pane outline or the sidebar's edge line).
-    public func chromeShade(separateShade: CGFloat, lineSeparates: Bool) -> CGFloat {
+    ///   - borderlessStep: The share kept without a line (`ChromeStyle`).
+    public func chromeShade(separateShade: CGFloat, lineSeparates: Bool,
+                            borderlessStep: CGFloat = Self.borderlessStep) -> CGFloat {
         switch self {
         case .separate: separateShade
-        case .same: lineSeparates ? 0 : separateShade * Self.borderlessStep
+        case .same: lineSeparates ? 0 : separateShade * borderlessStep
         }
     }
 }
