@@ -293,3 +293,30 @@ Findings:
 - UNVERIFIED (needs a person): PIN typed into the sheet and a real touch (YubiKey run on
   cmux-lawrence-2, `--real`), a phone over BLE, Touch ID in the signed NIGHTLY identity. Steps:
   `.cmux-scratch/passkeys/checklist.md` in hq.
+
+### 11.1 Real hardware on cmux-lawrence-2, 2026-10-14 (Lawrence at the Mac, DEV tag pkhw4)
+
+- YubiKey 5, touch only (webauthn.io Discoverable Credential "Discouraged"): register + sign-in
+  PASS (job 1013-214604-51740b). Chromium's sheet showed over the pane while the key waited.
+- Phone (iPhone, hybrid): three runs failed with NotAllowedError after "Follow the steps on your
+  device"; the iPhone spun, then "The operation could not be completed". Logged run
+  1013-223234-567855 (FIDO verbose log + net-log): the tunnel WebSocket to `wss://cable.auth.com`
+  opened (101, `fido.cable`, direct), the handshake and the phone's GetInfo arrived, then the Mac
+  sent no makeCredential and Apple's server closed the tunnel after 90 s. Cause: the YubiKey (now
+  with a PIN) was plugged in; Chromium dispatched to it, asked getPINRetries and showed
+  "PIN required", so `MakeCredentialRequestHandler` left `kWaitingForTouch`. When the first
+  Bluetooth permission of the new DEV app id resolved 5 s later, the sheet moved to the QR (hints
+  `hybrid`) without a start-over, and `DispatchRequest` drops every authenticator outside
+  `kWaitingForTouch`, the phone too. Not the network, not cmux's request handling, not Bluetooth TCC.
+  Next proof: the same run with the key unplugged. Fork candidate: moving to the hybrid sheet while a
+  security key holds the PIN step must start the request over.
+
+### 11.2 Decision: one bundle id (Lawrence, 2026-10-14)
+
+"plan is to use same bundle ID we will sunset cmux-classic and only ship cmux-next in the future".
+cmux-next ships as `com.cmuxterm.app` (and `com.cmuxterm.app.nightly` for nightly) with the
+existing passkey entitlement and profiles; no new App ID and no Apple request for
+`com.cmuxterm.app.next`. The interim cmux NEXT identity (`com.cmuxterm.app.nightly.cmux-next`)
+stays without platform passkeys until it goes away; its NIGHTLY-identity copy (cx-x7hwx) is the
+signed build where Touch ID / iCloud Keychain passkeys are checked. The hybrid race fix ships in CEF
+`cef-154.0.28-cmux.25` (cmux CEF fork branch `cmux/8037-cmux25-rc`).

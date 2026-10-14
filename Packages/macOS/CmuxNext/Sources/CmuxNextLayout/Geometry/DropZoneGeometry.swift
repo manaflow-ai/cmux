@@ -2,13 +2,17 @@ public import CoreGraphics
 
 /// Hit testing and highlight rects for tab drops.
 public nonisolated enum DropZoneGeometry {
-    /// The zone of pane cell `rect` under `point`. The zones divide the
-    /// pane body, below its `header`-point tab bar (flipped, y grows down):
-    /// the tab bar joins the pane (center), an edge wins when the point is
-    /// inside that edge's band of the body, else center. Corners go to the
-    /// relatively nearer edge. The preview (`highlightRect`) and the commit
-    /// both take the target from here (R47). `previous` is the zone the
-    /// preview shows in this pane now.
+    /// The zone of pane cell `rect` under `point` (pane-drop-targets
+    /// DESIGN.md (c), the first-principles rule): the zones divide the pane
+    /// body below its `header`-point tab bar (flipped, y grows down); over
+    /// the tab bar a tab joins the pane (center). Each edge owns a band
+    /// (`band(for:)`); a point inside several bands (a corner) goes to the
+    /// edge it is relatively nearest to (depth / band), so a corner splits
+    /// along the edge the pointer is closer to; else center. The preview
+    /// (`highlightRect`) and the commit both take the target from here
+    /// (R47). `previous` is the zone the preview shows in this pane now: it
+    /// holds until the pointer is `dropZoneHysteresis` past its line, so a
+    /// pointer held on a line never flickers.
     public static func zone(at point: CGPoint, in rect: CGRect, header: CGFloat = 0, footer: CGFloat = 0, style: LayoutStyle,
                             previous: PaneDropZone? = nil) -> PaneDropZone {
         let top = rect.minY + min(max(0, header), rect.height)
@@ -18,29 +22,31 @@ public nonisolated enum DropZoneGeometry {
         let body = CGRect(x: rect.minX, y: top, width: rect.width, height: bottom - top)
         let bandX = band(for: body.width, style: style)
         let bandY = band(for: body.height, style: style)
-        // Hysteresis: the zone shown holds until the pointer is `margin`
-        // past its line, so a pointer held near a line (or in a corner)
-        // does not flip the preview on every jitter.
         let margin = max(0, style.dropZoneHysteresis)
-        func reach(_ zone: PaneDropZone, _ distance: CGFloat, _ band: CGFloat) -> CGFloat {
-            switch previous {
-            case zone?: (distance - margin) / band
-            case .center?: (distance + margin) / band
-            default: distance / band
+        // Depth into each edge's band as a share of the band (< 1 is inside).
+        func reach(_ zone: PaneDropZone) -> CGFloat {
+            let extra: CGFloat = switch previous {
+            case zone?: margin
+            case .center?: -min(margin, (zone.splitAxis == .horizontal ? bandX : bandY) / 2)
+            default: 0
+            }
+            return switch zone {
+            case .left: (point.x - body.minX) / max(1, bandX + extra)
+            case .right: (body.maxX - point.x) / max(1, bandX + extra)
+            case .top: (point.y - body.minY) / max(1, bandY + extra)
+            case .bottom: (body.maxY - point.y) / max(1, bandY + extra)
+            case .center: .infinity
             }
         }
-        let candidates: [(PaneDropZone, CGFloat)] = [
-            (.left, reach(.left, point.x - body.minX, bandX)),
-            (.right, reach(.right, body.maxX - point.x, bandX)),
-            (.top, reach(.top, point.y - body.minY, bandY)),
-            (.bottom, reach(.bottom, body.maxY - point.y, bandY)),
-        ]
-        guard let nearest = candidates.min(by: { $0.1 < $1.1 }), nearest.1 < 1 else { return .center }
-        return nearest.0
+        if let previous, previous != .center, reach(previous) < 1 { return previous }
+        let candidates = [PaneDropZone.left, .right, .top, .bottom].map { ($0, reach($0)) }.filter { $0.1 < 1 }
+        return candidates.min { $0.1 < $1.1 }?.0 ?? .center
     }
 
-    /// An edge band: a fraction of the extent within the style's range, and
-    /// at most a third of it, so the middle third always joins the pane.
+    /// An edge band: a share of the extent between the style's floor and
+    /// cap (`dropEdgeFraction` 0.25 within 40...120 pt), and never more than
+    /// a third of it, so every pane keeps a center of at least a third of
+    /// each axis to join (DESIGN.md (c)2).
     static func band(for extent: CGFloat, style: LayoutStyle) -> CGFloat {
         let raw = extent * style.dropEdgeFraction
         let clamped = min(max(raw, style.dropEdgeRange.lowerBound), style.dropEdgeRange.upperBound)
@@ -188,6 +194,22 @@ public nonisolated enum DropZoneGeometry {
         case let .newDock(_, edge):
             return dockPreview(edge, geometry: geometry, style: style)
         }
+    }
+
+    /// Classic cmux's pane drop overlay (`compactOverlayFrame`, padding 4):
+    /// the pane body below its tab bar inset 4 pt for center; a half for an
+    /// edge, inset 4 pt on its three outer sides and meeting the midline.
+    /// The half is the size the split gives the new pane (0.5).
+    public static func classicPaneHighlight(body: CGRect, zone: PaneDropZone, padding: CGFloat = 4) -> CGRect {
+        let (x, y, w, h) = (body.minX, body.minY, body.width, body.height)
+        let rect: CGRect = switch zone {
+        case .center: CGRect(x: x + padding, y: y + padding, width: w - padding * 2, height: h - padding * 2)
+        case .left: CGRect(x: x + padding, y: y + padding, width: body.midX - x - padding, height: h - padding * 2)
+        case .right: CGRect(x: body.midX, y: y + padding, width: body.maxX - body.midX - padding, height: h - padding * 2)
+        case .top: CGRect(x: x + padding, y: y + padding, width: w - padding * 2, height: body.midY - y - padding)
+        case .bottom: CGRect(x: x + padding, y: body.midY, width: w - padding * 2, height: body.maxY - body.midY - padding)
+        }
+        return CGRect(x: rect.minX, y: rect.minY, width: max(0, rect.width), height: max(0, rect.height))
     }
 
     /// `regionRect(for:)` in view coordinates with the strip at `offset`.

@@ -117,6 +117,7 @@ def click_go(tab, name):
 
 def scenario(engine, tab, name, spec):
     authenticator = None
+    unconfirmed = False
     note = ""
     if engine == "cef" and not opts.no_virtual_authenticator:
         devtools("WebAuthn.enable", {"enableUI": False})
@@ -125,16 +126,20 @@ def scenario(engine, tab, name, spec):
         authenticator = added.get("authenticatorId")
         # The socket gives async methods ~2 s; a DevTools call past that still runs (`not_run`
         # false), so a timed-out add can still have attached the authenticator.
-        if not authenticator and "not_run': False" not in str(added):
+        # CEF's in-process DevTools loses this reply (timedOut after its own 5 s) while the
+        # call runs; the 6 s socket deadline (2026-10-14) now reports that instead of not_run.
+        lost = "not_run': False" in str(added) or ("timedOut" in str(added) and "addVirtualAuthenticator" in str(added))
+        if not authenticator and not lost:
             return "FAIL", f"no virtual authenticator: {added}"
         note = "" if authenticator else "authenticator add timed out (sent); "
+        unconfirmed = not authenticator
     started = js(tab, "(() => { window.__pk = null; runPasskeyScenario(" + json.dumps(name) + ")"
                       ".then(r => { window.__pk = r; }, e => { window.__pk = {pass: false, detail: String(e)}; });"
                       " return 'started'; })()")
     if started != "started":
         return "FAIL", f"could not start: {started}"
     if (spec.get("frame") or {}).get("click"):
-        note = click_go(tab, name) + "; "
+        note += click_go(tab, name) + "; "
     result = wait(lambda: (lambda v: v if isinstance(v, dict) and v and "__error" not in v else None)(js(tab, "window.__pk")), 35, 0.5)
     if authenticator:
         devtools("WebAuthn.removeVirtualAuthenticator", {"authenticatorId": authenticator})
@@ -145,6 +150,9 @@ def scenario(engine, tab, name, spec):
         time.sleep(2)  # test harness: a stuck scenario must not poison the next one
         return "FAIL", note + "did not settle in 35 s"
     status = {True: "PASS", False: "FAIL"}.get(result.get("pass"), "NOTE")
+    if status == "PASS" and unconfirmed and name in NO_AUTHENTICATOR:
+        # This scenario also passes with no authenticator, and the lost reply leaves the add unconfirmed.
+        status = "NOTE"
     return status, note + str(result.get("detail"))
 
 

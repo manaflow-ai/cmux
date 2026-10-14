@@ -261,6 +261,7 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_inspect;
+mod chief_registry_resource;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
@@ -335,6 +336,10 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+/// Advertises `hosting` on `register-browser-provider`: a `"native"` provider
+/// presents its pages itself, so the daemon never overrides their device
+/// metrics and screencasts them only while a frame viewer is attached.
+pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
@@ -743,6 +748,10 @@ enum Command {
         authentication: String,
         #[serde(default)]
         bearer_token: Option<String>,
+        /// `browser-provider-native-hosting-v1`: `"native"` or `"daemon"`
+        /// (the default when absent).
+        #[serde(default)]
+        hosting: Option<String>,
         targets: Vec<BrowserProviderTargetRequest>,
     },
     /// Return the current provider lease for local automation such as
@@ -1637,6 +1646,7 @@ enum Command {
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
     ConversationThread(conversations::ThreadParams),
+    ConversationLinkResolve(conversations::LinkResolveParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -3035,15 +3045,19 @@ fn handle_command_with_cancellation(
             endpoint,
             authentication,
             bearer_token,
+            hosting,
             targets,
         } => cmd_browser::register_browser_provider(
             mux,
             client,
-            provider_id,
-            endpoint,
-            authentication,
-            bearer_token,
-            targets,
+            cmd_browser::BrowserProviderRequest {
+                provider_id,
+                endpoint,
+                authentication,
+                bearer_token,
+                hosting,
+                targets,
+            },
         ),
         Command::GetBrowserProvider => cmd_browser::get_browser_provider(mux, client),
         Command::UnregisterBrowserProvider => cmd_browser::unregister_browser_provider(mux, client),
@@ -3498,6 +3512,9 @@ fn handle_command_with_cancellation(
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
         Command::ConversationThread(params) => conversations::thread(mux, client, params),
+        Command::ConversationLinkResolve(params) => {
+            conversations::link_resolve(mux, client, params)
+        }
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),

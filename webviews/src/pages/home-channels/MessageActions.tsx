@@ -20,6 +20,10 @@ export interface MessageActionsProps {
   onEdit(): void;
   onDelete(): void;
   onCopy(): void;
+  /** Copies the message's link (`cmux://conversation/<id>/message/<id>`). */
+  onCopyLink?(): void;
+  /** The Reply label: "Reply in Thread" in the timeline, "Reply" inside a thread. */
+  replyLabel?: string;
 }
 
 export function MessageActions({
@@ -31,8 +35,11 @@ export function MessageActions({
   onEdit,
   onDelete,
   onCopy,
+  onCopyLink,
+  replyLabel,
 }: MessageActionsProps) {
   const { t, format } = strings;
+  const reply = replyLabel ?? t("action.reply");
   const [picker, setPicker] = useState<Element | null>(null);
   const [emoji, setEmoji] = useState<EmojiTable | undefined>();
   const [menu, setMenu] = useState(false);
@@ -61,7 +68,7 @@ export function MessageActions({
           <HomeIcon name="addReaction" />
         </ToolbarButton>
         {onReply && (
-          <ToolbarButton label={t("action.reply")} className="hc-tool" onPress={onReply}>
+          <ToolbarButton label={reply} className="hc-tool" onPress={onReply}>
             <HomeIcon name="reply" />
           </ToolbarButton>
         )}
@@ -71,7 +78,8 @@ export function MessageActions({
           </MenuButton>
           <MenuPopup side="bottom" align="end">
             <MenuItem onSelect={onCopy}>{t("action.copy")}</MenuItem>
-            {onReply && <MenuItem onSelect={onReply}>{t("action.reply")}</MenuItem>}
+            {onCopyLink && <MenuItem onSelect={onCopyLink}>{t("action.copyLink")}</MenuItem>}
+            {onReply && <MenuItem onSelect={onReply}>{reply}</MenuItem>}
             {(canEdit || canDelete) && <MenuSeparator />}
             {canEdit && <MenuItem onSelect={onEdit}>{t("action.edit")}</MenuItem>}
             {canDelete && (
