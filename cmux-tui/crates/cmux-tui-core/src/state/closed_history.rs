@@ -269,11 +269,31 @@ impl Mux {
         let members = record["members"].as_array().cloned().unwrap_or_default();
         let (restore, _) = choose(members, request.members.as_deref())?;
         let mut reopened = Reopened::default();
+        // A closed tab's id to the id it reopened as.
+        let mut reopened_as = std::collections::HashMap::new();
         for member in &restore {
+            let before = reopened.tabs.len();
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
+            if let (Some(closed), Some(tab)) =
+                (member["tab_id"].as_str(), reopened.tabs.get(before))
+            {
+                reopened_as.insert(closed.to_string(), tab.clone());
+            }
         }
         if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
-            self.reopen_tab_group(&mutation.actor, group, &mut reopened)?;
+            // A closed group (Close Group) names its closed tabs: it forms
+            // again around those this reopen brought back.
+            let mut group = group.clone();
+            if !restore.is_empty() {
+                let tabs = group["tab_ids"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|tab| reopened_as.get(tab.as_str()?).cloned())
+                    .collect::<Vec<_>>();
+                group["tab_ids"] = json!(tabs);
+            }
+            self.reopen_tab_group(&mutation.actor, &group, &mut reopened)?;
         }
         if let Some(group) = record.get("screen_group").filter(|group| group.is_object()) {
             self.reopen_screen_group(&mutation.actor, group, &mut reopened)?;
@@ -380,7 +400,10 @@ impl Mux {
         }
         let outcome = self.tab_group_outcome(&id);
         for surface in &outcome.members {
-            reopened.tabs.push(self.public_tab_of(*surface)?);
+            let tab = self.public_tab_of(*surface)?;
+            if !reopened.tabs.contains(&tab) {
+                reopened.tabs.push(tab);
+            }
         }
         if let Some(pane) = outcome.pane {
             let (workspace, _) = self.public_screen_of_pane(pane)?;
