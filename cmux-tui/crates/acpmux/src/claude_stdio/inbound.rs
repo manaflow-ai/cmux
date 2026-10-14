@@ -278,6 +278,8 @@ impl Translator {
                             .get("permission_suggestions")
                             .filter(|value| !value.is_null())
                             .cloned();
+                        let offers_lasting_allow =
+                            has_permission_suggestions(permission_suggestions.as_ref());
                         self.control_out.lock().await.insert(
                             rid.clone(),
                             ControlRequest { acp_id: acp_id.clone(), permission_suggestions },
@@ -289,9 +291,7 @@ impl Translator {
                         let mut options = vec![
                             json!({"optionId": "allow_once", "name": if interactive { "Answer" } else { "Allow" }, "kind": "allow_once"}),
                         ];
-                        if !interactive
-                            && has_permission_suggestions(permission_suggestions.as_ref())
-                        {
+                        if !interactive && offers_lasting_allow {
                             options.push(json!({"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"}));
                         }
                         options.push(json!({"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}));
