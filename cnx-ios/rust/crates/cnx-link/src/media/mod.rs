@@ -38,13 +38,14 @@ pub mod h264;
 pub mod receiver;
 pub mod sender;
 pub mod twcc;
+pub mod track;
 pub mod wireguard;
 
 pub use receiver::{ReceivedFrame, ReceiverConfig, ReceiverCore};
 pub use sender::{SenderConfig, SenderCore, SenderEvent};
 
-pub use webrtc::rtcp;
-pub use webrtc::rtp;
+pub use ::webrtc::rtcp;
+pub use ::webrtc::rtp;
 
 /// The lane name in the signaling offer and answer (PROTOCOL.md "Lanes").
 pub const VIDEO_LANE: &str = "video";

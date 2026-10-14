@@ -358,6 +358,8 @@ struct Inner {
     tasks: Mutex<Vec<JoinHandle<()>>>,
     /// Keeps the transport (peer connection, tunnel) alive with the link.
     transport: Mutex<Option<Box<dyn Any + Send>>>,
+    /// The media lane, when the dial negotiated one.
+    media: Mutex<Option<crate::media::MediaLane>>,
 }
 
 impl Inner {
@@ -424,6 +426,7 @@ impl Inner {
             }
             changed
         });
+        self.media.lock().unwrap_or_else(PoisonError::into_inner).take();
         // Dropping the transport tears down the peer connection or tunnel.
         let transport = self.transport.lock().unwrap_or_else(PoisonError::into_inner).take();
         drop(transport);
@@ -476,6 +479,7 @@ impl Link {
             incoming_tx: Mutex::new(Some(incoming_tx.clone())),
             tasks: Mutex::new(Vec::new()),
             transport: Mutex::new(transport),
+            media: Mutex::new(None),
         });
         let (read_half, write_half) = tokio::io::split(stream);
         let writer =
@@ -524,6 +528,16 @@ impl Link {
         }
         *inner.tasks.lock().unwrap_or_else(PoisonError::into_inner) = tasks;
         Self { inner }
+    }
+
+    /// Attaches the media lane the dial negotiated.
+    pub fn attach_media(&self, lane: crate::media::MediaLane) {
+        *self.inner.media.lock().unwrap_or_else(PoisonError::into_inner) = Some(lane);
+    }
+
+    /// The media lane (browser video as RTP), if this link has one.
+    pub fn media(&self) -> Option<crate::media::MediaLane> {
+        self.inner.media.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     pub fn role(&self) -> Role {

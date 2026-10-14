@@ -762,7 +762,7 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&public_key),
                         endpoints,
                         overlay_ip: DIALER_OVERLAY.to_string(),
-                        lanes: super::offered_lanes(options),
+                        lanes: super::offered_lanes(options, false),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -834,7 +834,7 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane })
+            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane, media: None })
         })
     }
 
@@ -892,7 +892,7 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&own_public),
                         endpoints,
                         overlay_ip: own_ip.to_string(),
-                        lanes: super::offered_lanes(options),
+                        lanes: super::offered_lanes(options, false),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -910,7 +910,7 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane })
+            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane, media: None })
         })
     }
 }

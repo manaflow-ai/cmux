@@ -85,6 +85,14 @@ pub struct DialOptions {
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
     pub input_lane: bool,
+    /// Offer (phone) or accept (Mac) the media lane: browser video as a
+    /// WebRTC video track on the link's peer connection
+    /// (verify/browser-video-track.md). WireGuard links never carry it yet.
+    pub video_lane: bool,
+    /// Test and measurement support (Mac side): drop this many of every
+    /// 1000 outgoing video RTP packets after the NACK responder kept them.
+    #[doc(hidden)]
+    pub video_drop_permille: u32,
     /// Measurement support: keep webrtc-rs's stock nomination waits
     /// (srflx 500 ms, prflx 1 s, relay 2 s) for before/after comparisons.
     #[doc(hidden)]
@@ -106,6 +114,8 @@ impl Default for DialOptions {
             drop_outbound_udp: false,
             refuse_udp_to: None,
             input_lane: true,
+            video_lane: false,
+            video_drop_permille: 0,
             stock_ice_waits: false,
             timeout: Duration::from_secs(25),
             timeline: crate::Timeline::new(),
@@ -147,11 +157,49 @@ pub struct Dialed {
     /// The input lane's stream, when both sides negotiated one. It may open
     /// after the main stream; a dropped sender means it failed.
     pub lane: Option<oneshot::Receiver<Box<dyn LinkStream>>>,
+    /// The media lane's carrier, when both sides negotiated one.
+    pub media: Option<PendingMedia>,
 }
 
-/// The lanes this side offers in its first signal or answer.
-pub(crate) fn offered_lanes(options: &DialOptions) -> Vec<String> {
-    if options.input_lane { vec![crate::link::INPUT_LANE.to_owned()] } else { Vec::new() }
+/// A negotiated media carrier; the link starts its core once it runs (the
+/// phone's receiver needs the link's round trip).
+pub enum PendingMedia {
+    Send(std::sync::Arc<dyn crate::media::MediaCarrier>),
+    Receive(std::sync::Arc<dyn crate::media::MediaCarrier>),
+}
+
+impl PendingMedia {
+    fn start(self, link: &Link) -> crate::media::MediaLane {
+        match self {
+            Self::Send(carrier) => crate::media::MediaLane::Out(crate::media::VideoOut::start(
+                carrier,
+                crate::media::SenderConfig::default(),
+            )),
+            Self::Receive(carrier) => crate::media::MediaLane::In(crate::media::VideoIn::start(
+                carrier,
+                crate::media::ReceiverConfig::default(),
+                Some(link.rtt()),
+            )),
+        }
+    }
+}
+
+/// The lanes this side offers in its first signal or answer. `video`: this
+/// transport carries the media lane and this side offers (or attached) it.
+pub(crate) fn offered_lanes(options: &DialOptions, video: bool) -> Vec<String> {
+    let mut lanes = Vec::new();
+    if options.input_lane {
+        lanes.push(crate::link::INPUT_LANE.to_owned());
+    }
+    if video {
+        lanes.push(crate::media::VIDEO_LANE.to_owned());
+    }
+    lanes
+}
+
+/// Whether the peer listed the media lane.
+pub(crate) fn video_lane_listed(peer_lanes: &[String]) -> bool {
+    peer_lanes.iter().any(|lane| lane == crate::media::VIDEO_LANE)
 }
 
 /// Whether both sides support the input lane.
@@ -304,6 +352,9 @@ pub async fn connect(
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
     follow_lane(&link, dialed.lane);
+    if let Some(media) = dialed.media {
+        link.attach_media(media.start(&link));
+    }
     options.timeline.mark("link_ready");
     Ok(Connected { link, transport: kind, path: dialed.path, session_id })
 }
@@ -338,6 +389,9 @@ pub async fn answer(
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
     follow_lane(&link, dialed.lane);
+    if let Some(media) = dialed.media {
+        link.attach_media(media.start(&link));
+    }
     options.timeline.mark("link_ready");
     Ok(Connected { link, transport: kind, path: dialed.path, session_id })
 }

@@ -16,6 +16,7 @@ testing = []
 
 [dependencies]
 anyhow.workspace = true
+async-trait = "0.1"
 base64.workspace = true
 bytes.workspace = true
 cmux-rd-core.workspace = true

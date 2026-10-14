@@ -49,7 +49,7 @@ fn transport_error(error: impl std::fmt::Display) -> DialError {
     DialError::Transport(error.to_string())
 }
 
-async fn new_peer_connection(options: &super::DialOptions) -> Result<Arc<RTCPeerConnection>, DialError> {
+async fn new_peer_connection(options: &super::DialOptions, video: bool) -> Result<Arc<RTCPeerConnection>, DialError> {
     let mut settings = SettingEngine::default();
     settings.detach_data_channels();
     settings.set_ice_multicast_dns_mode(MulticastDnsMode::Disabled);
@@ -74,7 +74,13 @@ async fn new_peer_connection(options: &super::DialOptions) -> Result<Arc<RTCPeer
             RELAY_HEAD_START
         }));
     }
-    let api = APIBuilder::new().with_setting_engine(settings).build();
+    // The media lane registers H.264, TWCC and its interceptors; without
+    // it the media engine stays empty, as in every earlier build.
+    let api = if video {
+        crate::media::track::api_builder(settings, options.video_drop_permille).map_err(transport_error)?.build()
+    } else {
+        APIBuilder::new().with_setting_engine(settings).build()
+    };
     let config = RTCConfiguration {
         ice_servers: options
             .ice_servers
@@ -345,6 +351,7 @@ async fn finish(
     pc: Arc<RTCPeerConnection>,
     channel: Arc<RTCDataChannel>,
     lane: Option<oneshot::Receiver<Arc<RTCDataChannel>>>,
+    media: Option<super::PendingMedia>,
     events: SessionEvents,
     remote: RemoteCandidates,
     signaling: &SignalingClient,
@@ -393,6 +400,7 @@ async fn finish(
             session_id: session_id.to_owned(),
         }),
         lane: lane.map(lane_stream),
+        media,
     })
 }
 
@@ -410,9 +418,17 @@ impl Dialer for WebRtcDialer {
         options: &'a super::DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
-            let pc = new_peer_connection(options).await?;
+            let pc = new_peer_connection(options, options.video_lane).await?;
             let init = RTCDataChannelInit { ordered: Some(true), ..Default::default() };
             let channel = pc.create_data_channel(LABEL, Some(init)).await.map_err(transport_error)?;
+            // The media lane's receiving transceiver goes into the offer; an
+            // older Mac rejects its m-line and leaves the lane out.
+            let receiver = if options.video_lane {
+                Some(crate::media::track::add_receiver(&pc).await.map_err(transport_error)?)
+            } else {
+                None
+            };
+            let mut video_agreed = false;
             let (open_tx, mut open_rx) = oneshot::channel();
             on_open(&channel, Arc::new(Mutex::new(Some(open_tx))));
             // The input lane's channel opens with the main one; it carries
@@ -434,7 +450,7 @@ impl Dialer for WebRtcDialer {
                 .send_signal(
                     mac,
                     session_id,
-                    SignalPayload::WebrtcOffer { sdp: offer.sdp, lanes: super::offered_lanes(options) },
+                    SignalPayload::WebrtcOffer { sdp: offer.sdp, lanes: super::offered_lanes(options, receiver.is_some()) },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             timeline.mark("offer_sent");
@@ -457,6 +473,7 @@ impl Dialer for WebRtcDialer {
                         SessionEvent::Signal(envelope) => match envelope.payload {
                             SignalPayload::WebrtcAnswer { sdp, lanes } => {
                                 agreed = super::input_lane_agreed(options, &lanes);
+                                video_agreed = super::video_lane_listed(&lanes);
                                 timeline.mark("answer_received");
                                 let answer = RTCSessionDescription::answer(sdp).map_err(transport_error)?;
                                 pc.set_remote_description(answer).await.map_err(transport_error)?;
@@ -474,7 +491,13 @@ impl Dialer for WebRtcDialer {
                 }
             };
             let lane = lane.filter(|_| agreed);
-            finish(pc, opened, lane, events, remote, signaling, session_id, timeline).await
+            let mut media = None;
+            if let Some(receiver) = receiver.filter(|_| video_agreed) {
+                receiver.bind(Arc::clone(&pc)).await;
+                timeline.mark("video_lane");
+                media = Some(super::PendingMedia::Receive(receiver));
+            }
+            finish(pc, opened, lane, media, events, remote, signaling, session_id, timeline).await
         })
     }
 
@@ -490,7 +513,21 @@ impl Dialer for WebRtcDialer {
                 return Err(DialError::Unexpected("expected webrtc-offer".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
-            let pc = new_peer_connection(options).await?;
+            // The media lane: the phone offered it and its SDP has the video
+            // m-line. The sending track must exist before the offer applies.
+            let video = options.video_lane && super::video_lane_listed(&lanes) && sdp.contains("m=video");
+            let pc = new_peer_connection(options, video).await?;
+            let sending = if video {
+                match crate::media::track::add_sender(&pc).await {
+                    Ok(sending) => Some(sending),
+                    Err(error) => {
+                        tracing::warn!(%error, "media lane: no video track");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             let (open_tx, mut open_rx) = oneshot::channel();
             let opened_slot = Arc::new(Mutex::new(Some(open_tx)));
             let (lane_tx, lane_rx) = oneshot::channel();
@@ -519,7 +556,7 @@ impl Dialer for WebRtcDialer {
                 .send_signal(
                     &first.from,
                     &first.session_id,
-                    SignalPayload::WebrtcAnswer { sdp: answer.sdp, lanes: super::offered_lanes(options) },
+                    SignalPayload::WebrtcAnswer { sdp: answer.sdp, lanes: super::offered_lanes(options, sending.is_some()) },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             timeline.mark("answer_sent");
@@ -546,7 +583,13 @@ impl Dialer for WebRtcDialer {
                 }
             };
             let lane = agreed.then_some(lane_rx);
-            finish(pc, opened, lane, events, remote, signaling, &first.session_id, timeline).await
+            let mut media = None;
+            if let Some((track, sender)) = sending {
+                timeline.mark("video_lane");
+                let carrier = crate::media::track::SendCarrier::new(track, sender).await;
+                media = Some(super::PendingMedia::Send(carrier));
+            }
+            finish(pc, opened, lane, media, events, remote, signaling, &first.session_id, timeline).await
         })
     }
 }
