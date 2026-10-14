@@ -37,7 +37,7 @@ settings:
     # configs (Release, TestFlight) use it. scripts/testflight-build.sh checks
     # its /v1/health before archiving; override with CNX_PROD_API_BASE=... when
     # the Worker moves to a custom domain.
-    CNX_PROD_API_BASE: https:/$()/cnx-ios-api-prod.debussy.workers.dev
+    CNX_PROD_API_BASE: https:/$()/cnx-ios-api.cmux.dev
     # User-facing version. Must stay at or above the highest version ever
     # uploaded to cmux INTERNAL (TestFlight orders builds by it first);
     # testflight-build.sh checks this against App Store Connect. The build
@@ -45,6 +45,9 @@ settings:
     MARKETING_VERSION: 1.1.0
     CURRENT_PROJECT_VERSION: "1"
   configs:
+    Release:
+      # Release (the `xcodebuild archive` default) is a production build too.
+      CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
     Demo:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
       SWIFT_OPTIMIZATION_LEVEL: -O
@@ -53,10 +56,8 @@ settings:
       SWIFT_OPTIMIZATION_LEVEL: -O
       CNX_TAG: .prod
       CNX_DISPLAY_NAME: cmux cnx
-      # The dev Worker accepts production Stack users (backend/README.md).
-      # Production is a verification build, never shipped; shipping configs
-      # use $(CNX_PROD_API_BASE).
-      CNX_API_BASE: https:/$()/cnx-ios-api-dev.debussy.workers.dev
+      # The production Worker (cnx-ios-api-prod; production Stack project only).
+      CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
     Release:
       # A non-DEBUG build with no service address signs in to an empty app.
       CNX_API_BASE: $(CNX_PROD_API_BASE)
@@ -113,6 +114,9 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: cmux Internal Distribution
+        Release:
+          # Push notifications (aps-environment).
+          CODE_SIGN_ENTITLEMENTS: App/CnxApp-Release.entitlements
     info:
       path: App/Info.plist
       properties:

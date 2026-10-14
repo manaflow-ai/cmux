@@ -54,7 +54,7 @@ if (!teamId) process.exit(1)
 const ice = await api("GET", "/v1/ice")
 const urls: Array<string> = (ice.json?.iceServers ?? []).flatMap((s: any) => s.urls)
 check("ice stun", ice.status === 200 && urls.includes("stun:stun.cloudflare.com:3478"))
-check("ice turn", urls.some((u) => u.startsWith("turn")), `${urls.filter((u) => u.startsWith("turn")).length} turn urls, ttl ${ice.json?.ttl}`)
+check("ice turn", urls.some((u) => u.startsWith("turn")) && ice.json?.turn === true, `${urls.filter((u) => u.startsWith("turn")).length} turn urls, ttl ${ice.json?.ttl}, turn flag ${ice.json?.turn}`)
 
 // 4. devices, macs, prefs
 const macId = crypto.randomUUID()
@@ -140,7 +140,36 @@ check("self-signal refused", (await p.wait((f) => f.type === "error" && f.code =
 m.ws.close(1000, "smoke done")
 const off = await p.wait((f) => f.type === "presence" && f.mac?.deviceId === macId && f.mac.online === false)
 check("presence offline", !!off, off?.mac?.lastSeenAt ? "lastSeenAt set" : "")
+
+// 6. 0.7.0: device list, push registration, notify, device removal (also cleans up the smoke devices)
+const topic = process.env.CNX_PUSH_TOPIC ?? "dev.cmux.cnx.prod"
+const fakeToken = "00".repeat(32)
+const reg = await api("PUT", `/v1/devices/${phoneId}/push`, { token: fakeToken, environment: "sandbox", topic, kinds: ["question"] })
+check("push register", reg.status === 200 && reg.json?.push?.kinds?.[0] === "question", `${reg.status}`)
+const listed = await api("GET", "/v1/me/devices")
+const lp = listed.json?.devices?.find((d: any) => d.deviceId === phoneId)
+check("me/devices", listed.status === 200 && lp?.push === true && listed.json.devices.some((d: any) => d.deviceId === macId && d.kind === "mac"), `${listed.json?.devices?.length ?? 0} devices`)
+const notify = await api("POST", `/v1/devices/${macId}/notify`, { eventId: `smoke-${Date.now()}`, kind: "question", agent: "Smoke", place: "smoke" })
+// A fake token: APNs (when configured) refuses it and the Worker drops it.
+check("notify", notify.status === 200 && typeof notify.json?.configured === "boolean", `configured ${notify.json?.configured}, sent ${notify.json?.sent}, failed ${notify.json?.failed}, dropped ${notify.json?.dropped}`)
+check("notify from a phone refused", (await api("POST", `/v1/devices/${phoneId}/notify`, { eventId: "x", kind: "question" })).status === 403)
+const m2 = await open(macId)
+await m2.wait((f) => f.type === "hello")
+await p.wait((f) => f.type === "presence" && f.mac?.deviceId === macId && f.mac.online === true)
+let closeCode = 0
+m2.ws.addEventListener("close", (e: CloseEvent) => {
+  closeCode = e.code
+})
+const del = await api("DELETE", `/v1/devices/${macId}`)
+check("delete mac", del.status === 200 && del.json?.deleted === true)
+const removed = await p.wait((f) => f.type === "presence" && f.mac?.deviceId === macId && f.mac.removed === true)
+const closeEnd = Date.now() + 5000
+while (!closeCode && Date.now() < closeEnd) await new Promise((r) => setTimeout(r, 50))
+check("removal broadcast and eviction", !!removed && closeCode === 4002, `close ${closeCode}`)
+check("deleted mac gone", !(await api("GET", "/v1/me/macs")).json?.macs?.some((x: any) => x.deviceId === macId))
+check("delete again is 404", (await api("DELETE", `/v1/devices/${macId}`)).status === 404)
 p.ws.close(1000, "smoke done")
+check("delete phone", (await api("DELETE", `/v1/devices/${phoneId}`)).status === 200)
 
 console.log(failures ? `${failures} check(s) failed` : "all checks passed")
 process.exit(failures ? 1 : 0)
