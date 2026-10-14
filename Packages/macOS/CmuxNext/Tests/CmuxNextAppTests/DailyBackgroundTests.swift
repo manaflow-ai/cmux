@@ -157,7 +157,7 @@ import Testing
         #expect(BackdropCatalog.bundled.contains(.art(.goyaSaturn)))
         let harness = try await make()
         defer { harness.tearDown() }
-        _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": BackdropArt.goyaSaturn.rawValue],
+        _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": "goya-saturn"],
                                         context: Self.gesture)
         await settle { harness.scope.backdropSelection == .art(.goyaSaturn) }
         #expect(harness.scope.backdropSelection == .art(.goyaSaturn))
