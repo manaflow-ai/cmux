@@ -202,11 +202,26 @@ function layoutMetrics(frames, width, height) {
     cls += frameScore;
     jumps.push({ frame: index, maxPx: Number(frameJump.toFixed(2)), score: Number(frameScore.toFixed(5)) });
   }
+  const finalBoxes = frames.at(-1) ?? [];
+  const overlaps = [];
+  for (let leftIndex = 0; leftIndex < finalBoxes.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < finalBoxes.length; rightIndex += 1) {
+      const left = finalBoxes[leftIndex];
+      const right = finalBoxes[rightIndex];
+      if (left.key === right.key || left.key === "shell" || right.key === "shell") continue;
+      const overlapWidth = Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x);
+      const overlapHeight = Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y);
+      if (overlapWidth > 1 && overlapHeight > 1 && (left.key === "composer" || right.key === "composer")) {
+        overlaps.push({ left: left.key, right: right.key, width: Number(overlapWidth.toFixed(2)), height: Number(overlapHeight.toFixed(2)) });
+      }
+    }
+  }
   return {
     frames: frames.length,
     cls: Number(cls.toFixed(5)),
     maxFrameJumpPx: Number(Math.max(0, ...jumps.map((jump) => jump.maxPx)).toFixed(2)),
     perFrameJumps: jumps,
+    composerOverlaps: overlaps,
   };
 }
 
@@ -258,12 +273,13 @@ function prState() {
 function verdict(results) {
   const maxCls = Math.max(0, ...results.map((result) => result.metrics.cls));
   const maxJump = Math.max(0, ...results.map((result) => result.metrics.maxFrameJumpPx));
-  return maxCls <= 0.25 && maxJump <= 120 ? "pass" : "review";
+  const overlapCount = results.reduce((total, result) => total + result.metrics.composerOverlaps.length, 0);
+  return maxCls <= 0.25 && maxJump <= 120 && overlapCount === 0 ? "pass" : "review";
 }
 
 function verdictMarkdown(report) {
-  const rows = report.cases.map((item) => `| ${item.id} | ${item.width}px | ${item.theme} | ${item.metrics.cls} | ${item.metrics.maxFrameJumpPx}px | [gallery](${item.galleryPath}) |`).join("\n");
-  return `# Agent pane visual matrix\n\nVerdict: **${report.verdict}**. The matrix uses the mock daemon at the real Playwright boundary with a fast scripted clock.\n\n| Case | Width | Theme | CLS-style | Max frame jump | Gallery |\n| --- | ---: | --- | ---: | ---: | --- |\n${rows}\n\nContact sheet: [contact-sheet.png](./contact-sheet.png)\n`;
+  const rows = report.cases.map((item) => `| ${item.id} | ${item.width}px | ${item.theme} | ${item.metrics.cls} | ${item.metrics.maxFrameJumpPx}px | ${item.metrics.composerOverlaps.length || "none"} | [gallery](${item.galleryPath}) |`).join("\n");
+  return `# Agent pane visual matrix\n\nVerdict: **${report.verdict}**. The matrix uses the mock daemon at the real Playwright boundary with a fast scripted clock. Any composer overlap is a review finding for the sticky bottom stack.\n\n| Case | Width | Theme | CLS-style | Max frame jump | Composer overlaps | Gallery |\n| --- | ---: | --- | ---: | ---: | ---: | --- |\n${rows}\n\nContact sheet: [contact-sheet.png](./contact-sheet.png)\n`;
 }
 
 async function applyWallpaper(page) {

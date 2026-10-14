@@ -164,18 +164,18 @@
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
-        "cls": 0.00363,
-        "maxFrameJumpPx": 3,
+        "cls": 0.00477,
+        "maxFrameJumpPx": 7.25,
         "perFrameJumps": [
           {
             "frame": 1,
-            "maxPx": 0,
-            "score": 0
+            "maxPx": 0.25,
+            "score": 0.0003
           },
           {
             "frame": 2,
-            "maxPx": 3,
-            "score": 0.00363
+            "maxPx": 7.25,
+            "score": 0.00447
           },
           {
             "frame": 3,
@@ -191,6 +191,14 @@
             "frame": 5,
             "maxPx": 0,
             "score": 0
+          }
+        ],
+        "composerOverlaps": [
+          {
+            "left": "composer",
+            "right": "assistant-98",
+            "width": 707,
+            "height": 16.25
           }
         ]
       },
@@ -239,6 +247,14 @@
             "frame": 5,
             "maxPx": 0,
             "score": 0
+          }
+        ],
+        "composerOverlaps": [
+          {
+            "left": "composer",
+            "right": "summary-15",
+            "width": 707,
+            "height": 15.75
           }
         ]
       },
@@ -432,11 +448,19 @@
             "maxPx": 0,
             "score": 0
           }
+        ],
+        "composerOverlaps": [
+          {
+            "left": "composer",
+            "right": "summary-15",
+            "width": 720,
+            "height": 15.75
+          }
         ]
       },
       "galleryPath": "/live/agent-pane-visual/wallpaper-dark-wide"
     }
   ],
   "contactSheet": "contact-sheet.png",
-  "verdict": "pass"
+  "verdict": "review"
 }

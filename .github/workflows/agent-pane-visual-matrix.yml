@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         case_group: [streaming-dark-normal, queue-steer-light-normal, pr-chip-dark-normal, permission-dark-narrow, images-light-normal, wallpaper-dark-wide]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
