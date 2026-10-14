@@ -125,7 +125,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           ↻
         </span>
       ) : (
-        <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(id)}`} />
+        // Encoded twice: the app decodes the URL path before splitting it on "/", then decodes the
+        // one segment, so a system: or file: id with slashes stays one segment.
+        <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
       )}
       {choice?.video && (
         <span className="backdrop-badge" aria-hidden="true">
