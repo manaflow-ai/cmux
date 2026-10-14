@@ -69,8 +69,12 @@ fn file_name(path: &str) -> String {
 }
 
 /// The program to run and the words that go before the recipe's own: the
-/// profile's own command for Claude Code (a wrapper such as
-/// `sr claude proxy` keeps its words), the real CLI for the others (their
+/// profile's own program for Claude Code with only its launcher words (the
+/// leading words before any flag: `sr claude proxy`, `cr <route>`), never
+/// a flag the profile pins (`--mcp-config` would start its MCP servers,
+/// `--dangerously-skip-permissions` or `--output-format` would change the
+/// run); `claude` when the argv is empty, as the chat path does. The real
+/// CLI for the others (their
 /// profiles start an ACP adapter or subcommand). `env` is the profile's
 /// (with its route); `which` looks a program up on the login PATH. None:
 /// not installed.
@@ -84,8 +88,12 @@ pub fn program(
     let own_or = |bin: &str| first.filter(|p| file_name(p) == bin).cloned().or_else(|| which(bin));
     let program = match recipe {
         Recipe::Claude => {
-            let (program, rest) = profile.argv.split_first()?;
-            return Some((program.clone(), rest.to_vec()));
+            let Some((program, rest)) = profile.argv.split_first().filter(|(p, _)| !p.is_empty())
+            else {
+                return Some(("claude".to_owned(), Vec::new()));
+            };
+            let launcher = rest.iter().take_while(|w| !w.starts_with('-')).cloned().collect();
+            return Some((program.clone(), launcher));
         }
         // The configured Codex (`CODEX_PATH`, as the ACP adapter runs it).
         Recipe::Codex => env
@@ -143,7 +151,7 @@ pub fn invocation(
     };
     match recipe {
         Recipe::Claude => {
-            args.extend(strings(&["-p", "--model"]));
+            args.extend(strings(&["-p", "--output-format", "text", "--model"]));
             args.push(model.unwrap_or(super::model_pick::CLAUDE_FALLBACK).to_owned());
             args.extend(strings(&[
                 "--tools",
