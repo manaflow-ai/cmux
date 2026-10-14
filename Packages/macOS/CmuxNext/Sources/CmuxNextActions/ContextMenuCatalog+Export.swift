@@ -35,17 +35,32 @@ nonisolated extension ContextMenuCatalog {
         ["name": "bookmarkFolder", "source": "CmuxNextBookmarks/UI/BookmarkFolderMenu.swift"],
         ["name": "titlebarHistory", "source": "CmuxNextApp/Windows/TitlebarHistoryMenu.swift"],
         ["name": "notificationRow", "source": "CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift"],
-        ["name": "homeTranscriptRow", "source": "CmuxNextHome/NativeTranscript/HomeRowHostView.swift"],
+        ["name": "agentPaneMessage", "source": "CmuxNextAgentPane/AgentPaneContextMenu.swift"],
+        ["name": "paneToolbarMore", "source": "CmuxNextApp/PaneToolbar.swift"],
+        ["name": "browserReload", "source": "CmuxNextBrowser/UI/BrowserReloadMenu.swift"],
+        ["name": "browserDownloads", "source": "CmuxNextApp/Handlers/BrowserDownloadsMenu.swift"],
+        ["name": "browserMedia", "source": "CmuxNextApp/Handlers/BrowserMediaMenu.swift"],
+        ["name": "browserDevice", "source": "CmuxNextBrowser/UI/BrowserDeviceMenu.swift"],
+        ["name": "browserMachineBadge", "source": "CmuxNextApp/AppServices+BrowserTabMachines.swift"],
+        ["name": "remoteBrowserPage", "source": "CmuxNextRemoteBrowser/Native/RemoteBrowserNativeUI.swift"],
+        ["name": "sidebarNoticeCard", "source": "CmuxNextSidebar/Views/SidebarNoticeCardView.swift"],
+        ["name": "sidebarUpdateCard", "source": "CmuxNextSidebar/Views/SidebarUpdateCardView.swift"],
+        ["name": "debugSidebarToggleIcon", "source": "CmuxNextApp/Windows/SidebarToggleIconMenu.swift"],
+        ["name": "debugStatusIconSet", "source": "CmuxNextApp/Windows/StatusIconSetMenu.swift"],
+        ["name": "homeBackground", "source": "CmuxNextHomeEngine/HomePageMenus.swift"],
+        ["name": "historyToolbar", "source": "CmuxNextHistory/HistoryPageView.swift"],
+        ["name": "historyRow", "source": "CmuxNextHistory/HistoryPageRow.swift"],
+        ["name": "taskAssignee", "source": "CmuxNextTasks/Views/AssigneeMenu.swift"],
     ]
 
-    /// Every context menu's export, keyed by `ActionMenuContext` raw value.
+    /// Every context menu's export, keyed by `ActionMenuContext.exportName`.
     public func exportObject(descriptors: [ActionDescriptor], titles: ActionTitleCatalog = ActionTitleCatalog()) -> [String: Any] {
         let byID = Dictionary(descriptors.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var menus: [String: Any] = [:]
         for context in ActionMenuContext.allCases {
             let entries = entries(for: context)
             guard !entries.isEmpty else { continue }
-            menus[context.rawValue] = [
+            menus[context.exportName] = [
                 "implied": Self.contextNames(ActionRegistry.impliedContext(for: context)),
                 "entries": Self.exportEntries(entries, byID: byID, titles: titles, labels: labels(for: context)),
             ] as [String: Any]
@@ -120,5 +135,18 @@ nonisolated extension ContextMenuCatalog {
     /// Context bits by their `when` key names, in `ActionContext.keyNames` order.
     static func contextNames(_ context: ActionContext) -> [String] {
         ActionContext.keyNames.compactMap { bit, name in context.contains(bit) ? name : nil }
+    }
+}
+
+nonisolated extension ActionMenuContext {
+    /// The menu's name in the export (`context_menus` keys and each action's
+    /// `context_menus`): the raw value, except the Space chip's menu, whose
+    /// case predates Spaces (`profile`). Export only: persisted ids and
+    /// `action.list` keep the raw value.
+    var exportName: String {
+        switch self {
+        case .profile: "space"
+        default: rawValue
+        }
     }
 }
