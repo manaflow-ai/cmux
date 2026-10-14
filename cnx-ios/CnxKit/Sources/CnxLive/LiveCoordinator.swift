@@ -644,7 +644,9 @@ public final class LiveCoordinator {
             // Pairing first: a Mac that pairs serves a channel only after `auth`, and holds the
             // ones opened behind it until it passes. Workspaces, the chats and the Feed open
             // right behind it, without waiting for each other (an open costs no round trip).
+            ConnectTimeline.shared.mark("link_served")
             let auth = await self.openPairing(link)
+            ConnectTimeline.shared.mark("pairing_opened")
             guard self.currentLink === link else {
                 if case .success(let opened)? = auth { await opened.close() }
                 return
@@ -716,7 +718,7 @@ public final class LiveCoordinator {
             do {
                 let daemon = try await link.openChannel(service: "daemon", args: [:])
                 ConnectTimeline.shared.mark("daemon_channel_open")
-                await self.workspaces.bind(daemon, macID: macID)
+                await self.workspaces.bind(daemon, macID: macID, cached: self.store.workspaces.filter { $0.macID == macID })
                 // The link may have moved on (another Mac, or this one was removed).
                 if let error = self.workspaces.lastError, self.link.target?.macID == macID, self.store.macData[macID]?.source != .live {
                     self.store.handleMacData(.failed(error), macID: macID)

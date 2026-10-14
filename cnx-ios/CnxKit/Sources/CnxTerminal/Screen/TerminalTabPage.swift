@@ -47,7 +47,8 @@ public struct TerminalTabPage: View {
             // Not attached yet: the honest placeholder over the empty surface.
             .overlay {
                 if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState, topInset: insets.top)
+                    // A tab back from the warm set shows its last frame at once.
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame)
                         .ignoresSafeArea()
                         .padding(.bottom, insets.bottom)
                         .transition(.opacity)
@@ -80,7 +81,7 @@ public struct TerminalTabCard: View {
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
                 if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState, topInset: insets.top)
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot)
                 } else if let image = model.snapshot {
                     Image(uiImage: image)
                         .resizable()

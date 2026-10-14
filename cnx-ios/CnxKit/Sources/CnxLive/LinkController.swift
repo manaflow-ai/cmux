@@ -57,12 +57,35 @@ public final class LinkController {
     public func prewarm(baseURL: URL, teamID: String, deviceID: String) {
         let dialer = dialer
         let accessToken = accessToken
-        Task {
-            guard let token = try? await accessToken(false) else { return }
-            let steps = await dialer.prewarm(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
-            guard !steps.isEmpty else { return }
-            ConnectTimeline.shared.mark("prewarmed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+        // Detached: a task that starts on the main actor waits for it first.
+        Task.detached { await Self.prewarm(dialer: dialer, accessToken: accessToken, baseURL: baseURL, teamID: teamID, deviceID: deviceID) }
+    }
+
+    /// Off the main actor: at launch it is busy drawing the first frames.
+    private nonisolated static func prewarm(dialer: any MacLinkDialer, accessToken: @Sendable (Bool) async throws -> String,
+                                            baseURL: URL, teamID: String, deviceID: String) async {
+        guard let token = try? await accessToken(false) else { return }
+        let steps = await dialer.prewarm(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
+        guard !steps.isEmpty else { return }
+        ConnectTimeline.shared.mark("prewarmed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+    }
+
+    /// The token and the dial, off the main actor (verify/perf-latency.md: at
+    /// launch the main actor is busy drawing the first frames, and the dial
+    /// waited for it twice, about 0.45 s). Only adopting the link needs it.
+    private nonisolated static func connect(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
+                                            forceRefresh: Bool,
+                                            accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
+        let token = try await accessToken(forceRefresh)
+        ConnectTimeline.shared.mark("token_ready")
+        let link = try await dialer.dial(endpoint, transport: transport, accessToken: token)
+        if let timed = link as? any TimedMacLink {
+            let steps = timed.timings.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " ")
+            ConnectTimeline.shared.mark("link_connected", detail: steps)
+        } else {
+            ConnectTimeline.shared.mark("link_connected")
         }
+        return link
     }
 
     /// Sign-out: forget warm sockets and cached servers.
@@ -110,16 +133,18 @@ public final class LinkController {
             let forceRefresh = refreshTokenNextDial
             refreshTokenNextDial = false
             ConnectTimeline.shared.mark("dial_start", detail: transport.rawValue)
+            // The token and the dial start now, off the main actor; this task
+            // (main actor) only waits for the link and adopts it.
+            let work = Task.detached {
+                try await Self.connect(dialer: dialer, endpoint: endpoint, transport: transport,
+                                       forceRefresh: forceRefresh, accessToken: accessToken)
+            }
             dialTask = Task { [weak self] in
                 do {
-                    let token = try await accessToken(forceRefresh)
-                    ConnectTimeline.shared.mark("token_ready")
-                    let link = try await dialer.dial(endpoint, transport: transport, accessToken: token)
-                    if let timed = link as? any TimedMacLink {
-                        let steps = timed.timings.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " ")
-                        ConnectTimeline.shared.mark("link_connected", detail: steps)
-                    } else {
-                        ConnectTimeline.shared.mark("link_connected")
+                    let link = try await withTaskCancellationHandler {
+                        try await work.value
+                    } onCancel: {
+                        work.cancel()
                     }
                     guard let self, !Task.isCancelled, generation == self.machine.generation else {
                         await link.close()
@@ -161,6 +186,7 @@ public final class LinkController {
     }
 
     private func adopt(_ link: any MacLink, generation: Int) {
+        ConnectTimeline.shared.mark("link_adopted")
         self.link = link
         watchTask?.cancel()
         let states = link.states

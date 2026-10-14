@@ -126,6 +126,9 @@ public final class DaemonTerminalSession: TerminalSession {
         inbox = nil
         outputPaused = false
         handler = nil
+        // The Mac drops this attach (a tab cooled out of the warm set, or gone).
+        if let client { Task { await client.close() } }
+        attached = false
         client = nil
         dropInputLane()
         outbox.removeAll()

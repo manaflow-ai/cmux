@@ -349,6 +349,39 @@ struct MockDialer: MacLinkDialer {
     }
 }
 
+// MARK: Launch reconcile
+
+@MainActor
+@Suite struct LaunchReconcileLiveTests {
+    /// The first live list after a launch keeps the cached rows' known activity
+    /// times (the snapshot), so rows are reconciled, not resorted as "no activity seen".
+    @Test func firstLiveListKeepsCachedActivityTimes() async throws {
+        let link = MockMacLink { _, data in
+            data.split(separator: 0x0A).map { request -> Data in
+                let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
+                let id = object["id"] as! String
+                switch object["cmd"] as! String {
+                case "list-workspaces":
+                    return Data(#"{"id":"\#(id)","ok":true,"data":{"workspaces":[{"id":1,"key":"k1","name":"one","screens":[]},{"id":2,"key":"k2","name":"two","screens":[]}]}}"#.utf8) + Data([0x0A])
+                case "list-agents":
+                    return Data(#"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#.utf8) + Data([0x0A])
+                default:
+                    return Data(#"{"id":"\#(id)","ok":true,"data":{}}"#.utf8) + Data([0x0A])
+                }
+            }
+        }
+        let seen = Date(timeIntervalSince1970: 1_700_000_000)
+        let cached = [Workspace(id: "k2", macID: "mac", title: "two", directory: "~", tabs: [], lastActivityAt: seen, hasActivityTime: true)]
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        await sync.bind(try await link.openChannel(service: "daemon", args: [:]), macID: "mac", cached: cached)
+        let tree = try #require(sync.tree)
+        let two = try #require(tree.workspaces.first { $0.id == "k2" })
+        #expect(two.hasActivityTime)
+        #expect(two.lastActivityAt == seen)
+        #expect(tree.workspaces.first { $0.id == "k1" }?.hasActivityTime == false)
+    }
+}
+
 // MARK: Workspace creation on the daemon
 
 @MainActor

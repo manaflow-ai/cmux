@@ -38,8 +38,12 @@ public final class WorkspaceSync {
     /// The live client (nil while unbound), for Chief and other daemon users.
     public var daemon: DaemonClient? { client }
 
-    /// Binds a fresh `daemon` channel for `macID` (nil unbinds).
-    public func bind(_ channel: (any LinkChannel)?, macID: String) async {
+    /// Binds a fresh `daemon` channel for `macID` (nil unbinds). `cached` is
+    /// what the list shows for the Mac before this answer (the launch
+    /// snapshot): the first live list keeps those rows' known activity times,
+    /// so it reconciles with them instead of resorting every row to "no
+    /// activity seen yet".
+    public func bind(_ channel: (any LinkChannel)?, macID: String, cached: [Workspace] = []) async {
         eventTask?.cancel()
         client = nil
         activity = [:]
@@ -76,7 +80,8 @@ public final class WorkspaceSync {
             }
             _ = try Self.check(replies[2].get())
             if let reply = try? Self.check(replies[3].get()) { applyAgents(reply) }
-            let next = try DaemonTree(reply: replies[4].get(), macID: macID, previous: tree?.workspaces ?? [], agents: agents)
+            let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
+            let next = try DaemonTree(reply: replies[4].get(), macID: macID, previous: known.isEmpty ? cached : known, agents: agents)
             tree = next
             lastError = nil
             onTree?(next)

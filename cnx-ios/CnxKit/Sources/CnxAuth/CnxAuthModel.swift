@@ -45,6 +45,9 @@ public final class CnxAuthModel {
     }
 
     @ObservationIgnored let coordinator: AuthCoordinator?
+    /// Stack's own token read (it refreshes a token older than 75 s) behind a
+    /// stored token that was handed out at once; one at a time.
+    @ObservationIgnored private var backgroundTokenRead: Task<Void, Never>?
     @ObservationIgnored let stack: StackClientApp?
     /// The `cnx-ios-api` base URL (`CNX_API_BASE`), when configured.
     @ObservationIgnored let apiBase: URL?
@@ -367,6 +370,33 @@ public final class CnxAuthModel {
     public func accessToken(forceRefresh: Bool = false) async throws -> String {
         guard let coordinator else { throw AuthError.unauthorized }
         return forceRefresh ? try await coordinator.forceRefreshAccessToken() : try await coordinator.accessToken()
+    }
+
+    /// The token for the cnx service and the Mac link, readable off the main
+    /// actor. A stored token still valid for a minute goes out at once, without
+    /// the main actor (busy drawing the first frames at launch, which held the
+    /// first dial back 0.45 s) and without Stack's freshness rule (it refreshes
+    /// over the network whenever the token is older than 75 s; that refresh
+    /// still runs, in the background, so the next read has a new token).
+    /// Otherwise, and with `forceRefresh` (the service answered 401), Stack's
+    /// own read on the main actor, as before. verify/perf-latency.md.
+    public nonisolated func serviceAccessToken(forceRefresh: Bool = false) async throws -> String {
+        if !forceRefresh, let stack, let stored = await stack.getStoredAccessToken(),
+           AccessTokenExpiry(token: stored).isUsable() {
+            // Not awaited: the main actor may be busy, and the token is good now.
+            Task { @MainActor [weak self] in self?.refreshInBackground() }
+            return stored
+        }
+        return try await accessToken(forceRefresh: forceRefresh)
+    }
+
+    /// Lets Stack refresh a stored token that was handed out as is (one at a time).
+    private func refreshInBackground() {
+        guard backgroundTokenRead == nil, let coordinator else { return }
+        backgroundTokenRead = Task { [weak self] in
+            _ = try? await coordinator.accessToken()
+            self?.backgroundTokenRead = nil
+        }
     }
 
     /// Runs before every sign-out while the session is still valid (the live
