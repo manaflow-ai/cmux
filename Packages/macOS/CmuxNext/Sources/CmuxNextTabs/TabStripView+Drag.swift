@@ -8,6 +8,8 @@ extension TabStripView {
 
     func beginDrag(_ press: TabStripPress) {
         guard let index = displayed.firstIndex(where: { $0.id == press.id }), let m = motion[press.id] else { return }
+        // A person moving a tab shown ahead of the model's order takes it over (`placed`).
+        placed[press.id] = nil
         let local = convert(press.start, to: tabsClip)
         let contentX = local.x + scroll.value
         drag = TabStripDrag(

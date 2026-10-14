@@ -35,6 +35,12 @@ extension TabStripView {
     /// (`expectInsertion`) is there, not where the model still lists it.
     public var displayedOrder: [TabID] { displayed.map(\.id) }
 
+    /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
+    public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
+        guard let m = motion[id] else { return nil }
+        return tabsClip.convert(CGPoint(x: m.x.value - scroll.value + m.width.value / 2, y: tabsClip.bounds.midY), to: nil)
+    }
+
     /// How long a newcomer is shown in its slot before the model must put it there (the
     /// pane lists it and NewTabSlot moves it); after that the model's order rules again.
     static let insertionWindow: CFTimeInterval = 10
@@ -47,12 +53,14 @@ extension TabStripView {
                 inserting = nil
             } else if let newcomer = ordered.last(where: { cells[$0.id] == nil && $0.id != anchor && adopted[$0.id] == nil }) {
                 inserting = nil
-                placed[newcomer.id] = (anchor, now)
+                placed[newcomer.id] = (anchor, now, modelOthers(than: newcomer.id))
             }
         }
         for (newcomer, entry) in placed {
+            // Ends when the model put it there, after insertionWindow, when its anchor left, or when
+            // another mover changed the model's order (a person's drag, another client).
             guard now - entry.since <= Self.insertionWindow, let index = ordered.firstIndex(where: { $0.id == newcomer }),
-                  ordered.contains(where: { $0.id == entry.anchor }) else {
+                  ordered.contains(where: { $0.id == entry.anchor }), modelOthers(than: newcomer) == entry.others else {
                 placed[newcomer] = nil
                 continue
             }
@@ -66,6 +74,17 @@ extension TabStripView {
             // The model put it there: nothing left to show differently.
             if target == index { placed[newcomer] = nil }
         }
+    }
+
+    /// The model's tabs other than `id`, provisional ones left out (they come and go by design).
+    func modelOthers(than id: TabID) -> [TabID] {
+        model.orderedTabs.filter { $0.id != id && !$0.isProvisional }.map(\.id)
+    }
+
+    /// The App could not move `id` into the slot it shows in (a refused move): the model's order rules now.
+    public func endPlacement(of id: TabID) {
+        guard placed.removeValue(forKey: id) != nil else { return }
+        sync(fromModel: true)
     }
 
     /// Applies pending and current adoptions to the display order: each
@@ -85,13 +104,24 @@ extension TabStripView {
         // The store's tab confirming a provisional one takes its cell in place (DESIGN P5). The store
         // lists the two side by side for a few ms until its reply drops the stand-in; a strip that
         // showed both closed the stand-in a sync later, on the spring: with ui.animations.newTab
-        // off that close was the only motion of a Cmd-T or + (hq-1d phase 3).
-        for provisional in ordered where provisional.isProvisional && cells[provisional.id] != nil
-            && !adopted.values.contains(provisional.id) {
-            guard let newcomer = ordered.first(where: { cells[$0.id] == nil && !$0.isProvisional && adopted[$0.id] == nil })
-            else { break }
-            adopted[newcomer.id] = provisional.id
-            fresh[newcomer.id] = provisional.id
+        // off that close was the only motion of a Cmd-T or + (hq-1d phase 3). The store's tab
+        // carries no link to its stand-in before the reply, so they pair by kind and in order (the
+        // oldest stand-in takes the first new tab of its kind), within replacementWindow.
+        let now = CACurrentMediaTime()
+        for id in provisionalSince.keys where !ordered.contains(where: { $0.id == id }) { provisionalSince[id] = nil }
+        for item in ordered where item.isProvisional && provisionalSince[item.id] == nil { provisionalSince[item.id] = now }
+        let waiting = provisionalSince.filter { cells[$0.key] != nil && !adopted.values.contains($0.key) && now - $0.value <= Self.replacementWindow }
+            .sorted { $0.value < $1.value }.map(\.key)
+        for provisional in waiting {
+            guard let kind = ordered.first(where: { $0.id == provisional })?.kindKey,
+                  let newcomer = ordered.first(where: { cells[$0.id] == nil && !$0.isProvisional && $0.kindKey == kind && adopted[$0.id] == nil })
+            else { continue }
+            adopted[newcomer.id] = provisional
+            fresh[newcomer.id] = provisional
+            // A stand-in shown in its slot ahead of the model (after current) hands that over too.
+            if let entry = placed.removeValue(forKey: provisional) {
+                placed[newcomer.id] = (entry.anchor, entry.since, modelOthers(than: newcomer.id))
+            }
         }
         for (newcomer, page) in adopted {
             // The page left the model: the model's order (the newcomer in its slot) rules again.
@@ -100,8 +130,8 @@ extension TabStripView {
                 adopted[newcomer] = nil
                 // The page left before the model moved the newcomer into its slot: keep showing it
                 // after the tab it followed until the move lands, rather than jumping away and back.
-                if let shown = displayed.firstIndex(where: { $0.id == newcomer }), shown > 0 {
-                    placed[newcomer] = (displayed[shown - 1].id, CACurrentMediaTime())
+                if let shown = displayed.firstIndex(where: { $0.id == newcomer }), shown > 0, placed[newcomer] == nil {
+                    placed[newcomer] = (displayed[shown - 1].id, CACurrentMediaTime(), modelOthers(than: newcomer))
                 }
                 continue
             }

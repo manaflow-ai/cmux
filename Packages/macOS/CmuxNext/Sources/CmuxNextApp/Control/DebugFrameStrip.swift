@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
@@ -63,6 +64,8 @@ enum DebugFrameStrip {
             // The strip's + button: the same intent its press sends.
             pane.stripModel.send(.newTab(after: nil))
             sent = .string("plus")
+        } else if params["gesture"]?.stringValue == "drag_new", let pane = controller.content?.focusedPane {
+            sent = await dragWhileNewTab(pane, services)
         } else {
             sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": modifiers,
                                   "window": .string(controller.state.id)], services: services)
@@ -126,6 +129,38 @@ enum DebugFrameStrip {
             "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
         ])
+    }
+
+    /// `gesture: "drag_new"`: drags the focused strip's first tab right in 12 steps, one per frame
+    /// (synthetic events into the strip's own handlers), and at step 4 a script opens a terminal tab
+    /// in the pane (`newSurface` with the CLI's origin): the drag's springs must keep running.
+    private static func dragWhileNewTab(_ pane: PaneController, _ services: AppServices) async -> JSONValue {
+        let strip = pane.view.stripView
+        guard let window = strip.window, let id = strip.displayedOrder.first, let start = strip.tabCenterInWindow(id) else {
+            return .string("drag_new: no tab")
+        }
+        func send(_ type: NSEvent.EventType, _ dx: CGFloat) {
+            guard let event = NSEvent.mouseEvent(with: type, location: CGPoint(x: start.x + dx, y: start.y), modifierFlags: [],
+                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
+            else { return }
+            switch type {
+            case .leftMouseDown: strip.mouseDown(with: event)
+            case .leftMouseUp: strip.mouseUp(with: event)
+            default: strip.mouseDragged(with: event)
+            }
+        }
+        send(.leftMouseDown, 0)
+        for step in 1...12 {
+            let tick = DemandTimer(owner: "debug.frame_strip.drag")
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in tick.schedule(after: .milliseconds(16)) { @MainActor in done.resume() } }
+            send(.leftMouseDragged, CGFloat(step) * 18)
+            if step == 4 {
+                _ = services.registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .cli))
+            }
+        }
+        send(.leftMouseUp, 12 * 18)
+        return .string("drag_new")
     }
 
     /// The focused pane's content area in `frame` pixels (top-left origin), once the key opened its page.

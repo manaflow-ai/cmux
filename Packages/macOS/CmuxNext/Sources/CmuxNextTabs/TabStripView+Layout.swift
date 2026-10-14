@@ -45,7 +45,10 @@ extension TabStripView {
         items.insert(placeholder, at: position)
     }
 
-    func relayout(animated: Bool, added: Set<TabID> = []) {
+    /// `growsAdded` (default `animated`): the `added` tabs grow in from zero width; false shows them at
+    /// their slot at once while the rest of the strip still springs (a tab landing mid-gesture).
+    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool? = nil) {
+        let grows = growsAdded ?? animated
         result = TabLayoutEngine.layout(
             items: layoutItems(),
             availableWidth: viewportWidth,
@@ -61,7 +64,7 @@ extension TabStripView {
                     self.pendingDrop = nil
                 } else {
                     // New tabs grow in from zero width at their slot.
-                    m = TabMotion(x: slot.x, width: animated ? 0 : slot.width, alpha: animated ? 0 : 1)
+                    m = TabMotion(x: slot.x, width: grows ? 0 : slot.width, alpha: grows ? 0 : 1)
                 }
             }
             if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
