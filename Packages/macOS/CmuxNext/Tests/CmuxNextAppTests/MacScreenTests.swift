@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 @testable import CmuxNextMacScreen
+import CmuxNextRemoteView
 import CmuxNextSettings
 import CmuxScreenKit
 import Foundation
@@ -224,5 +225,22 @@ struct MacScreenInputGateTests {
         #expect(pane.model.gate == .missing)
         #expect(!pane.view.input.controlMode)
         #expect(!pane.model.capturesKeyboard)
+    }
+}
+
+/// A right-click is a right-click whatever button number the event carries:
+/// synthetic events (accessibility tools, automation) post `rightMouseDown`
+/// with button number 0, which read as a left click on the remote Mac.
+@MainActor
+struct MacScreenRightClickTests {
+    private func event(_ type: NSEvent.EventType) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+    }
+
+    @Test func syntheticRightMouseDownIsTheRightButton() throws {
+        #expect(RemoteMouseButton(appKitButtonNumber: try event(.rightMouseDown).buttonNumber) == .right)
+        #expect(RemoteMouseButton(appKitButtonNumber: try event(.rightMouseUp).buttonNumber) == .right)
+        #expect(RemoteMouseButton(appKitButtonNumber: try event(.leftMouseDown).buttonNumber) == .left)
     }
 }
