@@ -57,6 +57,17 @@ pub struct Builtin {
     home_id: String,
 }
 
+/// optchat-chief `paths::home_id`: FNV-1a (32 bit) of the path's bytes,
+/// 8 lowercase hex digits.
+fn path_home_id(home: &Path) -> String {
+    let mut hash: u32 = 0x811c_9dc5;
+    for b in home.as_os_str().as_encoded_bytes() {
+        hash ^= u32::from(*b);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    format!("{hash:08x}")
+}
+
 fn home_id(text: &str) -> Option<String> {
     (text.len() == 8 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
         .then(|| text.to_owned())
@@ -118,17 +129,34 @@ impl Context {
         }
     }
 
-    /// optchat-chief `Paths::root`: `<Chief home>/optchat`.
-    fn optchat(&self) -> Result<PathBuf, String> {
-        self.chief_home.as_ref().map(|home| home.join("optchat")).ok_or_else(|| {
+    /// The home of the Chief with `home_id`: one of the Chief home's
+    /// `c/<id tail>` directories whose path has that id (the Chiefs the
+    /// daemon's supervisor starts on the Chief home's shared acpmux, hq-6d
+    /// 2026-10-14), else the Chief home itself (the default Chief, and a
+    /// daemon of one Chief). The same path string the supervisor gives the
+    /// Chief as `MUX_HOME` (`<home>/c/<tail>`), so the ids match.
+    fn home_of(&self, home_id: &str) -> Option<PathBuf> {
+        let home = self.chief_home.as_ref()?;
+        let other = std::fs::read_dir(home.join("c")).ok().and_then(|entries| {
+            entries
+                .flatten()
+                .map(|entry| home.join("c").join(entry.file_name()))
+                .find(|dir| dir.is_dir() && path_home_id(dir) == home_id)
+        });
+        Some(other.unwrap_or_else(|| home.clone()))
+    }
+
+    /// optchat-chief `Paths::root` of the Chief `home_id`: `<its home>/optchat`.
+    fn optchat(&self, home_id: &str) -> Result<PathBuf, String> {
+        self.home_of(home_id).map(|home| home.join("optchat")).ok_or_else(|| {
             format!("a built-in codex preset needs {CHIEF_MUX_HOME_ENV} in this daemon's own environment")
         })
     }
 
     /// optchat-chief `chief_codex_in`: the Chief's own codex binary, else
     /// the one bundled next to this daemon. Never a PATH lookup.
-    fn codex(&self) -> Option<String> {
-        let own = self.chief_home.as_ref().map(|h| h.join("optchat/codex/bin/codex"));
+    fn codex(&self, home_id: &str) -> Option<String> {
+        let own = self.home_of(home_id).map(|h| h.join("optchat/codex/bin/codex"));
         let bundled = self.bundle.as_ref().map(|b| b.join("chief-codex/codex"));
         own.into_iter().chain(bundled).find(|p| p.is_file()).map(|p| p.display().to_string())
     }
@@ -156,6 +184,14 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
     let codex = family == "codex";
     let key = |role: &str| format!("optchat-{}-{role}", b.home_id);
     let mut env = BTreeMap::new();
+    // A turn or subagent of a Chief on the Chief home's shared acpmux gets
+    // its own Chief's MUX_HOME (`chief agents`, the `chief` tools), never
+    // that of whoever started this daemon.
+    if matches!(b.role, Role::Turn | Role::Sub)
+        && let Some(home) = ctx.home_of(&b.home_id)
+    {
+        env.insert("MUX_HOME".into(), home.display().to_string());
+    }
     match b.role {
         Role::Turn => {
             flags(&mut env, &["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
@@ -163,9 +199,9 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
                 env.insert("CODEX_PROMPT_CACHE_KEY".into(), key("turn"));
                 env.insert(
                     "CODEX_HOME".into(),
-                    ctx.optchat()?.join("turn-codex").display().to_string(),
+                    ctx.optchat(&b.home_id)?.join("turn-codex").display().to_string(),
                 );
-                if let Some(path) = ctx.codex() {
+                if let Some(path) = ctx.codex(&b.home_id) {
                     env.insert("CODEX_PATH".into(), path);
                 }
             } else {
@@ -176,14 +212,14 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
         Role::Compact(k) => {
             env.insert("ACPMUX_AGENT_TOOLS".into(), "0".into());
             if codex {
-                let base = ctx.optchat()?.join("compactor-codex");
+                let base = ctx.optchat(&b.home_id)?.join("compactor-codex");
                 env.insert("HOME".into(), base.join("home").display().to_string());
                 env.insert(
                     "CODEX_HOME".into(),
                     base.join(format!("slot-{k}")).display().to_string(),
                 );
                 env.insert("CODEX_PROMPT_CACHE_KEY".into(), key("compact"));
-                if let Some(path) = ctx.codex() {
+                if let Some(path) = ctx.codex(&b.home_id) {
                     env.insert("CODEX_PATH".into(), path);
                 }
             } else {
