@@ -29,10 +29,10 @@ import { currentVmRequestContext } from "./requestContext";
  * through `after()` until the route's maxDuration, then it is interrupted.
  * A mutation answers `vm_operation_in_progress` so the caller checks status
  * before retrying: pause reconciles on the provider's raw pause state, resume
- * waits out a start already under way, restart is safe to retry after the
- * provider's bounded operation, destroy tolerates a machine already gone,
+ * waits out a start already under way, destroy tolerates a machine already gone,
  * snapshot and resize refuse a concurrent duplicate, and create-likes reuse
- * the Idempotency-Key.
+ * the Idempotency-Key. Restart remains unsupported until the provider has a
+ * hard-reboot contract with completion and duplicate-request semantics.
  */
 
 /** Time left for the response to reach the client after the route answers. */

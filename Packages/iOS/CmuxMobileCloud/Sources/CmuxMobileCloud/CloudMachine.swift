@@ -57,6 +57,9 @@ public struct CloudMachine: Sendable, Equatable, Identifiable, Hashable {
     /// The vCPUs and memory this machine draws from the plan's shared pool
     /// while it is active; nil from a control plane that predates the field.
     public var resources: CloudMachineResources?
+    /// Hard recovery is available only with explicit server support.
+    public var supportsRestart: Bool
+    public var canRestart: Bool { supportsRestart && lifecycle.canRestart }
 
     /// Creates a machine row.
     /// - Parameters:
@@ -72,7 +75,8 @@ public struct CloudMachine: Sendable, Equatable, Identifiable, Hashable {
         status: String,
         displayName: String? = nil,
         slug: String? = nil,
-        resources: CloudMachineResources? = nil
+        resources: CloudMachineResources? = nil,
+        supportsRestart: Bool = false
     ) {
         self.id = id
         self.provider = provider
@@ -80,6 +84,7 @@ public struct CloudMachine: Sendable, Equatable, Identifiable, Hashable {
         self.displayName = displayName
         self.slug = slug
         self.resources = resources
+        self.supportsRestart = supportsRestart
     }
 
     /// The name to show everywhere a machine appears: the label, else the

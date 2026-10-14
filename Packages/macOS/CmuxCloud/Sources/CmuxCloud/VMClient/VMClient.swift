@@ -302,7 +302,7 @@ public struct VMSummary: Sendable {
         createdAt: Int64,
         base: VMBaseSummary? = nil,
         kind: VMMachineKind? = nil,
-        capabilities: VMCapabilities = .all,
+        capabilities: VMCapabilities = .legacy,
         displayName: String? = nil,
         slug: String? = nil,
         freeAccessExpiresAt: Int64? = nil,
@@ -369,7 +369,7 @@ public struct VMSummary: Sendable {
     /// The backend's `kind` (desktop/base); when omitted, ``resolvedKind`` infers it from the image id.
     public var kind: VMMachineKind? = nil
     /// Verbs the provider can honor (`GET /api/vm` → `capabilities`); none sent means everything.
-    public var capabilities: VMCapabilities = .all
+    public var capabilities: VMCapabilities = .legacy
     /// User-chosen label; the id stays the machine's address.
     public var displayName: String?
     /// Who made this machine (`GET /api/vm` → `createdBy`). Nil when the

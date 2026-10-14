@@ -644,7 +644,7 @@ struct CloudMachineRow: View {
                 .tint(.green)
                 .disabled(isBusy)
             }
-            if machine.lifecycle.canRestart {
+            if machine.canRestart {
                 Button(action: restart) {
                     Label(L10n.string("mobile.cloud.action.restart", defaultValue: "Restart"), systemImage: "arrow.counterclockwise.circle")
                 }
@@ -703,7 +703,7 @@ struct CloudMachineRow: View {
             }
             .disabled(isBusy)
         }
-        if machine.lifecycle.canRestart {
+        if machine.canRestart {
             Button(action: restart) {
                 Label(L10n.string("mobile.cloud.action.restart", defaultValue: "Restart"), systemImage: "arrow.counterclockwise.circle")
             }

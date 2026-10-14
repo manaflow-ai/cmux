@@ -27,14 +27,17 @@ public struct VMCapabilities: Equatable, Sendable {
     public var ssh: Bool { attachTransports?.contains("ssh") ?? true }
     public var cmuxRemote: Bool { attachTransports?.contains("cmux-remote") ?? true }
 
+    /// Legacy servers did not advertise hard restart.
+    public static let legacy = VMCapabilities(json: nil)
+
     public static let all = VMCapabilities(
         snapshot: true, restore: true, fork: true,
-        exec: true, stats: true, ports: true, desktop: true,
+        exec: true, stats: true, restart: true, ports: true, desktop: true,
         sizing: true, persistentHome: true, attachTransports: nil)
 
     public init(
         snapshot: Bool, restore: Bool, fork: Bool,
-        exec: Bool = true, stats: Bool = true, restart: Bool = true, ports: Bool = true,
+        exec: Bool = true, stats: Bool = true, restart: Bool = false, ports: Bool = true,
         desktop: Bool = true, sizing: Bool = true, persistentHome: Bool = true,
         attachTransports: [String]? = nil
     ) {
@@ -51,7 +54,7 @@ public struct VMCapabilities: Equatable, Sendable {
         self.attachTransports = attachTransports
     }
 
-    /// Missing flags preserve legacy support; stats can use the historical kind fallback.
+    /// Missing legacy flags preserve support; restart requires an explicit opt-in.
     public init(json: Any?, legacyStatsSupported: Bool = true) {
         let dict = json as? [String: Any]
         func flag(_ key: String, fallback: Bool = true) -> Bool {
@@ -63,7 +66,7 @@ public struct VMCapabilities: Equatable, Sendable {
             .compactMap { $0 as? String }
         self.init(
             snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"),
-            exec: flag("exec"), stats: flag("stats", fallback: legacyStatsSupported), restart: flag("restart"), ports: flag("ports"),
+            exec: flag("exec"), stats: flag("stats", fallback: legacyStatsSupported), restart: flag("restart", fallback: false), ports: flag("ports"),
             desktop: flag("desktop"), sizing: flag("sizing"),
             persistentHome: flag("persistentHome"), attachTransports: transports)
     }

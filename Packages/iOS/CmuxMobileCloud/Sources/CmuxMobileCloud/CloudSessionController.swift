@@ -263,6 +263,10 @@ public final class CloudSessionController {
             do {
                 try await perform(self.service)
                 guard self.accountGeneration == generation, !Task.isCancelled else { return false }
+                if action == .restart {
+                    self.connections.removeValue(forKey: machine.id)?.close()
+                    self.connectionRetryGeneration &+= 1
+                }
                 if self.lastMachineActionFailure?.machineID == machine.id { self.lastMachineActionFailure = nil }
                 self.refreshMachines()
                 return true

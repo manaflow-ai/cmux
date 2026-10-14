@@ -48,6 +48,21 @@ import Testing
         #expect(!CloudMachineLifecycle.unknown.canDelete)
     }
 
+    @Test func restartRequiresRunningAndExplicitServerCapability() throws {
+        let decoder = CloudAPIResponseDecoding()
+        for raw in ["true", "false", "null", "1", "\"true\""] {
+            let data = Data("{\"vms\":[{\"id\":\"vm-1\",\"provider\":\"freestyle\",\"status\":\"running\",\"capabilities\":{\"restart\":\(raw)}}]}".utf8)
+            let machine = try #require(decoder.catalog(from: data).machines.first)
+            #expect(machine.canRestart == (raw == "true"))
+            var paused = machine
+            paused.status = "paused"
+            #expect(!paused.canRestart)
+        }
+        #expect(!Self.running.canRestart)
+        let created = try decoder.createdMachine(from: Data(#"{"id":"vm-1","provider":"freestyle","status":"running","capabilities":{"restart":true}}"#.utf8))
+        #expect(created.canRestart)
+    }
+
     @Test func requestsReachTheServersLifecycleRoutes() throws {
         let builder = CloudAPIRequestBuilder(baseURL: "https://cmux.com/")
         let pause = try builder.pauseMachine(id: "vm-1", accessToken: "a", refreshToken: "r")

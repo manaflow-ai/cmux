@@ -444,7 +444,7 @@ function healthAlerts(
     body: [
       `${unhealthy.count} running Cloud VM(s) have not reported guest health for ${Math.round(staleMs / 60_000)} minutes.`,
       `VM ids: ${unhealthy.samples.length ? unhealthy.samples.map((sample) => sample.id).join(", ") : "unknown"}.`,
-      "Check the machine status and use the provider restart action if it is unresponsive.",
+      "Check guest connectivity and reporter health before classifying the machine as frozen. Provider-running alone does not establish guest health.",
     ].join(" "),
     severity: "critical",
   }];

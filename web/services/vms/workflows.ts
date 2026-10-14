@@ -2362,7 +2362,7 @@ export function restartVm(input: {
     if (vm.status === "destroyed") {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
-    if (!providers.restart) {
+    if (!providers.restart || providers.capabilities?.(vm.provider).restart === false) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "restart" }));
     }
     yield* providers.restart(vm.provider, providerVmId).pipe(
