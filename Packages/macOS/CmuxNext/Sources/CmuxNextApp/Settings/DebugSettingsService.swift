@@ -86,7 +86,7 @@ final class DebugSettingsService: InternalPageProvider {
             return state.deletingLastPathComponent().appending(path: "debug-tunables.json")
         }
         let folder = tag ?? (bundleID.map { $0.hasPrefix(DevTools.nightlyBundleID) ? "nightly" : "dev" } ?? "dev")
-        return home.appending(path: "Library/Application Support/cmux").appending(path: folder)
+        return cmux.appending(path: folder)
             .appending(path: "debug-tunables.json")
     }
 
