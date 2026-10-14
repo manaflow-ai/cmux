@@ -190,6 +190,10 @@ export interface Env {
    * replace with a scoped service token. Never logged (chief-brain/claude-auth.ts).
    */
   readonly CHIEF_BRAIN_CLAUDE_STACK_AUTH?: string
+  /** Owners (user ids, comma separated) whose Chiefs may run on Claude; the route bills one person's account. */
+  readonly CHIEF_BRAIN_CLAUDE_OWNERS?: string
+  /** Claude turns of all Chiefs per UTC day (default 500). */
+  readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
   readonly CHIEF_BRAIN_CLAUDE_URL?: string
   readonly CHIEF_BRAIN_CLAUDE_REFRESH_URL?: string

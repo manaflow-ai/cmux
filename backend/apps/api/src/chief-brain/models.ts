@@ -53,14 +53,14 @@ const claudeModel = (baseUrl: string): Model<Api> => {
 }
 
 /**
- * `claudeAuth` returns the route's X-Stack-Auth value (throws ClaudeAuthError, fixed text, when the
- * sign-in fails); `claudeUrl` overrides the route (tests).
+ * `claude.auth` returns the route's X-Stack-Auth value (throws ClaudeAuthError, fixed text, when the
+ * sign-in fails), `claude.refused` drops a token the route answered 401 to; `claudeUrl` overrides the route (tests).
  */
-export const brainModels = (ai: Ai | undefined, sessionId: string, claudeAuth?: () => Promise<string>, claudeUrl = CLAUDE_URL): BrainModels => {
+export const brainModels = (ai: Ai | undefined, sessionId: string, claude?: { auth: () => Promise<string>; refused: () => Promise<void> }, claudeUrl = CLAUDE_URL): BrainModels => {
   const models = createModels()
-  if (claudeAuth) {
+  if (claude) {
     const api = anthropicMessagesApi()
-    const fetch = signedFetch(claudeAuth)
+    const fetch = signedFetch(claude.auth, claude.refused)
     models.setProvider(
       createProvider({
         id: CLAUDE_PROVIDER,

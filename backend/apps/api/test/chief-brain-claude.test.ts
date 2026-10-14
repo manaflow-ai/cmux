@@ -15,7 +15,7 @@ import { fireAlarm } from "./setup/alarm.ts"
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; CHIEF_BRAIN_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 const REFRESH = "test-refresh-token-not-real"
-const fakeJwt = (exp: number) => ["e30", btoa(JSON.stringify({ exp })).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_"), "sig"].join(".")
+const fakeJwt = (exp: number, iat?: number) => ["e30", btoa(JSON.stringify({ exp, ...(iat === undefined ? {} : { iat }) })).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_"), "sig"].join(".")
 const sessionToken = async (sub: string) =>
   new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
@@ -50,12 +50,14 @@ const fakeRoute = (refresh: "ok" | "fail") => {
   const real = globalThis.fetch
   const seen: Array<Seen> = []
   let refreshes = 0
-  const fresh = fakeJwt(Math.floor(Date.now() / 1000) + 3600)
+  const refreshHeaders: Array<string | null> = []
+  // A 10-minute token (the refresh margin must stay under half its life).
+  const fresh = fakeJwt(Math.floor(Date.now() / 1000) + 600, Math.floor(Date.now() / 1000))
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     if (req.url.startsWith("https://auth.test/")) {
       refreshes++
-      expect(req.headers.get("x-hexclave-refresh-token")).toBe(REFRESH)
+      refreshHeaders.push(req.headers.get("x-hexclave-refresh-token"))
       return refresh === "ok" ? Response.json({ access_token: fresh }) : Response.json({ error: "refresh token revoked" }, { status: 401 })
     }
     if (req.url.startsWith("https://claude.test/")) {
@@ -66,7 +68,7 @@ const fakeRoute = (refresh: "ok" | "fail") => {
     }
     return real(input, init)
   })
-  return { seen, fresh, refreshes: () => refreshes }
+  return { seen, fresh, refreshHeaders, refreshes: () => refreshes }
 }
 afterEach(() => vi.restoreAllMocks())
 
@@ -119,12 +121,28 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     }
     // The expired configured token was refreshed once; the second turn used the stored one.
     expect(route.refreshes()).toBe(1)
+    expect(route.refreshHeaders).toEqual([REFRESH])
     const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${posted[0].parts[1].session}?conversation=${chief.main_conversation}`, token)
     expect(run.json.value.run).toMatchObject({ model: "claude-opus-5-5", status: "done" })
     for (const body of [run.text, JSON.stringify(posted), (await http("GET", `/v1/chiefs/${chief.id}/brain`, token)).text]) {
       expect(body).not.toContain(REFRESH)
       expect(body).not.toContain(route.fresh)
     }
+  })
+
+  it("refuses Claude for an owner off the allow-list and for the compactor", async () => {
+    const token = await sessionToken("brain-claude-other")
+    const user = (await op(token, "user.ensure", {})).value.id as string
+    const chief = (await op(token, "chief.create", {}, "chief-claude-other")).value as { id: string }
+    const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
+    let r = { status: 0, json: {} as any, text: "" }
+    for (let i = 0; i < 20 && (r.status === 0 || r.status === 403); i++) {
+      await fireAlarm(userDO)
+      r = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { model: "claude-opus-5-5" })
+    }
+    expect(r.status, r.text).toBe(409)
+    expect(r.json.error.code).toBe("chief_claude_unavailable")
+    expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { compactor_model: "claude-opus-5-5" })).status).toBe(400)
   })
 
   it("runs the turn on the fallback model when the sign-in refresh fails, logging no token bytes", async () => {
