@@ -95,6 +95,7 @@ let package = Package(
         .target(name: "CnxChief", dependencies: [
             "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
         ]),
@@ -133,6 +134,7 @@ let package = Package(
         .testTarget(name: "CnxShellTests", dependencies: ["CnxShell"]),
         .testTarget(name: "CnxChiefTests", dependencies: [
             "CnxChief", "CnxTransport", "CnxModel", "CnxAgentChat",
+            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
         ]),
     ],
