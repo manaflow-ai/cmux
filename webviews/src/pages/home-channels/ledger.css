@@ -836,7 +836,8 @@
   /* A fixed height: filtering shrinks the list, never the dialog, so the key hint stays put. */
   height: min(520px, 72vh);
   padding: 0;
-  border: 1px solid var(--lg-line);
+  /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
+  border: 0;
   border-radius: 12px;
   background: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
@@ -1033,4 +1034,163 @@
 }
 .hc-msg.lg-msg .hc-msg-time {
   white-space: nowrap;
+}
+
+/* ---------- Agent runs: a quiet card under a Chief's reply, the run sheet over the timeline ---------- */
+.lg-run {
+  margin: 4px 0 2px;
+  max-width: min(100%, 640px);
+  border: 1px solid var(--lg-line);
+  border-radius: 8px;
+  background: var(--lg-fill);
+}
+.lg-run-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+}
+.lg-run-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  text-align: start;
+  cursor: default;
+}
+.lg-run-label {
+  color: var(--page-text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.lg-run-meta {
+  color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lg-run-meta::before {
+  content: "·";
+  margin-inline-end: 8px;
+}
+.lg-run-open {
+  flex: none;
+  font-size: var(--text-detail);
+}
+.lg-run-mark {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 1.5px solid var(--page-text-3);
+}
+.lg-run-mark.running {
+  border-color: var(--page-text);
+  background: var(--page-text);
+}
+.lg-run-mark.done {
+  border-color: var(--page-text-2);
+  background: var(--page-text-2);
+}
+.lg-run-mark.failed {
+  border-color: var(--hc-danger);
+  background: var(--hc-danger);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lg-run-mark.running {
+    animation: lg-pulse 1.6s ease-in-out infinite;
+  }
+}
+.lg-run-title {
+  margin: -4px 8px 6px 24px;
+  font-size: var(--text-detail);
+  color: var(--page-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-run-steps {
+  padding: 0 8px 6px 8px;
+  border-top: 1px solid var(--lg-line);
+}
+.lg-run-more {
+  margin: 6px 0 0 16px;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+.lg-run-error {
+  margin: 0;
+  padding: 6px 8px;
+  border-top: 1px solid var(--lg-line);
+  font-size: var(--text-detail);
+  color: var(--hc-danger);
+  white-space: pre-wrap;
+}
+.lg-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--lg-line);
+  border-radius: 6px;
+  font-size: var(--text-detail);
+  font-weight: 500;
+}
+.lg-run-status.failed {
+  color: var(--hc-danger);
+}
+.lg-run-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px var(--lg-pad) 24px;
+}
+.lg-run-block {
+  margin: 0 0 8px;
+}
+.lg-run-block.note {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+}
+.lg-run-links,
+.lg-run-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 0 24px;
+  font-size: var(--text-detail);
+}
+.lg-run-links a {
+  color: var(--page-text);
+  text-decoration-color: var(--lg-line);
+  text-underline-offset: 2px;
+}
+.lg-run-empty,
+.lg-run-session {
+  margin: 8px 0 0;
+  font-size: var(--text-detail);
+  color: var(--page-text-3);
+}
+.lg-run-session code {
+  font-size: var(--text-caption);
+}
+.lg-run-chevron {
+  margin-inline-start: auto;
+  color: var(--page-text-3);
+}
+.lg-run-mark.stale {
+  border-style: dashed;
+}
+.lg-run-status.stale {
+  color: var(--page-text-3);
 }

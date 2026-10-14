@@ -111,6 +111,7 @@ impl RemoteSession {
             size_states: Mutex::new(HashMap::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
+            sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -152,6 +153,8 @@ impl RemoteSession {
             session.disconnect_transport();
             return Err(error);
         }
+        // The workspace order, when the daemon owns a sidebar document.
+        session.ensure_sidebar_doc();
         Ok(session)
     }
 
