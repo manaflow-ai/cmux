@@ -111,6 +111,11 @@ enum ControlTopologyMapper {
     static func applyAppFacts(_ info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]],
                               selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) -> ControlWorkspaceInfo? {
         guard info.screens.count == slots.count else { return nil }
+        // Most workspaces are not shown and have no page tabs: their app facts
+        // equal the cached value, which is returned without copying its
+        // screens (every publish maps every workspace; 1,000 copies were most
+        // of the main-thread stalls in the 2026-10-14 stress bench).
+        if appFactsUnchanged(info, slots: slots, selectedTab: selectedTab, pages: pages) { return info }
         var aligned = true
         var info = info
         info.screens = zip(info.screens, slots).map { screen, panes in
@@ -133,6 +138,24 @@ enum ControlTopologyMapper {
             return screen
         }
         return aligned ? info : nil
+    }
+
+    /// True when `applyAppFacts` would change nothing in `info` (false also
+    /// when `slots` does not line up, so the full path decides).
+    private static func appFactsUnchanged(_ info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]],
+                                          selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) -> Bool {
+        for (screen, panes) in zip(info.screens, slots) {
+            guard screen.panes.count == panes.count else { return false }
+            for (pane, slot) in zip(screen.panes, panes) {
+                guard pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane) else { return false }
+                guard !slot.pageTabs.isEmpty else { continue }
+                guard pane.tabs.count == slot.pageTabs.count else { return false }
+                for (tab, model) in zip(pane.tabs, slot.pageTabs) {
+                    if let model, let title = pages.title(model), title != tab.title { return false }
+                }
+            }
+        }
+        return true
     }
 
     static func workspace(from model: WorkspaceModel, selectedTab: (PaneModel) -> String?,
