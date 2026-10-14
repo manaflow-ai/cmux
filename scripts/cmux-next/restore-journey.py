@@ -492,7 +492,8 @@ def page_html(name, base=""):
     # The history pages link on (a -> b -> c), for link-click navigation as a person's.
     nxt = {"hist-a": "hist-b", "hist-b": "hist-c"}.get(name)
     href = f"{nxt}.html" if opts.hist_file else f"/{nxt}"
-    link = f"<a id='next' href='{href}'>next</a>" if nxt else ""
+    # The link covers the page, so a click at the pane's center lands on it.
+    link = f"<a id='next' href='{href}' style='position:fixed;inset:0;display:block'>next</a>" if nxt else ""
     # A local history page also tries to show an image from outside its folder: a page loaded
     # with access to its own folder cannot (`ext` 0), after a reopen too.
     if opts.hist_file and name.startswith("hist"):
@@ -665,9 +666,8 @@ def seed_web(base):
         if not wait(lambda: (REPORTS.get("hist") or {}).get("path") == here, 40):
             say(f"  the history page never reported from {here}")
             break
-        clicked = wait(lambda: (lambda r: r if isinstance(r, dict) and r.get("value") is True else None)(
-            rpc("browser.page.eval", {"tab": HIST.get("tab"), "script": CLICK_NEXT})), 20, 0.5)
-        say(f"  click the link on {here} -> {json.dumps(clicked)[:120]}")
+        clicked = person_click(ws, here, there)
+        say(f"  click the link on {here} -> {clicked}")
     if not wait(lambda: (REPORTS.get("hist") or {}).get("path") == "/hist-c", 40):
         say("  the history page never reported from /hist-c")
     right = split(ws["pane_id"], "right")
@@ -676,6 +676,31 @@ def seed_web(base):
         cli("tab", tall["tab_id"], "focus")
     if not wait(lambda: (REPORTS.get("tall") or {}).get("scrollY", 0) >= SCROLL - 5, 40):
         say("  the tall page never reported its scroll")
+
+
+def person_click(ws, here, there):
+    """Clicks the history page's link with a posted mouse click (a person's click: the entry it
+    adds has user activation, which Chromium's Back needs, as it skips entries a page added
+    without one). Window-level first, then Chromium's page view; a script click only if neither
+    navigates. Returns how it clicked."""
+    wait(lambda: (lambda r: isinstance(r, dict) and r.get("value") is True)(
+        rpc("browser.page.eval", {"tab": HIST.get("tab"), "script": "document.readyState === 'complete'"})), 20, 0.5)
+    topo = topology() or {}
+    pane = next((p.get("id") for s_ in (workspace_named("rj-web", topo) or {}).get("screens", []) for p in s_.get("panes", [])
+                 if any(t.get("id") == HIST.get("tab") for t in p.get("tabs", []))), None)
+    # debug.mouse names a window by its controller id: the window's `key` in the topology.
+    window = next((w.get("key") for w in topo.get("windows", []) if ws["workspace_id"] in w.get("workspaces", [])), None)
+    reached = lambda: (REPORTS.get("hist") or {}).get("path") == there
+    for how, params in (("mouse", {"pane": pane}), ("mouse on the page view", {"pane": pane, "target": "page"})):
+        answer = rpc("debug.mouse", {**params, **({"window": window} if window else {})})
+        say(f"  debug.mouse {how} -> {json.dumps(answer)[:200]}")
+        if wait(reached, 5, 0.25):
+            HIST.setdefault("clicks", []).append(how)
+            return f"{how}: {json.dumps(answer)[:100]}"
+    answer = wait(lambda: (lambda r: r if isinstance(r, dict) and r.get("value") is True else None)(
+        rpc("browser.page.eval", {"tab": HIST.get("tab"), "script": CLICK_NEXT})), 20, 0.5)
+    HIST.setdefault("clicks", []).append("script")
+    return f"script: {json.dumps(answer)[:100]}"
 
 
 AGENT = None
@@ -1172,6 +1197,7 @@ def seeded(before):
         "term": [("3000 numbered lines", has(lambda k, v: k.endswith(".scrollback.numbered_lines") and v == SCROLLBACK_LINES)),
                  ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int))],
         "web": [("history page at /hist-c after two link clicks", before.get("page[hist].path") == "/hist-c"),
+                ("both link clicks were posted mouse clicks", len(HIST.get("clicks", [])) == 2 and "script" not in HIST["clicks"]),
                 ("history page has three entries", before.get("page[hist].history_length") == 3),
                 ("tall page scrolled", (before.get("page[tall].scrollY") or 0) >= SCROLL - 5)],
         "agent": [("three turns", len(before.get("agent.prompts") or []) == 3),
