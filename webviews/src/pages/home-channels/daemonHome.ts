@@ -40,6 +40,8 @@ const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
 const INBOX_STATE_CAPABILITY = "conversation-inbox-state-v1";
 /** Attachment uploads, reads and download links on this WebSocket (local conversations). */
 const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
+/** The same three attachment commands for cloud conversations, through the daemon's lease. */
+const CLOUD_ATTACHMENTS_CAPABILITY = "cloud-attachments-v1";
 /** The attachment steps the page may send (the owner checks every field). */
 const UPLOAD_STEPS = new Set(["begin", "chunk", "commit", "cancel"]);
 const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
@@ -376,6 +378,8 @@ export class DaemonHomeClient implements PageClient {
   private readonly opened = new Set<string>();
   /** The cloud owners through this daemon (when `identify` names the capability). */
   private readonly cloud: CloudHome;
+  /** Uploads that `begin` opened through the cloud lease (their later steps go there too). */
+  private readonly cloudUploads = new Set<string>();
   /** Each socket's `identify` capabilities, read once. */
   private readonly capabilities = new Map<DaemonSocket, Promise<string[]>>();
   /** The local conversation owner: the build daemon itself, or the Chief home's owner. */
@@ -688,18 +692,19 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.createGroup:
         return this.createGroup(params, options);
       case HomeOps.attachmentSupport:
-        // Cloud conversations take attachments once the daemon proxies the cloud upload.
-        return { local: await this.capable(WS_ATTACHMENTS_CAPABILITY), cloud: false };
+        return {
+          local: await this.capable(WS_ATTACHMENTS_CAPABILITY),
+          cloud: (await this.cloudReady()) && (await this.capable(CLOUD_ATTACHMENTS_CAPABILITY, this.daemon)),
+        };
       case HomeOps.attachmentUpload:
         return this.attachmentUpload(params);
       case HomeOps.attachmentRead: {
         const id = str(params, "conversation");
-        this.localAttachments(id);
         const read: Json = { conversation: id, hash: str(params, "hash", 64) };
         if (typeof params.variant === "string") read.variant = params.variant;
         if (typeof params.offset === "number") read.offset = params.offset;
         if (typeof params.length === "number") read.length = params.length;
-        const bytes = await this.local.request<Json>("conversation-attachment-read", read);
+        const bytes = await this.attachmentSocket(id).request<Json>(this.attachmentCommand(id, "read"), read);
         return {
           mimeType: String(bytes.mime_type ?? ""),
           byteCount: num(bytes.byte_count),
@@ -710,13 +715,13 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.attachmentUrl: {
         const id = str(params, "conversation");
-        this.localAttachments(id);
         const request: Json = { conversation: id, hash: str(params, "hash", 64) };
         if (typeof params.variant === "string") request.variant = params.variant;
         if (typeof params.name === "string" && params.name) request.name = params.name;
-        const link = await this.local.request<Json>("conversation-attachment-link", request);
-        // The link is a path on the local owner's own listener: that connection's origin.
-        const base = this.local.url.replace(/^ws/, "http");
+        const socket = this.attachmentSocket(id);
+        const link = await socket.request<Json>(this.attachmentCommand(id, "link"), request);
+        // The link is a path on that owner connection's own listener: its origin.
+        const base = socket.url.replace(/^ws/, "http");
         return { url: new URL(String(link.path), base).toString(), expiresInMs: num(link.expires_in_ms) };
       }
       default:
@@ -760,17 +765,25 @@ export class DaemonHomeClient implements PageClient {
     return { conversation: conversationId };
   }
 
-  /** Attachments of a Cloud conversation need the daemon's cloud upload (not yet): say so. */
-  private localAttachments(conversationId: string): void {
-    if (this.cloud.owns(conversationId))
-      throw pageError("cmux.page.unavailable", "attachments of cloud conversations are not available here yet");
+  /** The command of one attachment step for the conversation's owner: the local owner's, or the
+   * same command through the daemon's cloud lease (`cloud-attachments-v1`). */
+  private attachmentCommand(conversationId: string, step: "upload" | "read" | "link"): string {
+    return `${this.cloud.owns(conversationId) ? "cloud" : "conversation"}-attachment-${step}`;
   }
 
-  /** One upload step for the local owner (`conversation-attachment-upload`), fields as the owner names them. */
+  /** The connection that serves a conversation's attachments: the local owner, or the daemon with
+   * the cloud lease. */
+  private attachmentSocket(conversationId: string): DaemonSocket {
+    return this.cloud.owns(conversationId) ? this.daemon : this.local;
+  }
+
+  /** One upload step (`*-attachment-upload`), fields as the owner names them. A step after `begin`
+   * names only its upload, which keeps the owner its `begin` chose. */
   private async attachmentUpload(params: Json): Promise<unknown> {
     const op = str(params, "op", 16);
     if (!UPLOAD_STEPS.has(op)) throw pageError("cmux.page.invalid_params", "op");
-    if (op === "begin") this.localAttachments(str(params, "conversation"));
+    const upload = typeof params.upload === "string" ? params.upload : "";
+    const cloud = op === "begin" ? this.cloud.owns(str(params, "conversation")) : this.cloudUploads.has(upload);
     const request: Json = { op };
     for (const field of [
       "conversation",
@@ -789,7 +802,12 @@ export class DaemonHomeClient implements PageClient {
       "data",
     ])
       if (params[field] !== undefined) request[field] = params[field];
-    return this.local.request("conversation-attachment-upload", request);
+    const reply = cloud
+      ? await this.daemon.request<Json>("cloud-attachment-upload", request)
+      : await this.local.request<Json>("conversation-attachment-upload", request);
+    if (op === "begin" && cloud && typeof reply.upload === "string") this.cloudUploads.add(reply.upload);
+    if (op === "commit" || op === "cancel") this.cloudUploads.delete(upload);
+    return reply;
   }
 
   /** A Cloud conversation's runs: each Chief of it keeps its own (the Cloud brain's reads, by
@@ -874,7 +892,9 @@ export class DaemonHomeClient implements PageClient {
       const fromCloud = socket === this.daemon;
       const fromLocal = socket === this.local;
       const cloud =
-        fromCloud && typeof event.event === "string" && event.event.startsWith("cloud-") ? this.cloud.event(event) : null;
+        fromCloud && typeof event.event === "string" && event.event.startsWith("cloud-")
+          ? this.cloud.event(event)
+          : null;
       if (cloud) {
         deliver((batch) => {
           if (cloud.message) (batch.messages ??= []).push(message(cloud.message));

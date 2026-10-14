@@ -199,7 +199,10 @@ extension DaemonStore {
             return .none
         case .tabRenamed(let delta), .tabChanged(let delta):
             guard let tab = tabsBySurface[delta.surface] else { return .resync }
+            let ids = (tab.resourceID, tab.terminalResourceID)
             tab.update(delta.entity)
+            // New record ids: the state records of the new ids (a terminal-only state delta lays only its terminals).
+            if ids != (tab.resourceID, tab.terminalResourceID) { SessionStateStore.lay(session.mirror, over: tab) }
             // tab-drag-v1 reports a move as the moved tab's tab-changed
             // naming its new pane (another pane, screen or a new workspace).
             guard let target = panesByHandle[delta.pane] else { return .resync }
