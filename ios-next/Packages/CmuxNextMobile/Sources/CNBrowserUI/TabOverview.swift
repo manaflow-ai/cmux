@@ -150,6 +150,8 @@ let browserScreenSpace = "cn.browser.screen"
 /// bottom bar (+, "N Tabs", Done).
 struct TabOverview: View {
     var tabs: TabsModel
+    /// Swipe-to-close offsets (shared with the terminal layer).
+    var swipes: CardSwipeState
     var images: [String: UIImage]
     var layout: OverviewLayout
     /// 0 while the page is full screen, 1 with the grid at rest.
@@ -199,7 +201,17 @@ struct TabOverview: View {
                                 titleOffset: chrome.titleOffset, snapshotHidden: tab.id == hiddenTabId, onClose: { onClose(tab.id) })
                             .contentShape(.rect)
                             .onTapGesture { onSelect(tab.id) }
-                            .offset(x: r.minX, y: r.minY)
+                            // Swipe left to close (CardSwipe).
+                            .gesture(CardSwipeGesture { phase in
+                                switch phase {
+                                case .changed(let dx): swipes.track(tab.id, translation: dx)
+                                case .ended(_, let v):
+                                    swipes.release(tab.id, velocity: v, card: r, motion: BrowserStyle.shared.motion) { onClose(tab.id) }
+                                case .cancelled: swipes.cancel(tab.id, motion: BrowserStyle.shared.motion)
+                                }
+                            })
+                            .opacity(swipes.opacity(tab.id))
+                            .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
                             .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
                     }
                     if let placeholderId {

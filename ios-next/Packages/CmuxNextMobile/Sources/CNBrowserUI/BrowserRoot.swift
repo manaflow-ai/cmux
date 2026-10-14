@@ -135,6 +135,8 @@ struct BrowserScreen: View {
     /// Card images, captured when the overview opens so the hidden grid does
     /// not re-render on every live frame.
     @State private var overviewImages: [String: UIImage] = [:]
+    /// Swipe-to-close offsets of the grid's cards.
+    @State private var cardSwipes = CardSwipeState()
     @Environment(\.cnLeadingBarItem) private var leadingItem
     @Environment(\.cnShellRoute) private var shellRoute
     @Environment(\.displayScale) private var displayScale
@@ -229,7 +231,7 @@ struct BrowserScreen: View {
             // Kept mounted (hidden) so opening it does not pay for building
             // the grid on the first animation frame.
             if tabs.loaded {
-                TabOverview(tabs: tabs, images: overviewImages, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome,
+                TabOverview(tabs: tabs, swipes: cardSwipes, images: overviewImages, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome,
                             // On the settled grid the terminal layer draws the
                             // active terminal's card live.
                             hiddenTabId: zoomState.phase == .overview ? (tabs.activeTerminal != nil ? tabs.activeKey : nil) : zoomTabId,
@@ -423,7 +425,7 @@ struct BrowserScreen: View {
         case .page:
             return (fullRect, 0, 0)
         case .overview:
-            return (cardRect(key), overviewLayout.cardRadius, zoomDriver.chrome.closeOpacity)
+            return (cardRect(key).offsetBy(dx: cardSwipes.offset(key), dy: 0), overviewLayout.cardRadius, zoomDriver.chrome.closeOpacity)
         case .animating, .interactive:
             guard zoomTabId == key else { return (cardRect(key), overviewLayout.cardRadius, zoomDriver.chrome.closeOpacity) }
             let g = zoomGeometry()
@@ -482,7 +484,7 @@ struct BrowserScreen: View {
             .accessibilityLabel("Close \(tabs.activeItem?.title ?? "Terminal")")
         }
         .offset(x: place.rect.minX, y: place.rect.minY)
-        .opacity(chrome.swiping ? 0 : 1)
+        .opacity(chrome.swiping ? 0 : (zoomState.phase == .overview ? cardSwipes.opacity(key) : 1))
         .accessibilityHidden(!onPage)
     }
 

@@ -852,3 +852,29 @@ room Aziz saw around Safari's button comes from its tighter card corner: our
 
 Safari's screenshot also shows a dark copy of the cross, offset −2 pt, −0.7 pt.
 I didn't copy it; it looks like a transient artifact.
+
+## Round 14: swipe a card left to close it
+
+**Safari reference.** Mobile Safari on the iPhone 17 Pro simulator (iOS 26,
+mini-cmux15), 5 tabs, with AXe drags on a 177 pt right-column card. I
+measured the card's edge per frame with real `pts_time`
+(`browser-tools/rightedge.py`, `leftcard.py`, `cardtrack.py`).
+
+| | Safari | Ours |
+|---|---|---|
+| Direction lock | Horizontal drags move the card; vertical drags scroll the grid | Same (the pan only begins when the drag is more horizontal than vertical; the scroller waits for it to fail) |
+| Leftward tracking | 1:1 (a 90–135 pt drag moved the card 84–131 pt) | 1:1 (a 110 pt drag moved it 100 pt; AXe's last step is lost) |
+| Rightward | Rubber-banded: 100 pt of finger moved the card ≈ 35 pt; always springs back | `120·(1 − 1/(0.55·dx/120 + 1))` ≈ 35 pt at 90 pt; never closes |
+| Fade / scale while dragging | None | None |
+| Slow release | Back at −84, −105, −123 pt; closed at −132, −140 pt, so the threshold is ≈ 72% of the card width | `offset ≤ −0.72 × width` |
+| Fling | A 60 pt flick closed at ≥ 250 pt/s and not at 200 pt/s | Closes when the velocity is ≤ −225 pt/s |
+| Spring back | response 0.56, damping 0.92 (two releases, RMS 0.4 pt) | Same spring. The recordings agree within about 1 frame: 39% / 64% of the way back at 107 / 172 ms, Safari 32% / 59% |
+| Close | The card flies off left and fades in ≈ 2–3 frames; then the remaining cards reflow (≈ 0.38 s, the close-button reflow) and the tab count updates | 0.12 s ease-out fly-off with fade, then the same `close` path as the ✕ (`browser.close` / `term.close`) inside the reflow spring. A refused close puts the card back with the toast. |
+| Tap / ✕ | Still work; no long press on a card | Unchanged |
+
+With Reduce Motion on, the snap-back and fly-off become 0.18 s crossfades
+(`BrowserMotion.resolve`). The active terminal's live card, drawn by the
+terminal layer, follows the same offset. Verified on the mock: a slow
+−100 pt release sprang back, a −145 pt release closed a browser tab
+(5 → 4 tabs, reflow), and a fling closed a terminal card (4 → 3).
+`CardSwipeTests` checks the commit rule against the Safari trials.
