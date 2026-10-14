@@ -29,12 +29,19 @@ public final class WindowMaterialView: NSView {
     /// The window gave up the keyboard. Only then does glass go grey; a window
     /// that was never key (opening, tests, snapshots) shows the glass alone.
     private var resignedKey = false
-    private let artView = NSView()
+    /// The art layer (tests read what it shows).
+    let artView = NSView()
     /// The art layer's opacity (`WindowBackdrop.artOpacity`), the end of its fade-in.
     private var artOpacity: Float = 1
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
     private var loadedTexture: BackdropTexture?
+    /// The appearance the art loaded for: a dynamic Apple picture or shipped video has one of each.
+    private var loadedDark = false
+    /// The last `apply`, run again when the appearance flips under art that follows it.
+    private var applied: (backdrop: WindowBackdrop, tint: NSColor)?
+    /// A video wallpaper over the art (its poster), playing while seen (``BackdropVideoView``).
+    public let videoView: BackdropVideoView
     private var artImage: NSImage?
     private let images: BackdropImageStore
     /// Loads the art the last `apply` asked for when it was not decoded yet.
@@ -53,8 +60,10 @@ public final class WindowMaterialView: NSView {
     ///
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
-    public init(frame frameRect: NSRect, images: BackdropImageStore) {
+    /// - Parameter videos: Where video wallpapers' players are shared.
+    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared) {
         self.images = images
+        videoView = BackdropVideoView(frame: frameRect, players: videos)
         super.init(frame: frameRect)
         artView.wantsLayer = true
         artView.frame = bounds
@@ -63,6 +72,9 @@ public final class WindowMaterialView: NSView {
         artView.layer?.masksToBounds = true
         artView.isHidden = true
         addSubview(artView)
+        videoView.frame = bounds
+        videoView.autoresizingMask = [.width, .height]
+        addSubview(videoView)
         tintView.wantsLayer = true
         tintView.frame = bounds
         tintView.autoresizingMask = [.width, .height]
@@ -106,6 +118,12 @@ public final class WindowMaterialView: NSView {
         return luminance > 0.5 ? 0.35 : 0.85
     }
 
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // A dynamic Apple picture or a shipped video has a light and a dark file.
+        if let applied, applied.backdrop.selection?.followsAppearance == true { apply(applied.backdrop, tint: applied.tint) }
+    }
+
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
@@ -145,23 +163,27 @@ public final class WindowMaterialView: NSView {
     ///   the backdrop's tint opacity.
     public func apply(_ backdrop: WindowBackdrop, tint: NSColor) {
         hidesArt = backdrop.isOpaque
-        if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture {
+        applied = (backdrop, tint)
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
+        let flipped = shown?.followsAppearance == true && loadedDark != dark
+        if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
+            loadedDark = dark
             artLoad?.cancel()
             artLoad = nil
-            let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
             let texture = backdrop.texture
             // Decoded art shows at once. Otherwise an earlier launch's snapshot shows in this
             // first frame, and the full image replaces it in place; without one the window shows
             // the theme's colors until the art, decoded off the main actor, fades in.
-            let ready = shown.flatMap { images.cached($0, texture: texture) }
-            showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture) }))
+            let ready = shown.flatMap { images.cached($0, texture: texture, dark: dark) }
+            showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, dark: dark) }))
             if let shown, ready == nil {
                 let fades = artImage == nil
                 artLoad = Task { [weak self, images] in
-                    let image = await images.image(shown, texture: texture)
+                    let image = await images.image(shown, texture: texture, dark: dark)
                     guard !Task.isCancelled, let self, let image else { return }
                     self.showArt(image)
                     if fades, let layer = self.artView.layer { Motion.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
@@ -169,10 +191,12 @@ public final class WindowMaterialView: NSView {
             }
         }
         artView.isHidden = hidesArt || artImage == nil
+        videoView.show(nil)
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)
         if artView.layer?.opacity != artOpacity { artView.layer?.opacity = artOpacity }
+        if videoView.layer?.opacity != artOpacity { videoView.layer?.opacity = artOpacity }
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()

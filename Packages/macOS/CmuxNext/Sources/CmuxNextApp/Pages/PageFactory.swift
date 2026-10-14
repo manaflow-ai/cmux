@@ -154,7 +154,7 @@ struct PageFactory {
             pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
         provider.backdropImages = SettingsWindowService.userImages.map { images in
             SettingsBackdropImages(images: images) { [weak services] in
-                await services?.viewers.picker.open(.init(choose: .files, types: [.image]))?.first
+                await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
         let museumArt = MuseumArtSession()

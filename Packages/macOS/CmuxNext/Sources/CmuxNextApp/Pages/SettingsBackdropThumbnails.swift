@@ -59,12 +59,13 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         return PageResource(data: data, mimeType: "image/png")
     }
 
-    /// A PNG at most 240 pixels wide of the image file at `url`, decoded by ImageIO at that size.
+    /// A PNG at most 240 pixels wide of the image file at `url`, decoded by ImageIO at that size;
+    /// a video's first frame.
     nonisolated static func thumbnail(at url: URL) -> Data? {
         let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
                        kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        guard let image = AppleWallpapers.isVideo(url.path) ? BackdropImageStore.poster(url, maxPixelSize: 240)
+            : CGImageSourceCreateWithURL(url as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)
