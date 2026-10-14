@@ -12,6 +12,7 @@ declare namespace Cmux {
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null }
   type AutomationId = string
   type AutomationSettings = { agent_run_default_seconds: number | null }
+  type AvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
   type Body = unknown
   type BrowserAttachFrame = { kind: "frame"; mime_type: "image/png" | "image/jpeg"; data_base64: string; width_px: number; height_px: number; pointer_frame_seq: string | null }
   type BrowserAttachItem = unknown
@@ -265,6 +266,9 @@ declare namespace Cmux {
   type PaletteUsageSnapshot = { revision: string; half_life_ms: string; pick_half_life_ms: string; entries: Array<Cmux.PaletteUsageRow>; picks: Array<Cmux.PaletteUsagePick>; imported: Array<string>; hidden: Array<string> }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
   type PaneSnapshot = { id: string /* pane_… */; screen_id: string /* screen_… */; name: string | null; focused: boolean; zoomed: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type ParticipantAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
+  type ParticipantAvatarPage = { participant_id: string; avatar: Cmux.ParticipantAvatarImage | null }
+  type ParticipantAvatarResult = { participant_id: string; avatar: Cmux.AvatarRef | null }
   type ParticipantId = string
   type PingResult = { alive: boolean; cursor: Cmux.Cursor }
   type PixelSize = { width_px: number; height_px: number }
@@ -579,7 +583,7 @@ interface CmuxGlobal {
       /** `chief.engine.get` (read, scope `chief:read`) */
       get: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
       /** `chief.engine.set` (mutation, scope `chief:write`) */
-      set: CmuxOp<{ machine?: string; session?: string; harness?: string; model?: string; effort?: string; speed?: string; compactor_speed?: string }, Cmux.MutationResult<Cmux.JsonValue>>
+      set: CmuxOp<{ machine?: string; session?: string; harness?: string; model?: string; effort?: string; speed?: string; compactor_speed?: string; compactor_harness?: string; compactor_model?: string }, Cmux.MutationResult<Cmux.JsonValue>>
     }
     /** `chief.list` (read, scope `chief:read`): The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
     list: CmuxOp<{ include_archived?: boolean }, { chiefs: Array<Cmux.HomeChief>; tombstones: Array<{ id: Cmux.ChiefId; owner_user: string; archived_at: Cmux.Timestamp }> }>
@@ -1091,6 +1095,14 @@ interface CmuxGlobal {
     }
     /** `pane.zoom` (mutation, scope `workspace:write`) */
     zoom: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; enabled?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
+  }
+  participant: {
+    avatar: {
+      /** `participant.avatar.get` (read, scope `participant:read`) */
+      get: CmuxOp<{ machine?: string; session?: string; participant_id: string }, Cmux.ParticipantAvatarPage>
+      /** `participant.avatar.set` (mutation, scope `participant:write`) */
+      set: CmuxOp<{ machine?: string; session?: string; participant_id: string; bytes?: string; clear?: boolean }, Cmux.MutationResult<Cmux.ParticipantAvatarResult>>
+    }
   }
   participants: {
     /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
