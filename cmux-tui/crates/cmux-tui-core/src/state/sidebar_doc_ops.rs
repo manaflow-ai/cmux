@@ -9,8 +9,10 @@
 //! (`cross_machine`, `provider_owned`, `nesting`, ...) and writes nothing.
 //!
 //! When Pinned changes, the batch also restates the old `sidebar_layout`
-//! (its `sec_pinned` tiles are the Pinned items) and advances
-//! `personal_revision`, so clients of `sidebar-layout-v1` follow.
+//! (its `sec_pinned` tiles are the Pinned items). The changed items are
+//! written back to the old personal rows and groups
+//! ([`crate::state::sidebar_doc_sync::write_back`]) and `personal_revision`
+//! advances, so clients of `sidebar-layout-v1` and `profiles-v1` follow.
 
 use serde_json::{Map, json};
 
@@ -76,6 +78,8 @@ impl Mux {
             None,
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
+                // Old writes first (normally none are pending).
+                crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
                 let before = store::read_doc(transaction)?;
                 let mut mint = mint_item_id;
                 let outcome = reduce::apply(&before, &ops, &mut mint)
@@ -89,18 +93,29 @@ impl Mux {
                 }
                 let mut events = store::write_changes(
                     transaction,
+                    &outcome.doc,
                     before.revision,
                     outcome.doc.revision,
                     &outcome.changes,
                     Some(&key),
                 )?;
-                if pinned_members(&before) != pinned_members(&outcome.doc)
-                    || outcome.changes.items.iter().any(|item| item.section == PINNED_SECTION_ID)
-                {
+                let pinned = pinned_members(&before) != pinned_members(&outcome.doc)
+                    || outcome.changes.items.iter().any(|item| item.section == PINNED_SECTION_ID);
+                if pinned {
                     let layout =
                         project_layout(&layout_store::document(transaction)?, &outcome.doc);
                     let value = layout_store::snapshot_value(&layout)?;
                     events.push(state_upsert(layout_store::RESOURCE, layout_store::ID, value));
+                }
+                // Old readers (the TUI, iOS) follow through the personal
+                // rows and `personal-changed`.
+                let wrote = crate::state::sidebar_doc_sync::write_back(
+                    transaction,
+                    &before,
+                    &outcome.doc,
+                    &outcome.changes,
+                )?;
+                if wrote || pinned {
                     commit_personal(
                         transaction,
                         "personal.sidebar_doc.updated",

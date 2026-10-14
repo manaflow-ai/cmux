@@ -145,7 +145,7 @@ pub(crate) fn place_created_workspaces_at(
     if !created.keys.is_empty() {
         // sidebar-doc-v1: the new workspaces are adopted into their machine
         // section at the place their personal rows got.
-        super::sidebar_doc_legacy::sync_from_legacy(transaction)?;
+        super::sidebar_doc_sync::sync_from_legacy(transaction)?;
     }
     Ok(())
 }

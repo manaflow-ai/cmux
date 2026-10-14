@@ -888,7 +888,7 @@ pub(crate) fn write_workspace_presentation(
     )?;
     if update.pinned.is_some() {
         // sidebar-doc-v1: the old pin flag pins or unpins in the document.
-        crate::state::sidebar_doc_legacy::sync_from_legacy(transaction)?;
+        crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
     }
     Ok(())
 }
