@@ -144,15 +144,17 @@ fn capture_terminal_blobs(
 }
 
 pub(crate) fn capture_error_is_retryable(error: &anyhow::Error) -> bool {
-    let message = error.to_string();
-    [
-        "session changed during checkpoint capture",
-        "session journal changed during checkpoint capture",
-        "terminal changed during replay capture",
-        "terminal journal ingress is unsettled during replay capture",
-    ]
-    .iter()
-    .any(|reason| message.contains(reason))
+    error.chain().any(|cause| {
+        let message = cause.to_string();
+        [
+            "session changed during checkpoint capture",
+            "session journal changed during checkpoint capture",
+            "terminal changed during replay capture",
+            "terminal journal ingress is unsettled during replay capture",
+        ]
+        .iter()
+        .any(|reason| message.contains(reason))
+    })
 }
 
 /// Capture one terminal's bounded `cmux.vt-replay.v1` blob from its live
