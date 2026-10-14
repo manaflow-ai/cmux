@@ -32,6 +32,9 @@
 
 use super::*;
 
+/// The mark on a watchers' harness-feed payload that is a start-mode notice.
+pub(crate) const START_MODE_NOTE: &str = "startModeChanged";
+
 /// The cmux setting that chooses the start mode of a new chat.
 pub const SETTING: &str = "agents.defaultPermissionMode";
 
@@ -408,13 +411,10 @@ impl Hub {
     }
 
     /// Tells local watchers a new chat's start mode may have changed
-    /// (`_acpmux/start_mode_changed`), so a pending chat asks again.
+    /// (`_acpmux/start_mode_changed`), so a pending chat asks again. It
+    /// rides the watchers' harness feed (`server/harness_admin.rs`
+    /// `watch_note`), marked `START_MODE_NOTE`.
     pub(super) fn start_mode_changed(&self) {
-        let _ = self.start_mode_changes.send(());
-    }
-
-    /// The feed behind `_acpmux/start_mode_changed`.
-    pub fn subscribe_start_mode_changes(&self) -> broadcast::Receiver<()> {
-        self.start_mode_changes.subscribe()
+        self.send_harness_change(json!({ (START_MODE_NOTE): true }));
     }
 }

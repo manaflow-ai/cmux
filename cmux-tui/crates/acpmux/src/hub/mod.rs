@@ -288,9 +288,6 @@ pub struct Hub {
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
-    /// A new chat's start mode may have changed (a pick, a config reload):
-    /// local watchers ask `_acpmux/start_mode` again (`start_mode.rs`).
-    pub(super) start_mode_changes: broadcast::Sender<()>,
 }
 
 impl Hub {
@@ -345,7 +342,6 @@ impl Hub {
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
-            start_mode_changes: broadcast::channel(16).0,
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
