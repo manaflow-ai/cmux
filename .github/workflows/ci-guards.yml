@@ -402,7 +402,7 @@ jobs:
 
       # Runs the agent-chat boundary tests (a real server process and the
       # cmux-chat script; run-tests.ts).
-      - name: Run agent-chat unit tests
+      - name: Run agent-chat tests
         if: ${{ matrix.group == 'preflight-agent-chat' }}
         working-directory: agent-chat
         run: bun run test
@@ -1040,6 +1040,7 @@ jobs:
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
           python3 tests/test_nightly_resume_tracks.py
+          python3 tests/test_nightly_signed_unnotarized_artifact.py
 
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}
