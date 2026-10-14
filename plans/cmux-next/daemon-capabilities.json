@@ -4,16 +4,19 @@
     "agent-session-attach-v1",
     "agent-session-start-v1",
     "agent-session-tabs-v1",
+    "agent-session-trust-v1",
     "app-screens-v1",
     "attach-identity-v1",
     "batch-close-v1",
     "bookmark-icon-v1",
     "bookmarks-v1",
+    "browser-devices-v1",
     "browser-host-provider-v1",
     "browser-profiles-v1",
     "browser-runtime-v1",
     "chief-inspect-v1",
     "close-reason-v1",
+    "close-workspace-if-empty-v1",
     "cloud-conversations-v1",
     "conversation-draft-events-v1",
     "conversation-search-v1",
@@ -31,6 +34,7 @@
     "frontend-browser-activate-v1",
     "frontend-browser-history-v1",
     "frontend-browser-insert-after-v1",
+    "frontend-browser-tab-profile-v1",
     "frontend-browser-tabs-v1",
     "history-v1",
     "icon-assets-v1",
@@ -71,6 +75,7 @@
     "tab-groups-v1",
     "tab-metadata-v1",
     "tab-restart-v1",
+    "tab-split-keep-focus-v1",
     "tab-split-respawn-v1",
     "tab-workspace-name-v1",
     "terminal-clipboard-read-v1",
@@ -78,6 +83,7 @@
     "terminal-command-history-v1",
     "terminal-env-v1",
     "terminal-frontend-shell-integration-v1",
+    "terminal-input-while-creating-v1",
     "terminal-pending-sequence-v1",
     "terminal-placement-env-v1",
     "terminal-reap-v1",
@@ -108,5 +114,7 @@
     "viewport-splits-v1",
     "workspace-registry-v1"
   ],
-  "unservedByBundledDaemon" : []
+  "unservedByBundledDaemon" : [
+
+  ]
 }

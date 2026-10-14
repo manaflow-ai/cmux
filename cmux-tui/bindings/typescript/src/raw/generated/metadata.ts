@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85. */
+/* cmux-tui mux protocol 12, IR d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85" as const;
+export const SDK_IR_SHA256 = "d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -484,6 +484,10 @@ export const COMMAND_METADATA = {
         "since": 7,
         "capability": null
       },
+      "if_empty": {
+        "since": null,
+        "capability": "close-workspace-if-empty-v1"
+      },
       "key": {
         "since": 7,
         "capability": "workspace-registry-v1"
@@ -524,6 +528,26 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. One cloud op tagged by kind, forwarded with the client's idempotency key and origin; unsupported kinds are refused with reason unsupported_op. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-run": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversation-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections and the person's authenticated page (ws-cloud-conversations-v1). One run of Chief agent and its steps after after_seq; a hidden run answers not_found. See spec/commands.md."
+    ]
+  },
+  "cloud-conversation-runs": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversation-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections and the person's authenticated page (ws-cloud-conversations-v1). The Cloud owner's runs of Chief agent in the conversation, newest first, limit 1-100. See spec/commands.md."
     ]
   },
   "cloud-conversation-snapshot": {
@@ -574,6 +598,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-inbox-op": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-inbox-state-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only, the person's clients (the verified app or an authenticated page). op is inbox.pin or inbox.mark_unread, forwarded to the person's UserDO inbox with the client's idempotency key; other kinds are refused with reason unsupported_op. See spec/commands.md."
     ]
   },
   "cloud-inbox-subscribe": {
@@ -666,6 +700,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
     ]
   },
+  "conversation-attachment-link": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "ws-attachments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local and authenticated WebSocket connections. variant original (default), poster or preview; name follows the attachment name rule. The caller and the hash follow the conversation-attachment-read rule. path is /attachments/<token> on the daemon's WebSocket listener (HTTP GET or HEAD, one byte range), valid for expires_in_ms (10 minutes) or until a restart. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview, validation_invalid). See spec/commands.md."
+    ]
+  },
   "conversation-attachment-read": {
     "authority": "local-admin",
     "since": 12,
@@ -673,7 +717,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
+      "Trusted local connections, and authenticated WebSocket connections with ws-attachments-v1. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
     ]
   },
   "conversation-attachment-upload": {
@@ -683,7 +727,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
+      "Trusted local connections, and authenticated WebSocket connections with ws-attachments-v1; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
     ]
   },
   "conversation-bind": {
@@ -736,6 +780,26 @@ export const COMMAND_METADATA = {
       "Trusted local user connections only (an agent-bound connection is refused; the remote relay does not admit it). Appends history from another store once: authors, times and ids are kept, the owner assigns seqs and one rev, skips a message whose author and client_msg_id (or id) it holds, and refuses times that go backward, pass the newest message it holds, or lie in the future. See spec/commands.md."
     ]
   },
+  "conversation-inbox-op": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-inbox-state-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. op is {kind:\"inbox.pin\", pinned, position?} or {kind:\"inbox.mark_unread\", unread}; it sets the caller's own list state of a conversation it takes part in (not_participant, unknown_conversation), never a conversation op (no rev). position is at most 2^53-2. See spec/commands.md."
+    ]
+  },
+  "conversation-link-resolve": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-tree-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. url is <scheme>://conversation/<conv_id>[/message/<msg_id>] (scheme cmux or cmux-<tag>, at most 512 bytes; query and fragment ignored), else bad request. An unknown conversation is unknown_conversation, a message unknown or of another conversation unknown_message. path runs from the thread root to the message along reply_to parents. See spec/commands.md."
+    ]
+  },
   "conversation-list": {
     "authority": "local-admin",
     "since": 12,
@@ -754,6 +818,36 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. Rejects use error_code conversation_rejected with the reason as the error text. See spec/commands.md."
+    ]
+  },
+  "conversation-run": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. The steps written after after_rev (default 0), oldest write first, limit 1-500 (default 500). An unknown run is run_rejected unknown_run. See spec/commands.md."
+    ]
+  },
+  "conversation-run-append": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps at most 2000 steps (run_full). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
+    ]
+  },
+  "conversation-runs": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. turns (at most 200 reply keys) selects runs by their reply; else the newest runs started before before_started_at, limit 1-200 (default 50). See spec/commands.md."
     ]
   },
   "conversation-search": {
@@ -1539,6 +1633,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "dock-columns-v1"
       },
+      "keep_focus": {
+        "since": 12,
+        "capability": "tab-split-keep-focus-v1"
+      },
       "respawn": {
         "since": 12,
         "capability": "tab-column-respawn-v1"
@@ -1569,6 +1667,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "tab-drag-v1",
     "fields": {
+      "keep_focus": {
+        "since": 12,
+        "capability": "tab-split-keep-focus-v1"
+      },
       "respawn": {
         "since": 12,
         "capability": "tab-split-respawn-v1"
@@ -2024,13 +2126,19 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 10,
     "capability": "browser-provider-v1",
-    "fields": {},
+    "fields": {
+      "hosting": {
+        "since": null,
+        "capability": "browser-provider-native-hosting-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "The lease is scoped to the trusted local control connection and is released on disconnect.",
       "The endpoint must be an explicit loopback ws URL with no credentials or fragment.",
       "Bearer authentication is optional and sends the token only in the CDP WebSocket upgrade Authorization header.",
-      "Each registration replaces that connection's complete target set; target ids are never journaled."
+      "Each registration replaces that connection's complete target set; target ids are never journaled.",
+      "All provider clients of one live registration must agree on hosting."
     ]
   },
   "release-attached-view-size": {
@@ -2327,10 +2435,16 @@ export const COMMAND_METADATA = {
       "paste": {
         "since": 7,
         "capability": null
+      },
+      "terminal_id": {
+        "since": null,
+        "capability": "terminal-input-while-creating-v1"
       }
     },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event."
+    ]
   },
   "send-key": {
     "authority": "control",
@@ -3312,6 +3426,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "cloud-conversation-run-changed": {
+    "since": 12,
+    "capability": "cloud-conversation-runs-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "cloud-inbox-changed": {
     "since": 12,
     "capability": "cloud-conversations-v1",
@@ -3387,6 +3509,22 @@ export const EVENT_METADATA = {
   "conversation-draft": {
     "since": 12,
     "capability": "conversation-draft-events-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "conversation-inbox-changed": {
+    "since": 12,
+    "capability": "conversation-inbox-state-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "conversation-run-changed": {
+    "since": 12,
+    "capability": "conversation-runs-v1",
     "streams": [
       "subscribe"
     ],
@@ -3732,6 +3870,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "terminal-input-unclaimed": {
+    "since": 12,
+    "capability": "terminal-input-while-creating-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "terminal-reaped": {
     "since": 12,
     "capability": "terminal-reap-v1",
@@ -3909,12 +4055,42 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "AgentRecord": {
     "additional_properties": false,
     "fields": {
+      "agent": {
+        "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "last_prompt": {
+        "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "session": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "since_ms": {
+        "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "source": {
@@ -4408,6 +4584,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "bearer"
     ]
   },
+  "BrowserProviderHosting": {
+    "kind": "enum",
+    "values": [
+      "daemon",
+      "native"
+    ]
+  },
   "BrowserProviderSnapshot": {
     "additional_properties": false,
     "constraints": [
@@ -4445,6 +4628,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "hosting": {
+        "capability": "browser-provider-native-hosting-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "BrowserProviderHosting"
         }
       },
       "provider_id": {
@@ -5061,6 +5253,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "thread": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadState"
+        }
+      },
       "thread_root": {
         "nullable": false,
         "presence": "optional",
@@ -5372,6 +5572,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "marked_unread": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
       "owner": {
         "nullable": false,
         "presence": "required",
@@ -5389,6 +5597,22 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "ConversationParticipant"
           },
           "kind": "array"
+        }
+      },
+      "pin_position": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pinned": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       },
       "read_cursors": {
@@ -5521,6 +5745,73 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ConversationThreadResolution": {
+    "additional_properties": false,
+    "fields": {
+      "at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "by": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationThreadState": {
+    "additional_properties": false,
+    "fields": {
+      "owner": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "resolved": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadResolution"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationThreadStatus": {
+    "kind": "enum",
+    "values": [
+      "open",
+      "resolved"
+    ]
+  },
   "ConversationThreadSummary": {
     "additional_properties": false,
     "fields": {
@@ -5551,6 +5842,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "owner": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "reply_count": {
         "nullable": false,
         "presence": "required",
@@ -5559,9 +5858,41 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "resolved_at": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "resolved_by": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "root": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "status": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadStatus"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -13922,6 +14253,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint64"
           }
         },
+        "if_empty": {
+          "capability": "close-workspace-if-empty-v1",
+          "default": false,
+          "description": "Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "key": {
           "capability": "workspace-registry-v1",
           "default": null,
@@ -14051,6 +14393,94 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-run": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_seq": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "agent": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "run": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-runs": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "agent": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "before_started_at": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
           }
         }
       },
@@ -14192,6 +14622,42 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-inbox-op": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "op": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
           }
         }
       },
@@ -14367,6 +14833,70 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-attachment-link": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "hash": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "variant": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "expires_in_ms": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "path": {
           "nullable": false,
           "presence": "required",
           "type": {
@@ -15088,6 +15618,149 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "conversation-inbox-op": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "op": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "marked_unread": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "participant": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pin_position": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "pinned": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-link-resolve": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "message": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        },
+        "path": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "thread_root": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "truncated": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "conversation-list": {
     "request": {
       "additional_properties": false,
@@ -15201,6 +15874,207 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-run": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_rev": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "run": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "has_more": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "run": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "steps": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-run-append": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "run": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "steps": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "run": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "steps": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-runs": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before_started_at": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "turns": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "has_more": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "runs": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "kind": "array"
           }
         }
       },
@@ -18256,6 +19130,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "ColumnPin"
           }
         },
+        "keep_focus": {
+          "capability": "tab-split-keep-focus-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "pane": {
           "default": null,
           "nullable": true,
@@ -18386,6 +19271,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "keep_focus": {
+          "capability": "tab-split-keep-focus-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "pane": {
@@ -20569,6 +21465,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "hosting": {
+          "capability": "browser-provider-native-hosting-v1",
+          "constraints": [
+            "\"native\": the provider presents each page in its own native view. The daemon never sends a geometry Emulation.setDeviceMetricsOverride, never activates a target to recover stalled frames, and screencasts a target only while a frame viewer is attached. Absent or \"daemon\" keeps the original contract: the daemon sizes and screencasts every attached target."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProviderHosting"
+          }
+        },
         "provider_id": {
           "nullable": false,
           "presence": "required",
@@ -21648,7 +22557,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "constraints": [
-        "When both are present, UTF-8 text bytes precede decoded bytes."
+        "When both are present, UTF-8 text bytes precede decoded bytes.",
+        "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
       ],
       "fields": {
         "bytes": {
@@ -21676,11 +22586,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "surface": {
-          "nullable": false,
-          "presence": "required",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "capability": "terminal-input-while-creating-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "text": {
@@ -21696,8 +22617,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "EmptyResult"
+      "additional_properties": false,
+      "fields": {
+        "queued": {
+          "capability": "terminal-input-while-creating-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "send-key": {
@@ -24661,12 +25594,32 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": "agent-changed"
         }
       },
+      "last_prompt": {
+        "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "session": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "since_ms": {
+        "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "source": {
@@ -25179,6 +26132,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "cloud-conversation-run-changed": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-run-changed"
+        }
+      },
+      "run": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "steps": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "cloud-inbox-changed": {
     "additional_properties": false,
     "fields": {
@@ -25608,6 +26610,101 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "conversation-inbox-changed": {
+    "additional_properties": false,
+    "fields": {
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-inbox-changed"
+        }
+      },
+      "marked_unread": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pin_position": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pinned": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "conversation-run-changed": {
+    "additional_properties": false,
+    "fields": {
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-run-changed"
+        }
+      },
+      "run": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "steps": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "kind": "array"
         }
       }
     },
@@ -27515,6 +28612,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-input-unclaimed": {
+    "additional_properties": false,
+    "fields": {
+      "bytes_base64": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Base64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-input-unclaimed"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
         "nullable": false,
         "presence": "required",
         "type": {

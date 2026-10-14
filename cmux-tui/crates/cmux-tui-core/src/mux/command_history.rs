@@ -246,6 +246,9 @@ impl Worker {
                     }
                     let next =
                         self.pass(|registry, now| registry.append_terminal_commands(&batch, now));
+                    if !batch.is_empty() {
+                        self.history_changed();
+                    }
                     if deletes.is_empty() { next } else { self.delete(deletes) }
                 }
                 Ok(CommandHistoryMessage::Delete(deletion, reply)) => {
@@ -265,6 +268,7 @@ impl Worker {
         deletes: Vec<(CommandDeletion, SyncSender<anyhow::Result<u64>>)>,
     ) -> Option<u64> {
         let mux = self.mux.upgrade()?;
+        let mut deleted_any = false;
         for (deletion, reply) in deletes {
             let result = mux
                 .workspace_registry
@@ -273,11 +277,23 @@ impl Worker {
                 .delete_terminal_commands(&deletion);
             if matches!(&result, Ok(deleted) if *deleted > 0) {
                 self.checkpoint_pending = true;
+                deleted_any = true;
             }
             let _ = reply.send(result);
         }
         drop(mux);
+        if deleted_any {
+            self.history_changed();
+        }
         self.pass(|registry, now| registry.expire_terminal_commands(now))
+    }
+
+    /// Command rows changed: an open History page re-reads (the merged
+    /// history lists these rows, cx-hnmbt.12).
+    fn history_changed(&self) {
+        if let Some(mux) = self.mux.upgrade() {
+            mux.history.changed(&mux, &[cmux_history::HistoryKind::Command]);
+        }
     }
 
     /// One store or expiry pass, then the WAL checkpoint when rows went.

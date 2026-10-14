@@ -198,6 +198,14 @@ pub(crate) fn harness_command(
         owned
     };
     let mut env = resolved_profile_env(profile)?;
+    // The Codex bridge runs the configured codex binary: `CODEX_PATH` of the
+    // profile or its family (`defaults.codex.env`), as the ACP adapter does.
+    let owned = match env.get("CODEX_PATH").filter(|p| !p.is_empty()) {
+        Some(path) if crate::codex_app_server::is_launch(&owned.0, &owned.1) => {
+            (path.clone(), owned.1)
+        }
+        _ => owned,
+    };
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
@@ -604,6 +612,8 @@ impl ChildAgent {
             return;
         }
         let mut guard = self.child.lock().await;
+        #[cfg(unix)]
+        let under = under_unreaped(guard.as_ref()).await;
         // The saved group id, not `child.id()`: once the leader is reaped
         // that is None, and its background processes would survive.
         if let Some(pid) = self.pid {
@@ -626,6 +636,8 @@ impl ChildAgent {
             let _ = child.kill().await;
         }
         *guard = None;
+        #[cfg(unix)]
+        end_still_running(under).await;
     }
 
     /// Stop the agent within a bound: SIGTERM to its process group, wait up
@@ -651,6 +663,13 @@ impl ChildAgent {
             return;
         }
         let pgid = self.pid.map(|p| p as i32);
+        // Busy: the exit watcher holds it while it reaps the agent (its
+        // stdout closed); a helper then is not taken here.
+        #[cfg(unix)]
+        let under = match self.child.try_lock() {
+            Ok(g) => under_unreaped(g.as_ref()).await,
+            Err(_) => Vec::new(),
+        };
         #[cfg(unix)]
         if let Some(pg) = pgid {
             unsafe {
@@ -676,6 +695,8 @@ impl ChildAgent {
         {
             let _ = c.start_kill();
         }
+        #[cfg(unix)]
+        end_still_running(under).await;
     }
 
     pub async fn is_alive(&self) -> bool {
@@ -855,6 +876,16 @@ impl ChildAgent {
             }
         };
         tokio::time::timeout(ceiling, progress).await.unwrap_or(false)
+    }
+
+    /// Whether the agent answers now: a hosted agent's host answers a query
+    /// within `budget` (a wedged host keeps its link open but never
+    /// answers); a direct child is alive.
+    pub async fn answers_within(&self, budget: std::time::Duration) -> bool {
+        if let Some(h) = &self.hosted {
+            return h.link().query_within(budget).await.is_ok();
+        }
+        self.is_alive().await
     }
 
     /// The Claude translator's state, wherever the translator runs.
@@ -1115,4 +1146,31 @@ impl ChildAgent {
             }
         }
     }
+}
+
+/// The processes under a direct agent, by pid and start time, taken before
+/// its group is signalled: a helper the harness moved out of its group
+/// (setsid, Node's `detached: true`) is out of reach of the group signal
+/// and runs on with parent pid 1 once the harness is gone (cx-n3uid). The
+/// pid is read only while the agent is not reaped (`Child::id` is Some), so
+/// it cannot name a reused pid. Not reached, as in `terminate_unadoptable`:
+/// a helper that already has ppid 1 (a double fork) or starts after this.
+#[cfg(unix)]
+async fn under_unreaped(child: Option<&Child>) -> Vec<crate::agent_host::tree::Started> {
+    let Some(pid) = child.and_then(Child::id) else { return Vec::new() };
+    tokio::task::spawn_blocking(move || crate::agent_host::tree::descendants(&[pid]))
+        .await
+        .unwrap_or_default()
+}
+
+/// SIGKILL each of `procs` that still runs as the same process: what the
+/// group signal of a direct agent did not reach.
+#[cfg(unix)]
+async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
+    if procs.is_empty() {
+        return;
+    }
+    let _ =
+        tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
+            .await;
 }

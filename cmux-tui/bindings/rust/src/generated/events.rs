@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85.
+// cmux-tui mux protocol 12, IR d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -21,7 +21,13 @@ pub struct AgentChangedEvent {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
+    /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub last_prompt: Optional<String>,
     pub session: Nullable<String>,
+    /// When the agent entered \`state\` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use \`updated_at_ms\`.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub since_ms: Option<u64>,
     pub source: T::AgentSource,
     pub state: T::AgentState,
     pub surface: T::Id,
@@ -151,6 +157,16 @@ pub struct CloudConversationResyncedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationRunChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub run: Nullable<T::JsonValue>,
+    pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudInboxChangedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
@@ -247,6 +263,25 @@ pub struct ConversationDraftEvent {
     pub conversation: String,
     pub item: T::JsonValue,
     pub participant: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationInboxChangedEvent {
+    pub conversation: String,
+    pub marked_unread: bool,
+    pub participant: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<u64>,
+    pub pinned: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunChangedEvent {
+    pub conversation: String,
+    pub run: Nullable<T::JsonValue>,
+    pub steps: Vec<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -697,6 +732,14 @@ pub struct TerminalClipboardReadCancelledEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalInputUnclaimedEvent {
+    pub bytes_base64: T::Base64,
+    pub reason: String,
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalReapedEvent {
     pub grace_ms: u64,
     pub terminal: Nullable<String>,
@@ -853,6 +896,7 @@ pub enum Event {
     ClientListInvalidated(ClientListInvalidatedEvent),
     CloudConversationChanged(CloudConversationChangedEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
+    CloudConversationRunChanged(CloudConversationRunChangedEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
     CloudInboxReset(CloudInboxResetEvent),
     CloudMuxResynced(CloudMuxResyncedEvent),
@@ -863,6 +907,8 @@ pub enum Event {
     ConfigReloadRequested(ConfigReloadRequestedEvent),
     ConversationChanged(ConversationChangedEvent),
     ConversationDraft(ConversationDraftEvent),
+    ConversationInboxChanged(ConversationInboxChangedEvent),
+    ConversationRunChanged(ConversationRunChangedEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
@@ -904,6 +950,7 @@ pub enum Event {
     TabRenamed(TabRenamedEvent),
     TerminalClipboardRead(TerminalClipboardReadEvent),
     TerminalClipboardReadCancelled(TerminalClipboardReadCancelledEvent),
+    TerminalInputUnclaimed(TerminalInputUnclaimedEvent),
     TerminalReaped(TerminalReapedEvent),
     TerminalRegistryChanged(TerminalRegistryChangedEvent),
     TitleChanged(TitleChangedEvent),
@@ -935,6 +982,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
+            Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
             Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
             Self::CloudMuxResynced(_) => Some("cloud-mux-resynced"),
@@ -945,6 +993,8 @@ impl Event {
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
             Self::ConversationChanged(_) => Some("conversation-changed"),
             Self::ConversationDraft(_) => Some("conversation-draft"),
+            Self::ConversationInboxChanged(_) => Some("conversation-inbox-changed"),
+            Self::ConversationRunChanged(_) => Some("conversation-run-changed"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
@@ -986,6 +1036,7 @@ impl Event {
             Self::TabRenamed(_) => Some("tab-renamed"),
             Self::TerminalClipboardRead(_) => Some("terminal-clipboard-read"),
             Self::TerminalClipboardReadCancelled(_) => Some("terminal-clipboard-read-cancelled"),
+            Self::TerminalInputUnclaimed(_) => Some("terminal-input-unclaimed"),
             Self::TerminalReaped(_) => Some("terminal-reaped"),
             Self::TerminalRegistryChanged(_) => Some("terminal-registry-changed"),
             Self::TitleChanged(_) => Some("title-changed"),
@@ -1016,6 +1067,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
+            Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
             Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
             Self::CloudMuxResynced(_) => Some(&CLOUD_MUX_RESYNCED_EVENT_METADATA),
@@ -1026,6 +1078,8 @@ impl Event {
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
             Self::ConversationDraft(_) => Some(&CONVERSATION_DRAFT_EVENT_METADATA),
+            Self::ConversationInboxChanged(_) => Some(&CONVERSATION_INBOX_CHANGED_EVENT_METADATA),
+            Self::ConversationRunChanged(_) => Some(&CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
@@ -1067,6 +1121,7 @@ impl Event {
             Self::TabRenamed(_) => Some(&TAB_RENAMED_EVENT_METADATA),
             Self::TerminalClipboardRead(_) => Some(&TERMINAL_CLIPBOARD_READ_EVENT_METADATA),
             Self::TerminalClipboardReadCancelled(_) => Some(&TERMINAL_CLIPBOARD_READ_CANCELLED_EVENT_METADATA),
+            Self::TerminalInputUnclaimed(_) => Some(&TERMINAL_INPUT_UNCLAIMED_EVENT_METADATA),
             Self::TerminalReaped(_) => Some(&TERMINAL_REAPED_EVENT_METADATA),
             Self::TerminalRegistryChanged(_) => Some(&TERMINAL_REGISTRY_CHANGED_EVENT_METADATA),
             Self::TitleChanged(_) => Some(&TITLE_CHANGED_EVENT_METADATA),
@@ -1184,6 +1239,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("cloud-conversation-run-changed") => match serde_json::from_value::<CloudConversationRunChangedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationRunChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("cloud-inbox-changed") => match serde_json::from_value::<CloudInboxChangedEvent>(raw.clone()) {
             Ok(event) => Event::CloudInboxChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1258,6 +1321,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("conversation-draft") => match serde_json::from_value::<ConversationDraftEvent>(raw.clone()) {
             Ok(event) => Event::ConversationDraft(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-inbox-changed") => match serde_json::from_value::<ConversationInboxChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationInboxChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-run-changed") => match serde_json::from_value::<ConversationRunChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationRunChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1586,6 +1665,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("terminal-clipboard-read-cancelled") => match serde_json::from_value::<TerminalClipboardReadCancelledEvent>(raw.clone()) {
             Ok(event) => Event::TerminalClipboardReadCancelled(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-input-unclaimed") => match serde_json::from_value::<TerminalInputUnclaimedEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalInputUnclaimed(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

@@ -43,6 +43,9 @@ public struct DaemonCapabilities: Sendable {
     /// A frontend browser tab's back/forward entries and scroll positions,
     /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
     public let frontendBrowserHistory = "frontend-browser-history-v1"
+    /// `profile_id` on `update-frontend-browser-tab`: a browser tab moves to
+    /// another browser profile in place (same tab id and position).
+    public let frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
     public let tabDrag = "tab-drag-v1"
     /// `name` on `move-tab-to-new-workspace`: the new workspace takes the
     /// moved tab's name in the same commit (else the app renames after).
@@ -85,6 +88,9 @@ public struct DaemonCapabilities: Sendable {
     /// Client-minted `pane_id` / `tab_id` on `split`, `new-pane` and `new-pane-right`, keyed
     /// retries (plans/cmux-next/remote-state-ownership.md S1).
     public let splitClientKeys = "split-client-keys-v1"
+    /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
+    /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
+    public let terminalInputWhileCreating = "terminal-input-while-creating-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
@@ -102,6 +108,9 @@ public struct DaemonCapabilities: Sendable {
     public let batchClose = "batch-close-v1"
     /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
     public let closeReason = "close-reason-v1"
+    /// `if_empty` on `close-workspace`: the daemon closes the workspace only
+    /// when it has no tab at commit time (`workspace_not_empty` otherwise).
+    public let closeWorkspaceIfEmpty = "close-workspace-if-empty-v1"
     /// `browser-host-provider`: the verified app's credentials for the daemon's browser host.
     public let browserHostProvider = "browser-host-provider-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
@@ -206,6 +215,9 @@ public struct DaemonCapabilities: Sendable {
     /// "agent-session-start"). A chat in a remote workspace starts only through it; without it
     /// the app asks to update that machine's cmux-tui, never starts on this Mac.
     public let agentSessionStart = "agent-session-start-v1"
+    /// The folder trust of a chat of that machine (`agent-session-trust`, cx-1bhjj): the person's
+    /// Trust answer for a folder there, recorded in that machine's acpmux.
+    public let agentSessionTrust = "agent-session-trust-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
@@ -284,6 +296,9 @@ public struct DaemonCapabilities: Sendable {
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
+    /// `browser.devices.*` and `browser.tab.emulate*`: Chrome's device toolbar
+    /// list and each browser tab's emulation (`extra.emulation`), owned by the daemon (cx-ocbf3).
+    public let browserDevices = "browser-devices-v1"
     /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
     public let keybindings = "keybindings-v1"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
@@ -296,6 +311,9 @@ public struct DaemonCapabilities: Sendable {
     /// spawns a new tab of the same kind in the source pane, in the same
     /// owner op (plans/cmux-next/layout-invariants.md).
     public let tabSplitRespawn = "tab-split-respawn-v1"
+    /// `move-tab-to-split` `keep_focus`: the new pane does not take focus (a
+    /// pane the app opens for a subagent while the user types in the chat).
+    public let tabSplitKeepFocus = "tab-split-keep-focus-v1"
     /// Additive shapes the app asks for through `set-client-info`: view
     /// identity on attach, creation receipts, caller-chosen creation attempt
     /// keys, and per-terminal color overrides.
@@ -335,15 +353,15 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
+                                            sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, projectList, splitClientKeys, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
 

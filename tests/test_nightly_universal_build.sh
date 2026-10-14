@@ -47,6 +47,16 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Upload unsigned nightly app$/ { in_upload=1; next }
+  in_upload && /^      - name:/ { in_upload=0 }
+  in_upload && /compression-level: 0/ { found=1 }
+  END { exit !found }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the precompressed unsigned app artifact must disable a second compression pass"
+  exit 1
+fi
+
+if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
@@ -441,14 +451,14 @@ if ! awk '
   exit 1
 fi
 
-# Published nightly-next waits for Apple in the job, bounded at 40m like main
-# (three nightly-next builds in a row outlasted 20m): Accepted builds are stapled and published by this run,
+# Published nightly-next waits for Apple in the job for 20m (main and RC 40m),
+# so one stalled submission never holds the next build: Accepted builds are stapled and published by this run,
 # and a wait that runs out hands the exact submission to the next nightly-next
 # run through the recovery artifact. Nothing unaccepted reaches distribution
 # policy, the appcast or publication.
 for expected in \
   "id: notarize-nightly" \
-  "CMUX_NOTARY_WAIT_TIMEOUT: \${{ needs.decide.outputs.notary_test == 'true' && '160m' || '40m' }}" \
+  "CMUX_NOTARY_WAIT_TIMEOUT: \${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}" \
   "CMUX_NOTARY_PENDING_ON_TIMEOUT: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}" \
   "notary_pending: \${{ steps.notarize-nightly.outputs.submission_pending }}" \
   "- name: Prepare pending notarization recovery artifact" \
@@ -474,6 +484,11 @@ for step in "Gate distribution with syspolicy_check" "Generate Sparkle appcasts 
     exit 1
   fi
 done
+# The signing job installs no Bun (main #37f07fec trimmed its setup).
+if awk '/^  build-sign-notarize-nightly:/ { j=1; next } /^  [A-Za-z0-9_-]+:/ { j=0 } j && /setup-bun@/ { f=1 } END { exit !f }' "$WORKFLOW_FILE"; then
+  echo "FAIL: the nightly signing job must not set up Bun"
+  exit 1
+fi
 
 RELEASE_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/release.yml"
 if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Use' "$RELEASE_WORKFLOW_FILE"; then
@@ -586,7 +601,7 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   if ! awk '
     /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
     /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
-    /^          \.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
+    /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
     /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
     END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
   ' "$workflow"; then
@@ -817,12 +832,16 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
   job == "app" && /^      - name: Restore Xcode compilation cache/ { step="restore"; next }
   job == "app" && /^      - name: Upload dSYMs to Sentry/ { step="dsym"; next }
+  job == "app" && /^      - name: Archive unsigned nightly app/ { step="archive"; next }
+  job == "app" && /^      - name: Upload unsigned nightly app/ { step="upload"; next }
   job == "app" && /^      - name:/ { step="" }
   step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\''$/ { saw_cold_gate=1 }
   step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
-  END { exit !(saw_cold_gate && saw_dsym_gate) }
+  step == "archive" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_archive_gate=1 }
+  step == "upload" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_upload_gate=1 }
+  END { exit !(saw_cold_gate && saw_dsym_gate && saw_archive_gate && saw_upload_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: a build-only run must be able to skip the compilation cache restore and must never upload dSYMs to Sentry"
+  echo "FAIL: build-only must allow a cold cache and skip dSYMs plus unused app archive/upload"
   exit 1
 fi
 
@@ -879,5 +898,76 @@ for cache_workflow in "$WORKFLOW_FILE"; do
     exit 1
   fi
 done
+
+# cx-x7hwx: the cmux NIGHTLY-identity old feed follows the newest cmux NEXT
+# build, whichever run published it. #20518 hands a build still in Apple's
+# queue to recovery, so a later run (or a continue-only run) publishes it; the
+# legacy job must start then too, and must not start for a build the old feed
+# already has.
+legacy_dir="$(mktemp -d)"
+trap 'rm -rf "$legacy_dir"' EXIT
+legacy_feed() {  # <file> <build>...
+  local file="$1"; shift
+  {
+    echo '<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel>'
+    local build
+    for build in "$@"; do
+      echo "<item><sparkle:version>$build</sparkle:version><enclosure url=\"https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos-arm64-$build.dmg\" type=\"application/octet-stream\"/></item>"
+    done
+    echo '</channel></rss>'
+  } > "$file"
+}
+legacy_target() {
+  python3 "$ROOT_DIR/scripts/ci/nightly-next-legacy-target.py" "$legacy_dir/next.xml" "$legacy_dir/old.xml" cmux-nightly-next-macos-arm64-
+}
+# A recovered build (published by a later run) is newer than the old feed: copy it.
+legacy_feed "$legacy_dir/next.xml" 3851000000001 3850073942601
+legacy_feed "$legacy_dir/old.xml" 3821558930001
+if [ "$(legacy_target)" != 3851000000001 ]; then
+  echo "FAIL: a cmux NEXT build newer than the old feed (published by recovery) must start the cmux NIGHTLY-identity job"
+  exit 1
+fi
+# The old feed already has it, or a newer one: nothing to do.
+legacy_feed "$legacy_dir/old.xml" 3851000000001
+if [ -n "$(legacy_target)" ]; then
+  echo "FAIL: a cmux NEXT build the old feed already has must not start the cmux NIGHTLY-identity job"
+  exit 1
+fi
+legacy_feed "$legacy_dir/old.xml" 3852000000001
+if [ -n "$(legacy_target)" ]; then
+  echo "FAIL: a cmux NEXT build older than the old feed must not start the cmux NIGHTLY-identity job"
+  exit 1
+fi
+# The enclosure must be the exact published cmux NEXT DMG of that build.
+sed 's#arm64-3851000000001.dmg#arm64-1.dmg#' "$legacy_dir/next.xml" > "$legacy_dir/bad.xml" && mv "$legacy_dir/bad.xml" "$legacy_dir/next.xml"
+legacy_feed "$legacy_dir/old.xml" 3821558930001
+if legacy_target >/dev/null 2>&1; then
+  echo "FAIL: a cmux NEXT item whose enclosure is not its own DMG must stop the cmux NIGHTLY-identity job"
+  exit 1
+fi
+# Wiring: the macOS job takes its build from legacy-identity-target, not from
+# this run's publish-nightly, and the target job does not require a publication.
+legacy_job="$(awk '/^  publish-nightly-identity-legacy:/{on=1} on && /^  [a-z0-9-]+:$/ && !/publish-nightly-identity-legacy/{exit} on' "$WORKFLOW_FILE")"
+target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
+for expected in \
+  "needs: [decide, legacy-identity-target]" \
+  "needs.legacy-identity-target.outputs.build != ''" \
+  "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
+  "vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'" \
+  "group: nightly-next-legacy-identity" \
+  "- name: Skip a build older than the old feed's"; do
+  if ! grep -Fq -- "$expected" <<<"$legacy_job"; then
+    echo "FAIL: publish-nightly-identity-legacy must contain: $expected"
+    exit 1
+  fi
+done
+if grep -Fq "publish-nightly.result == 'success'" <<<"$legacy_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
+  echo "FAIL: the cmux NIGHTLY-identity jobs must not require a publication in the same run (recovered builds publish later)"
+  exit 1
+fi
+if ! grep -Fq "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" <<<"$target_job"; then
+  echo "FAIL: legacy-identity-target must compare the feeds with scripts/ci/nightly-next-legacy-target.py"
+  exit 1
+fi
 
 echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"

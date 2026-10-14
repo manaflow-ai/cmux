@@ -50,6 +50,10 @@ pub enum ChatsCmd {
         /// The folder to open in when the chat's own folder is gone or unknown.
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// FROM=TO: where another machine's folder is here, for a chat moved
+        /// from it (`--cwd-map /home/leo=/Users/leoli`). Repeatable.
+        #[arg(long = "cwd-map", value_name = "FROM=TO")]
+        cwd_map: Vec<String>,
     },
     /// The folders the index reads, and the folders it refuses with the reason.
     Roots,
@@ -156,11 +160,22 @@ pub fn read_plan(plan: &Value) -> Result<Planned, AppError> {
 }
 
 /// Plans `key` and, for an adopt plan, creates its daemon session.
-pub async fn resolve(client: &Client, key: &str, cwd: Option<&Path>) -> Result<OpenOutcome> {
+/// `cwd_map` (`FROM=TO`) goes with the adopt as `cwdMap`.
+pub async fn resolve(
+    client: &Client,
+    key: &str,
+    cwd: Option<&Path>,
+    cwd_map: &[String],
+) -> Result<OpenOutcome> {
     let plan = client.request("_acpmux/chat_open", open_params(key, cwd)?).await?;
     match read_plan(&plan)? {
         Planned::Ready(outcome) => Ok(outcome),
-        Planned::Adopt { session_new } => {
+        Planned::Adopt { mut session_new } => {
+            if !cwd_map.is_empty()
+                && let Some(adopt) = session_new.pointer_mut("/_meta/acpmux/adopt")
+            {
+                adopt["cwdMap"] = json!(cwd_map);
+            }
             let created = client.request(method::SESSION_NEW, session_new).await?;
             let session_id = created
                 .get("sessionId")
@@ -184,7 +199,7 @@ pub fn resolve_blocking(
     }
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
         let client = crate::daemon::connect(true).await?;
-        resolve(&client, key, cwd).await
+        resolve(&client, key, cwd, &[]).await
     })
 }
 
@@ -216,8 +231,8 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
-        ChatsCmd::Open { key, cwd } => {
-            let outcome = resolve(&client, &key, cwd.as_deref()).await?;
+        ChatsCmd::Open { key, cwd, cwd_map } => {
+            let outcome = resolve(&client, &key, cwd.as_deref(), &cwd_map).await?;
             match outcome {
                 OpenOutcome::Session { session_id } if !json_out => {
                     crate::tui::run(client, Some(session_id)).await
@@ -280,8 +295,8 @@ pub fn list_text(page: &Value, now_ms: i64) -> String {
         out.push_str(line.trim_end());
         out.push('\n');
     }
-    if let Some(next) = page.get("nextCursor").and_then(Value::as_str) {
-        out.push_str(&format!("(more: {next} shown; raise --limit)\n"));
+    if page.get("nextCursor").and_then(Value::as_str).is_some() {
+        out.push_str(&format!("(more: {} shown; raise --limit)\n", chats.len()));
     }
     out
 }

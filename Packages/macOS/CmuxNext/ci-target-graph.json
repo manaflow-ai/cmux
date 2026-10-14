@@ -6,6 +6,7 @@
     "CmuxAgentBrands": "Packages/Shared/CmuxAgentBrands",
     "CmuxAgentCursor": "Packages/Shared/CmuxAgentCursor",
     "CmuxAgentQuestion": "Packages/Shared/CmuxAgentQuestion",
+    "CmuxAppAttest": "Packages/Shared/CmuxAppAttest",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
@@ -100,7 +101,9 @@
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxAppAttest"
+      ]
     },
     "CmuxNextAgentPaneTests": {
       "kind": "test",
@@ -108,6 +111,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentPane",
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
@@ -134,6 +138,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextAccounts",
         "CmuxNextActions",
         "CmuxNextAgentActivity",
@@ -146,6 +151,7 @@
         "CmuxNextBridge",
         "CmuxNextBrowser",
         "CmuxNextBrowserAutomation",
+        "CmuxNextBrowserHistory",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextCLIInstall",
@@ -167,6 +173,7 @@
         "CmuxNextLayout",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
+        "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
@@ -192,6 +199,7 @@
         "CmuxAgentBrands",
         "CmuxAgentCursor",
         "CmuxAgentQuestion",
+        "CmuxAppAttest",
         "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender"
@@ -214,6 +222,7 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextApp",
+        "CmuxNextBrowserHistory",
         "CmuxNextComputerUse",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
@@ -224,6 +233,7 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextLayout",
+        "CmuxNextNowPlaying",
         "CmuxNextProcessEnvironment",
         "CmuxNextTabs",
         "CmuxNextTasks",
@@ -294,6 +304,16 @@
       "targets": [
         "CmuxNextBrowser",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextBrowserHistory": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserHistory",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
       ],
       "packages": []
     },
@@ -389,6 +409,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextControlTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextSettings",
@@ -596,6 +617,16 @@
       "reads": [
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
+    },
+    "CmuxNextNowPlaying": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextSidebar"
+      ],
+      "packages": []
     },
     "CmuxNextOnboarding": {
       "kind": "regular",

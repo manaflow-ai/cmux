@@ -12,12 +12,13 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
+| Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -44,8 +45,11 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
+| `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+| `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
 | `cloud-inbox-changed` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-inbox-reset` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-subscription-state` | subscribe | `scope`, `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
@@ -71,6 +75,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
@@ -411,18 +416,19 @@ unchanged retry publishes nothing. Bookmarks advance neither
 
 Published by the session's history module when the merged history changes:
 a committed `history.entries.remove`, `history.site.remove`, `history.clear`,
-`history.restore`, `history.visit.record`, `history.visit.title` or
-`history.visit.remove` that changed something, or agent and command journal
-records the module newly folded. The payload is
+`history.restore`, `history.visit.record`, `history.visit.title`,
+`history.visit.remove` or `history.trail.record` that changed something,
+agent and command journal records the module newly folded, or terminal
+command rows the command worker stored or a client deleted. The payload is
 `{event:"history-changed", revision:uint64, kinds:[string]}`, where `kinds`
-names the entry kinds that changed (`page`, `command`, `agent`, and
+names the entry kinds that changed (`page`, `location`, `command`, `agent`, and
 `closed` when a history remove or clear deleted closed groups, or when a
 committed change closed or deleted a workspace, tab, screen or group in the
 closed-history store, after the module's journal feed started with a history
 read); interested frontends re-read `history.entries.list`. A replayed
 mutation publishes nothing, and a deletion can publish `closed` twice (the
-mutation and its journal record). Changes of the app's location trail are
-announced by the app, not by this event. A page relay hears this event when
+mutation and its journal record). The daemon owns the location trail
+(cx-hnmbt.12), so its changes are announced here with kind `location`. A page relay hears this event when
 its page lists it in page-router.json (`page-events-v1`). Page visits are shared
 by the sessions of a machine; the event goes to the session that served the
 change.
@@ -530,6 +536,48 @@ WebSocket connection while the app holds the lease.
 published for `conversation-typing` to trusted local connections and (with
 `ws-conversations-v1`) authenticated WebSocket connections. Ephemeral:
 never stored or replayed.
+
+### conversation-inbox-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-inbox-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+
+`object{event:"conversation-inbox-changed", conversation:string, participant:string, pinned:bool, pin_position?:uint64, marked_unread:bool}`,
+published after a `conversation-inbox-op` commit, only to the connections
+whose principal is `participant` (the person's own clients; an agent never
+sees the person's pins). Not a conversation change: it carries no `rev` and
+never reaches `conversation.events` or the remote relay.
+
+### conversation-run-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-run-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-runs-v1` |
+
+`object{event:"conversation-run-changed", conversation:string, run:Run, steps:[Step]}`,
+published after a `conversation-run-append` commit (the run after the append
+and the steps it wrote; see `commands.md`), only to trusted local connections
+that echoed `conversation-runs-v1` in `set-client-info`. Not a conversation
+change: it carries no conversation `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### cloud-conversation-run-changed
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-run-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
+
+`object{event:"cloud-conversation-run-changed", conversation:string, run:Run, steps:[Step], account?:string}`,
+a Cloud Chief's run change in a subscribed Cloud conversation (the owner's
+`conversation-run-changed` frame), only to the person's connections that
+echoed `conversation-runs-v1`. Never replayed.
 
 ### terminal-registry-changed
 
@@ -1149,6 +1197,34 @@ Example:
 {"event":"daemon-shutdown"}
 ```
 
+### terminal-input-unclaimed
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-input-unclaimed` |
+| status | implemented control event |
+| since | protocol 12, capability `terminal-input-while-creating-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-input-unclaimed",terminal_id:string,bytes_base64:Base64,reason:string}
+```
+
+Meaning: Input that a connection queued for a terminal still being created (`send` with `terminal_id`,
+[commands.md](commands.md#send)) was not written, because the creation failed (`failed`), its connection
+closed first (`cancelled`), it did not end within 10 seconds of the first queued byte (`expired`), or the
+terminal refused a write of the queue (`write-failed`; the bytes before it were written). `bytes_base64` holds
+this connection's bytes that were not written, in the order they were queued. A frame whose write timed out
+may have reached the terminal in part, so after `write-failed` the first bytes can repeat input it got. It is sent on the control queue of the connection that queued them, also without a
+subscription. The client should give the bytes to the terminal that has focus.
+
+Example:
+
+```json
+{"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
+```
+
 ### terminal-clipboard-read
 
 | Field | Value |
@@ -1550,18 +1626,25 @@ object{
   source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
   agent?:string|null,
-  updated_at_ms:uint64
+  updated_at_ms:uint64,
+  since_ms?:uint64,
+  last_prompt?:string|null
 }
 ```
 
+`last_prompt` is the agent's last prompt (at most 200 characters, memory only; see
+`list-agents`).
+
 Meaning: The current agent state for a surface changed. `agent` is the
-adapter identity when the producer knows it. Hook authority and source
+adapter identity when the producer knows it. `since_ms` is when the agent
+entered `state` (a report that keeps the state keeps it; after a daemon restart it is the
+last report's time; senders before it omit it, so use `updated_at_ms`). Hook authority and source
 precedence follow `commands.md`.
 
 Example:
 
 ```json
-{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000}
+{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000,"since_ms":1709999940000}
 ```
 
 The earlier draft name `agent-state-changed` is not emitted. Clients must

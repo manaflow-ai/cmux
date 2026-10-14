@@ -528,6 +528,19 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             index += 1;
             continue;
         }
+        // After `action run <id>`, `--session` and `--machine` are the
+        // action's arguments (`agent.openSessionWorkspace --session`): they
+        // name a daemon, which an app action never reaches.
+        if command.len() >= 3
+            && command[..2] == ["action", "run"]
+            && ["--session", "--machine"].iter().any(|flag| {
+                value == flag || value.strip_prefix(flag).is_some_and(|rest| rest.starts_with('='))
+            })
+        {
+            command.push(value.clone());
+            index += 1;
+            continue;
+        }
         // Match clap's standard long-option form, where an option value can
         // follow an equals sign (for example, `--socket=/tmp/cmux.sock`).
         // This keeps one-token invocations convenient without changing the
@@ -909,6 +922,8 @@ USAGE
   cmux sidebar plugin use <name-or-id>
   cmux sidebar plugin use --builtin
   cmux sidebar plugin update|remove <name-or-id>
+  cmux sidebar section-scroll <section> fixed|flow
+  cmux sidebar section-max-rows <section> <1-50>|none
 ";
 
 const PAIRING_HELP: &str = "\

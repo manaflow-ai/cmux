@@ -46,13 +46,20 @@ extension DaemonConnection {
     /// Closes a workspace. `endTerminals` also ends, in the same daemon
     /// commit, each of its terminals not shown elsewhere and not kept; it is
     /// sent only to a daemon with `batch-close-v1` (see `supportsBatchClose`). `reason` goes
-    /// with `endTerminals` only.
+    /// with `endTerminals` only. `ifEmpty` closes only a workspace that has
+    /// no tab when the close commits (`workspace_not_empty` otherwise); it is
+    /// sent only to a daemon with `close-workspace-if-empty-v1` (see
+    /// `supportsCloseIfEmpty`), and an older daemon gets the unguarded close.
     @discardableResult
     public func closeWorkspace(_ key: WorkspaceKey, endTerminals: Bool = false,
-                               reason: CloseReason? = nil) async throws -> WorkspaceMutationResult {
+                               reason: CloseReason? = nil, ifEmpty: Bool = false) async throws -> WorkspaceMutationResult {
         try await request(CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals,
-                                                reason: endTerminals ? reason : nil, mutation: mutation()))
+                                                reason: endTerminals ? reason : nil,
+                                                ifEmpty: ifEmpty && supportsCloseIfEmpty, mutation: mutation()))
     }
+
+    /// Whether this daemon takes `if_empty` on `close-workspace`.
+    public var supportsCloseIfEmpty: Bool { identity?.supports(DaemonCapabilities.shared.closeWorkspaceIfEmpty) == true }
 
     /// Whether this daemon closes many tabs, and the terminals they end, in
     /// one commit (`close-tabs`, `end_terminals`).
@@ -188,6 +195,12 @@ extension DaemonConnection {
         try await request(UpdateFrontendBrowserTabRequest(surface: surface, url: url, title: title, faviconURL: faviconURL))
     }
 
+    /// Moves a frontend browser tab to browser profile `profileID` in place (`frontend-browser-tab-profile-v1`).
+    @discardableResult
+    public func setFrontendBrowserTabProfile(_ surface: SurfaceID, profileID: String) async throws -> SetFrontendBrowserTabProfileRequest.Response {
+        try await request(SetFrontendBrowserTabProfileRequest(surface: surface, profileID: profileID))
+    }
+
     public func renameTab(_ surface: SurfaceID, to name: String) async throws { _ = try await request(RenameTabRequest(surface: surface, name: name)) }
     public func renamePane(_ pane: PaneID, to name: String) async throws { _ = try await request(RenamePaneRequest(pane: pane, name: name)) }
     public func renameScreen(_ screen: ScreenID, to name: String) async throws { _ = try await request(RenameScreenRequest(screen: screen, name: name)) }
@@ -225,6 +238,13 @@ extension DaemonConnection {
 
     public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false) async throws {
         _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil))
+    }
+
+    /// Input by host terminal id, also for a terminal still being created
+    /// (`terminal-input-while-creating-v1`). True when the daemon queued it.
+    @discardableResult
+    public func sendTerminalInput(_ terminalID: String, bytes: Data) async throws -> Bool {
+        try await request(SendTerminalInputRequest(terminalID: terminalID, bytes: bytes)).queued == true
     }
 
     public func sendKeys(_ surface: SurfaceID, _ keys: [String]) async throws {

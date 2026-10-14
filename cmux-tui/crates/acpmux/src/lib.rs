@@ -39,10 +39,13 @@ pub mod local_stream;
 pub mod login_env;
 pub mod native;
 pub mod offer_mcp;
+#[cfg(windows)]
+mod owner_only;
 pub mod peer;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;
+pub mod prompt_context;
 pub mod protected_folders;
 pub mod question_answer;
 pub mod registry;
@@ -60,6 +63,7 @@ pub mod subagents;
 pub mod transcript;
 pub mod trust;
 pub mod tui;
+pub mod user_settings;
 pub mod web_modes;
 
 pub mod model_catalog;

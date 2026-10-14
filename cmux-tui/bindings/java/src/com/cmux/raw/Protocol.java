@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85";
+    public static final String IR_SHA256 = "d0cd6b073142853e05872a82893772bcb5ed0cacca2cf14f0d093f119c9232b3";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -28,6 +28,7 @@ public final class Protocol {
             case "client-list-invalidated" -> ClientListInvalidatedEvent.fromWire(value);
             case "cloud-conversation-changed" -> CloudConversationChangedEvent.fromWire(value);
             case "cloud-conversation-resynced" -> CloudConversationResyncedEvent.fromWire(value);
+            case "cloud-conversation-run-changed" -> CloudConversationRunChangedEvent.fromWire(value);
             case "cloud-inbox-changed" -> CloudInboxChangedEvent.fromWire(value);
             case "cloud-inbox-reset" -> CloudInboxResetEvent.fromWire(value);
             case "cloud-mux-resynced" -> CloudMuxResyncedEvent.fromWire(value);
@@ -38,6 +39,8 @@ public final class Protocol {
             case "config-reload-requested" -> ConfigReloadRequestedEvent.fromWire(value);
             case "conversation-changed" -> ConversationChangedEvent.fromWire(value);
             case "conversation-draft" -> ConversationDraftEvent.fromWire(value);
+            case "conversation-inbox-changed" -> ConversationInboxChangedEvent.fromWire(value);
+            case "conversation-run-changed" -> ConversationRunChangedEvent.fromWire(value);
             case "conversation-typing" -> ConversationTypingEvent.fromWire(value);
             case "daemon-shutdown" -> DaemonShutdownEvent.fromWire(value);
             case "detached" -> DetachedEvent.fromWire(value);
@@ -79,6 +82,7 @@ public final class Protocol {
             case "tab-renamed" -> TabRenamedEvent.fromWire(value);
             case "terminal-clipboard-read" -> TerminalClipboardReadEvent.fromWire(value);
             case "terminal-clipboard-read-cancelled" -> TerminalClipboardReadCancelledEvent.fromWire(value);
+            case "terminal-input-unclaimed" -> TerminalInputUnclaimedEvent.fromWire(value);
             case "terminal-reaped" -> TerminalReapedEvent.fromWire(value);
             case "terminal-registry-changed" -> TerminalRegistryChangedEvent.fromWire(value);
             case "title-changed" -> TitleChangedEvent.fromWire(value);

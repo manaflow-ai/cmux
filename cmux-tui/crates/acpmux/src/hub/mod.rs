@@ -39,11 +39,14 @@ mod offers;
 mod secrets;
 mod seen;
 mod session;
+pub(crate) mod session_pages;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
 use shutdown::ShutdownPlan;
 mod spawn;
+mod start_defaults;
+pub(crate) mod start_mode;
 mod steer_end;
 mod stream;
 mod tap;
@@ -225,6 +228,8 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// Startup has read the login environment: the catalog sees its PATH.
+    pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
@@ -280,6 +285,8 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
+    pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
 }
@@ -306,6 +313,7 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
@@ -334,6 +342,7 @@ impl Hub {
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             offers: Default::default(),
+            transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
@@ -429,6 +438,7 @@ impl Hub {
     pub fn begin_startup(&self, login_env: bool) {
         self.login_env_requested.store(login_env, Ordering::SeqCst);
         self.startup_ready.send_replace(false);
+        self.catalog_ready.send_replace(false);
     }
 
     /// Background startup: import the login environment (when requested),
@@ -465,6 +475,7 @@ impl Hub {
                 });
             }
         }
+        self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
@@ -482,16 +493,11 @@ impl Hub {
     }
 
     /// The login environment changed: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
-    /// and harnesses on the login PATH may come from it only.
+    /// and harnesses on the login PATH may come from it only. Watchers hear
+    /// the new catalog, so a client that listed the old one catches up.
     async fn after_login_env(self: &Arc<Self>) -> bool {
         self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
-        match self.reload_catalog().await {
-            Ok(_) => true,
-            Err(e) => {
-                tracing::warn!("catalog reload after login env: {e}");
-                false
-            }
-        }
+        self.reload_and_announce().await
     }
 
     pub fn startup_complete(&self) -> bool {
@@ -595,6 +601,8 @@ impl Hub {
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
+            asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
+            asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
             route_switch: AtomicBool::new(false),
             inbound_tx,
@@ -602,6 +610,7 @@ impl Hub {
             steering: AtomicBool::new(false),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
+            applied: StdMutex::new(session::Applied::default()),
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
@@ -619,9 +628,8 @@ impl Hub {
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
-        let mut v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
-        v.sort_by_key(|s| std::cmp::Reverse(s.meta().updated_at));
-        v
+        let v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
+        newest_first(v)
     }
 
     /// Resolve by id, exact name, or unique prefix of either.
@@ -975,4 +983,21 @@ fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
     if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
         meta.composer_draft = None;
     }
+}
+
+/// `sessions` newest first. Each session's `updated_at` is read once: other
+/// tasks move it at any time (every logged event), and a key that is read
+/// again on each comparison is not a total order, which makes Rust's sort
+/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
+/// the list is the same for the same values.
+fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
+    let mut keyed: Vec<_> = sessions
+        .into_iter()
+        .map(|s| {
+            let at = s.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at;
+            (at, s)
+        })
+        .collect();
+    keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
+    keyed.into_iter().map(|(_, s)| s).collect()
 }

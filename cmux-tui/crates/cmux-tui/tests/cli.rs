@@ -3667,8 +3667,14 @@ mod app_workspaces;
 #[path = "cli/browser_devices.rs"]
 mod browser_devices;
 #[cfg(unix)]
+#[path = "cli/browser_profiles.rs"]
+mod browser_profiles;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
+#[cfg(unix)]
+#[path = "cli/close_workspace_if_empty.rs"]
+mod close_workspace_if_empty;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
@@ -3677,8 +3683,23 @@ mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
+#[path = "cli/conversation_inbox_state.rs"]
+mod conversation_inbox_state;
+#[cfg(unix)]
+#[path = "cli/conversation_person_credentials.rs"]
+mod conversation_person_credentials;
+#[cfg(unix)]
+#[path = "cli/conversation_runs.rs"]
+mod conversation_runs;
+#[cfg(unix)]
+#[path = "cli/conversation_thread_objects.rs"]
+mod conversation_thread_objects;
+#[cfg(unix)]
 #[path = "cli/conversation_threads.rs"]
 mod conversation_threads;
+#[cfg(unix)]
+#[path = "cli/conversation_tree.rs"]
+mod conversation_tree;
 #[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
@@ -3712,6 +3733,9 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
+#[cfg(unix)]
+#[path = "cli/workspace_open_url.rs"]
+mod workspace_open_url;
 #[cfg(unix)]
 #[path = "cli/ws_conversations.rs"]
 mod ws_conversations;

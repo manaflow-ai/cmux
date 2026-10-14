@@ -208,6 +208,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
         (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
         (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
+        (
+            vec!["workspace", WORKSPACE, "open-url", "--url", "https://example.com/docs"],
+            "workspace.open_url",
+        ),
         (vec!["workspace", WORKSPACE, "close"], "workspace.close"),
         (
             vec![
@@ -792,6 +796,10 @@ fn state_resource_cases<'a>(
             "browser.devices.add_custom",
         ),
         (vec!["browser", "devices", "remove", "--title", "Kiosk"], "browser.devices.remove_custom"),
+        (
+            vec!["browser", "tab", tab, "set-profile", "--profile", "Work"],
+            "browser.tab.set_profile",
+        ),
         (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
         (vec!["tab", "group", "g", "show"], "tab_group.get"),
         (

@@ -98,7 +98,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
+    "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
+    "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "ui/HideableChrome.tsx#HideableChrome",
     "ui/HideableChrome.tsx#ChromeArea",
     "ui/VirtualList.tsx#VirtualList",
@@ -112,6 +114,25 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         if (ctx.document.querySelector(".nt-no-agent, .nt-add-harness"))
           throw new Error("Integrate a harness shows with a harness installed");
+      },
+    },
+    // The chip's model picker opens whole: the card does not clip it to its search field
+    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the picker, not the page.
+    "model-picker-open": {
+      note: "The New Tab chip's model picker, open: at least its search field and about six rows, never cut by the card.",
+      ready: newTab(),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+          if (!menu || menu.style.visibility !== "visible") return false;
+          const box = menu.getBoundingClientRect();
+          if (box.height < 219) return false;
+          const x = box.left + box.width / 2;
+          return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
+        });
       },
     },
     "chats-unavailable": {
@@ -143,6 +164,43 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-no-agent [data-dismiss-hint]") !== null);
         const line = ctx.document.querySelector(".nt-no-agent")!.getBoundingClientRect();
         if (line.height > 32) throw new Error(`the Integrate a harness line is ${line.height}px tall, not one line`);
+      },
+    },
+    "typed-over-note": {
+      note: "hq#1925 12: suggestions open over No agent to ask and the New terminal / browser / chat row cover them; no text under the popover shows through.",
+      ready: { ...newTab(), transport: "mock" },
+      mockHarnesses: [],
+      snapshot: { ...noChat(), catalog: [] },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-no-agent") !== null);
+        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover")!;
+        const style = ctx.document.defaultView!.getComputedStyle(popover);
+        const alpha = /\/\s*([\d.]+%?)\s*\)$|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/.exec(style.backgroundColor);
+        const fill = alpha ? (alpha[1] ?? alpha[2])! : "1";
+        const opaque = fill.endsWith("%") ? parseFloat(fill) >= 100 : parseFloat(fill) >= 1;
+        if (!opaque || parseFloat(style.opacity) < 1)
+          throw new Error(
+            `the suggestions show the page through them (${style.backgroundColor}, opacity ${style.opacity})`,
+          );
+        const cover = popover.getBoundingClientRect();
+        const under = [...ctx.document.querySelectorAll<HTMLElement>(".nt-no-agent > *, .nt-create > *")].filter(
+          (item) => {
+            const rect = item.getBoundingClientRect();
+            return (
+              rect.width > 0 && rect.top < cover.bottom - 2 && rect.bottom > cover.top && rect.left < cover.right - 8
+            );
+          },
+        );
+        if (!under.some((item) => item.closest(".nt-no-agent")))
+          throw new Error("the suggestions do not reach No agent to ask under the field");
+        for (const item of under) {
+          const rect = item.getBoundingClientRect();
+          const y = Math.min((rect.top + rect.bottom) / 2, cover.bottom - 2);
+          const hit = ctx.document.elementFromPoint(Math.max(rect.left, cover.left) + Math.min(8, rect.width / 2), y);
+          if (!hit?.closest(".nt-popover")) throw new Error(`"${item.textContent?.trim()}" draws over the suggestions`);
+        }
       },
     },
     "harnesses-from-menu": {
@@ -519,6 +577,21 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Projects" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-all-group"));
+      },
+    },
+    "style-switch": {
+      note: "The New Tab style switch (Leo 2026-10-13): the five style names in one quiet row under the page, the current one on a small fill that slides to a pick. A pick shows in place and is saved as tabs.newTabTemplate.",
+      ready: newTab({ template: "default" }),
+      snapshot: noChat(manySessions(4)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=default]:checked"));
+        await ctx.click({ role: "radio", name: "Threads" });
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some(
+            (call) => call.method === "newTab.setTemplate" && call.params?.template === "threads",
+          ),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=threads]:checked"));
       },
     },
     "no-template-dots": {

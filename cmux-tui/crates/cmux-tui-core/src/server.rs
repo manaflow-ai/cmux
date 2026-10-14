@@ -124,8 +124,8 @@ mod admission;
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
-    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost,
-    AgentStartHostSource,
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -146,6 +146,7 @@ pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
 mod browser_profiles;
@@ -154,6 +155,7 @@ mod close_tabs_command;
 mod cloud_conversations;
 mod conversation_attachments;
 mod conversation_resource;
+mod conversation_runs;
 mod resource_trust;
 use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
@@ -194,6 +196,7 @@ mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
+mod creating_input;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod command_history;
@@ -260,6 +263,7 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_inspect;
+mod chief_registry_resource;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
@@ -334,6 +338,10 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+/// Advertises `hosting` on `register-browser-provider`: a `"native"` provider
+/// presents its pages itself, so the daemon never overrides their device
+/// metrics and screencasts them only while a frame viewer is attached.
+pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
@@ -371,6 +379,10 @@ pub const END_TERMINALS_KEEP_LAYOUT_CAPABILITY: &str = "end-terminals-keep-layou
 /// `close-screen`, `close-workspace`, and `close-tab-group`: many
 /// placements and the terminals they end close in one durable commit.
 pub const BATCH_CLOSE_CAPABILITY: &str = "batch-close-v1";
+/// Advertises `if_empty` on `close-workspace`: the close commits only when
+/// the workspace has no tab, so closing a workspace a move emptied never
+/// deletes a tab another client opened there meanwhile.
+pub const CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY: &str = "close-workspace-if-empty-v1";
 /// Advertises `terminal-resources`: CPU time and memory of each terminal's
 /// shell, its descendants, and its terminal host, read on request.
 pub const TERMINAL_RESOURCES_CAPABILITY: &str = "terminal-resources-v1";
@@ -403,12 +415,14 @@ pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// `update-frontend-browser-tab`, and the `browser_renderer`,
 /// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
 pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
-pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
+pub use frontend_browser_history::{
+    FRONTEND_BROWSER_HISTORY_CAPABILITY, FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
+};
 /// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
-pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
+pub use split_respawn::{TAB_SPLIT_KEEP_FOCUS_CAPABILITY, TAB_SPLIT_RESPAWN_CAPABILITY};
 pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
 /// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
 /// it in the same commit (else the default `workspace-N`).
@@ -736,6 +750,10 @@ enum Command {
         authentication: String,
         #[serde(default)]
         bearer_token: Option<String>,
+        /// `browser-provider-native-hosting-v1`: `"native"` or `"daemon"`
+        /// (the default when absent).
+        #[serde(default)]
+        hosting: Option<String>,
         targets: Vec<BrowserProviderTargetRequest>,
     },
     /// Return the current provider lease for local automation such as
@@ -850,7 +868,13 @@ enum Command {
         rows: Option<u16>,
     },
     Send {
-        surface: SurfaceId,
+        /// The terminal surface; or `terminal_id` (exactly one).
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
+        /// being created (the input is queued for it, `mux::creating_input`).
+        #[serde(default)]
+        terminal_id: Option<String>,
         #[serde(default)]
         text: Option<String>,
         /// Base64-encoded raw bytes, written verbatim to the pty.
@@ -1547,6 +1571,9 @@ enum Command {
         ratio: Option<f32>,
         #[serde(default)]
         respawn: Option<SplitRespawnRequest>,
+        /// `tab-split-keep-focus-v1`: the focused pane stays focused.
+        #[serde(default)]
+        keep_focus: bool,
         #[serde(default)]
         transaction: Option<String>,
     },
@@ -1624,6 +1651,8 @@ enum Command {
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
     ConversationThread(conversations::ThreadParams),
+    ConversationLinkResolve(conversations::LinkResolveParams),
+    ConversationInboxOp(conversations::InboxOpParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1646,7 +1675,10 @@ enum Command {
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
+    CloudConversationRuns(cloud_conversations::RunsParams),
+    CloudConversationRun(cloud_conversations::RunParams),
     CloudConversationOp(cloud_conversations::OpParams),
+    CloudInboxOp(cloud_conversations::InboxOpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
@@ -1660,6 +1692,10 @@ enum Command {
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
+    ConversationAttachmentLink(conversation_attachments::LinkParams),
+    ConversationRunAppend(conversation_runs::AppendParams),
+    ConversationRuns(conversation_runs::RunsParams),
+    ConversationRun(conversation_runs::RunParams),
     ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
@@ -1916,6 +1952,10 @@ enum Command {
         end_terminals: bool,
         #[serde(default)]
         reason: Option<crate::mux::CloseReason>,
+        /// `close-workspace-if-empty-v1`: close only a workspace with no tab
+        /// at commit time (`workspace_not_empty` otherwise).
+        #[serde(default)]
+        if_empty: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2084,7 +2124,6 @@ impl Command {
         match self {
             Self::PasteImage { surface, .. } => Some(*surface),
             Self::SetClientSizing { surface, .. }
-            | Self::Send { surface, .. }
             | Self::ReadScreen { surface }
             | Self::ClearHistory { surface, .. }
             | Self::ReadScrollback { surface, .. }
@@ -2123,6 +2162,7 @@ impl Command {
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
+            | Self::Send { surface, .. }
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
@@ -3018,15 +3058,19 @@ fn handle_command_with_cancellation(
             endpoint,
             authentication,
             bearer_token,
+            hosting,
             targets,
         } => cmd_browser::register_browser_provider(
             mux,
             client,
-            provider_id,
-            endpoint,
-            authentication,
-            bearer_token,
-            targets,
+            cmd_browser::BrowserProviderRequest {
+                provider_id,
+                endpoint,
+                authentication,
+                bearer_token,
+                hosting,
+                targets,
+            },
         ),
         Command::GetBrowserProvider => cmd_browser::get_browser_provider(mux, client),
         Command::UnregisterBrowserProvider => cmd_browser::unregister_browser_provider(mux, client),
@@ -3098,8 +3142,8 @@ fn handle_command_with_cancellation(
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
-        Command::Send { surface, text, bytes, paste } => {
-            cmd_terminal_io::send(mux, client, surface, text, bytes, paste)
+        Command::Send { surface, terminal_id, text, bytes, paste } => {
+            cmd_terminal_io::send(mux, client, writer, surface, terminal_id, text, bytes, paste)
         }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
@@ -3346,18 +3390,25 @@ fn handle_command_with_cancellation(
         Command::MoveTabToWorkspace { surface, workspace, transaction } => {
             cmd_tabs::move_tab_to_workspace(mux, actor, surface, workspace, transaction)
         }
-        Command::MoveTabToSplit { surface, pane, edge, ratio, respawn, transaction } => {
-            cmd_tabs::move_tab_to_split(
-                mux,
-                client,
-                surface,
-                pane,
-                edge,
-                ratio,
-                respawn,
-                transaction,
-            )
-        }
+        Command::MoveTabToSplit {
+            surface,
+            pane,
+            edge,
+            ratio,
+            respawn,
+            keep_focus,
+            transaction,
+        } => cmd_tabs::move_tab_to_split(
+            mux,
+            client,
+            surface,
+            pane,
+            edge,
+            ratio,
+            respawn,
+            keep_focus,
+            transaction,
+        ),
         Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
         Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
@@ -3462,7 +3513,7 @@ fn handle_command_with_cancellation(
         Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
         Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
-        Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, params),
+        Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, client, params),
         Command::ListBookmarks(params) => bookmarks::list(mux, params),
         Command::CreateBookmark(params) => bookmarks::create(mux, &actor, params),
         Command::UpdateBookmark(params) => bookmarks::update(mux, &actor, params),
@@ -3481,6 +3532,10 @@ fn handle_command_with_cancellation(
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
         Command::ConversationThread(params) => conversations::thread(mux, client, params),
+        Command::ConversationLinkResolve(params) => {
+            conversations::link_resolve(mux, client, params)
+        }
+        Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
@@ -3503,7 +3558,10 @@ fn handle_command_with_cancellation(
         Command::CloudConversationThread(params) => {
             cloud_conversations::thread(mux, client, params)
         }
+        Command::CloudConversationRuns(params) => cloud_conversations::runs(mux, client, params),
+        Command::CloudConversationRun(params) => cloud_conversations::run(mux, client, params),
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
+        Command::CloudInboxOp(params) => cloud_conversations::inbox_op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
         Command::CloudMuxSubscribe(_) => cloud_conversations::mux_subscribe(mux, client),
         Command::CloudMuxUnsubscribe(_) => cloud_conversations::mux_unsubscribe(mux, client),
@@ -3517,6 +3575,10 @@ fn handle_command_with_cancellation(
         }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
+        Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),
+        Command::ConversationRunAppend(p) => conversation_runs::append(mux, client, p),
+        Command::ConversationRuns(p) => conversation_runs::runs(mux, client, p),
+        Command::ConversationRun(p) => conversation_runs::run(mux, client, p),
         Command::ConversationImport(params) => conversations::import(mux, client, params),
         Command::CreateProfile {
             name,
@@ -3674,8 +3736,8 @@ fn handle_command_with_cancellation(
         Command::CloseScreen { screen, end_terminals } => {
             cmd_screens::close_screen(mux, actor, screen, end_terminals)
         }
-        Command::CloseWorkspace { workspace, key, end_terminals, reason, mutation } => {
-            let ending = cmd_workspaces::Ending { terminals: end_terminals, reason };
+        Command::CloseWorkspace { workspace, key, end_terminals, reason, if_empty, mutation } => {
+            let ending = cmd_workspaces::Ending { terminals: end_terminals, reason, if_empty };
             cmd_workspaces::close_workspace(mux, client, workspace, key, ending, mutation)
         }
         Command::MarkWorkspacesProviderManaged { authority } => {

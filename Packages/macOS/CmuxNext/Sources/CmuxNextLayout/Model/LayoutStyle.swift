@@ -11,7 +11,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var dividerThickness: CGFloat = 1
     /// Width of the draggable area centered on a divider. Token: `Metrics.dividerHitWidth`.
     public var dividerHitThickness: CGFloat = 7
-    /// Gap between columns and at the outer horizontal edges in columns mode. Token: `Metrics.columnGap`.
+    /// Gap between columns and at the outer horizontal edges in columns mode. Token:
+    /// `Metrics.stripColumnGap` (0 by default for edge-to-edge separations).
     public var columnGap: CGFloat = 6
     /// Corner radius of floating layout chrome (drop highlight). Token: `Metrics.panelCornerRadius`.
     public var panelCornerRadius: CGFloat = 10
@@ -48,6 +49,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderWidth: CGFloat?
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
     public var inactivePaneDimming: CGFloat = 0.14
+    /// The Ghostty config's unfocused-pane dim; when it dims, it replaces
+    /// `inactivePaneDimming` on every unfocused pane.
+    public var unfocusedPaneDim = UnfocusedPaneDim()
     /// Debug Settings `focus.ringAlpha`: the ring's foreground share in place
     /// of `focusRing.contrast`; nil follows the setting. Read here, in the
     /// observed style, so a slider move repaints the ring at once.
@@ -57,10 +61,14 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var focusIndicator: FocusIndicator = .both
     public var inactiveTabStyle: InactiveTabStyle = .fade
     public var inactiveTabStrength: CGFloat = 0.35
-    /// Fraction of a pane's extent that counts as an edge drop zone.
-    public var dropEdgeFraction: CGFloat = 0.28
-    /// Clamp for the edge drop band.
-    public var dropEdgeRange: ClosedRange<CGFloat> = 28...180
+    /// Fraction of a pane's extent that counts as an edge drop zone
+    /// (DESIGN.md (c)2: a quarter, half of the half a split gives).
+    public var dropEdgeFraction: CGFloat = 0.25
+    /// Floor and cap of the edge band: 40 pt is an easy pointer target on a
+    /// small pane; past 120 pt a bigger band no longer makes the edge faster
+    /// to hit, it only takes the center away. `band(for:)` also keeps it at
+    /// most a third of the extent.
+    public var dropEdgeRange: ClosedRange<CGFloat> = 40...120
     /// How far past a zone line the pointer goes before the drop preview
     /// leaves the zone it shows (`DropZoneGeometry.zone`).
     public var dropZoneHysteresis: CGFloat = 12
@@ -100,7 +108,7 @@ extension LayoutStyle {
         var style = self
         style.dividerThickness = Metrics.dividerThickness
         style.dividerHitThickness = Metrics.dividerHitWidth
-        style.columnGap = Metrics.columnGap
+        style.columnGap = Metrics.stripColumnGap
         style.panelCornerRadius = Metrics.panelCornerRadius
         style.paneChromeHeight = Metrics.tabStripHeight
         style.panePadding = Metrics.panePadding
@@ -112,6 +120,7 @@ extension LayoutStyle {
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
+        style.unfocusedPaneDim = DesignSettings.shared.unfocusedPaneDim
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim
@@ -133,7 +142,9 @@ extension LayoutStyle {
         let edgeMinimum = LayoutTunables.dropEdgeMinimum.override, edgeMaximum = LayoutTunables.dropEdgeMaximum.override
         if edgeMinimum != nil || edgeMaximum != nil {
             let lower = edgeMinimum ?? style.dropEdgeRange.lowerBound
-            style.dropEdgeRange = lower...max(lower, edgeMaximum ?? style.dropEdgeRange.upperBound)
+            // A maximum of 0 is "no maximum" (the classic default).
+            let upper = edgeMaximum.map { $0 > 0 ? $0 : CGFloat.greatestFiniteMagnitude } ?? style.dropEdgeRange.upperBound
+            style.dropEdgeRange = lower...max(lower, upper)
         }
         if let value = LayoutTunables.dropZoneHysteresis.override { style.dropZoneHysteresis = value }
         if let value = LayoutTunables.newColumnDropWidth.override { style.newColumnDropWidth = value }

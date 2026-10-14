@@ -36,6 +36,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
+    /// The new tab page's style switch picked a template (`newTab.setTemplate`).
+    @ObservationIgnored public var onSetNewTabTemplate: ((String) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
@@ -256,16 +258,17 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(["newTab": object])
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
+        case .setNewTabTemplate(let template): guard let onSetNewTabTemplate else { return Self.unsupported("newTab.setTemplate") }; onSetNewTabTemplate(template); return AgentPaneReply.success()
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
-        case .useFolder(let cwd, _) where remoteChat:
-            // A folder of that machine: its acpmux checks the folder and its trust at the start;
-            // this Mac's disk is never read for it (cx-k21v).
+        case .useFolder(let cwd, let confirm) where remoteChat:
+            // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
+            // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
             guard cwd.hasPrefix("/") else { return Self.transportFailure(.pathInvalid) }
-            return AgentPaneReply.success(["status": "ok", "cwd": cwd])
+            return await startFolders.useRemote(cwd, confirm: confirm, transport: transport)
         case .useFolder(let cwd, let confirm): return await startFolders.use(cwd, confirm: confirm, transport: transport)
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
@@ -280,7 +283,7 @@ public final class AgentPaneModel {
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .preview, .setQuickActions, .tabState, .sideChat: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .sideChat, .subagentPane, .chatTab, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)

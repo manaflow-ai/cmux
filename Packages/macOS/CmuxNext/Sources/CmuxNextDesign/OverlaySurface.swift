@@ -153,7 +153,7 @@ public final class OverlaySurfaceView: NSView {
                 materialView?.layer?.borderColor = Palette.separator.cgColor
             case .opaque:
                 materialView?.layer?.backgroundColor = Palette.popupSurface.cgColor
-                materialView?.layer?.borderColor = Borders.color(Palette.separator.withAlphaComponent(1)).cgColor
+                materialView?.layer?.borderColor = Borders.color(Palette.separator).cgColor
             }
         }
         applyShape()

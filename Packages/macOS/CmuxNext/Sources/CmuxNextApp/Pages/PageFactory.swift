@@ -37,10 +37,10 @@ struct PageFactory {
             apps?.transport.turnedOff
         }
         let confirming = ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
-            guard AppsPageConfirmations.needsDetail(op), let app = params["app"]?.stringValue else { return nil }
+            guard AppsPageConfirmations().needsDetail(op), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
                                                context: PageCallContext(page: PageDescriptor.apps.id))
-            return AppsPageConfirmations.confirmation(op: op, params: params, detail: detail)
+            return AppsPageConfirmations().confirmation(op: op, params: params, detail: detail)
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
@@ -154,7 +154,7 @@ struct PageFactory {
             pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
         provider.backdropImages = SettingsWindowService.userImages.map { images in
             SettingsBackdropImages(images: images) { [weak services] in
-                await services?.viewers.picker.open(.init(choose: .files, types: [.image]))?.first
+                await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
         let museumArt = MuseumArtSession()
@@ -172,6 +172,7 @@ struct PageFactory {
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
+                                                          currentChoices: { SettingsWindowService.backdrops.choices },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)

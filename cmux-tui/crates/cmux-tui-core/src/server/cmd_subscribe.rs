@@ -121,6 +121,29 @@ pub(super) fn subscribe_command(
                 MuxEvent::Conversation(_) if !conversation_client => {
                     continue;
                 }
+                // A participant's own list state (a pin, a "marked unread")
+                // goes only to connections that act as that participant.
+                MuxEvent::Conversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::conversation_store::ConversationEvent::Inbox { participant, .. }
+                            if *participant != event_mux.conversation_principal(client)
+                    ) =>
+                {
+                    continue;
+                }
+                // A run's steps go only to a connection that asked for runs in
+                // set-client-info (`conversation-runs-v1`): old clients never
+                // see the event, and its steps can be large.
+                MuxEvent::Conversation(event)
+                    if event.is_run()
+                        && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+                        ) =>
+                {
+                    continue;
+                }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
                 MuxEvent::CloudConversation(_) if !conversation_client => {
@@ -128,6 +151,19 @@ pub(super) fn subscribe_command(
                 }
                 MuxEvent::CloudConversation(_)
                     if !super::cloud_conversations::delivers(&event_mux, client) =>
+                {
+                    continue;
+                }
+                // A Cloud Chief's run change, like a local one, only to a
+                // connection that asked for runs (`conversation-runs-v1`).
+                MuxEvent::CloudConversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::cloud_conversations::CloudEvent::RunChanged { .. }
+                    ) && !event_mux.control_clients.supports_capability(
+                        client,
+                        super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+                    ) =>
                 {
                     continue;
                 }
@@ -212,7 +248,16 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
-        MuxEvent::AgentChanged { surface, state, source, session, agent, updated_at_ms } => json!({
+        MuxEvent::AgentChanged {
+            surface,
+            state,
+            source,
+            session,
+            agent,
+            updated_at_ms,
+            since_ms,
+            last_prompt,
+        } => json!({
             "event": "agent-changed",
             "surface": surface,
             "state": state.as_ref(),
@@ -220,6 +265,8 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "session": session.as_deref(),
             "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
+            "since_ms": since_ms,
+            "last_prompt": last_prompt.as_deref(),
         }),
         MuxEvent::AgentPresenceChanged { surface, presence } => {
             let presence = presence.as_deref();

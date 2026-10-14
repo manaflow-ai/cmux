@@ -189,6 +189,33 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
+  // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
+  // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
+  "home-channels-pane": {
+    out: "webviews/src/pages/home-channels/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              /^(tools|shell|code|image|media|markdown|duration|chip)\./.test(key) ||
+              [
+                "changes.noLineChanges",
+                "link.openPath",
+                "turn.copy",
+                "turn.copied",
+                "message.label",
+                "message.less",
+                "message.more",
+                "message.noText",
+                "message.self",
+                "message.unknown",
+              ].includes(key),
+          ),
+      },
+    ],
+  },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
@@ -224,6 +251,26 @@ const namedTokens = (value) =>
     .sort()
     .join(",");
 
+/** CLDR's plural categories. A plural string is `key#<category>` for each, in every locale. */
+const PLURAL_CATEGORIES = ["zero", "one", "two", "few", "many", "other"];
+
+/**
+ * A catalog entry's text in `locale`: its string, or for a plural entry (`variations.plural`, as
+ * Xcode writes it) its text per category. A category the locale's rules never pick takes the
+ * locale's `other`, so every locale's table has the same keys; one they pick must be translated.
+ */
+function localized(entry, locale) {
+  const localization = entry?.localizations?.[locale];
+  const plural = localization?.variations?.plural;
+  if (!plural) return localization?.stringUnit?.value;
+  const forms = Object.fromEntries(
+    Object.entries(plural).map(([category, form]) => [category, form?.stringUnit?.value]),
+  );
+  const used = new Intl.PluralRules(locale).resolvedOptions().pluralCategories;
+  if (used.some((category) => typeof forms[category] !== "string" || forms[category].trim() === "")) return undefined;
+  return Object.fromEntries(PLURAL_CATEGORIES.map((category) => [category, forms[category] ?? forms.other]));
+}
+
 export function generate(page) {
   const wanted = [];
   for (const catalog of page.catalogs) {
@@ -237,12 +284,19 @@ export function generate(page) {
   for (const locale of LOCALES) {
     out[locale] = {};
     for (const [key, entry] of wanted) {
-      const value = entry?.localizations?.[locale]?.stringUnit?.value;
-      if (typeof value !== "string" || value.trim() === "") errors.push(`${key}: missing ${locale}`);
-      else if (namedTokens(value) !== namedTokens(entry.localizations.en.stringUnit.value))
-        // Named `{tokens}` (the agent pane) are filled by name; a translation must keep each one.
+      const value = localized(entry, locale);
+      const english = localized(entry, "en");
+      const englishTokens = namedTokens(typeof english === "object" ? english.other : (english ?? ""));
+      if (value === undefined || (typeof value === "string" && value.trim() === ""))
+        errors.push(`${key}: missing ${locale}`);
+      else if (typeof value === "string") {
+        if (namedTokens(value) !== englishTokens)
+          // Named `{tokens}` (the agent pane) are filled by name; a translation must keep each one.
+          errors.push(`${key}: ${locale} changes the {placeholders}`);
+        else out[locale][key] = value;
+      } else if (Object.values(value).some((form) => namedTokens(form) !== englishTokens))
         errors.push(`${key}: ${locale} changes the {placeholders}`);
-      else out[locale][key] = value;
+      else for (const category of PLURAL_CATEGORIES) out[locale][`${key}#${category}`] = value[category];
     }
   }
   return { json: `${JSON.stringify(out, null, 2)}\n`, errors };

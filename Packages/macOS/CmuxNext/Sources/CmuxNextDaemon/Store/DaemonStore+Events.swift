@@ -30,6 +30,8 @@ extension DaemonStore {
             confirm(transaction)
             ProvisionalTab.echoed(event, transaction: transaction, in: self)
             settleIntentOnEcho(transaction, needsResync: followup == .resync, sequence: sequence)
+        } else {
+            ProvisionalTab.matched(event, in: self)
         }
         return followup
     }
@@ -234,8 +236,7 @@ extension DaemonStore {
             // follows with `tree-changed`/`tab-changed`, which settle the state.
             return .none
         case .agentChanged(let status):
-            agents.apply(status)
-            tabsBySurface[status.surface]?.setAgent(status)
+            if agents.apply(status) { tabsBySurface[status.surface]?.setAgent(status) }
             return .none
         case .agentPresenceChanged(let presence):
             tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)

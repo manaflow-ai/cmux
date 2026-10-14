@@ -34,6 +34,8 @@ mod host_ops;
 #[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
+mod local_reload;
+#[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
@@ -55,6 +57,8 @@ mod serves;
 mod storage;
 #[cfg(unix)]
 mod store;
+#[cfg(unix)]
+mod store_panels;
 #[cfg(unix)]
 mod supervisor;
 #[cfg(all(test, unix))]

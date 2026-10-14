@@ -13,14 +13,15 @@ final class WorkspaceRowView: SidebarRowView {
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    private let activity = StatusIndicatorView()
+    let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     private let agentMark = NSImageView()
-    private var agentMarkVariant = SidebarAgentMarkVariant.off
+    private(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
-    private var lastConfiguration: (SidebarWorkspace, SidebarRow)?
+    private(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     private var activityState = StatusIndicatorState.idle
-    private let badge = UnreadBadgeView()
+    let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
+    private var rowBadgeStyle = SidebarRowBadgeStyle.corner
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
@@ -89,7 +90,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -111,20 +112,17 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton] }
+    override var debugIcon: String? {
+        switch iconKind {
+        case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
+        case .symbol?: "symbol"
+        case .swatch?: "swatch"
+        case .emoji?: "emoji"
+        case .favicon?: "favicon"
+        }
+    }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? {
         disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
-    }
-
-    /// Reads the agent mark and presence dot settings and redraws the row once when one changes (no polling).
-    private func observedTunables() -> (agentMark: SidebarAgentMarkVariant, presenceDots: Bool) {
-        withObservationTracking {
-            (SidebarTunables.agentMark.value, SidebarTunables.presenceDots.value)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, let last = self.lastConfiguration else { return }
-                self.configure(last.0, row: last.1)
-            }
-        }
     }
 
     override func prepareForReuse(key: SidebarRowKey) {
@@ -144,19 +142,18 @@ final class WorkspaceRowView: SidebarRowView {
         var group: GroupID?
         var fontSize: CGFloat
         var iconSize: CGFloat
-        var agentMark: SidebarAgentMarkVariant
-        var presenceDots: Bool
+        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
     }
 
-    func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
-        lastConfiguration = (ws, row)
+    func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
+        lastConfiguration = (ws, row, badgeStyle)
         let tunables = observedTunables()
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
-            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots,
+            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
@@ -173,7 +170,7 @@ final class WorkspaceRowView: SidebarRowView {
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         title.stringValue = ws.title
-        title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
+        title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
@@ -182,7 +179,7 @@ final class WorkspaceRowView: SidebarRowView {
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
-            : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: SidebarStyle.indicatorSize) }
+            : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(ws.unread)
@@ -202,8 +199,9 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
-        // The workspace hover card shows the cwd (and CPU and memory).
-        themedToolTip = nil
+        rowBadgeStyle = content.rowBadge
+        configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
+        themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory)
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
@@ -258,9 +256,10 @@ final class WorkspaceRowView: SidebarRowView {
             let waits = if case .waiting = activityState { true } else { false }
             agentMark.contentTintColor = waits ? Palette.attention : Palette.textSecondary
             // Fills only, no borders: drop target, selection, multi-selection, hover.
-            paintFill(isDropTarget || isSelected ? Palette.selectionFill
-                : isSecondarySelected ? Palette.secondarySelectionFill
-                : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil)
+            let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected ? Palette.secondarySelectionFill
+                : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil
+            paintFill(fill)
+            (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -274,7 +273,8 @@ final class WorkspaceRowView: SidebarRowView {
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
+        let fades = fadesNextHover
+        defer { fadesNextHover = false; CATransaction.commit() }
 
         // Members indent under their group header; the members' line is
         // one layer per group under the rows (SidebarListView+GroupLines).
@@ -285,7 +285,7 @@ final class WorkspaceRowView: SidebarRowView {
         let leading = SidebarStyle.horizontalInset + indent
         let side: CGFloat
         switch iconKind {
-        case nil: side = 0
+        case nil: side = icon.isHidden ? 0 : SidebarStyle.iconBox // a kind icon or logo (`sidebar.rowBadge`)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
@@ -294,10 +294,10 @@ final class WorkspaceRowView: SidebarRowView {
         // Trailing cluster, right to left: the disclosure and the tab count
         // (fixed slots, the same with or without hover), close-or-badge, then
         // activity.
-        var trailing = b.width - Metrics.space3
+        var trailing = b.width - SidebarStyle.horizontalInset // the pill's own inset, as the text's (Leo 2026-10-13)
         let control = SidebarStyle.controlSize
         // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
-        disclosureButton.isHidden = disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)
+        setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)), fades: fades)
         if disclosure != nil {
             disclosureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
@@ -323,8 +323,8 @@ final class WorkspaceRowView: SidebarRowView {
         // hover hides it.
         let showClose = isHovered && !isShowingPlaceholder && isClosable
         let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
-        closeButton.isHidden = !showClose
-        badge.isHidden = showClose || (showMore && !isClosable) || !badge.state.isUnread
+        setHoverShown(closeButton, showClose, fades: fades)
+        setHoverShown(badge, !(showClose || (showMore && !isClosable) || !badge.state.isUnread), fades: fades)
         var slot: CGFloat = 0
         if badge.state.isUnread {
             let w = badge.preferredWidth
@@ -339,19 +339,20 @@ final class WorkspaceRowView: SidebarRowView {
         // The menu button, on hover only, left of the x (or in its place on a
         // row that cannot close). Hidden (not only clear) when it does not
         // show; VoiceOver uses the row's custom action.
-        moreButton.isHidden = !showMore
-        moreButton.frame = closeButton.frame.offsetBy(dx: showClose ? -(control + Metrics.space1) : 0, dy: 0)
-        let pinStart = layoutPin(showClose: showClose, showMore: showMore, control: control)
+        setHoverShown(moreButton, showMore, fades: fades)
+        moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
+        let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
+        trailing = layoutRowBadge(style: rowBadgeStyle, trailing: trailing, cy: cy)
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
-            agentMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
-            trailing -= ind + Metrics.space2
+            agentMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+            trailing = agentMark.frame.minX - Metrics.space2
         } else if activity.showsGlyph {
-            activity.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
-            trailing -= ind + Metrics.space2
+            activity.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+            trailing = activity.frame.minX - Metrics.space2
         }
         if !mutedMark.isHidden {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
@@ -363,7 +364,7 @@ final class WorkspaceRowView: SidebarRowView {
             trailing -= w + Metrics.space2
         }
 
-        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
+        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading - Self.labelInset // the title's text starts at `leading`
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
@@ -378,17 +379,17 @@ final class WorkspaceRowView: SidebarRowView {
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
         title.fadeWidth = SidebarStyle.titleFadeWidth
-        let titleWidth = max(0, textW - 2 * inset)
+        let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
         // The hover actions draw over the text's end: the title and second
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
-        title.trailingOcclusion = overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0
+        title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         subtitle.wantsLayer = true
-        subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade)
-        for mark in [activity, agentMark, mutedMark, presenceDots, timeLabel] as [NSView] {
-            mark.alphaValue = overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1
+        subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
+        for mark in [activity, rowBadge, agentMark, mutedMark, presenceDots, timeLabel] as [NSView] {
+            fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         needsDisplay = true

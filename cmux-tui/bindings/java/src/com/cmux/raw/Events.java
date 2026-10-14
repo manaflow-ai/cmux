@@ -23,6 +23,7 @@ public final class Events {
     public static final EventMetadata CLIENT_LIST_INVALIDATED = new EventMetadata("client-list-invalidated", 9, null, List.of("subscribe"), false);
     public static final EventMetadata CLOUD_CONVERSATION_CHANGED = new EventMetadata("cloud-conversation-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_RESYNCED = new EventMetadata("cloud-conversation-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_CONVERSATION_RUN_CHANGED = new EventMetadata("cloud-conversation-run-changed", 12, "cloud-conversation-runs-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_CHANGED = new EventMetadata("cloud-inbox-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_RESET = new EventMetadata("cloud-inbox-reset", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_MUX_RESYNCED = new EventMetadata("cloud-mux-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
@@ -33,6 +34,8 @@ public final class Events {
     public static final EventMetadata CONFIG_RELOAD_REQUESTED = new EventMetadata("config-reload-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_CHANGED = new EventMetadata("conversation-changed", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_DRAFT = new EventMetadata("conversation-draft", 12, "conversation-draft-events-v1", List.of("subscribe"), true);
+    public static final EventMetadata CONVERSATION_INBOX_CHANGED = new EventMetadata("conversation-inbox-changed", 12, "conversation-inbox-state-v1", List.of("subscribe"), true);
+    public static final EventMetadata CONVERSATION_RUN_CHANGED = new EventMetadata("conversation-run-changed", 12, "conversation-runs-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
@@ -74,6 +77,7 @@ public final class Events {
     public static final EventMetadata TAB_RENAMED = new EventMetadata("tab-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata TERMINAL_CLIPBOARD_READ = new EventMetadata("terminal-clipboard-read", 12, "terminal-clipboard-read-v1", List.of("control"), true);
     public static final EventMetadata TERMINAL_CLIPBOARD_READ_CANCELLED = new EventMetadata("terminal-clipboard-read-cancelled", 12, "terminal-clipboard-read-v1", List.of("control"), true);
+    public static final EventMetadata TERMINAL_INPUT_UNCLAIMED = new EventMetadata("terminal-input-unclaimed", 12, "terminal-input-while-creating-v1", List.of("control"), true);
     public static final EventMetadata TERMINAL_REAPED = new EventMetadata("terminal-reaped", 12, "terminal-reap-v1", List.of("subscribe"), true);
     public static final EventMetadata TERMINAL_REGISTRY_CHANGED = new EventMetadata("terminal-registry-changed", 9, null, List.of("subscribe"), true);
     public static final EventMetadata TITLE_CHANGED = new EventMetadata("title-changed", 5, null, List.of("subscribe"), true);
@@ -102,6 +106,7 @@ public final class Events {
         values.put("client-list-invalidated", CLIENT_LIST_INVALIDATED);
         values.put("cloud-conversation-changed", CLOUD_CONVERSATION_CHANGED);
         values.put("cloud-conversation-resynced", CLOUD_CONVERSATION_RESYNCED);
+        values.put("cloud-conversation-run-changed", CLOUD_CONVERSATION_RUN_CHANGED);
         values.put("cloud-inbox-changed", CLOUD_INBOX_CHANGED);
         values.put("cloud-inbox-reset", CLOUD_INBOX_RESET);
         values.put("cloud-mux-resynced", CLOUD_MUX_RESYNCED);
@@ -112,6 +117,8 @@ public final class Events {
         values.put("config-reload-requested", CONFIG_RELOAD_REQUESTED);
         values.put("conversation-changed", CONVERSATION_CHANGED);
         values.put("conversation-draft", CONVERSATION_DRAFT);
+        values.put("conversation-inbox-changed", CONVERSATION_INBOX_CHANGED);
+        values.put("conversation-run-changed", CONVERSATION_RUN_CHANGED);
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
@@ -153,6 +160,7 @@ public final class Events {
         values.put("tab-renamed", TAB_RENAMED);
         values.put("terminal-clipboard-read", TERMINAL_CLIPBOARD_READ);
         values.put("terminal-clipboard-read-cancelled", TERMINAL_CLIPBOARD_READ_CANCELLED);
+        values.put("terminal-input-unclaimed", TERMINAL_INPUT_UNCLAIMED);
         values.put("terminal-reaped", TERMINAL_REAPED);
         values.put("terminal-registry-changed", TERMINAL_REGISTRY_CHANGED);
         values.put("title-changed", TITLE_CHANGED);

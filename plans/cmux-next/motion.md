@@ -49,7 +49,22 @@ shown or hidden; tab animations must be fast and smooth.
    Use Normal Animations, Turn Off Animations
    (`appearance.animationSpeed.{fast,normal,off}`). "off" wins over Reduce
    Motion.
-9. Performance (architecture.md sections 3 and 5): hot-path animation is
+9. Pane layout motion is OFF by default (Lawrence 2026-10-14: "get rid of
+   big animations by default for the panes"). `ui.paneAnimations` (toggle
+   "Animate Panes", default false) gates every pane layout spring:
+   split grow-in, close and move-away, swap, zoom and unzoom
+   (`PaneZoomMotion`), divider ratio changes from the model, the column
+   strip's programmatic reveal and centering, row reveal and the screen
+   switch slide. Off: they apply in one frame (`Motion.animatesPaneLayout`,
+   read by `LayoutViewContext.animatesPaneLayout`). Why instant and not a
+   short fade: a terminal reflows once at the final size, nothing draws a
+   half-moved pane, and a crossfade over a reflowing terminal reads as
+   flicker; it also matches classic cmux, whose splits apply at once. Kept
+   on: direct manipulation (trackpad fling settle, wheel notches, divider
+   drag), focus ring and dim fades, hover feedback, tab strip motion and
+   the drop-target overlay. `ui.paneAnimations` true restores the springs;
+   `ui.animationSpeed` "off" and Reduce Motion still snap them.
+10. Performance (architecture.md sections 3 and 5): hot-path animation is
    CALayer or display-link driven; a display link runs only while something
    moves and pauses itself; idle CPU stays 0%; nothing blocks the main
    thread. The token lookup is a Bool and a multiply per spring step.
@@ -80,7 +95,7 @@ nxmot (MacBook Pro, 120 Hz).
 | Fade token | Duration | Used by |
 | --- | --- | --- |
 | `hover` | 0.08 s | hover and pressed fills easing in (tabs, chips, buttons, toolbar, menu and palette rows, sidebar rows, New Tab rows; `ChromeHover.fade`); tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim. Instant under Reduce Motion |
-| `hoverOut` | 0 s | a hover or pressed fill clearing: instant, as in Edge, so a fast sweep leaves no trail (about 0.12 s in Debug Settings leaves a short one). A press shows at once. Instant under Reduce Motion |
+| `hoverOut` | 0 s | a hover or pressed fill clearing: instant, as in Edge, so a fast sweep leaves no trail (about 0.12 s in Debug Settings leaves a short one). A press shows at once. Sidebar rows are the exception: their fill and hover buttons fade out with `hover` too, in place (Leo 2026-10-13: moving between workspace rows snapped). Instant under Reduce Motion |
 | `focus` | 0.10 s | pane focus ring and inactive dim |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |

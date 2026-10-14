@@ -180,11 +180,11 @@ final class AgentTabStore {
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
-    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
+    init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
-        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(tag: tag, environment: environment, showcase: showcase)
+        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection.
@@ -378,12 +378,9 @@ final class AgentTabStore {
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
-        model.onNewTabInputReady = { [weak self] token in
-            guard let self else { return }
-            let key = resolve(provisional)
-            newTabPages[key]?.handler.inputReady(key, token)
-        }
+        model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
         model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
+        model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onRunAction = { [weak self] id in

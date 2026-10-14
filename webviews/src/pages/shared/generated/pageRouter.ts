@@ -10,14 +10,30 @@ export interface PageOperations {
 }
 
 export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
+  "agent": {
+    "read": [
+      "agent_session.trust.get"
+    ],
+    "gesture": [
+      "agent_session.trust.set"
+    ],
+    "confirm": []
+  },
   "apps": {
     "read": [
+      "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
-      "apps.installed.list"
+      "apps.grants.get",
+      "apps.installed.list",
+      "apps.logs"
     ],
-    "gesture": [],
+    "gesture": [
+      "apps.grant.revoke",
+      "apps.hidden.set"
+    ],
     "confirm": [
+      "apps.grant.set",
       "apps.install",
       "apps.set",
       "apps.uninstall"
@@ -37,7 +53,9 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
   },
   "home-channels": {
     "read": [],
-    "gesture": [],
+    "gesture": [
+      "workspace.open_url"
+    ],
     "confirm": []
   }
 };
@@ -49,14 +67,29 @@ export interface RoutedNamespace {
 }
 
 export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
+  "agent_session": {
+    "owner": "agent_session.trust",
+    "read": [
+      "agent_session.trust.get"
+    ],
+    "mutation": [
+      "agent_session.trust.set"
+    ]
+  },
   "apps": {
     "owner": "apps.store",
     "read": [
+      "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
-      "apps.installed.list"
+      "apps.grants.get",
+      "apps.installed.list",
+      "apps.logs"
     ],
     "mutation": [
+      "apps.grant.revoke",
+      "apps.grant.set",
+      "apps.hidden.set",
       "apps.install",
       "apps.set",
       "apps.uninstall"

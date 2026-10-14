@@ -163,6 +163,11 @@ pub struct SessionMeta {
     /// the harness on it (``SessionMeta::apply_chat_store``).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_store: Option<PathBuf>,
+    /// The adopted conversation's recorded cwd when it was gone here (a chat
+    /// moved from another machine) and the session runs in a remapped folder
+    /// instead (`hub/adoption.rs` `remapped_cwd`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopted_cwd: Option<PathBuf>,
     /// Chat store roots the harness's launch env named at its last spawn
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -246,6 +251,30 @@ pub trait Store: Send + Sync {
     /// Visit records with `seq > after` in order until `visit` returns false.
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         for rec in self.events(id, after, usize::MAX)? {
+            if !visit(rec) {
+                break;
+            }
+        }
+        Ok(())
+    }
+    /// Visit records with `after < seq < before` newest first until `visit`
+    /// returns false: the reverse of `scan`, for pages taken from the end.
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let mut found = Vec::new();
+        self.scan(id, after, &mut |rec| {
+            if rec.seq >= before {
+                return false;
+            }
+            found.push(rec);
+            true
+        })?;
+        for rec in found.into_iter().rev() {
             if !visit(rec) {
                 break;
             }
@@ -379,6 +408,17 @@ impl LocalStore {
     }
 }
 
+/// The seq of a segment's first readable record.
+fn first_seq(path: &Path) -> Result<Option<u64>> {
+    for line in BufReader::new(File::open(path)?).lines() {
+        let line = line?;
+        if let Ok(rec) = serde_json::from_str::<EventRecord>(&line) {
+            return Ok(Some(rec.seq));
+        }
+    }
+    Ok(None)
+}
+
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let mut out = Vec::new();
@@ -441,6 +481,37 @@ impl Store for LocalStore {
                 }
                 let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
                 if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Segments newest first, so a page from the end reads only the segments it
+    /// needs however long the log is. A segment whose first record is at or past
+    /// `before` holds nothing for the page and is skipped after one line.
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        for (_, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path)?;
+            for line in text.lines().rev() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_str::<EventRecord>(line) else { continue };
+                if rec.seq >= before {
+                    continue;
+                }
+                if rec.seq <= after || !visit(rec) {
                     return Ok(());
                 }
             }

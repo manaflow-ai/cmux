@@ -99,8 +99,10 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     std::fs::create_dir_all(&bin).unwrap();
     let cua = fake_bin(&bin, "cmux-cua");
     let cmux = fake_bin(&bin, "cmux");
-    let cmux_json = root.join("cmux.json");
-    std::fs::write(&cmux_json, r#"{"mcp": {"enabled": true}}"#).unwrap();
+    // A settings file that does not mention MCP: every agent chat still gets
+    // the cmux MCP server (cx-wx93i: on by default, `mcp.enabled: false` is off).
+    let cmux_json = root.join("cmux-next.json");
+    std::fs::write(&cmux_json, r#"{"agents": {"chats": {"enabled": true}}}"#).unwrap();
     // SAFETY: the only test in this binary; set before any session starts.
     unsafe {
         std::env::set_var("CMUX_AGENT_TOOLS_BIN_DIR", &bin);
