@@ -41,6 +41,7 @@ parser.add_argument("--stress", type=int, default=0, help="extra workspaces befo
 parser.add_argument("--hz", type=float, default=120)
 parser.add_argument("--scenarios", default="1,2,3,4,5")
 parser.add_argument("--trace", action="store_true", help="record an Animation Hitches trace (xctrace) over the drags")
+parser.add_argument("--setup-only", action="store_true", help="after the setup: window snapshot + debug.sidebar_rows dump, no drags")
 opts = parser.parse_args()
 WANTED = set(opts.scenarios.split(","))
 CUA = os.path.expanduser("~/.local/bin/cua-driver")
@@ -393,8 +394,6 @@ def launch():
 launch()
 trace = None
 try:
-    if opts.real_pointer or opts.trace:
-        Target.find()
     for name in ("Alpha", "Beta", "Gamma", "Delta", "Echo", "Foxtrot"):
         cli("workspace", "create", "--name", name)
     wait(lambda: {"Alpha", "Foxtrot"} <= set(rows()), 20)
@@ -433,6 +432,13 @@ try:
         alpha = rows().get("Alpha") or {}
         print("list at top:", at_top(), "focus:", focused[:120], "alpha frame:", alpha.get("window_frame"),
               "pinned frames:", [i.get("window_frame") for i in section_items("sec_pinned")], flush=True)
+    if opts.setup_only:
+        print("snapshot", json.dumps(rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "setup.png"), "webviews": False}, timeout=60))[:300], flush=True)
+        json.dump(rpc("debug.sidebar_rows"), open(os.path.join(opts.out, "setup-rows.json"), "w"), indent=1)
+        sys.exit(0)
+    # The cua-driver session starts after the setup: a 1000-workspace setup outlived its idle TTL (hitch10: "session has ended").
+    if opts.real_pointer or opts.trace:
+        Target.find()
     trace = trace_start()
 
     # 1. A workspace row into Pinned tiles (between the two tiles).
