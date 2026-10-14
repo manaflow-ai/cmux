@@ -306,3 +306,79 @@ def compare_bottom(n=8):
     phone = [o[4].strip() for o in rows][-n:]
     mac = [l.strip() for l in mac_screen().splitlines() if l.strip()][-n:]
     return phone, mac
+
+
+def motion_stats(video, start=None, dur=None, bottom=0.8):
+    r = subprocess.run([sys.executable, os.path.join(HERE, "motion.py"), video, "--bottom", str(bottom)]
+                       + (["--start", str(start)] if start is not None else []) + (["--dur", str(dur)] if dur else []),
+                       capture_output=True, text=True)
+    lines = r.stdout.strip().splitlines()
+    shifts = [(float(l.split()[0][:-1]), int(l.split()[2][:-2])) for l in lines if " shift " in l]
+    return {"summary": lines[-1] if lines else r.stderr[-300:], "down": [x for x in shifts if x[1] > 0],
+            "moves": len(shifts)}
+
+
+def suite(tag, prompt=None):
+    """The core streaming scenarios on the current transport; returns a result dict and records videos."""
+    s, m, j = ctx()
+    res = {"tag": tag, "link": None}
+    if prompt is None:
+        prompt = ("Print the numbers 1 to 700 in your reply, one per line, as N. followed by a different sentence "
+                  "about terminals, keyboards or networks each time. No tools.")
+    if not s.find(ident="terminal.composer.field"):
+        j.open_seed_workspace()
+    paste_composer(prompt)
+    time.sleep(1); j.hide_keyboard(); time.sleep(4)
+    # A: following.
+    v = rec_start(f"{tag}-a-follow"); time.sleep(20); rec_stop()
+    res["follow"] = motion_stats(v, start=2)
+    res["lag"] = lag_probe(5, 0.8)
+    # B: reading while it streams.
+    v = rec_start(f"{tag}-b-read"); T = time.time(); ev = []
+    time.sleep(1.5)
+    s.drag(201, 250, 201, 600, 0.6, 30, 0.2); ev.append(("hold1", time.time() - T)); time.sleep(8); ev.append(("hold1-end", time.time() - T))
+    s.drag(201, 250, 201, 600, 0.6, 30, 0.2); ev.append(("hold2", time.time() - T)); time.sleep(8); ev.append(("hold2-end", time.time() - T))
+    s.swipe(201, 200, 201, 750, 0.12); time.sleep(3)
+    s.swipe(201, 200, 201, 750, 0.12); time.sleep(3)
+    jb = s.find(label="Jump to bottom") or s.find(contains="bottom")
+    if jb:
+        s.tap_el(jb[0]); ev.append(("jump", time.time() - T))
+    time.sleep(5)
+    rec_stop()
+    off = 1.5  # recording starts ~1.5 s before T
+    holds = {}
+    for name in ("hold1", "hold2"):
+        a = dict(ev)[name] + off + 1.2
+        b = dict(ev)[name + "-end"] + off
+        holds[name] = motion_stats(v, start=a, dur=b - a)
+    res["read_holds"] = holds
+    res["jump_found"] = bool(jb)
+    # C: keyboard while it streams.
+    v = rec_start(f"{tag}-c-keyboard")
+    for _ in range(2):
+        s.tap_q(ident="terminal.composer.field"); time.sleep(3)
+        j.hide_keyboard(); time.sleep(3)
+    rec_stop()
+    res["keyboard"] = motion_stats(v, start=1.5, bottom=0.35)
+    # D: grid round trip.
+    v = rec_start(f"{tag}-d-grid")
+    for _ in range(2):
+        s.tap_q(label="Tabs", kind="Button"); time.sleep(2.5)
+        c = [e for e in s.find(kind="Button") if (e.label or "").startswith("e2e-t1")]
+        if c:
+            s.tap_el(c[0])
+        time.sleep(3)
+    rec_stop()
+    time.sleep(3)
+    res["bottom"] = compare_bottom(6)
+    return res
+
+
+def follow_run(tag, seconds=60, prompt=None):
+    s, m, j = ctx()
+    if not s.find(ident="terminal.composer.field"):
+        j.open_seed_workspace()
+    paste_composer(prompt or "Print the numbers 1 to 900 in your reply, one per line, as N. followed by a different sentence about terminals each time. No tools.")
+    time.sleep(1); j.hide_keyboard(); time.sleep(3)
+    v = rec_start(tag); time.sleep(seconds); rec_stop()
+    return motion_stats(v, start=2)

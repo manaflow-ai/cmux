@@ -1528,17 +1528,35 @@ w("\r\x1b[2KSTREAMDONE\n")
             self.sim.drag(201, d[0], 201, d[1], 0.4, 20, 0.2); time.sleep(0.6)
         return None
 
+    def open_transport_page(self):
+        """Settings > Transport (a page since the Settings redesign; the rig used to look for an inline picker)."""
+        self.tab("Settings")
+        if self.sim.find(ident="settings.transport.webrtc"):
+            return
+        for _ in range(3):  # a tap right after the tab switch can be dropped
+            row = self.settings_find(contains="Transport", kind="Button")
+            check(row, "no Transport row in Settings")
+            self.sim.tap_el(row)
+            if self.sim.wait(ident="settings.transport.webrtc", timeout=4):
+                return
+        raise Fail("the Transport page did not open")
+
+    def close_transport_page(self):
+        back = [e for e in self.sim.find(kind="Button") if e.label == "Back" or e.ident == "BackButton"]
+        if back:
+            self.sim.tap_el(back[0]); time.sleep(0.8)
+
     def settings_transport(self, name):
         self.tab("Settings")
-        cur = self.settings_find(contains="Transport,", kind="PopUpButton")
-        check(cur, "no Transport picker")
-        if cur.label.endswith(name):
+        cur = self.settings_find(contains="Transport,", kind="Button")
+        if cur and cur.label.endswith(name):
             return 0.0
-        self.sim.press(cur.frame[0] + cur.frame[2] - 60, cur.center[1], hold=0.1); time.sleep(1.2)
-        item = self.sim.wait(label=name, kind="Button", timeout=5)
-        check(item, f"transport menu did not open")
-        self.sim.press(*item.center, hold=0.1)
+        self.open_transport_page()
+        kind = {"WebRTC": "webrtc", "WireGuard": "wireguard"}[name]
+        item = self.sim.find(ident=f"settings.transport.{kind}")[0]
+        self.sim.tap_el(item)
         t = time.time()
+        self.close_transport_page()
         self.tab("Workspaces")
         lab = ""
         while time.time() - t < 30:
@@ -1563,18 +1581,20 @@ w("\r\x1b[2KSTREAMDONE\n")
                 "metric_wg_switch_s": round(a, 2), "metric_webrtc_switch_s": round(b, 2)}
 
     def relay_toggle(self, want):
-        """Sets Settings > Developer > Relay only to `want` ("1"/"0"); returns (before, after)."""
-        self.tab("Settings")
-        e = self.settings_find(contains="Relay only", kind="CheckBox")
-        check(e, "no 'Relay only' toggle in Settings > Developer")
+        """Sets Settings > Transport > Developer > Relay only to `want` ("1"/"0"); returns (before, after)."""
+        self.open_transport_page()
+        e = self.sim.wait(ident="settings.transport.relayOnly", timeout=5)
+        check(e, "no 'Relay only' toggle on Settings > Transport")
         before = e.value
         for _ in range(3):
             if e.value == want:
                 break
             self.sim.press(e.frame[0] + e.frame[2] - 40, e.center[1], hold=0.1)
             time.sleep(1.2)
-            e = self.settings_find(contains="Relay only", kind="CheckBox")
-        return before, e.value if e else None
+            e = self.sim.find(ident="settings.transport.relayOnly")[0]
+        after = e.value
+        self.close_transport_page()
+        return before, after
 
     def s_relay_only(self):
         b, a = self.relay_toggle("1")

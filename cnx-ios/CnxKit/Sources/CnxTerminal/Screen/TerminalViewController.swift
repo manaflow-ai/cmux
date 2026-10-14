@@ -465,7 +465,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// decelerations and the keyboard-drag pin): the scroll model's target
     /// for the document and insets as they are now. Called after layout and
     /// after each processed output batch, so at most once per display frame.
-    private func applyScroll() {
+    private func applyScroll(fromOutput: Bool = false) {
         // A deceleration stopped by a touch that never became a drag ends no
         // gesture: settle it here.
         if scroll.isInteracting, !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating,
@@ -480,6 +480,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !model.isTUI, cell.height > 0,
               let target = scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top,
                                          bottomOffsetY: maxOffsetY) else { return }
+        // Following new output: the page moves when Ghostty's frame with the
+        // new rows is presented (surfacePresented), in the same transaction.
+        // Moved earlier, the old frame showed shifted up for one frame
+        // (termqa round 2: a one-frame jump of 2 rows while Codex streamed).
+        if fromOutput, scroll.isFollowing, target > scrollView.contentOffset.y + 0.5,
+           presentedTop != scrollbar.offset, freezeView == nil {
+            followAwaitsPresent = true
+            armFollowFallback()
+            updateViewport(visibleMinY: scrollView.contentOffset.y)
+            return
+        }
+        followAwaitsPresent = false
         if abs(scrollView.contentOffset.y - target) > 0.5 {
             settingOffset = true
             scrollView.contentOffset.y = target
@@ -1024,7 +1036,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // The scroll model places the rows: the bottom when following, the
         // anchored rows when reading, nothing while a finger owns the page.
-        applyScroll()
+        applyScroll(fromOutput: true)
     }
 
     /// Input is about to go to the program: on the primary screen, follow
@@ -1139,6 +1151,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #endif
         place(atRow: placesFromReport ? scrollbar.offset : top)
+        if followAwaitsPresent { applyScroll() }
+    }
+
+    /// Following output waits for the frame that shows it; if none comes
+    /// within two display frames (nothing visible changed), it moves anyway.
+    private var followAwaitsPresent = false
+    private var followFallback: CADisplayLink?
+    private var followFallbackTicks = 0
+
+    private func armFollowFallback() {
+        guard followFallback == nil else { return }
+        followFallbackTicks = 0
+        let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
+            guard let self else { return }
+            self.followFallbackTicks += 1
+            guard self.followFallbackTicks >= 2 || !self.followAwaitsPresent else { return }
+            self.followFallback?.invalidate()
+            self.followFallback = nil
+            if self.followAwaitsPresent { self.applyScroll() }
+        }, selector: #selector(DisplayLinkProxy.step))
+        link.add(to: .main, forMode: .common)
+        followFallback = link
     }
 
     private func place(atRow top: Int) {
