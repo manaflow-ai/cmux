@@ -1,5 +1,3 @@
-import Foundation
-
 /// Resolves launch evidence without turning an incomplete observation into a failed restore.
 public struct AgentRestoreEvidencePolicy: Sendable {
     /// The next action for the operation that still owns the saved restore intent.
@@ -36,16 +34,5 @@ public struct AgentRestoreEvidencePolicy: Sendable {
         case nil:
             return indexComplete ? .claimLaunch : .refreshEvidence
         }
-    }
-
-    /// The longest wait for an evidence event before the next admission probe.
-    ///
-    /// Codex releasing its coordination lock produces no file event, so a
-    /// `.changing` lock re-probes after a quarter second instead of waiting
-    /// the full RPC bound for an observation that may never arrive.
-    /// - Parameter writerLock: The last writer-lock state, or nil for other providers.
-    /// - Returns: Seconds to wait for a process or file event.
-    public func observationTimeout(writerLock: CodexWriterLockInspection.State?) -> TimeInterval {
-        writerLock == .changing ? 0.25 : 8
     }
 }

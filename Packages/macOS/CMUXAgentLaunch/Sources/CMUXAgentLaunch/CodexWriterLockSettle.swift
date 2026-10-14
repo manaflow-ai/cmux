@@ -43,6 +43,8 @@ public struct CodexWriterLockSettle: Sendable {
     public static func awaitNamespaceChange(_ inspection: CodexWriterLockInspection, timeout: TimeInterval) {
         let directory = URL(fileURLWithPath: inspection.lockPath).deletingLastPathComponent().path
         let descriptor = open(directory, O_EVTONLY | O_CLOEXEC)
+        // `.changing` implies the directory exists; without an event source
+        // the bound alone paces the next probe.
         guard descriptor >= 0 else {
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
             return
