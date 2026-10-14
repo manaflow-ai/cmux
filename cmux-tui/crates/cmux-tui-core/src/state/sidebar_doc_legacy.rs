@@ -23,7 +23,7 @@ use cmux_layout_reducer::sidebar_doc::migrate::{
     layout_ref_of_body,
 };
 use cmux_layout_reducer::sidebar_doc::{
-    Body, Doc, ItemId, NewItem, Op, PINNED_SECTION_ID, Target, WorkspaceRef,
+    Body, Doc, ItemId, NewItem, Op, PINNED_SECTION_ID, Patch, SectionPatch, Target, WorkspaceRef,
 };
 use cmux_layout_reducer::sidebar_layout::{self, Document};
 
@@ -171,10 +171,27 @@ pub(crate) fn legacy_input(connection: &Connection) -> anyhow::Result<LegacyInpu
 }
 
 /// The old layout with the document's Pinned items as the `sec_pinned`
-/// tiles (groups are not shown: the old layout has no group tile).
+/// tiles (groups are not shown: the old layout has no group tile), and each
+/// section's `align` and `gap` from the document (the workspaces section's
+/// from the first machine section).
 pub(crate) fn project_layout(stored: &Document, doc: &Doc) -> Document {
     let mut projected = stored.clone();
     projected.revision = stored.revision + doc.revision;
+    let first_machine =
+        doc.sections().iter().filter(|s| s.kind.machine().is_some()).min_by(|a, b| {
+            (a.region_rank(), &a.order, &a.id).cmp(&(b.region_rank(), &b.order, &b.id))
+        });
+    for section in &mut projected.sections {
+        let source = if section.content == sidebar_layout::Content::Workspaces {
+            first_machine
+        } else {
+            doc.section(&section.id)
+        };
+        if let Some(source) = source {
+            section.arrangement.align = source.align.clone();
+            section.arrangement.gap = source.gap;
+        }
+    }
     let items: Vec<sidebar_layout::Item> = doc
         .children(PINNED_SECTION_ID, None)
         .into_iter()
@@ -223,6 +240,45 @@ pub(crate) fn project_layout(stored: &Document, doc: &Doc) -> Document {
         None => {}
     }
     projected
+}
+
+/// The document ops that follow an old layout section's changed `align` or
+/// `gap` (`sidebar_layout.update` `section.update`): onto the document
+/// section of the same id, or every machine section for the old
+/// workspaces section.
+pub(crate) fn section_field_ops(before: &Document, after: &Document, doc: &Doc) -> Vec<Op> {
+    let mut ops = Vec::new();
+    for section in &after.sections {
+        let Some(old) = before.sections.iter().find(|old| old.id == section.id) else { continue };
+        let (align, gap) = (&section.arrangement.align, section.arrangement.gap);
+        if old.arrangement.align == *align && old.arrangement.gap == gap {
+            continue;
+        }
+        let targets: Vec<String> = if section.content == sidebar_layout::Content::Workspaces {
+            doc.sections()
+                .iter()
+                .filter(|s| s.kind.machine().is_some())
+                .map(|s| s.id.clone())
+                .collect()
+        } else {
+            doc.section(&section.id).map(|s| s.id.clone()).into_iter().collect()
+        };
+        // Only the fields this write changed: the document may hold a newer
+        // value of the other one.
+        let patch = SectionPatch {
+            align: (old.arrangement.align != *align).then(|| align.clone()),
+            gap: if old.arrangement.gap == gap {
+                Patch::Keep
+            } else {
+                gap.map_or(Patch::Clear, Patch::Set)
+            },
+            ..SectionPatch::default()
+        };
+        for id in targets {
+            ops.push(Op::SectionUpdate { id, patch: patch.clone() });
+        }
+    }
+    ops
 }
 
 fn pinned_tiles(layout: &Document) -> Vec<sidebar_layout::Item> {
