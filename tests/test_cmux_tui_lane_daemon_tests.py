@@ -92,6 +92,11 @@ def main():
            in daemon_if, "a testing run that finds a published tree with no marker tests it")
     _check("github.ref != 'refs/heads/main'" in daemon_if, "main keeps its own rule for published trees")
 
+    _check("needs.tree-owner-wait.outputs.unmarked == 'true'" in daemon_if,
+           "a run whose owner published the tree unmarked during its preflight tests it")
+    _check(all_jobs["tree-owner-wait"]["outputs"].get("unmarked") == "${{ steps.wait.outputs.unmarked }}",
+           "tree-owner-wait exports unmarked")
+
     publish = all_jobs["publish-tree"]
     _check("needs.tree-preflight.outputs.daemon_tests != 'true'" in str(publish["if"]),
            "a lane-branch push publishes its tree without the daemon tests")
@@ -103,6 +108,9 @@ def main():
     _check("needs.tree-preflight.outputs.tree_ready == 'true'" in marker_if
            and "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true'" not in marker_if,
            "any run that tested an already published tree writes its marker")
+    tested = all_jobs["publish-tree-tested"]
+    _check("tree-owner-wait" in tested["needs"] and "needs.tree-owner-wait.outputs.unmarked == 'true'" in str(tested["if"]),
+           "the run that tested an owner's unmarked tree writes its marker")
 
     if FAILURES:
         for failure in FAILURES:
