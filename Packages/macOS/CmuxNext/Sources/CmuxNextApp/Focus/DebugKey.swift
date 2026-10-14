@@ -153,6 +153,11 @@ enum DebugKey {
                 // The row id Return runs and the first rows, so a probe tells an action row from a
                 // scope or setting row with the same action.
                 "palette_selected_row": palette.model.selectedItem.map { .string($0.id) } ?? .null,
+                // The rows on screen when this reply is built. A typed query ranks off the main
+                // actor: while `palette_ranking` is true they are the previous query's rows, so read
+                // them again (or `palette.query`) once it is false.
+                "palette_query": .string(palette.model.query),
+                "palette_ranking": .bool(palette.model.isRanking),
                 "palette_rows": .array(palette.model.rows.prefix(6).map { .string($0.id) }),
                 "palette_recorder": palette.model.shortcutRecorder.map { recorder in
                     .object(["action": .string(recorder.actionID.rawValue), "message": recorder.message.map(JSONValue.string) ?? .null,
