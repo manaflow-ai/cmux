@@ -13,7 +13,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `app.uiScale`, the app-wide chrome and first-party page scale.
     public var uiScale: Double = UIScaleSetting().fallback
     /// `appearance.interfaceScale`, applied to chrome only when Labs is enabled.
-    public var interfaceScale: Double = InterfaceSizeSetting().fallback
+    public var interfaceScale: Double = InterfaceScaleSetting().fallback
     /// `appearance.metrics.<name>` in points.
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
@@ -327,7 +327,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
 
         snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.interfaceScale = InterfaceSizeSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.interfaceScale = InterfaceScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

@@ -247,7 +247,7 @@ public final class AgentPaneView: NSView {
         }
     }
 
-    private func applyZoom() {
+    func applyZoom() {
         let scale = Double(DesignSettings.shared.uiScale) * zoom
         if let page {
             page.additionalZoom = zoom

@@ -1,6 +1,13 @@
-/// `appearance.interfaceScale` in cmux.json: one Labs multiplier for chrome
-/// type, spacing and control heights. Absent means the familiar 100% layout.
+/// `appearance.metrics.chromeFontSize` in cmux.json: the legacy interface size.
 public struct InterfaceSizeSetting: Sendable {
+    public let metricName = "chromeFontSize"
+    public var configPath: [String] { ["appearance", "metrics", metricName] }
+    public let range: ClosedRange<Double> = 10...16
+    public init() {}
+}
+
+/// `appearance.interfaceScale` in cmux.json: one Labs multiplier for chrome.
+public struct InterfaceScaleSetting: Sendable {
     public let configPath = ["appearance", "interfaceScale"]
     public let fallback = 1.0
     public let range: ClosedRange<Double> = 0.9...1.25
@@ -13,9 +20,7 @@ public struct InterfaceSizeSetting: Sendable {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.interfaceScale", message: "expected a scale from 0.9 to 1.25"))
             return fallback
         }
-        if !range.contains(number) {
-            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.interfaceScale", message: "expected a scale from 0.9 to 1.25; clamped"))
-        }
+        if !range.contains(number) { diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.interfaceScale", message: "expected a scale from 0.9 to 1.25; clamped")) }
         return min(max(number, range.lowerBound), range.upperBound)
     }
 }

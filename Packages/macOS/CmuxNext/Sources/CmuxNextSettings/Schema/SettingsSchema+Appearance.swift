@@ -168,12 +168,12 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["font", "text", "size", "chromeFontSize"]
             ).hiddenFromSettingsPage("replaced by appearance.interfaceScale"),
             SettingDescriptor(
-                InterfaceSizeSetting().configPath, section: .appearance, group: look,
+                InterfaceScaleSetting().configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
                 help: SettingsText.keyed("settings.appearance.interfaceSize.help",
                                         "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
                 summary: SettingsText.keyed("settings.appearance.interfaceSize.summary", "Text size of tabs, sidebar and controls"),
-                kind: .number(SettingNumber(InterfaceSizeSetting().range, step: InterfaceSizeSetting().step, unit: .fraction, placeholder: InterfaceSizeSetting().fallback)),
+                kind: .number(SettingNumber(InterfaceScaleSetting().range, step: InterfaceScaleSetting().step, unit: .fraction, placeholder: InterfaceScaleSetting().fallback)),
                 default: nil, defaultLabel: densityDefault,
                 keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "interfaceScale", "labs"]
             ),

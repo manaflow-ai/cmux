@@ -60,12 +60,12 @@ enum AppearanceHandlers {
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             try requireUnmanaged(fontSizePath, context)
-            context.design.interfaceScale = CGFloat(InterfaceSizeSetting().fallback)
+            context.design.interfaceScale = CGFloat(InterfaceScaleSetting().fallback)
             context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
         })
     }
 
-    private static let fontSizePath = InterfaceSizeSetting().configPath
+    private static let fontSizePath = InterfaceScaleSetting().configPath
     private static let uiScalePath = UIScaleSetting().configPath
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
@@ -162,7 +162,7 @@ enum AppearanceHandlers {
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
         try requireUnmanaged(fontSizePath, context)
         let design = context.design
-        let values = InterfaceSizeSetting().values
+        let values = InterfaceScaleSetting().values
         let current = interfaceSize(design)
         let index = values.enumerated().min(by: { abs($0.element - current) < abs($1.element - current) })?.offset ?? 1
         let next = values[min(max(index + Int(delta), 0), values.count - 1)]
