@@ -22,8 +22,8 @@ struct OmnibarCardElevationTests {
 
         let top = OmnibarCardTopView(frame: NSRect(x: 0, y: 0, width: 400, height: 34)).card
         #expect(top.cornerRadius == style.cornerRadius)
-        #expect(abs(CGFloat(top.shadowOpacity) - style.shadowAlpha) < 0.001)
-        #expect(top.shadowRadius == style.shadowBlur / 2)
-        #expect(top.shadowOffset == CGSize(width: 0, height: -style.shadowOffset))
+        #expect(abs(CGFloat(top.shadowOpacity) - style.elevation.alpha) < 0.001)
+        #expect(top.shadowRadius == style.elevation.layerRadius)
+        #expect(top.shadowOffset == style.elevation.layerOffset())
     }
 }
