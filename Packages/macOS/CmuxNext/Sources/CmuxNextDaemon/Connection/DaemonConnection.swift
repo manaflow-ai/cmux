@@ -41,7 +41,7 @@ public actor DaemonConnection {
 
     let configuration: Configuration
     private let endpointProvider: EndpointProvider
-    private let clock: any Clock<Duration>
+    let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
     private var phase: Phase = .idle
     private(set) var serial: UInt64 = 0
@@ -62,7 +62,10 @@ public actor DaemonConnection {
     /// the requests held while a handoff runs (nil: none runs).
     var inFlight = 0
     var quietWaiters: [CheckedContinuation<Void, Never>] = []
-    var handoffHold: [CheckedContinuation<Void, Never>]?
+    var handoffHold: [UInt64: CheckedContinuation<Void, Never>]?
+    var handoffHoldNext: UInt64 = 0
+    var handoffQueue: [CheckedContinuation<Void, Never>] = []
+    var handoffHoldTimer: DemandTimer?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 

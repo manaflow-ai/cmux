@@ -6,7 +6,7 @@ import Testing
 /// Home send (a cut send is the "Not Delivered" class). A real daemon; eight senders write
 /// person messages on the app's own owner connection without a pause while the restart runs.
 /// Every send must succeed, and every message must be in the restarted owner's history.
-@Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .liveDaemon)
+@Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .liveDaemon, .timeLimit(.minutes(3)))
 struct OwnerRestartKeepsSendsTests {
     @Test func sendsInFlightAtTheInstallKeyRestartAreDeliveredNotCut() async throws {
         let binary = try #require(RealBinary.url)
@@ -77,6 +77,7 @@ struct OwnerRestartKeepsSendsTests {
             let stored = String(describing: history)
             let sent = await ledger.texts
             #expect(sent.count >= 16, "too few sends to cover the restart: \(sent.count)")
+            #expect(sent.count < 500, "more sends than one history page reads: \(sent.count)")
             let lost = sent.filter { !stored.contains($0) }
             #expect(lost.isEmpty, "\(lost.count) acknowledged sends are not in the new owner's history: \(lost.prefix(5))")
         } catch {

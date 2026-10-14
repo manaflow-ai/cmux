@@ -1,30 +1,60 @@
+import CmuxNextWakeups
 import Foundation
 
 /// A handoff of this connection's daemon that cuts no request (hq-6d 2026-10-14: a cut Home send is
 /// the "Not Delivered" class). `quietHandoff` holds every new `request` and `resourceRequest`, waits
 /// until none of this connection is in flight, then runs the handoff. When the daemon accepts it,
-/// the held requests go to the next daemon once the connection is ready again (or fail as before
-/// when the connection closes for good); when it refuses, they go on at once.
+/// the held requests go to the next daemon once the connection is ready again; they go on anyway
+/// (and fail as before) when the connection closes for good or after `handoffHoldLimit`. When it
+/// refuses, they go on at once. One handoff at a time: a second waits until the first's hold ends.
 extension DaemonConnection {
     /// The handoff's own requests pass the hold.
     @TaskLocal static var passesHandoffHold = false
+    /// The longest a request waits for the next daemon: the launcher's 60 s wait for the old
+    /// daemon to exit, plus a request deadline.
+    static let handoffHoldLimit: Duration = .seconds(65)
 
     /// Runs `handoff` (true: the daemon accepted it and will exit) with no request in flight.
     public func quietHandoff(_ handoff: @Sendable () async -> Bool) async -> Bool {
-        guard handoffHold == nil else { return false }
-        handoffHold = []
-        if inFlight > 0 { await withCheckedContinuation { quietWaiters.append($0) } }
-        let startSerial = serial
-        let accepted = await Self.$passesHandoffHold.withValue(true) { await handoff() }
-        // Refused, or the connection is already a new one: nothing to wait for.
-        if !accepted || serial != startSerial { releaseHandoffHold() }
-        return accepted
+        await quietHandoff(handoff, accepted: { $0 })
     }
 
-    /// A request waits here while a quiet handoff runs.
+    /// `quietHandoff` for a handoff whose result says whether the daemon accepted it.
+    public func quietHandoff<Result: Sendable>(_ handoff: @Sendable () async -> Result,
+                                               accepted: (Result) -> Bool) async -> Result {
+        while handoffHold != nil { await withCheckedContinuation { handoffQueue.append($0) } }
+        handoffHold = [:]
+        if inFlight > 0 { await withCheckedContinuation { quietWaiters.append($0) } }
+        let startSerial = serial
+        let result = await Self.$passesHandoffHold.withValue(true) { await handoff() }
+        if !accepted(result) || (isReady && serial != startSerial) {
+            releaseHandoffHold()
+        } else if handoffHold != nil {
+            let timer = DemandTimer(owner: "DaemonConnection.handoffHold", clock: clock)
+            handoffHoldTimer = timer
+            timer.schedule(after: Self.handoffHoldLimit) { [weak self] in await self?.releaseHandoffHold() }
+        }
+        return result
+    }
+
+    /// A request waits here while a quiet handoff runs (or until its task is cancelled).
     func waitOutHandoff() async {
-        guard handoffHold != nil, !Self.passesHandoffHold else { return }
-        await withCheckedContinuation { handoffHold?.append($0) }
+        while handoffHold != nil, !Self.passesHandoffHold, !Task.isCancelled {
+            handoffHoldNext += 1
+            let key = handoffHoldNext
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    if handoffHold == nil { continuation.resume() } else { handoffHold?[key] = continuation }
+                }
+            } onCancel: {
+                // task-owner: one hop back to the actor to resume this cancelled request's continuation
+                Task { await self.leaveHandoffHold(key) }
+            }
+        }
+    }
+
+    private func leaveHandoffHold(_ key: UInt64) {
+        handoffHold?.removeValue(forKey: key)?.resume()
     }
 
     func requestStarted() { inFlight += 1 }
@@ -37,10 +67,16 @@ extension DaemonConnection {
         waiters.forEach { $0.resume() }
     }
 
-    /// Lets the held requests go (a new connection is ready, the connection closed, or the handoff was refused).
+    /// Lets the held requests go (a new connection is ready, the connection closed, the handoff
+    /// was refused, or the hold limit passed), then the next queued handoff.
     func releaseHandoffHold() {
         guard let held = handoffHold else { return }
         handoffHold = nil
-        held.forEach { $0.resume() }
+        handoffHoldTimer?.cancel()
+        handoffHoldTimer = nil
+        held.values.forEach { $0.resume() }
+        let queued = handoffQueue
+        handoffQueue.removeAll()
+        queued.forEach { $0.resume() }
     }
 }
