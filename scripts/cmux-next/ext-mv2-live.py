@@ -108,26 +108,41 @@ class Job:
 
     # -- app --------------------------------------------------------------
     def launch(self):
+        """Starts the app's executable from this job (so nx-remote tracks it and the
+        environment reaches it; `open --env` did not), with an empty config file."""
+        with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as plist:
+            binary = os.path.join(self.app, "Contents/MacOS", plistlib.load(plist)["CFBundleExecutable"])
+        config = os.path.join(self.out, "cmux.json")
+        with open(config, "w") as empty:
+            empty.write("{}\n")
         env = {
+            "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""),
+            "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_NEXT_NO_ACTIVATE": "1",
             # Never the person's Chief home; the proof opens no Home or Chief pane.
             "CMUX_NEXT_CHIEF_ISOLATED": "1",
             "CMUX_NEXT_SOCKET_MODE": "automation",
+            "CMUX_NEXT_CONFIG_FILE": config,
+            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,860",
             "CMUX_NEXT_CEF_EXTRA_SWITCHES": f"remote-debugging-port={self.port}:remote-allow-origins=*",
         }
+        if "NX_JOB_ID" in os.environ:
+            env["NX_JOB_ID"] = os.environ["NX_JOB_ID"]
         if self.extensions:
             env["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] = ":".join(self.extensions)
-        command = ["/usr/bin/open", "-g", "-n", "-a", self.app]
-        for key, value in env.items():
-            command += ["--env", f"{key}={value}"]
-        logfile = os.path.join(self.out, "app.log")
-        command += ["--stdout", logfile, "--stderr", logfile]
-        subprocess.run(command, check=True)
-        deadline = time.monotonic() + 60
+        if os.path.exists(self.socket):
+            os.unlink(self.socket)
+        log_file = open(os.path.join(self.out, "app.log"), "w")
+        process = subprocess.Popen([binary], env=env, stdout=log_file, stderr=subprocess.STDOUT,
+                                   stdin=subprocess.DEVNULL)
+        self.pid = process.pid
+        deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise SystemExit(f"the app exited with {process.returncode}")
             try:
                 self.client = Client(self.socket, timeout=30)
-                # The socket envelope carries "ok" (the result is the CEF report).
                 if self.client.call("debug.cef").get("ok"):
                     break
             except (OSError, ConnectionError, ValueError):
@@ -135,18 +150,17 @@ class Job:
             time.sleep(0.3)
         else:
             raise SystemExit("the app socket never answered")
-        with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as plist:
-            binary = os.path.join(self.app, "Contents/MacOS", plistlib.load(plist)["CFBundleExecutable"])
-        listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
-        pids = [int(p) for p, _, c in (line.strip().partition(" ") for line in listing.splitlines()) if c == binary]
-        self.pid = pids[-1] if pids else None
-        deadline = time.monotonic() + 30
+        if not (self.call("debug.focus").get("result") or {}).get("windows"):
+            self.call("action.run", {"action": "newWindow", "origin": "script"})
+        deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             try:
                 cdp.targets(self.port)
                 break
             except OSError:
                 time.sleep(0.3)
+        else:
+            raise SystemExit(f"no DevTools port {self.port}: CMUX_NEXT_CEF_EXTRA_SWITCHES did not apply")
         log(f"app up: pid {self.pid}, cdp {self.port}")
 
     def stop(self):
@@ -163,9 +177,10 @@ class Job:
 
     def open_tab(self, url, match=None, timeout=30):
         before = {t.get("id") for t in cdp.targets(self.port)}
-        opened = self.call("action.run", {"action": "tab new-chromium", "args": {"url": url}})
-        for tab in ((opened.get("result") or {}).get("created") or [])[:1]:
-            self.call("tab.focus", {"tab": tab})
+        # A tab a person opens (origin remote), not an agent-driven one: extensions
+        # cannot reach agent-driven tabs (fork API 20, cmux_tab_set_extension_access).
+        opened = self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": url},
+                                          "focus": True, "origin": "remote"})
         key = match or url
         target = cdp.wait_target(self.port, lambda t: t.get("type") == "page" and t.get("id") not in before
                                  and key in t.get("url", ""), timeout)
