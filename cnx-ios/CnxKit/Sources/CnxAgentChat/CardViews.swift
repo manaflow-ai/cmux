@@ -162,7 +162,7 @@ public struct PermissionActionBar: View {
                     // (verify/phone-approvals.md), and says so.
                     HStack(spacing: 6) {
                         if option.id == approvingOptionID {
-                            ProgressView().controlSize(.small).accessibilityHidden(true)
+                            ProgressView().controlSize(.small).tint(option.kind == .allowOnce ? Color.cnxOnAccent : Color.primary).accessibilityHidden(true)
                             Text(Self.waitingForFaceID).lineLimit(1)
                         } else {
                             if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
