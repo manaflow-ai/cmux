@@ -75,7 +75,7 @@ pub async fn serve(
         "acpmux" => acpmux(&config, &sender, receiver).await,
         "file" => file(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
-        "version" => version(&sender).await,
+        "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &peer, &args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
@@ -118,8 +118,19 @@ pub const LINK_PROTOCOL: u32 = 2;
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 pub const CAPABILITIES: [&str; 1] = ["removal-v1"];
+/// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
+pub const BROWSER_STREAM: &str = "browser-stream-v1";
 
-async fn version(sender: &ChannelSender) -> Result<(), Refusal> {
+/// What this host does that a phone may rely on.
+pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
+    let mut out = CAPABILITIES.to_vec();
+    if config.browser.available() {
+        out.push(BROWSER_STREAM);
+    }
+    out
+}
+
+async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), Refusal> {
     let reply = serde_json::json!({
         "hostd": env!("CARGO_PKG_VERSION"),
         // 2: control frames ahead of data, any frame counts as life, the
@@ -127,7 +138,8 @@ async fn version(sender: &ChannelSender) -> Result<(), Refusal> {
         "link": LINK_PROTOCOL,
         // What this host does that a phone may rely on. `removal-v1`: once its owner
         // removes this Mac (4002 `removed`) it stays off until allowed again on the Mac.
-        "capabilities": CAPABILITIES,
+        // `browser-stream-v1`: it streams browser tabs (`browser`).
+        "capabilities": capabilities(config),
     });
     let _ = sender.send(Bytes::from(reply.to_string())).await;
     Ok(())
@@ -836,6 +848,29 @@ async fn receive_upload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_tabs_are_a_capability_only_with_a_browser_host() {
+        let mut config = crate::config::ServiceConfig {
+            tui_socket_dir: std::path::PathBuf::from("/tmp"),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: Vec::new(),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: std::path::PathBuf::from("/tmp"),
+            upload_max_bytes: 1,
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::default(),
+        };
+        assert_eq!(capabilities(&config), ["removal-v1"]);
+        let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
+            Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
+        });
+        config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
+        assert_eq!(capabilities(&config), ["removal-v1", BROWSER_STREAM]);
+    }
 
     #[test]
     fn upload_names_are_safe() {

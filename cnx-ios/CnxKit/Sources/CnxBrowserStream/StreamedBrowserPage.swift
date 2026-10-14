@@ -11,6 +11,10 @@ public struct StreamedBrowserPage: View {
     var insets: EdgeInsets
     var reportScroll: @MainActor (CGFloat) -> Void
     @State private var keyboard = false
+    @Environment(\.openURL) private var openURL
+
+    /// What the page says when the Mac cannot stream browser tabs.
+    public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac yet.")
 
     public init(model: StreamedBrowserModel, insets: EdgeInsets, reportScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.model = model
@@ -22,7 +26,9 @@ public struct StreamedBrowserPage: View {
         ZStack(alignment: .bottomTrailing) {
             StreamSurface(model: model, keyboard: $keyboard, reportScroll: reportScroll)
                 .accessibilityIdentifier("browser.stream")
-            if case let .waiting(reason) = model.phase {
+            if model.phase == .unavailable {
+                unavailable
+            } else if case let .waiting(reason) = model.phase {
                 status(reason)
             } else if model.phase == .connecting {
                 status("Opening on your Mac…")
@@ -49,6 +55,23 @@ public struct StreamedBrowserPage: View {
         .padding(.bottom, insets.bottom)
         .background(Color.black)
         .onAppear { model.reconnect() }
+    }
+
+    /// An honest state, with the page in Safari on this iPhone when it has a web address.
+    private var unavailable: some View {
+        VStack(spacing: 12) {
+            Text(Self.unavailableText)
+                .font(.callout)
+                .multilineTextAlignment(.center)
+            if let url = model.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                Button("Open in Safari") { openURL(url) }
+                    .buttonStyle(.glass)
+                    .accessibilityIdentifier("browser.openInSafari")
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("browser.unavailable")
     }
 
     private func status(_ text: String) -> some View {
