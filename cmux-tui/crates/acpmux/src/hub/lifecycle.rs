@@ -47,10 +47,11 @@ impl Hub {
         // model/effort (or a model in its argv or env) and an adopted
         // conversation keep today's chain (request, then `defaults`).
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
+        // A harness that takes its model at spawn (Claude Code's `--model`)
+        // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
             || !eligible
             || profile.model.is_some()
-            || spawn_model
             || super::start_defaults::profile_sets_model(&profile, &defaults.env);
         let effort_pinned = effort.is_some() || !eligible || profile.effort.is_some();
         let pinned_model =
