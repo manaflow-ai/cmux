@@ -13,16 +13,37 @@ name: cmux-next media
 # does not run and the comment says why (scripts/ci/cmux_next_media_runner.py).
 # Same-repository heads only: owned Macs run trusted code, and the publish job
 # holds the pr-media write token. That job never checks out or runs the pull
-# request's code: its scripts come from the base revision, and it reads the
-# tour artifact as data (publish.py validates names and paths before upload).
+# request's code: its scripts come from the base revision (the merged
+# feat-cmux-next head for a merge tour), and it reads the tour artifact as data
+# (publish.py validates names and paths before upload).
 # A pull_request run still takes this file from the pull request, so the
 # boundary that holds is same-repository write access: anyone who can push a
 # branch here could edit these jobs, and forks never reach them.
 
+# WHEN IT RUNS: the tour holds an owned Mac's gui runner (one per mini) for up
+# to two hours. Run on every push of every UI pull request, it had 32 queued
+# and 8 running jobs on 2026-10-14 and saturated those runners. It now runs:
+#   - on a merge: a push to feat-cmux-next that touches the UI paths tours
+#     that merge (the previous head against the new one) and comments on the
+#     merged pull request. One merge tour runs at a time; a newer merge
+#     replaces the waiting one, and a running tour is never cancelled.
+#   - on a pull request labeled `media-tour` (add the label to get a tour;
+#     every later push of that pull request tours again).
+# A pull request without the label starts no job. Classic main has no
+# cmux-next UI, and a nightly schedule would run only from main's copy of
+# this file, so neither has a tour.
 on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - 'Packages/macOS/CmuxNext/Sources/**'
+      - 'Packages/macOS/CmuxNext/Resources/**'
+      - 'Packages/macOS/CmuxNext/Tests/**'
+      - 'webviews/**'
+      - 'agent-chat/**'
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - 'Packages/macOS/CmuxNext/Sources/**'
       - 'Packages/macOS/CmuxNext/Resources/**'
@@ -33,14 +54,18 @@ on:
 
 permissions: {}
 
+# A pull request run that tours (labeled media-tour, and not a label event for
+# another label) shares the pull request's group and replaces its older tour.
+# Any other pull request run gets a group of its own, so it cancels nothing.
+# Merge tours share one group without cancel-in-progress.
 concurrency:
-  group: cmux-next-media-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'push' && 'cmux-next-media-feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   route:
     name: Pick the tour runner
-    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -62,8 +87,8 @@ jobs:
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
-          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          SAME_REPO: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
         run: python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO"
 
   tour:
@@ -78,14 +103,16 @@ jobs:
     permissions:
       contents: read
     env:
-      CMUX_CI_XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
-      # One tag per PR keeps its DerivedData warm across updates; base and head
-      # use separate tags so the two apps never share state or sockets.
-      TOUR_TAG: ci-media-pr-${{ github.event.pull_request.number || 'manual' }}
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+      # One tag per PR (one for all merges) keeps its DerivedData warm across
+      # updates; base and head use separate tags so the two apps never share
+      # state or sockets.
+      TOUR_TAG: ci-media-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || 'feat-cmux-next' }}
+      # A merge tour compares the previous feat-cmux-next head with the merge.
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -264,12 +291,37 @@ jobs:
       - name: Checkout the publisher from the base revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
           persist-credentials: false
           sparse-checkout: |
             scripts/pr-media.py
             scripts/cmux-next/media/publish.py
           sparse-checkout-cone-mode: false
+
+      # The pull request to comment on: the event's, or for a merge tour the
+      # pull request merged as this feat-cmux-next commit (publish.py posts
+      # only while that pull request's head is the one given).
+      - name: Find the pull request
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = push ]; then
+            found="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" \
+              --jq '[.[] | select(.merged_at != null and .base.ref == "feat-cmux-next")][0] | "\(.number)\t\(.head.sha)"' || true)"
+            PR="$(printf '%s' "$found" | cut -f1)"
+            PR_HEAD="$(printf '%s' "$found" | cut -f2)"
+          fi
+          case "$PR" in
+            ''|null|*[!0-9]*) echo "::notice::no merged pull request for $SHA; the media stays in the run artifact"; PR="" ;;
+          esac
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "sha=$PR_HEAD" >> "$GITHUB_OUTPUT"
 
       - name: Download the tour media
         if: ${{ needs.tour.result != 'skipped' }}
@@ -299,11 +351,11 @@ jobs:
         run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
 
       - name: Upload the media and update the comment
-        if: ${{ steps.publisher.outputs.present == 'true' }}
+        if: ${{ steps.publisher.outputs.present == 'true' && steps.target.outputs.pr != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ steps.target.outputs.pr }}
+          HEAD_SHA: ${{ steps.target.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ROUTE_REASON: ${{ needs.route.outputs.reason }}
           TOUR_RESULT: ${{ needs.tour.result }}
