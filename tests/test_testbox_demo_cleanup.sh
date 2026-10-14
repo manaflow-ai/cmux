@@ -188,19 +188,23 @@ time.sleep(60)
 PY
 child_pid_file="$work/child-pid"
 rm -f "$child_pid_file"
+bound_status="$work/bound-status"
+rm -f "$bound_status"
+set -m
 set +e
-PATH="$nognu" "$bounded" 20 python3 "$parent_signal_child" "$child_pid_file" >/dev/null 2>&1 &
+(
+  PATH="$nognu" "$bounded" 20 python3 "$parent_signal_child" "$child_pid_file" >/dev/null 2>&1
+  echo "$?" >"$bound_status"
+) &
 bounded_pid=$!
+set +m
 set -e
 for _ in $(seq 1 100); do [[ -s "$child_pid_file" ]] && break; sleep 0.01; done
 [[ -s "$child_pid_file" ]] || { kill "$bounded_pid" 2>/dev/null || true; fail "parent-signal: child never started"; }
 bounded_rc=""
 for _ in $(seq 1 100); do
-  if ! kill -0 "$bounded_pid" 2>/dev/null; then
-    set +e
-    wait "$bounded_pid"
-    bounded_rc=$?
-    set -e
+  if [[ -s "$bound_status" ]]; then
+    bounded_rc="$(cat "$bound_status")"
     break
   fi
   sleep 0.01
