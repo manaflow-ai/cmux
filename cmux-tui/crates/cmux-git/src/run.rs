@@ -13,6 +13,10 @@ use std::time::Duration;
 
 use wait_timeout::ChildExt;
 
+/// The git every run starts, found on `PATH`. The diff sidecar starts the
+/// same one, so the filter drivers a run blanks are the ones that git sees.
+pub const PROGRAM: &str = "git";
+
 /// The longest one run may take.
 pub const DEADLINE: Duration = Duration::from_secs(20);
 const MAX_STDERR_BYTES: usize = 16 * 1024;
@@ -101,7 +105,7 @@ fn run(
     if deadline.is_zero() {
         return Err(GitFailure::TimedOut);
     }
-    let mut command = Command::new("git");
+    let mut command = Command::new(PROGRAM);
     confine_read(&mut command, overrides);
     command.args(["-c", "core.quotePath=false"]);
     command

@@ -52,7 +52,7 @@ impl WriteGit<'_> {
         bound: Bound,
         max_stdout: usize,
     ) -> Result<GitOutput, GitFailure> {
-        let mut command = Command::new("git");
+        let mut command = Command::new(crate::run::PROGRAM);
         for (name, _) in std::env::vars_os() {
             if name.as_encoded_bytes().starts_with(b"GIT_") {
                 command.env_remove(name);
