@@ -225,7 +225,8 @@ import Testing
                 #expect(panel.blur.state == .active)
             }
             // A one-device-pixel rim and a small tight shadow, no window shadow.
-            let scale = panel.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+            // The screen the tooltip shows on, or the window's own scale on a host with no screen.
+            let scale = window.screen?.backingScaleFactor ?? window.backingScaleFactor
             #expect(abs((panel.tint.layer?.borderWidth ?? 0) - 1 / scale) < 0.001)
             #expect(!panel.hasShadow)
             #expect(panel.surface.layer?.shadowOpacity == Float(TooltipSurface.shadowAlpha))
