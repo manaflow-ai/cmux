@@ -623,6 +623,13 @@ fn parse_workspace(
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceFocus, selectors, flags, Map::new())
         }
+        // `workspace-open-url-v1`: a web link on the workspace's right side;
+        // with no workspace, the home workspace.
+        ["open-url"] => workspace_open_url(selectors, flags),
+        [selector, "open-url"] => {
+            selectors.insert("workspace", "ws", selector)?;
+            workspace_open_url(selectors, flags)
+        }
         [selector, "close"] => bulk_close::close("workspace", selector, selectors, flags),
         [selector, "run", tail @ ..] => {
             selectors.insert("workspace", "ws", selector)?;
@@ -642,6 +649,22 @@ fn parse_workspace(
         }
         _ => usage("workspace action"),
     }
+}
+
+fn workspace_open_url(
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let url = flags.required("url")?;
+    if url.is_empty() {
+        return Err(UsageError::new("--url cannot be empty"));
+    }
+    request(
+        ResourceOperation::WorkspaceOpenUrl,
+        selectors,
+        flags,
+        map_with("url", Value::String(url)),
+    )
 }
 
 fn parse_pane(
