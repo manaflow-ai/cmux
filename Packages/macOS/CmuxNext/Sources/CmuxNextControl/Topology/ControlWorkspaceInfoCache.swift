@@ -31,6 +31,8 @@ public final class ControlWorkspaceInfoCache {
         let info: ControlWorkspaceInfo
         let slots: [[ControlPaneSlot]]
         let generation: UInt64
+        /// The last `retain` pass that looked this entry up.
+        var pass: UInt64 = 0
 
         init(model: WorkspaceModel, info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]], generation: UInt64) {
             self.model = model
@@ -41,6 +43,10 @@ public final class ControlWorkspaceInfoCache {
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
+    /// Lookups since the last `retain` (each entry counted once): when they
+    /// cover every entry, `retain` has nothing to drop.
+    private var pass: UInt64 = 1
+    private var seenThisPass = 0
     private var nextGeneration: UInt64 = 0
     /// Generations whose tracking fired; written inside the mutation.
     private nonisolated let stale = Mutex<Set<UInt64>>([])
@@ -57,6 +63,7 @@ public final class ControlWorkspaceInfoCache {
         let key = ObjectIdentifier(model)
         if let entry = entries[key], entry.model === model,
            !stale.withLock({ $0.contains(entry.generation) }) {
+            see(entry)
             return (entry.info, entry.slots)
         }
         if let old = entries[key] { stale.withLock { _ = $0.remove(old.generation) } }
@@ -68,8 +75,16 @@ public final class ControlWorkspaceInfoCache {
             // task-owner: none needed; a one-shot hop that holds the cache weakly and ends after one publish.
             Task { @MainActor in self?.onStale() }
         }
-        entries[key] = Entry(model: model, info: info, slots: slots, generation: generation)
+        let entry = Entry(model: model, info: info, slots: slots, generation: generation)
+        entries[key] = entry
+        see(entry)
         return (info, slots)
+    }
+
+    private func see(_ entry: Entry) {
+        guard entry.pass != pass else { return }
+        entry.pass = pass
+        seenThisPass += 1
     }
 
     /// Drops the entries of models not in `live` (closed workspaces, a
@@ -77,9 +92,14 @@ public final class ControlWorkspaceInfoCache {
     /// each live model has its entry and there are no others (the usual
     /// case), it returns without building a set (O(n) lookups, no allocation).
     public func retain(_ live: [WorkspaceModel]) {
-        if entries.count == live.count, live.allSatisfy({ entries.index(forKey: ObjectIdentifier($0)) != nil }) {
-            return
-        }
+        // The publisher looks up every live model before it calls this: when
+        // the lookups since the last call covered every entry and as many
+        // models are live, nothing is dropped (O(1); a per-model check here
+        // cost more than the rest of a publish in debug builds).
+        let covered = seenThisPass == entries.count && live.count == entries.count
+        pass &+= 1
+        seenThisPass = 0
+        if covered { return }
         let keep = Set(live.map(ObjectIdentifier.init))
         let dropped = entries.filter { !keep.contains($0.key) }
         guard !dropped.isEmpty else { return }
