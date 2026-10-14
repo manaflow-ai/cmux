@@ -68,10 +68,10 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     return page;
   }
 
-  /** The box's inset rims: spread in CSS px and color as 0...1 channels. */
-  function rims(page: Page): Promise<Rim[]> {
-    return page.evaluate(() => {
-      const shadow = getComputedStyle(document.getElementById("newtab")!).boxShadow;
+  /** A box's inset rims: spread in CSS px and color as 0...1 channels. */
+  function rims(page: Page, id = "newtab"): Promise<Rim[]> {
+    return page.evaluate((id) => {
+      const shadow = getComputedStyle(document.getElementById(id)!).boxShadow;
       const entries: string[] = [];
       let depth = 0;
       let start = 0;
@@ -99,7 +99,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
             rgba = [numbers[0] / 255, numbers[1] / 255, numbers[2] / 255, numbers[3] ?? 1];
           return { spread: lengths[3] ?? 0, rgba };
         });
-    });
+    }, id);
   }
 
   /** A computed color as 0...1 channels (`rgb()` or `color(srgb ...)`); null when unparsed. */
@@ -128,37 +128,73 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
 
-  for (const theme of ["dark", "light"] as const) {
-    for (const scale of [1, 2]) {
-      test(`${theme} at ${scale}x: focus keeps the one-device-pixel rim, a slight step in tone, no accent`, async () => {
-        const page = await open(scale, theme);
-        const rest = await rims(page);
-        expect(rest.length, "the box draws a rim").toBe(1);
-        expect(rest[0].spread * scale, "rest rim in device px").toBe(1);
-        expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
-        await page.focus("#newtab-field");
-        const focused = await rims(page);
-        expect(focused.length, "focus draws one rim, no extra ring").toBe(1);
-        expect(focused[0].spread, "focus keeps the rim's width").toBe(rest[0].spread);
-        const ground = (await fill(page, "newtab")).rgba!;
-        const [r, g, b] = focused[0].rgba;
-        expect(Math.max(Math.abs(r - g), Math.abs(g - b)), "the focused rim is neutral, not the accent").toBeLessThan(
-          0.02,
-        );
-        const lift = Math.max(
-          ...ink(focused[0].rgba, ground).map((value, index) => Math.abs(value - ink(rest[0].rgba, ground)[index])),
-        );
-        expect(lift, "focus lifts the rim's tone at most slightly").toBeLessThan(0.08);
-        await page.close();
-      });
-    }
-  }
+  // The New Tab box and the chat composer (Leo 10-14: the chat composer's focus is as quiet).
+  const boxes = [
+    ["newtab", "newtab-field"],
+    ["composer", "composer-field"],
+  ] as const;
 
-  test("focused, the rim still clears with appearance.borders none", async () => {
-    const page = await open(2);
-    await page.evaluate(() => document.documentElement.setAttribute("data-borders", "none"));
-    await page.focus("#newtab-field");
-    for (const { rgba } of await rims(page)) expect(rgba[3], "focused rim alpha with borders none").toBe(0);
+  for (const [box, field] of boxes)
+    for (const theme of ["dark", "light"] as const) {
+      for (const scale of [1, 2]) {
+        test(`${box}, ${theme} at ${scale}x: focus keeps the one-device-pixel rim, a slight step in tone, no accent`, async () => {
+          const page = await open(scale, theme);
+          const rest = await rims(page, box);
+          expect(rest.length, "the box draws a rim").toBe(1);
+          expect(rest[0].spread * scale, "rest rim in device px").toBe(1);
+          expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
+          await page.focus(`#${field}`);
+          const focused = await rims(page, box);
+          expect(focused.length, "focus draws one rim, no extra ring").toBe(1);
+          expect(focused[0].spread, "focus keeps the rim's width").toBe(rest[0].spread);
+          const ground = (await fill(page, box)).rgba!;
+          const [r, g, b] = focused[0].rgba;
+          expect(Math.max(Math.abs(r - g), Math.abs(g - b)), "the focused rim is neutral, not the accent").toBeLessThan(
+            0.02,
+          );
+          const lift = Math.max(
+            ...ink(focused[0].rgba, ground).map((value, index) => Math.abs(value - ink(rest[0].rgba, ground)[index])),
+          );
+          expect(lift, "focus lifts the rim's tone at most slightly").toBeLessThan(0.08);
+          await page.close();
+        });
+      }
+    }
+
+  for (const [box, field] of boxes)
+    test(`${box}: focused, the rim still clears with appearance.borders none`, async () => {
+      const page = await open(2);
+      await page.evaluate(() => document.documentElement.setAttribute("data-borders", "none"));
+      await page.focus(`#${field}`);
+      for (const { rgba } of await rims(page, box))
+        expect(rgba[3], `${box} focused rim alpha with borders none`).toBe(0);
+      await page.close();
+    });
+
+  for (const [box, field] of boxes)
+    test(`${box}: under Increase Contrast focus takes the shared, wider focus ring`, async () => {
+      const page = await open(2);
+      await page.emulateMedia({ contrast: "more" });
+      const rest = await rims(page, box);
+      await page.focus(`#${field}`);
+      const focused = await rims(page, box);
+      const width = await page.evaluate(() =>
+        parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-focus-ring-width")),
+      );
+      expect(
+        focused.map(({ spread }) => spread),
+        `${box} focus ring`,
+      ).toEqual([width]);
+      expect(width, "wider than the rim").toBeGreaterThan(rest[0]?.spread ?? 0);
+      await page.close();
+    });
+
+  test("the New Tab suggestions popover is the popup surface, as every pane popup", async () => {
+    const page = await open(2, "light");
+    await page.evaluate(() => document.documentElement.style.setProperty("--cmux-popup-surface", "rgb(201, 202, 203)"));
+    const { rgba, image } = await fill(page, "popover");
+    expect(image, "no composer tint over it").toBe("none");
+    expect(rgba, "the popup surface").toEqual([201 / 255, 202 / 255, 203 / 255, 1]);
     await page.close();
   });
 
