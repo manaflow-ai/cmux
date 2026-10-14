@@ -107,27 +107,24 @@ public struct KeyBarVisibility: Equatable, Sendable {
     }
 }
 
-/// Spreads the space a settled key bar scroller leaves over the gaps between
-/// its whole keys (R3-5), instead of one 19-20 pt hole at an end. Returns an
-/// x shift per key (0 for keys not wholly visible; those are not drawn at rest).
-public struct KeyBarSpread: Sendable {
+/// The key bar scroller's geometry (round 5, R3-5): its keys share one width
+/// and the scroller is a whole number of them with 6 pt gaps, so a snapped
+/// row always shows whole keys, evenly spaced, with nothing left over.
+public struct KeyBarLayout: Sendable {
+    public static let keyWidth: CGFloat = 44
+    public static let spacing: CGFloat = 6
+
     public init() {}
 
-    public func shifts(widths: [CGFloat], spacing: CGFloat, contentOffset: CGFloat, visibleWidth: CGFloat) -> [CGFloat] {
-        var x: [CGFloat] = []
-        var cursor: CGFloat = -contentOffset
-        for width in widths {
-            x.append(cursor)
-            cursor += width + spacing
-        }
-        let whole = widths.indices.filter { x[$0] >= -0.5 && x[$0] + widths[$0] <= visibleWidth + 0.5 }
-        var result = [CGFloat](repeating: 0, count: widths.count)
-        guard whole.count >= 2, let first = whole.first, let last = whole.last else { return result }
-        let span = x[last] + widths[last] - x[first]
-        let extra = max(0, visibleWidth - span) / CGFloat(whole.count - 1)
-        for (rank, index) in whole.enumerated() {
-            result[index] = -x[first] + CGFloat(rank) * extra
-        }
-        return result
+    /// Keys that fit in `available` points.
+    public func visibleKeys(available: CGFloat) -> Int {
+        max(1, Int(floor((available + Self.spacing) / (Self.keyWidth + Self.spacing))))
+    }
+
+    /// The scroller's width for `available` points: a whole number of keys.
+    public func scrollerWidth(available: CGFloat) -> CGFloat {
+        guard available > 0 else { return 0 }
+        let keys = CGFloat(visibleKeys(available: available))
+        return min(available, keys * Self.keyWidth + (keys - 1) * Self.spacing)
     }
 }

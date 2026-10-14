@@ -115,6 +115,11 @@ public final class TerminalModel {
     @ObservationIgnored private var lastFrameSave: CFTimeInterval = 0
     @ObservationIgnored private var frameSavePending = false
 
+    /// The page for the next cold launch, without the cursor block (R3-4).
+    public func frameForSaving() -> UIImage? {
+        controller?.snapshot(hidingCursor: true)
+    }
+
     func saveFrameSoon() {
         guard frameSaver != nil, !frameSavePending else { return }
         let wait = max(0, 3 - (CACurrentMediaTime() - lastFrameSave))
@@ -124,7 +129,7 @@ public final class TerminalModel {
             guard let self else { return }
             frameSavePending = false
             lastFrameSave = CACurrentMediaTime()
-            if let image = controller?.snapshot() { frameSaver?(image) }
+            if let image = controller?.snapshot(hidingCursor: true) { frameSaver?(image) }
         }
     }
 
@@ -150,6 +155,9 @@ public final class TerminalModel {
 
     /// Files and links in a batch of output (the screen's per-frame batch).
     func scanOutput(_ data: Data) {
+        // A full-screen program's screen is drawing, not output: its rows
+        // are not paths (round 5).
+        guard !isTUI else { return }
         collector.scan(data)
         if showArtifacts { scheduleReconcile() }
     }
@@ -159,9 +167,11 @@ public final class TerminalModel {
     /// wraps joined, full-width rows continued), so the list is rescanned
     /// against it whenever Files and Links is open.
     func reconcileArtifactsWithScreen() {
-        guard let surface = controller?.surface, let text = surface.screenText() else { return }
-        let columns = surface.grid.columns
-        collector.reconcile(screenText: text, columns: columns > 0 ? columns : nil)
+        // Not while a TUI owns the screen (its screen is not the shell's
+        // output); rows are joined only where Ghostty soft-wrapped them,
+        // which its text read already does (R4-2).
+        guard !isTUI, let surface = controller?.surface, let text = surface.screenText() else { return }
+        collector.reconcile(screenText: text, columns: nil)
     }
 
     /// While Files and Links is open, the list is reconciled with the

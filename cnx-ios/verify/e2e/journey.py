@@ -370,7 +370,17 @@ class Journey:
             # never fired, then back_to_list swiped back to "Choose a space").
             # Wait for the button to settle, and tap again if the page stays.
             for attempt in range(3):
-                self.sim.tap_q(label="Continue", kind="Button")
+                # Tap only once the button stopped moving (the page slides in).
+                prev, button = None, None
+                for _ in range(20):
+                    found = self.sim.find(label="Continue", kind="Button")
+                    button = found[0] if found else None
+                    if button and prev and button.frame == prev:
+                        break
+                    prev = button.frame if button else None
+                    time.sleep(0.25)
+                check(button, "no Continue button on the connect step")
+                self.sim.tap_el(button)
                 time.sleep(1.5)
                 if not self.sim.find(contains="Connect your Mac"):
                     break
@@ -511,7 +521,8 @@ class Journey:
         self.hide_keyboard()
         self.sim.tap_q(label="Tabs", kind="Button")
         time.sleep(1.2)
-        cand = self.sim.wait(suffix=name, kind="Button", timeout=8)
+        # Cards are labelled "<title>, <kind>" (e.g. "e2e-t2, tab"): match the start.
+        cand = self.sim.wait(prefix=name, kind="Button", timeout=8)
         if cand and cand.label != name:
             self.grid_notes.append(f"grid card '{cand.label}'")
         check(cand, f"tab grid has no {name}")
@@ -643,6 +654,28 @@ class Journey:
         self.hide_keyboard()
         return f"after q with the keyboard up: `top` line at y {before:.0f} pt; {marker} reached after {pulls} pull-down(s)" + \
                (", the content moved" if pulls else " (already on screen)")
+
+    def s_keybar_swipe_no_back(self):
+        """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
+        on the key bar (pinned ^C, the scroller, the joystick) stays on the
+        terminal; it never swipes back to the workspaces."""
+        self.open_seed_workspace()
+        self.hide_keyboard()
+        self.sim.tap_q(ident="terminal.composer.field")
+        time.sleep(1.2)
+        starts = []
+        for label in ("Control C", "More keys", "Cursor joystick"):
+            found = [e for e in self.sim.find(label=label) if e.frame[2] > 20]
+            check(found, f"key bar has no {label!r}")
+            x, y = found[0].center
+            self.sim.drag(x, y, min(395, x + 220), y, duration=0.35, hold=0.05)
+            time.sleep(1.5)
+            still = self.sim.find(ident="terminal.composer.field")
+            self.sim.shot(f"keybar-swipe-{label.replace(' ', '-').lower()}-{self.run_id}")
+            check(still, f"a rightward swipe from {label!r} left the terminal (swiped back) (R4-1)")
+            starts.append(f"{label} at x {x:.0f}")
+        self.hide_keyboard()
+        return "rightward swipes from " + ", ".join(starts) + " stayed on the terminal"
 
     def s_shell_pull_keyboard_up(self):
         """design/terminal R3-1: a plain shell with the keyboard up: `seq 1 80`, a
@@ -1202,6 +1235,7 @@ class Journey:
             ("relaunch_restore", "Relaunch restores the tab and attaches", "wsdesign", self.s_relaunch_restore),
             ("term_direct", "Terminal: direct typing (soft keyboard)", "termlive", self.s_term_direct),
             ("term_composer", "Terminal: composer", "termlive", self.s_term_composer),
+            ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),
             ("term_keys", "Terminal: ^C, arrows, joystick", "termlive", self.s_term_keys),

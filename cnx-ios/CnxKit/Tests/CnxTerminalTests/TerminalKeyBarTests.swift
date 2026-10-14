@@ -77,15 +77,20 @@ import Testing
         #expect(KeyBarScrollEdges.trailingFade == 12)
     }
 
-    /// R3-5: the leftover is spread over the gaps, not left as one hole.
-    @Test func leftoverIsSpreadOverTheGaps() {
-        // Keys 44, 53, 40, 40, 40 with 6 pt gaps in a 151 pt row, snapped to key 2 (offset 50).
-        let shifts = KeyBarSpread().shifts(widths: [44, 53, 40, 40, 40], spacing: 6, contentOffset: 50, visibleWidth: 151)
-        // Whole keys 1, 2, 3 span 53 + 6 + 40 + 6 + 40 = 145: 6 pt left, 3 pt per gap.
-        #expect(shifts[0] == 0 && shifts[4] == 0)
-        #expect(shifts[1] == 0)
-        #expect(shifts[2] == 3)
-        #expect(shifts[3] == 6)
+    /// R3-5 (round 5): the scroller is a whole number of equal keys, so a
+    /// snapped row has no hole and no stretched gap.
+    @Test func theScrollerIsAWholeNumberOfKeys() {
+        let layout = KeyBarLayout()
+        #expect(layout.visibleKeys(available: 151) == 3)
+        #expect(layout.scrollerWidth(available: 151) == CGFloat(3 * 44 + 2 * 6))
+        #expect(layout.scrollerWidth(available: 200) == CGFloat(4 * 44 + 3 * 6))
+        // Any snapped offset (a multiple of key + gap) ends on a key's edge.
+        let width = layout.scrollerWidth(available: 151)
+        for index in 0..<10 {
+            let offset = CGFloat(index) * (KeyBarLayout.keyWidth + KeyBarLayout.spacing)
+            let lastEnd = offset + width
+            #expect((lastEnd + KeyBarLayout.spacing).truncatingRemainder(dividingBy: KeyBarLayout.keyWidth + KeyBarLayout.spacing) == 0)
+        }
     }
 
     @Test func leadingEdgeIsHardAtRest() {
