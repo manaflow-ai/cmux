@@ -132,6 +132,12 @@ const USAGE_KIND = "usage_update";
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
+/// A record that opens a turn: older pages split before one, so each holds whole turns.
+const startsTurn = (event: EventRecord) => event.dir === "mux" && event.kind === "user_message";
+
+/// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
+const OPEN_PAGE_BYTES = 128 * 1024;
+const OLDER_PAGE_BYTES = 256 * 1024;
 const SECRET_KINDS = ["secret_request", "secret_decision"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
@@ -385,6 +391,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private ordered: AcpmuxRow[] | undefined;
   private orderedIndex = new Map<string, number>();
 
+  /// Puts back the earlier object of each row a rebuild made again unchanged (same kind and version),
+  /// so what is keyed on the object (drawn heights, memoized rows, reused turns) survives the rebuild:
+  /// paging older history in rebuilds every row.
+  keepSame(previous: ReadonlyMap<string, AcpmuxRow>): void {
+    for (const [id, row] of this) {
+      const old = previous.get(id);
+      if (!old || old === row || old.kind !== row.kind || old.version !== row.version) continue;
+      super.set(id, old);
+      const at = this.orderedIndex.get(id);
+      if (this.ordered && at !== undefined) this.ordered[at] = old;
+    }
+  }
+
   override set(id: string, row: AcpmuxRow): this {
     const known = this.order.has(id);
     if (!known) {
@@ -604,6 +623,10 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// An older page is on its way: the reader's scroll asks again on every frame near the top.
+  private loadingOlder?: Promise<void>;
+  /// After a failed older page the next waits until then, so a reader near the top does not retry every frame.
+  private olderRetryAt = 0;
   /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
@@ -810,6 +833,7 @@ export class AcpmuxDirectClient {
   private resetSessionState(): void {
     this.events = [];
     this.historyExhausted = false;
+    this.olderRetryAt = 0;
     this.rows.clear();
     this.forkedAtSeq = undefined;
     this.failedPrompts.clear();
@@ -951,7 +975,7 @@ export class AcpmuxDirectClient {
       const missed: EventRecord[] = result?.events ?? [];
       this.events = mergeEventRecords(this.events, missed);
       this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined);
-      if (result?.more !== true || missed.length === 0) break;
+      if (result?.hasMore !== true || missed.length === 0) break;
       cursor = Math.max(cursor, ...missed.map((event) => event.seq));
     }
     this.emit("resynced");
@@ -1184,6 +1208,8 @@ export class AcpmuxDirectClient {
     const attaching = this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
+      // The most opening a chat downloads, however large its tool output (a remote session's open).
+      maxBytes: OPEN_PAGE_BYTES,
       kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, ...SECRET_KINDS],
       eventStream: true,
       visible,
@@ -1211,6 +1237,8 @@ export class AcpmuxDirectClient {
     }));
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
+    // acpmux holds nothing older than the page: the pane offers no more history.
+    if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
     this.permissions.select(sessionId);
     await this.permissions.refresh().catch(() => {});
@@ -1322,6 +1350,7 @@ export class AcpmuxDirectClient {
   }
 
   private rebuild(): void {
+    const previous = new Map(this.rows);
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     const inFlight = new Set(this.optimisticPromptRows.values());
     // Those rows keep their place in the order.
@@ -1348,6 +1377,7 @@ export class AcpmuxDirectClient {
     }
     // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
     this.rows.placeLocalLast();
+    this.rows.keepSame(previous);
   }
 
   /// rebuild() replays a partial event window, so keep the live summary, queue and
@@ -2395,7 +2425,17 @@ export class AcpmuxDirectClient {
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
-  async loadOlder(): Promise<void> {
+  loadOlder(): Promise<void> {
+    if (Date.now() < this.olderRetryAt) return Promise.resolve();
+    this.loadingOlder ??= this.fetchOlder()
+      .catch((error: unknown) => {
+        this.olderRetryAt = Date.now() + 2_000;
+        throw error;
+      })
+      .finally(() => (this.loadingOlder = undefined));
+    return this.loadingOlder;
+  }
+  private async fetchOlder(): Promise<void> {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
@@ -2403,14 +2443,80 @@ export class AcpmuxDirectClient {
       sessionId,
       beforeSeq: this.firstSeq,
       limit: 400,
+      maxBytes: OLDER_PAGE_BYTES,
       kinds: ["transcript"],
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-    const older: EventRecord[] = result?.events ?? [];
-    this.events = mergeEventRecords(older, this.events);
-    this.rebuildKeepingLiveState();
-    this.historyExhausted = result?.more === false || older.length === 0 || (this.firstSeq ?? 1) <= 1;
+    let older: EventRecord[] = result?.events ?? [];
+    const more = result?.hasMore === true;
+    // A page whose first records finish the turn before it leaves them to the next page, so pages
+    // hold whole turns and fold on their own.
+    const start = more ? older.findIndex(startsTurn) : 0;
+    if (start > 0) older = older.slice(start);
+    if (start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!))) {
+      this.events = mergeEventRecords(older, this.events);
+      this.foldOlder(older);
+    } else {
+      // The open page began mid-turn (or this page holds no turn start): fold everything once.
+      this.events = mergeEventRecords(older, this.events);
+      this.rebuildKeepingLiveState();
+    }
+    this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
+  }
+
+  /// Folds whole turns older than every held event into rows above them, without folding the held
+  /// events again: the cost of a page stays the page's however much history is loaded. The fold
+  /// starts from a clean turn and leaves the live state (an open turn, its stream and typing row,
+  /// asks, commands, usage, prompts in flight) as the held events made it.
+  private foldOlder(older: EventRecord[]): void {
+    const live = {
+      turnOpen: this.turnOpen,
+      streamingAssistant: this.streamingAssistant,
+      streamingAssistantMessageId: this.streamingAssistantMessageId,
+      streamingActivity: this.streamingActivity,
+      planRow: this.planRow,
+      messageRows: this.messageRows,
+      toolRows: this.toolRows,
+      planCalls: this.planCalls,
+      subagents: this.subagents,
+      summary: this.summary,
+      queue: this.queue,
+      pendingPermission: this.pendingPermission,
+      pendingSecret: this.pendingSecret,
+      groupedPermissions: this.groupedPermissions,
+      openQuestions: this.openQuestions,
+      heldEdits: this.heldEdits,
+      usage: this.usage,
+      forkedAtSeq: this.forkedAtSeq,
+      optimisticPromptRows: this.optimisticPromptRows,
+      optimisticPromptTexts: this.optimisticPromptTexts,
+      promptAccepts: this.promptAccepts,
+    };
+    const held = new Map(this.rows);
+    this.turnOpen = false;
+    this.streamingAssistant = undefined;
+    this.streamingAssistantMessageId = undefined;
+    this.streamingActivity = undefined;
+    this.planRow = undefined;
+    this.messageRows = new Map();
+    this.toolRows = new Map();
+    this.planCalls = new Set();
+    this.subagents = new SubagentFold();
+    this.groupedPermissions = new Map();
+    this.openQuestions = new Set();
+    this.heldEdits = new Set();
+    // An older prompt never settles one still sending, however alike their text.
+    this.optimisticPromptRows = new Map();
+    this.optimisticPromptTexts = new Map();
+    this.promptAccepts = new Map();
+    for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
+      this.firstSeq = Math.min(this.firstSeq ?? event.seq, event.seq);
+      this.reduce(event);
+    }
+    Object.assign(this, live);
+    // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
+    for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
