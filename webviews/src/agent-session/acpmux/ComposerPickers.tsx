@@ -7,6 +7,7 @@ import {
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
+import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
@@ -397,17 +398,37 @@ export function ComposerPickers({
         .find((entry) => entry.id === chipHarness)
         ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
       modelIdName(resolvedId));
-  const starting = shown === undefined && harness && fresh && !switching ? startingModel(harness) : undefined;
+  // A New Tab's chat names the model it will start on (the last pick here), not the default's last
+  // resolution: no other model first (Leo 2026-10-13: "Claude Sonnet 5", then his Opus 5.5).
+  const starting = shown === undefined && chipHarness && fresh && !switching ? startingModel(chipHarness) : undefined;
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
   const modelName =
     defaulted || unreported
       ? (starting ?? resolvedName ?? t(PICKER_LABELS.model))
       : (model?.name ?? summary?.model ?? starting);
-  // Until the session reports its options (a new chat, an agent still starting), the ring, the
-  // effort and the access controls hold their places as quiet skeletons: controls never appear one
-  // by one beside the model (cx-ncc.58).
+  // Until the session reports its options (a new chat, an agent still starting), the effort and
+  // the access controls draw what this harness's chats last showed (chipMemory.ts), never grey
+  // bars; the session's values then replace them in place (cx-ncc.58, Leo 2026-10-13).
   const awaiting =
     chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
+  const effortValue =
+    effort &&
+    (effort.currentValue === "default" && catalogModel?.defaultEffort
+      ? catalogModel.defaultEffort
+      : effort.currentValue);
+  const effortChoice = efforts.find((choice) => choice.id === effortValue) ?? efforts[0];
+  const effortLabel =
+    effort && efforts.length > 1
+      ? !effortChoice || isDefaultChoice(effortChoice)
+        ? t("picker.reasoning")
+        : effortChoice.name
+      : undefined;
+  const modeLabel = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0])?.name : undefined;
+  const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  useEffect(() => {
+    if (!awaiting && chipHarness && summary?.sessionId && (effortLabel || modeLabel))
+      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel });
+  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel]);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -461,11 +482,7 @@ export function ComposerPickers({
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
-          current={
-            effort.currentValue === "default" && catalogModel?.defaultEffort
-              ? catalogModel.defaultEffort
-              : effort.currentValue
-          }
+          current={effortValue}
           speed={
             fastMode && fastOn && fastOff
               ? speedSection(/codex/i.test(summary?.harness ?? ""), fastMode, fastOn, t)
@@ -478,9 +495,9 @@ export function ComposerPickers({
           }}
         />
       )}
-      {!(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
+      {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
       <span className="acpmux-chips-spacer" />
-      {modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
+      {modes.length === 0 && lastChips?.mode && <PendingChip kind="mode" label={lastChips.mode} />}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -522,13 +539,22 @@ export function ComposerPickers({
   return chips;
 }
 
-/// A control's place while the session has not reported it yet: the chip's own box, inert and
-/// unlabeled, so the real control takes the same place when it arrives (cx-ncc.58).
-function ChipSkeleton({ kind }: { kind: "effort" | "mode" }) {
-  return (
-    <span className={`acpmux-picker acpmux-${kind} acpmux-chip-skeleton`} aria-hidden="true">
-      <span className="acpmux-picker-button acpmux-chip-skeleton-face">
-        <span className="acpmux-chip-skeleton-bar" />
+/// A control the session has not reported yet, as this harness's chats last showed it: the real
+/// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
+function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }) {
+  return kind === "effort" ? (
+    <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
+      <span className="acpmux-picker-button">
+        <span>{label}</span>
+        <ChevronIcon />
+      </span>
+    </span>
+  ) : (
+    <span className="acpmux-mode acpmux-access acpmux-chip-pending" aria-hidden="true">
+      <span className="acpmux-picker-button acpmux-access-trigger">
+        <LockIcon />
+        <span className="acpmux-mode-text">{label}</span>
+        <ChevronIcon />
       </span>
     </span>
   );
