@@ -219,6 +219,8 @@
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
 .acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
 .acpmux-send { width: 32px; height: 32px; }
+/* Interrupt/Steer carries a label: it sizes to it and never shrinks; the chips before it give way. */
+.acpmux-send.acpmux-send-steer { flex: none; width: auto; }
 .acpmux-context-ring { width: 32px; height: 32px; }
 
 /* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
@@ -364,6 +366,9 @@
   display: inline-flex;
   align-items: center;
 }
+/* Access gives way before the action button: it shrinks under its preset width and ellipsizes. */
+.acpmux-composer-bar .acpmux-access { flex: 0 1 auto; min-width: 0; }
+.acpmux-composer-bar .acpmux-access-trigger { min-width: 0; max-width: min(180px, 100%); }
 /* Footer controls share one rhythm; separators are reserved for explicit group boundaries. */
 @media (max-width: 480px) {
   /* At compact pane widths the rail keeps every action available but uses the same icon-first
@@ -381,7 +386,8 @@
   .acpmux-composer-bar .acpmux-model .acpmux-picker-button .acpmux-icon:last-child {
     display: none;
   }
-  .acpmux-composer-bar .acpmux-access-trigger { width: 112px; max-width: 112px; }
+  .acpmux-composer-bar .acpmux-model { flex: none; }
+  .acpmux-composer-bar .acpmux-access-trigger { width: 112px; max-width: min(112px, 100%); }
   .acpmux-composer-bar .acpmux-mode-text { display: none; }
 }
 /* Keep the complete control rail usable in a very narrow pane. The regular 112px access
@@ -390,7 +396,7 @@
 @media (max-width: 220px) {
   .acpmux-composer-bar { gap: 6px; padding-inline: 8px; }
   .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
-  .acpmux-composer-bar .acpmux-access-trigger { width: 96px; max-width: 96px; }
+  .acpmux-composer-bar .acpmux-access-trigger { width: 96px; max-width: min(96px, 100%); }
 }
 /* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
    and rounded corners move to the top. */
