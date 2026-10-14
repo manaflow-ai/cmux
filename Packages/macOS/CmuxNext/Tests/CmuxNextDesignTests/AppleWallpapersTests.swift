@@ -95,7 +95,7 @@ import UniformTypeIdentifiers
     @Test func everyWallpaperIsListedInTheWallpaperPanesOrder() throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let wallpapers = AppleWallpapers(directory: fixture.pictures, assets: AppleWallpaperAssets(folders: [fixture.assets])).wallpapers
+        let wallpapers = AppleWallpapers(desktopPictures: fixture.pictures).pictures(assets: AppleWallpaperAssets(folders: [fixture.assets]))
         // The ordered ones first, then by name; a live wallpaper's movie and a description with no
         // usable thumbnail are left out.
         #expect(wallpapers.map(\.title) == ["Coast", "Sonoma", "Blue", "Grid", "Horizon"])

@@ -22,7 +22,7 @@ public nonisolated struct BackdropCatalog: Sendable {
     ///   - userImages: The person's own images (``BackdropUserImages``), if any.
     public init(systemDirectory: URL, fileManager: FileManager, assets: AppleWallpaperAssets = AppleWallpaperAssets(),
                 userImages: BackdropUserImages? = nil) {
-        let apple = AppleWallpapers(directory: systemDirectory, assets: assets, fileManager: fileManager).wallpapers
+        let apple = AppleWallpapers(desktopPictures: systemDirectory).pictures(assets: assets, fileManager: fileManager)
         appleWallpapers = Dictionary(apple.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         choices = Self.bundled + (userImages?.list(fileManager: fileManager) ?? []) + [.desktop]
             + apple.map { BackdropSelection.system(path: $0.path) }

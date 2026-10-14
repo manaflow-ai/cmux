@@ -1,5 +1,3 @@
-import AppKit
-import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -13,17 +11,6 @@ extension SettingsPageProvider {
         guard let backdropImages else { throw PageError(code: "cmux.page.unavailable", message: "no backgrounds folder") }
         guard let url = await backdropImages.pick() else { return ["id": .null] }
         return ["id": .string(try await useBackdropImage(url))]
-    }
-
-    /// The Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker lists
-    /// as not downloaded.
-    static let wallpaperSettingsURL = URL(string: "x-apple.systempreferences:com.apple.Wallpaper-Settings.extension")
-
-    /// `cmux.settings.backdrop.wallpaper_settings`: opens the Wallpaper pane (the person clicked
-    /// Get in System Settings).
-    func openWallpaperSettings() {
-        guard let url = Self.wallpaperSettingsURL else { return }
-        NSWorkspace.shared.openInBackground(url)
     }
 
     /// `cmux.settings.art.search` (the works matching `query`) and `cmux.settings.art.use` (download

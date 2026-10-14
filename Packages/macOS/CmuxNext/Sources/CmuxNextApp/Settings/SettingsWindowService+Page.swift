@@ -45,7 +45,7 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": Self.backdropRows(Self.backdrops),
+            "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),
         ]
     }
@@ -63,32 +63,7 @@ extension SettingsWindowService {
     /// The wallpaper grid's choices, read each time so an image the person just added, or a
     /// macOS wallpaper they just downloaded, is listed as it is now.
     static var backdrops: BackdropCatalog {
-        BackdropCatalog(systemDirectory: AppleWallpapers.systemDirectory, fileManager: .default, userImages: userImages)
-    }
-
-    /// The grid's rows. Art carries its picker collection (Dark Art, Museum Icons, Calm, Doré), the
-    /// person's own images theirs ("Your images") and macOS wallpapers "Apple Wallpapers", with
-    /// whether the full picture is downloaded; the page groups the grid by collection.
-    static func backdropRows(_ catalog: BackdropCatalog) -> JSONValue {
-        .array(catalog.choices.map { choice -> JSONValue in
-            var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(choice.title),
-                                            "attribution": .string(choice.attribution)]
-            switch choice {
-            case .art(let art):
-                row["collection"] = .string(art.collection.rawValue)
-                row["collection_title"] = .string(art.collection.title)
-            case .file:
-                row["collection"] = .string(BackdropUserImages.collection)
-                row["collection_title"] = .string(BackdropUserImages.collectionTitle)
-            case .system(let path):
-                row["collection"] = .string(AppleWallpapers.collection)
-                row["collection_title"] = .string(AppleWallpapers.collectionTitle)
-                row["downloaded"] = .bool(catalog.appleWallpapers[path]?.isDownloaded ?? true)
-            case .desktop:
-                break
-            }
-            return .object(row)
-        })
+        BackdropCatalog(systemDirectory: AppleWallpapers.system.desktopPictures, fileManager: .default, userImages: userImages)
     }
 
     /// The person's own background images, in the backgrounds folder.
