@@ -23,8 +23,8 @@ import StoreKit
 public struct MobilePlansView: View {
     @Environment(BillingModel.self) private var billing
     @State private var showingManageSubscriptions = false
-    /// The Monthly/Yearly choice. Yearly first, as on cmux.com/pricing.
-    @State private var period: BillingPeriod = .yearly
+    /// The Monthly/Yearly choice.
+    @State private var period: BillingPeriod
     private let entryPoint: BillingEntryPoint
 
     /// The Terms of Use page.
@@ -33,9 +33,13 @@ public struct MobilePlansView: View {
     static let privacyURL = URL(string: "https://cmux.com/privacy-policy")!
 
     /// Creates the plans screen.
-    /// - Parameter entryPoint: Where the screen was opened from, for analytics.
-    public init(entryPoint: BillingEntryPoint) {
+    /// - Parameters:
+    ///   - entryPoint: Where the screen was opened from, for analytics.
+    ///   - initialPeriod: The billing period selected first. Yearly by
+    ///     default, as on cmux.com/pricing.
+    public init(entryPoint: BillingEntryPoint, initialPeriod: BillingPeriod = .yearly) {
         self.entryPoint = entryPoint
+        _period = State(initialValue: initialPeriod)
     }
 
     public var body: some View {
