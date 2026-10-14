@@ -22,6 +22,24 @@ Independent effort on branch `feat-cnx-ios`. Native, mainstream-AI-app feel
 - `CnxLive`: live data once signed in: device registration, presence, the Mac link state machine (dial, backoff, transport switch), daemon workspaces, acpmux chats, Feed events and answers, Chief over the link. See `verify/live.md`.
 - Feature modules: `CnxOnboarding`, `CnxShell` (TabView + team sidebar), `CnxHome` (Chief via `CmuxConversation`), `CnxWorkspaces` (`CmuxTabsKit`), `CnxFeed` (WKWebView markdown cards, inline answers, quote bubbles), `CnxTerminal` (Ghostty, composer, key bar, joystick), `CnxAgentChat`, `CnxArtifacts`, `CnxDiff`, `CnxSettings`.
 
+## Shared packages: byte-identical to upstream
+
+cnx-ios never patches the shared iOS packages it builds on. Both must stay
+byte-identical to their upstream branches:
+
+| Package | Upstream branch |
+| --- | --- |
+| `Packages/iOS/CmuxTabsKit` (Safari-style tabs UX) | `origin/feat-cmux-next-tabs-kit` |
+| `Packages/iOS/CmuxConversation` (Chief transcript) | `origin/feat-imsg-parity-gui` |
+
+`scripts/check-tabskit-sync.sh` checks both (exit 1 on drift);
+`scripts/demo-build.sh` runs it before every Demo or Production build, warns
+loudly and records drift in `MANIFEST.md`, and fails with `--strict`. Sync with
+`git checkout origin/<branch> -- Packages/iOS/<Package>`. Anything cnx-ios needs
+beyond the package goes in host code (`CnxWorkspaces`, `CnxShell`, `CnxHome`)
+or, as a proposal only, in `verify/tabskit-upstream-requests.md` and
+`verify/imsg-upstream-requests.md`.
+
 ## Mac side
 
 `cnx-hostd` runs beside the cmux-next daemon on the Mac. The cmux-next app
