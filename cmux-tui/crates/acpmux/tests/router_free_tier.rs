@@ -77,9 +77,23 @@ fn serve_one(mut stream: TcpStream, api: &Mutex<Api>) {
     let mut body = vec![0u8; length];
     reader.read_exact(&mut body).unwrap();
     let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    // The real token route decodes proofs as base64url only (home-core b64u): refuse '+', '/', '='.
+    let not_url = ["attestation", "assertion"]
+        .iter()
+        .any(|f| body.get(*f).and_then(Value::as_str).is_some_and(|v| v.contains(['+', '/', '='])));
     let (status, answer) = {
         let mut api = api.lock().unwrap();
         api.seen.push((path.clone(), auth, body));
+        if not_url {
+            drop(api);
+            let text = json!({"error": {"code": "validation.invalid"}}).to_string();
+            let _ = write!(
+                stream,
+                "HTTP/1.1 400 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                text.len()
+            );
+            return;
+        }
         if path == "/v1/inference/free/challenge" {
             api.challenges += 1;
             (
@@ -198,6 +212,20 @@ fn provider_with(
     gate: Option<Gate>,
     fail_store: bool,
 ) -> UnixStream {
+    provider_full(dir, origin, has_key, signed_in, asked, gate, fail_store, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn provider_full(
+    dir: &Path,
+    origin: &str,
+    has_key: bool,
+    signed_in: bool,
+    asked: Asked,
+    gate: Option<Gate>,
+    fail_store: bool,
+    std_b64: bool,
+) -> UnixStream {
     let stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
     let mut write = stream.try_clone().unwrap();
     let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true, "managed": false, "has_key": has_key, "signed_in": signed_in});
@@ -231,9 +259,12 @@ fn provider_with(
             let reply = if fail_store {
                 json!({"id": id, "error": "store_failed"})
             } else if req == "attest" {
-                json!({"id": id, "key_id": key, "attestation": "YXR0ZXN0YXRpb24", "device_token": "ZGV2aWNlLXRva2Vu"})
+                // Standard base64 as Foundation writes it ('+', '/', padding) when std_b64.
+                let attestation = if std_b64 { "+/+/YXR0ZXN0YXRpb24=" } else { "YXR0ZXN0YXRpb24" };
+                json!({"id": id, "key_id": key, "attestation": attestation, "device_token": "ZGV2aWNlLXRva2Vu"})
             } else {
-                json!({"id": id, "key_id": key, "assertion": "YXNzZXJ0aW9u"})
+                let assertion = if std_b64 { "+/+/YXNzZXJ0aW9u==" } else { "YXNzZXJ0aW9u" };
+                json!({"id": id, "key_id": key, "assertion": assertion})
             };
             if write.write_all(format!("{reply}\n").as_bytes()).is_err() {
                 return;
@@ -551,5 +582,54 @@ fn free_tier_a_refused_keychain_stops_leases_until_the_app_registers_again() {
     held.shutdown(std::net::Shutdown::Both).unwrap();
     let _again = provider_with(&dir, &origin, true, false, Arc::default(), None, false);
     assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"], "idle");
+    drop(relay);
+}
+
+#[test]
+fn free_tier_proofs_reach_the_api_as_base64url_even_when_the_app_writes_standard_base64() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    api.lock().unwrap().answers = vec![
+        ("/v1/inference/free/attest".into(), vec![token_answer("free-token-url-1")]),
+        ("/v1/inference/free/token".into(), vec![token_answer("free-token-url-2")]),
+        ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+    ];
+    let origin = start_api(api.clone());
+    let dir = scratch("b64u");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let asked: Asked = Arc::default();
+    // has_key: the lease asserts first (the renewal path), then attests on the first lease of a run.
+    let _held = provider_full(&dir, &origin, true, false, asked.clone(), None, false, true);
+
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 200, "{body}");
+    let api = api.lock().unwrap();
+    let token = api.seen.iter().find(|(p, _, _)| p == "/v1/inference/free/token").unwrap();
+    assert_eq!(token.2["assertion"], "-_-_YXNzZXJ0aW9u");
+    assert!(
+        api.seen.iter().all(|(p, _, _)| p != "/v1/inference/free/attest"),
+        "the renewal needed no new key"
+    );
+    drop(relay);
+}
+
+#[test]
+fn free_tier_a_first_attestation_reaches_the_api_as_base64url() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    api.lock().unwrap().answers = vec![
+        ("/v1/inference/free/attest".into(), vec![token_answer("free-token-url-3")]),
+        ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+    ];
+    let origin = start_api(api.clone());
+    let dir = scratch("b64a");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let _held = provider_full(&dir, &origin, false, false, Arc::default(), None, false, true);
+
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 200, "{body}");
+    let api = api.lock().unwrap();
+    let attest = api.seen.iter().find(|(p, _, _)| p == "/v1/inference/free/attest").unwrap();
+    assert_eq!(attest.2["attestation"], "-_-_YXR0ZXN0YXRpb24");
     drop(relay);
 }
