@@ -57,8 +57,7 @@ public final class MacScreenShareHost {
 
     public init(store: MacScreenStore) {
         self.store = store
-        indicator.disconnect = { [weak self] in self?.disconnectViewer() }
-        indicator.stopSharing = { [weak self] in self?.setEnabled(false) }
+        indicator.stopSharing = { [weak self] in self?.disconnectViewer() }
     }
 
     /// At launch: starts sharing if the person left it on, and rechecks
@@ -128,8 +127,11 @@ public final class MacScreenShareHost {
         }
     }
 
+    /// Disconnect: ends the viewer's session and turns sharing off, so the
+    /// viewer cannot come straight back (it would reconnect with the link).
     public func disconnectViewer() {
         host?.disconnectViewer()
+        setEnabled(false)
     }
 
     private func start() {

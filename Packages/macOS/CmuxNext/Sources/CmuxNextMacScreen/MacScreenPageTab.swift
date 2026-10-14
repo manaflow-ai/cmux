@@ -110,8 +110,9 @@ public final class MacScreenPageTab: BrowserTab {
     }
 
     public func setContentVisible(_ visible: Bool) {
+        // The view stays in the hierarchy like a web tab's (the cache shows only the
+        // selected tab); hiding it would collapse the chrome of a tab restored hidden.
         self.visible = visible
-        contentView.isHidden = !visible
         if visible { pane?.resume() } else { pane?.pause() }
     }
 

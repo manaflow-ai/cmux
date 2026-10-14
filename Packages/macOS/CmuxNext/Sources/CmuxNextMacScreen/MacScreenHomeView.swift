@@ -232,7 +232,7 @@ public struct MacScreenHomeView: View {
             Text(statusText).accessibilityIdentifier("macScreen.home.shareStatus")
             Spacer()
             if host.status == .viewing {
-                Button(L.t("macScreen.home.disconnectViewer", "Disconnect"), action: host.disconnectViewer).controlSize(.small)
+                Button(L.t("macScreen.indicator.stop", "Stop Sharing This Mac"), action: host.disconnectViewer).controlSize(.small)
             }
         }
     }

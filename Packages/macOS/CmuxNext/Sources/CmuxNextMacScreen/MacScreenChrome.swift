@@ -57,7 +57,7 @@ enum MacScreenCard: Equatable {
     case missing
     case connecting(reconnecting: Bool)
     case waitingForPicture
-    case failed(String)
+    case failed
     case ended
 }
 
@@ -91,7 +91,7 @@ extension MacScreenPaneModel {
         switch session.phase {
         case .connecting: return .connecting(reconnecting: session.isReconnecting)
         case .connected: return hasFrame ? nil : .waitingForPicture
-        case let .failed(message, _): return .failed(message)
+        case .failed: return .failed
         case .ended: return .ended
         }
     }
@@ -118,7 +118,7 @@ struct MacScreenToolbar: View {
                     .accessibilityIdentifier("macScreen.stats")
             }
             Spacer(minLength: 8)
-            if model.capturesKeyboard {
+            if model.capturesKeyboard, model.isLive {
                 Label(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), systemImage: "keyboard")
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     .layoutPriority(-1)
@@ -256,10 +256,10 @@ struct MacScreenCardView: View {
         case .waitingForPicture:
             ProgressView().controlSize(.regular)
             Text(L.t("macScreen.card.waiting", "Waiting for the screen…")).font(.headline)
-        case let .failed(message):
+        case .failed:
+            // The session's message can quote the signaling URL (with the room id): never shown.
             Image(systemName: "exclamationmark.triangle").font(.system(size: 28)).foregroundStyle(.yellow)
             Text(L.t("macScreen.card.failedTitle", "Couldn’t connect")).font(.headline)
-            Text(message).multilineTextAlignment(.center).foregroundStyle(.secondary).lineLimit(4)
             Text(L.t("macScreen.card.failedHint", "Check that Share This Mac is on and the other Mac is awake."))
                 .font(.caption).multilineTextAlignment(.center).foregroundStyle(.secondary)
             HStack {

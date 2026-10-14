@@ -1,11 +1,10 @@
 import AppKit
 
 /// The menu bar item shown while a device sees and controls this Mac
-/// (Share This Mac): visible from every app, with Disconnect and Stop Sharing.
+/// (Share This Mac): visible from every app, with Stop Sharing (which also disconnects).
 @MainActor
 final class MacScreenShareIndicator: NSObject {
     private var item: NSStatusItem?
-    var disconnect: () -> Void = {}
     var stopSharing: () -> Void = {}
 
     func setVisible(_ visible: Bool) {
@@ -21,9 +20,6 @@ final class MacScreenShareIndicator: NSObject {
             title.isEnabled = false
             menu.addItem(title)
             menu.addItem(.separator())
-            let disconnect = NSMenuItem(title: L.t("macScreen.indicator.disconnect", "Disconnect Viewer"), action: #selector(disconnectPressed), keyEquivalent: "")
-            disconnect.target = self
-            menu.addItem(disconnect)
             let stop = NSMenuItem(title: L.t("macScreen.indicator.stop", "Stop Sharing This Mac"), action: #selector(stopPressed), keyEquivalent: "")
             stop.target = self
             menu.addItem(stop)
@@ -35,6 +31,5 @@ final class MacScreenShareIndicator: NSObject {
         }
     }
 
-    @objc private func disconnectPressed() { disconnect() }
     @objc private func stopPressed() { stopSharing() }
 }

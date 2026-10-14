@@ -11,6 +11,8 @@ final class RemoteInputCaptureView: NSView {
     var geometry: () -> RemoteViewGeometry? = { nil }
     /// Called when focus or the mode changes so the pane can update chrome.
     var onFocusChange: ((Bool) -> Void)?
+    /// A mouse button went down on the surface (before it is sent).
+    var onMouseDown: (() -> Void)?
     var controlMode = false {
         didSet { updateActive() }
     }
@@ -130,6 +132,7 @@ final class RemoteInputCaptureView: NSView {
     }
 
     private func press(_ event: NSEvent, down: Bool) {
+        if down { onMouseDown?() }
         if down, window?.firstResponder !== self { window?.makeFirstResponder(self) }
         guard let geometry = geometry(), let button = RemoteMouseButton(appKitButtonNumber: event.buttonNumber) else { return }
         let point = convert(event.locationInWindow, from: nil)

@@ -12,9 +12,33 @@ public final class RemoteInputSurface {
         set { capture.controller.sink = newValue }
     }
 
+    /// The release chord took the keyboard back; a click on the surface ends it.
+    public private(set) var isReleased = false
+    private var wantsControl = false
+
     public init() {
-        // The release chord (Control-Option-Escape) gives the keyboard back.
-        capture.controller.onReleaseKeyboard = { [weak capture] in capture?.releaseKeyboard() }
+        // The release chord (Control-Option-Escape) gives the keyboard back, and keeps it
+        // back even when focus returns to the surface, until the next click on it.
+        capture.controller.onReleaseKeyboard = { [weak self] in self?.release() }
+        capture.onMouseDown = { [weak self] in self?.reengage() }
+        capture.onFocusChange = { [weak self] focused in
+            guard let self else { return }
+            onFocusChange?(focused && !isReleased)
+        }
+    }
+
+    private func release() {
+        isReleased = true
+        capture.controlMode = false
+        capture.releaseKeyboard()
+        onFocusChange?(false)
+    }
+
+    private func reengage() {
+        guard isReleased else { return }
+        isReleased = false
+        capture.controlMode = wantsControl
+        onFocusChange?(capture.window?.firstResponder === capture)
     }
 
     /// The view to place over the picture; it takes the keyboard on click.
@@ -26,16 +50,16 @@ public final class RemoteInputSurface {
         set { capture.geometry = newValue }
     }
 
-    /// Focus changes (true while the surface has the keyboard).
-    public var onFocusChange: ((Bool) -> Void)? {
-        get { capture.onFocusChange }
-        set { capture.onFocusChange = newValue }
-    }
+    /// Keyboard changes: true while the surface has the keyboard (focused and not released).
+    public var onFocusChange: ((Bool) -> Void)?
 
     /// Control mode: input goes to the host while the surface is first responder.
     public var controlMode: Bool {
-        get { capture.controlMode }
-        set { capture.controlMode = newValue }
+        get { wantsControl }
+        set {
+            wantsControl = newValue
+            if !isReleased { capture.controlMode = newValue }
+        }
     }
 
     /// cmux shortcut matcher: true keeps the chord in the viewer.

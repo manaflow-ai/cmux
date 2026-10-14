@@ -121,7 +121,8 @@ public final class MacScreenPane {
             guard let self else { return }
             model.gate = .open
             handlers.confirm()
-            if visible { session.connect() }
+            // A person pressed Connect, so the tab is on screen even if no reveal reached it.
+            if visible { session.connect() } else { resume() }
         }
         actions.closeTab = { [weak self] in self?.handlers.closeTab() }
         actions.openHome = { [weak self] in self?.handlers.openHome() }

@@ -119,7 +119,7 @@ extension MacScreenPages {
         switch phase {
         case .connecting: "connecting"
         case .connected: "connected"
-        case let .failed(message, _): "failed: \(message)"
+        case .failed: "failed"
         case .ended: "ended"
         }
     }
