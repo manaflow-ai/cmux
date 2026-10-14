@@ -1,6 +1,7 @@
 import Darwin
 import CmuxFoundation
 import Foundation
+import CmuxCloud
 import Testing
 
 #if canImport(cmux_DEV)
@@ -134,6 +135,37 @@ struct SSHRemoteCommandCLIIntegrationTests {
         #expect(scpArguments.contains("ControlPersist=600"))
         // The route identity is kept beside the options for connection sharing.
         #expect(configuration.routeSensitiveIdentifier == String(repeating: "a1", count: 32))
+    }
+
+    /// A password-only host accepts the drop's batch-mode `scp` only through
+    /// the `cmux ssh` carrier's authenticated master.
+    @Test
+    func testCmuxSSHDropUploadReusesTheCarrierMaster() throws {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "user@example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: ["__cmux_route_sensitive=" + String(repeating: "a1", count: 32)],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        #expect(configuration.routesThroughSSHTui)
+        let carrierPath = try #require(
+            SSHTuiConnection(configuration: configuration).preflightArguments.first { $0.hasPrefix("ControlPath=") }
+        )
+
+        let scpArguments = DetectedSSHSession(configuration: configuration).scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        )
+
+        #expect(scpArguments.contains(carrierPath))
+        #expect(scpArguments.contains("ControlMaster=no"))
+        #expect(!scpArguments.contains { $0.contains("__cmux_route_sensitive") })
     }
 
     @Test

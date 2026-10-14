@@ -65,11 +65,8 @@ struct WorkspaceRemoteConfigurationFileTransferTests {
         )
 
         #expect(configuration.sshOptions == ["ProxyJump=bastion", "UserKnownHostsFile=/dev/null"])
-        #expect(configuration.fileTransferSSHOptions
-            == ["IdentityAgent=/tmp/agent.sock", "ProxyJump=bastion", "UserKnownHostsFile=/dev/null"])
         for options in [
             configuration.sshOptions,
-            configuration.fileTransferSSHOptions,
             configuration.mergingConnectionSharingDefaults(sharing),
         ] {
             #expect(!options.contains { $0.lowercased().contains("__cmux_route_sensitive") })
