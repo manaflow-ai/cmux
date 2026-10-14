@@ -85,6 +85,11 @@ struct CloudTreeNodeActions {
     var removeCoderouterAccount: @MainActor (_ account: CloudTreeNode.CoderouterAccount) -> Void = { _ in }
     /// Re-reads the selected team's CodeRouter accounts now.
     var refreshCoderouter: @MainActor () -> Void = {}
+    /// The Cloud Machines header's refresh: the fleet only. Nil runs `refresh`.
+    var refreshCloudMachines: (@MainActor () -> Void)?
+    /// The My Devices header's refresh: the account's other devices only.
+    /// Nil runs `refresh`.
+    var refreshDevices: (@MainActor () -> Void)?
     /// Explains why a display cannot open in the currently selected workspace.
     var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
     /// Opens the New Machine flow through the same action as Cmd-Shift-Y.
@@ -637,7 +642,7 @@ struct CloudTreeNodeActions {
                     }
                 )
             }, failureDescription: { error in
-                CloudDiagnosticFailure.classify(error).label
+                CloudVMActionLauncher.displayableFailureMessage(for: error)
             })
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }

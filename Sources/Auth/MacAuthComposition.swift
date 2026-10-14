@@ -174,6 +174,10 @@ struct MacAuthComposition {
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
         self.callbackRouter = callbackRouter
+        // Sign-out deletes only this build's tunnels. Their fingerprints are
+        // read when sign-out begins, before Cloud teardown removes the local
+        // credentials that record them.
+        let signOutTunnelRoles = SignOutTunnelRoles()
         let browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
@@ -189,6 +193,7 @@ struct MacAuthComposition {
                 // reconnect configuration, and prevents a signed-out Mac (or
                 // a paired phone still connected to it) from retaining a
                 // usable remote surface.
+                signOutTunnelRoles.roles = VMTunnelManager.storedRoles()
                 AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
                 DeviceRegistryClient.shared.beginSignOut()
@@ -201,8 +206,9 @@ struct MacAuthComposition {
                 await DeviceRegistryClient.shared.withdrawForSignOut(
                     accessToken: accessToken, refreshToken: refreshToken
                 )
-                await VMClient.revokeCloudAccess(
-                    deviceID: MobileHostIdentity.deviceID(),
+                let roles = await MainActor.run { signOutTunnelRoles.take() }
+                await VMClient.revokeTunnelRoles(
+                    roles,
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
@@ -463,5 +469,21 @@ enum UnsolicitedAuthCallbackApprovalPrompt {
             defaultValue: "You\u{2019}re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn\u{2019}t just choose this account yourself, click Don\u{2019}t Sign In."
         )
         return "\(account)\n\n\(warning)"
+    }
+}
+
+/// This build's tunnels, captured when sign-out begins and revoked by the
+/// sign-out tail.
+@MainActor
+private final class SignOutTunnelRoles {
+    /// Nil until sign-out begins; an empty capture means this build had no
+    /// tunnel, and must not be refilled from disk after teardown.
+    var roles: [CloudTunnelRole]?
+
+    /// The captured roles, or the ones still on disk when sign-out began on a
+    /// path that did not capture them. Clears the capture.
+    func take() -> [CloudTunnelRole] {
+        defer { roles = nil }
+        return roles ?? VMTunnelManager.storedRoles()
     }
 }

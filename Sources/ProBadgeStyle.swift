@@ -283,7 +283,7 @@ struct ProBadgeView: View {
                 }
                 .buttonStyle(.plain)
                 .safeHelp(helpTitle)
-                .accessibilityLabel(helpTitle)
+                .hintableAccessibilityLabel(helpTitle)
                 .accessibilityIdentifier("ProBadgeButton")
 
                 // The X is always laid out; only its container width animates,

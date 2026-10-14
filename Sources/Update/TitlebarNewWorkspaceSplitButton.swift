@@ -65,6 +65,7 @@ struct TitlebarNewWorkspaceSplitButton: View {
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("titlebarControl.newTab")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
+            .windowHintTarget(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .overlay {
                 TitlebarSplitButtonRightClickView { anchorView, event in
                     _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
@@ -104,6 +105,7 @@ struct TitlebarNewWorkspaceSplitButton: View {
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("titlebarControl.newWorkspaceMenu")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.menu.accessibilityLabel", defaultValue: "New Workspace Menu"))
+            .windowHintTarget(String(localized: "titlebar.newWorkspace.menu.accessibilityLabel", defaultValue: "New Workspace Menu"))
             .background(TitlebarControlAnchorView { menuAnchorView = $0 })
             .overlay {
                 TitlebarSplitButtonRightClickView { anchorView, event in

@@ -120,7 +120,6 @@ enum SettingsSearchIndex {
         setting(.terminal, "reflow-hard-wrap-on-copy", String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"), "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
         setting(.terminal, "password-input-indicator", String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"), "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
         setting(.terminal, "password-input-dots", String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"), "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
-        setting(.terminal, "jump-to-bottom-button", String(localized: "settings.terminal.showJumpToBottomButton", defaultValue: "Jump to Bottom Button"), "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"),
         setting(.terminal, "predictive-local-echo", String(localized: "settings.terminal.predictiveLocalEcho", defaultValue: "Predictive Local Echo"), "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"),
         setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
@@ -163,6 +162,7 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
+        setting(.betaFeatures, "click-by-hint", String(localized: "settings.betaFeatures.clickByHint", defaultValue: "Click by Hint"), "click by hint hints labels keyboard vimium cmd j preview beta"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
         setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
@@ -249,6 +249,7 @@ enum SettingsSearchIndex {
 
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
+        "windowHints.beta.enabled": settingID(for: .betaFeatures, idSuffix: "click-by-hint"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .themes, idSuffix: "appearance"),
         "app.accentColor": settingID(for: .themes, idSuffix: "accent-color"),
@@ -348,7 +349,6 @@ enum SettingsSearchIndex {
         "terminal.confirmUnsafePaste": settingID(for: .terminal, idSuffix: "confirm-unsafe-paste"),
         "terminal.showPasswordInputIndicator": settingID(for: .terminal, idSuffix: "password-input-indicator"),
         "terminal.showPasswordInputDots": settingID(for: .terminal, idSuffix: "password-input-dots"),
-        "terminal.showJumpToBottomButton": settingID(for: .terminal, idSuffix: "jump-to-bottom-button"),
         "terminal.predictiveLocalEcho": settingID(for: .terminal, idSuffix: "predictive-local-echo"),
         "terminal.sessionContentMaxWidth": settingID(for: .terminal, idSuffix: "session-content-width"),
         "terminal.sessionContentAlignment": settingID(for: .terminal, idSuffix: "session-content-alignment"),

@@ -59,14 +59,35 @@ extension ShortcutAction {
         }
         guard candidate != resolved,
               let normalizedDefault = (hostDefault ?? defaultShortcut).flatMap(normalizing),
-              resolved == normalizedDefault,
-              let legacyAction = legacyActionDisplacingBuiltInDefault,
-              let legacyShortcut = explicitlyConfiguredShortcut(legacyAction),
-              legacyShortcut.isUnbound
-                || bindingsConflict(resolved, legacyAction, legacyShortcut) else {
+              resolved == normalizedDefault else {
             return resolved
         }
-        return nil
+        if let legacyAction = legacyActionDisplacingBuiltInDefault,
+           let legacyShortcut = explicitlyConfiguredShortcut(legacyAction),
+           legacyShortcut.isUnbound
+            || bindingsConflict(resolved, legacyAction, legacyShortcut) {
+            return nil
+        }
+        if builtInDefaultYieldsToExplicitBindings,
+           Self.allCases.contains(where: { action in
+               guard action != self,
+                     let configured = explicitlyConfiguredShortcut(action),
+                     !configured.isUnbound else {
+                   return false
+               }
+               return bindingsConflict(resolved, action, configured)
+           }) {
+            return nil
+        }
+        return resolved
+    }
+
+    /// New defaults on a stroke that people may already have bound by hand.
+    /// While the action sits on its implicit default, any explicit binding of
+    /// another action on that stroke keeps it. Cmd+Shift+B was Open Browser's
+    /// default before it moved to Cmd+Shift+L.
+    private var builtInDefaultYieldsToExplicitBindings: Bool {
+        self == .jumpToLastPrompt
     }
 
     private var legacyActionDisplacingBuiltInDefault: ShortcutAction? {

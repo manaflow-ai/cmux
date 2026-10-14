@@ -31,7 +31,7 @@ struct BrowserReplRenderHostTests {
     /// A key window with a pane anchor. The render host returns a shown tab
     /// only to a key pane window (#18479), and a test host app may not be
     /// active, so the window reports key status itself.
-    private func makeWindow() throws -> (NSWindow, NSView) {
+    private func makeWindow() throws -> (KeyStatusWindow, NSView) {
         let window = KeyStatusWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -56,7 +56,7 @@ struct BrowserReplRenderHostTests {
         }
     }
 
-    @Test func hiddenDrivenTabRendersOffEveryScreenAndReturnsToItsPane() throws {
+    @Test func hiddenDrivenTabRendersOffEveryScreenAndReturnsToItsPane() async throws {
         let (window, anchor) = try makeWindow()
         defer { window.orderOut(nil) }
         let panel = BrowserPanel(
@@ -88,8 +88,15 @@ struct BrowserReplRenderHostTests {
         #expect(renderWindow.ignoresMouseEvents)
         #expect(renderWindow.level.rawValue <= NSWindow.Level.normal.rawValue)
 
-        // The pane shows the tab: the web view comes back at once.
+        // The pane shows the tab: the web view comes back at once. Make the
+        // pane window key again after the offscreen host has taken focus; the
+        // production policy keeps a shown tab rendering offscreen while its
+        // pane window is not key.
+        window.makeKeyAndOrderFront(nil)
         panel.noteWebViewVisibility(true, reason: "test.visible")
+        await Task.yield()
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        await Task.yield()
         #expect(webView.cmuxBrowserViewportAttachmentSuperview === paneHost)
         #expect(webView.window === window)
         #expect(visibleRenderWindows().isEmpty)
@@ -97,9 +104,11 @@ struct BrowserReplRenderHostTests {
         // Hidden again, then the session ends: the pane gets it back.
         panel.noteWebViewVisibility(false, reason: "test.hiddenAgain")
         BrowserReplTabAttachments.shared.attachment(for: panel.id)?.keepRendering()
+        await Task.yield()
         #expect(webView.window?.identifier?.rawValue == Self.renderWindowIdentifier)
         BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        await Task.yield()
         #expect(webView.cmuxBrowserViewportAttachmentSuperview === paneHost)
         #expect(visibleRenderWindows().isEmpty)
     }

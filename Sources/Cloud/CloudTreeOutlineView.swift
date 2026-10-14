@@ -475,17 +475,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// open it — workspace rows included (austin, 2026-08-31: they used to
         /// toggle on the first click and open only on double-click, which made a
         /// double-click flip the container's expansion while opening). Extra
-        /// clicks of a double- or triple-click are ignored, so a habitual
-        /// double-click acts exactly once and never spawns twice. Expansion is
-        /// the chevron's job (and h/l on the keyboard), never a click side effect
-        /// on workspace rows; machine and group rows still toggle because toggle
-        /// IS their open verb.
+        /// clicks of a double- or triple-click are ignored for rows whose open
+        /// verb creates or focuses content, so a habitual double-click never
+        /// spawns twice. Disclosure rows still honor every activation because
+        /// toggling is their open verb. Expansion is the chevron's job (and h/l
+        /// on the keyboard), never a click side effect on workspace rows.
         @objc func handleSingleClick(_ sender: Any?) {
-            guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
+            guard let outlineView else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
             guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
+            // A fast multi-click can leave AppKit's action callback carrying
+            // the combined click count. Leaf/workspace rows keep the one-open
+            // rule, but a disclosure row must honor that activation or its
+            // first toggle disappears when the callback arrives as click 2+.
+            let clickCount = NSApp.currentEvent?.clickCount ?? 1
+            guard clickCount <= 1 || node.kind.togglesOnActivation else { return }
 #if DEBUG
-            cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(NSApp.currentEvent?.clickCount ?? -1)")
+            cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(clickCount)")
 #endif
             if case .display(let resource, _, _) = node.kind,
                nodeActions.showDisplayOpenHint(resource.id) {
@@ -495,9 +501,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         /// A double-click is the rename gesture for Cloud machines and their
-        /// remote workspaces. The first click still follows the normal open
-        /// path; `handleSingleClick` ignores the second click so it cannot
-        /// open or toggle the row a second time.
+        /// remote workspaces. AppKit sends the second activation through this
+        /// selector instead of `action`, so disclosure rows must still consume
+        /// it or a fast double-click silently drops that toggle.
         @objc func handleDoubleClick(_ sender: Any?) {
             guard let outlineView else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
@@ -505,6 +511,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #if DEBUG
             cmuxDebugLog("cloudTree.doubleClick row=\(row) kind=\(node.structureTag)")
 #endif
+            if node.kind.togglesOnActivation {
+                open(node)
+            }
             switch node.kind {
             case .machine(let machine, _):
                 machineActions.promptRename(machine)

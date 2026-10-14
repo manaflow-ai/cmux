@@ -124,6 +124,8 @@ enum RemoteTmuxRetryDelay {
 ///    linking").
 @MainActor
 final class RemoteTmuxViewConnection {
+    nonisolated static let defaultInitialCols = 120
+    nonisolated static let defaultInitialRows = 40
     let host: RemoteTmuxHost
     let view: RemoteTmuxViewSession
 
@@ -221,8 +223,8 @@ final class RemoteTmuxViewConnection {
     init(
         host: RemoteTmuxHost,
         ownerId: String,
-        initialCols: Int = 120,
-        initialRows: Int = 40
+        initialCols: Int = RemoteTmuxViewConnection.defaultInitialCols,
+        initialRows: Int = RemoteTmuxViewConnection.defaultInitialRows
     ) {
         self.host = host
         self.view = RemoteTmuxViewSession(ownerId: ownerId)
@@ -388,12 +390,24 @@ final class RemoteTmuxViewConnection {
 
     /// Creates a detached real session over the live stream at the view's size (so it
     /// never flashes at 80x24 before linking). Returns whether the command was sent
-    /// (false when not connected or the send was dropped). Shared by ``newWorkspace()``
-    /// and the session-less-host bootstrap so the `new-session` flags can't drift.
+    /// (false when not connected or the send was dropped). Shared by the session-less-host
+    /// bootstrap and routed New Workspace, so the `new-session` flags cannot drift.
     @discardableResult
-    private func createDetachedSession() -> Bool {
+    func createDetachedSession(
+        named: String? = nil,
+        completion: ((Bool) -> Void)? = nil
+    ) -> Bool {
         guard let conn = connection, conn.connectionState == .connected else { return false }
-        return conn.send(Self.newSessionCommand(cols: initialCols, rows: initialRows, captureName: false))
+        let command = Self.newSessionCommand(
+            cols: initialCols,
+            rows: initialRows,
+            captureName: false,
+            named: named
+        )
+        if let completion {
+            return conn.sendTracked(command, completion: completion)
+        }
+        return conn.send(command)
     }
 
     /// Pure gate for the session-less-host bootstrap (unit-testable without tmux/SSH):

@@ -154,17 +154,20 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
             enrich: { try sampler.enrich($0, fields: $1) }
         )
 
-        let loadTask = Task {
-            await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
-                processSnapshotService: service,
-                deadline: .milliseconds(1),
-                sleepUntilDeadline: { _ in true }
-            )
-        }
-        var iterator = began.stream.makeAsyncIterator()
-        _ = await iterator.next()
+        // Fire the deadline only once the census is in progress. An immediate
+        // deadline can win before the utility worker reaches the provider; the
+        // cancelled worker then never calls `capture`, so a test that waited
+        // for `began` would hang instead of exercising a slow census.
+        let result = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+            processSnapshotService: service,
+            deadline: .milliseconds(1),
+            sleepUntilDeadline: { _ in
+                var iterator = began.stream.makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+        )
 
-        #expect(await loadTask.value == nil)
+        #expect(result == nil)
         release.continuation.finish()
     }
 

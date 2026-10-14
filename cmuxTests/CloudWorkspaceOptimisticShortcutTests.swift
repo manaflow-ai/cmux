@@ -20,7 +20,7 @@ struct CloudWorkspaceOptimisticShortcutTests {
 
     @Test("Cmd-Y paints the predicted daemon workspace name during admission")
     func optimisticWorkspaceName() async throws {
-        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true, enablesCloudMachines: true)
         defer { fixture.close() }
         let existing = SurfaceRemoteWorkspace(id: "existing", name: "workspace-1", index: 0, focused: false)
         fixture.provider.info.remoteWorkspaces = [existing]
@@ -57,7 +57,7 @@ struct CloudWorkspaceOptimisticShortcutTests {
     @Test("Cmd-Y selects its reservation before remote creation and preserves newer navigation",
           arguments: ["stay", "beforeResolution", "beforeProvider", "providerDelay", "awayAndBack", "afterAdmission", "background"])
     func optimisticSelection(navigation: String) async throws {
-        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true, enablesCloudMachines: true)
         defer { fixture.close() }
         let manager = fixture.manager
         let original = try #require(manager.selectedWorkspace)
@@ -119,7 +119,9 @@ struct CloudWorkspaceOptimisticShortcutTests {
                 && !$0.cloudPendingCreations.isEmpty
         })
         let reservation = try #require(pending.cloudPendingCreations.values.first)
-        let shouldSelect = navigation == "stay" || navigation == "afterAdmission"
+        // Admission selects the loading workspace before provider lookup, so a
+        // provider delay alone has not changed the user's navigation.
+        let shouldSelect = navigation == "stay" || navigation == "providerDelay" || navigation == "afterAdmission"
         let previous = navigation == "beforeResolution" || navigation == "beforeProvider" ? other.id : original.id
         #expect(fixture.provider.createdWorkspaces.isEmpty, "The remote response is still held open")
         #expect(manager.selectedTabId == (shouldSelect ? pending.id : previous))
@@ -127,8 +129,10 @@ struct CloudWorkspaceOptimisticShortcutTests {
         #expect(pending.cloudVMBinding?.remoteWorkspaceID == nil)
         #expect(pending.cloudPendingCreations[reservation.panelID] === reservation)
         if navigation == "afterAdmission" { manager.selectWorkspace(other) }
-        if navigation == "providerDelay" { providerRelease.continuation.yield(()) }
-        for await _ in entered.stream { break }
+        if navigation == "providerDelay" {
+            providerRelease.continuation.yield(())
+            for await _ in entered.stream { break }
+        }
         release.continuation.yield(())
         await operations.waitForPendingOperations()
 
@@ -139,13 +143,13 @@ struct CloudWorkspaceOptimisticShortcutTests {
         #expect(manager.tabs.count == 3, "Reconciliation adopts the same workspace")
         #expect(manager.selectedTabId == (navigation == "afterAdmission" ? other.id : shouldSelect ? pending.id : previous))
         let reveal = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager))
-        #expect(reveal.isWithdrawn == (navigation != "stay"))
+        #expect(reveal.isWithdrawn == (navigation != "stay" && navigation != "providerDelay"))
     }
 
     @Test("An optimistic Cmd-Y failure retains a retry pane; cancellation removes its reservation",
           arguments: ["failure", "retry", "cancel", "cancelAfterNavigation"])
     func unsuccessfulCreation(outcome: String) async throws {
-        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true, enablesCloudMachines: true)
         defer { fixture.close() }
         let manager = fixture.manager
         let original = try #require(manager.selectedWorkspace)

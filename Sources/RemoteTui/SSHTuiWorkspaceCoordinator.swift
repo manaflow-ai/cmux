@@ -27,6 +27,17 @@ final class SSHTuiWorkspaceCoordinator {
         restoring && !machineID.hasPrefix("ssh:")
     }
 
+    /// A fresh local SSH workspace has no remote projections to reconcile
+    /// before its idempotent remote workspace create. Restores and workspaces
+    /// that already carry SSH state still need the authoritative graph first.
+    nonisolated static func needsInitialGraphRefresh(
+        restoring: Bool,
+        hasExistingProjections: Bool,
+        hasRemoteBinding: Bool
+    ) -> Bool {
+        restoring || hasExistingProjections || hasRemoteBinding
+    }
+
     nonisolated static func configurationForAttach(_ input: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
         var configuration = input
         if let saved = configuration.restoredSSHSession,
@@ -122,8 +133,18 @@ final class SSHTuiWorkspaceCoordinator {
         if restoring, let sshLinks = provider.links as? SSHTuiLinkManager {
             _ = try await sshLinks.connected(machineID: connection.id, preflight: false, upgrade: true)
         }
-        guard await provider.refreshCurrentGraph(force: false) else {
-            throw CloudMachineLink.LinkError.failureMessage(provider.info.linkFailureMessage)
+        let initialExisting = catalog.projections.filter {
+            $0.workspaceID == workspace.id && $0.resource.machine == machine
+        }
+        let hasRemoteBinding = workspace.cloudVMBinding?.vmID == connection.id
+        if Self.needsInitialGraphRefresh(
+            restoring: restoring,
+            hasExistingProjections: !initialExisting.isEmpty,
+            hasRemoteBinding: hasRemoteBinding
+        ) {
+            guard await provider.refreshCurrentGraphResolvingEqualCursorConflict() else {
+                throw CloudMachineLink.LinkError.failureMessage(provider.info.linkFailureMessage)
+            }
         }
         try requireCurrent(workspace: workspace, attemptID: attemptID)
         if !configuration.preserveAfterTerminalExit {

@@ -1185,6 +1185,7 @@ final class TerminalControllerSocketSecurityTests {
                 "vm.file_put",
                 "vm.pause",
                 "vm.resume",
+                "vm.restart",
                 "vm.reflection",
                 "vm.snapshot_list",
                 "vm.snapshot_delete",
