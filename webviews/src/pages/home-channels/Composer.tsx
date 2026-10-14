@@ -246,7 +246,8 @@ export function Composer({
         // A file copied in a file manager also carries its name (or path) as text: drop that text.
         const text = event.clipboardData.getData("text/plain");
         const names = [...event.clipboardData.files].map((file) => file.name);
-        const onlyNames = !text || event.clipboardData.types.includes("text/uri-list") || names.some((name) => text.includes(name));
+        const onlyNames =
+          !text || event.clipboardData.types.includes("text/uri-list") || names.some((name) => text.includes(name));
         if (onlyNames) event.preventDefault();
         addFiles(event.clipboardData.files);
       }}
@@ -344,6 +345,7 @@ export function Composer({
             type="file"
             multiple
             hidden
+            aria-label={t("attach.add")}
             tabIndex={-1}
             onChange={(event) => {
               if (event.target.files) addFiles(event.target.files);
