@@ -16644,6 +16644,11 @@ Result<CloudMuxUnsubscribeRequest> Codec<CloudMuxUnsubscribeRequest>::decode(con
 Result<Json> Codec<CloudParticipantAvatarGetRequest>::encode(const CloudParticipantAvatarGetRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.conversation.is_absent()) {
+        auto encoded = encode_value(value.conversation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("conversation", std::move(encoded).value());
+    }
     auto encoded_participant_id = encode_value(value.participant_id);
     if (!encoded_participant_id) return std::move(encoded_participant_id).error();
     object.emplace("participant_id", std::move(encoded_participant_id).value());
@@ -16654,6 +16659,16 @@ Result<CloudParticipantAvatarGetRequest> Codec<CloudParticipantAvatarGetRequest>
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudParticipantAvatarGetRequest result{};
+    const Json* field_conversation = value.find("conversation");
+    if (field_conversation) {
+        if (field_conversation->is_null()) {
+            result.conversation = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_conversation);
+            if (!decoded) return std::move(decoded).error();
+            result.conversation = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_participant_id = value.find("participant_id");
     if (!field_participant_id) {
         return make_error(ErrorCode::decode, "missing required field 'participant_id'");

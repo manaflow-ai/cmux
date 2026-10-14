@@ -587,8 +587,8 @@
     },
     {
       "path": "CloudParticipantAvatarGetRequest.java",
-      "sha256": "39c7d6a12e7b2ae166fb83a342e4e8a1864b5b776fafa48354a0b8a843690586",
-      "size": 2326
+      "sha256": "38e93eee1b2f129dcd6b7324114a19b622a8c94acc19346a0be8820ead1b03ce",
+      "size": 3090
     },
     {
       "path": "CloudSessionClearRequest.java",
@@ -1947,7 +1947,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "36b48541ff3a18a3b64e717b508b00be8793c46cbc3487c8933e4e26c8a841c2",
+      "sha256": "699ef80863438f54fab9af6b39ca6b478dfaf0335b622e6ffbe52d287e006b43",
       "size": 6872
     },
     {
@@ -3207,7 +3207,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "5b4349bcb1ec605e770ff79391600785f2978897235d7e53b93779488a6ec35a",
+  "ir_sha256": "066fd8f7413c0c8b865ee180f9650aa462899f735097f08c51cea6ffb011da2c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

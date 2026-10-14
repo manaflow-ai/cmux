@@ -2546,6 +2546,7 @@ class CloudMuxUnsubscribeRequest:
 class CloudParticipantAvatarGetRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-participant-avatar-get/request'
     participant_id: str
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

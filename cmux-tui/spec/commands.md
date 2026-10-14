@@ -6845,11 +6845,13 @@ Cloud refusals keep their `cloud_*` error codes and `reason`.
 | since | protocol 12 additive extension; capability `participant-avatars-v1` with `cloud-conversations-v1` |
 
 A Cloud participant's picture through the daemon: `cloud-participant-avatar-get
-{participant_id}` answers the Cloud owner's `participant.avatar.get`
+{participant_id, conversation?}` answers the Cloud owner's `participant.avatar.get`
 (`{participant_id, avatar}`; `avatar` is `{sha256, media_type, bytes, data}` with
 base64 `data`, or null). `participant_id` is a person (`user_`) or a Chief
-(`agent_`) id. Same admission and lease as `cloud-conversation-snapshot`; any
-signed-in person may read any picture.
+(`agent_`) id. Same admission and lease as `cloud-conversation-snapshot`. The
+person reads their own picture and their Chiefs' pictures; another participant's
+picture needs `conversation`, a conversation both are in; any other read is
+`selector.not_found`, the same answer as an unknown participant.
 
 ### cloud-session-set, cloud-session-clear, cloud-session-status
 

@@ -22081,6 +22081,15 @@
    "request": {
     "kind": "object",
     "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
      "participant_id": {
       "type": {
        "kind": "scalar",
