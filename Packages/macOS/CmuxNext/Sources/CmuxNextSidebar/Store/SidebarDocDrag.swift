@@ -8,10 +8,10 @@ import Foundation
 /// active; nil keeps the older drop resolver.
 @MainActor
 public struct SidebarDocDrag {
-    /// The item a workspace or group row draws; nil when it has none.
-    public var item: (SidebarRowKey) -> String?
-    /// The machine section a list section draws.
-    public var section: (SectionID) -> String?
+    /// The item a workspace or group row draws (the App's half); `item(_:)` answers item rows too.
+    private var itemOf: (SidebarRowKey) -> String?
+    /// The machine section a list section draws (the App's half); `section(_:)` answers custom sections too.
+    private var sectionOf: (SectionID) -> String?
     /// What a drop of these items may do beside each row (`drag_begin`).
     public var begin: ([String]) -> [String: SidebarDocAcceptance]
     /// The drop: one move, one undo step.
@@ -23,10 +23,22 @@ public struct SidebarDocDrag {
                 begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,
                 adoptRef: @escaping (WorkspaceID) -> [String: String]? = { _ in nil }) {
         self.adoptRef = adoptRef
-        self.item = item
-        self.section = section
+        itemOf = item
+        sectionOf = section
         self.begin = begin
         self.drop = drop
+    }
+
+    /// The item a row draws: a workspace's, a group's, a listed document item's.
+    public func item(_ key: SidebarRowKey) -> String? {
+        if case .item(let id) = key { return id }
+        return itemOf(key)
+    }
+
+    /// The document section a list section draws.
+    public func section(_ id: SectionID) -> String? {
+        if case .custom(let section) = id { return section }
+        return sectionOf(id)
     }
 
     /// The items a drag payload moves, in order; nil when one has no item.
@@ -34,6 +46,7 @@ public struct SidebarDocDrag {
         let keys: [SidebarRowKey] = switch payload {
         case .workspaces(let ids): ids.map(SidebarRowKey.workspace)
         case .group(let group): [.group(group)]
+        case .item(let id): [.item(id)]
         }
         let items = keys.compactMap(item)
         return items.count == keys.count ? items : nil
@@ -49,7 +62,7 @@ public struct SidebarDocDrag {
             guard let section = section(row.section) else { continue }
             let frame = CGRect(x: 0, y: row.y, width: width, height: row.height)
             switch row.key {
-            case .workspace, .group:
+            case .workspace, .group, .item:
                 guard let id = item(row.key) else { continue }
                 var parent: String?
                 var kind = SidebarDragGeometry.Slot.Kind.row
@@ -76,6 +89,7 @@ public struct SidebarDocDrag {
                 switch node {
                 case .workspace(let workspace): item(.workspace(workspace.id))
                 case .group(let group): group.id.rawValue
+                case .item(let listed): listed.id
                 }
             }
         }

@@ -23,10 +23,12 @@ extension SidebarListView {
         switch drag.payload {
         case let .workspaces(ids): SidebarEdits.apply(.reorder(ids, to: position), to: &sections)
         case let .group(group): SidebarEdits.apply(.reorderGroup(group, index: position.index), to: &sections)
+        case let .item(item): Self.move(item, to: position, in: &sections)
         }
         var o = options(includeGap: false)
         o.excludedWorkspaces = leaving
         o.excludedGroup = nil
+        o.excludedItem = nil
         var layout = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
         // The slot is where DropResolver maps display y back to base y
         // (the rows without the dragged ones).
@@ -36,6 +38,16 @@ extension SidebarListView {
             layout.gapShift = last.maxY + metrics.rowSpacing - first.y
         }
         return layout
+    }
+
+    /// A listed document item's node at `position` (a loose slot, counted without it), as its drop would place it.
+    static func move(_ item: String, to position: DropPosition, in sections: inout [SidebarSection]) {
+        var moved: SidebarNode?
+        for s in sections.indices {
+            if let n = sections[s].nodes.firstIndex(where: { $0.id == .item(item) }) { moved = sections[s].nodes.remove(at: n) }
+        }
+        guard let moved, let s = sections.firstIndex(where: { $0.id == position.section }) else { return }
+        sections[s].nodes.insert(moved, at: min(max(0, position.index), sections[s].nodes.count))
     }
 
     /// The dragged workspaces' tab rows hide with them (they move along).

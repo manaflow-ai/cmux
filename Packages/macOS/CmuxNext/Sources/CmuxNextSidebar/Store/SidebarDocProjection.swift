@@ -5,13 +5,17 @@ import Foundation
 /// section (Pinned first, untitled, with the tile or row look it carries;
 /// custom and app sections as before), the machine sections become the
 /// workspace list (one `workspaces` section where the first one sits), and
-/// each machine's rows become its nodes in the document's order. Pure: it
-/// only regroups rows the reducer ordered.
+/// each machine's rows become its nodes in the document's order (links,
+/// tabs and apps too). A group in Pinned or a custom section is not a tile:
+/// it lists as header and member rows, drawn by the list like any group
+/// (`bandGroups`, `arrange`). Pure: it only regroups rows the reducer ordered.
 public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     /// One node of a machine section.
     public enum Node: Hashable, Sendable {
         case workspace(SidebarDocWorkspaceRef, item: String)
         case group(Group)
+        /// A url, tab or app item: a row with the workspace row's look.
+        case link(SidebarListItem)
     }
 
     public struct Group: Hashable, Sendable {
@@ -21,6 +25,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var icon: String?
         public var collapsed: Bool
         public var members: [SidebarDocWorkspaceRef]
+        /// The document section that holds it.
+        public var section: String = ""
     }
 
     /// The bands' sections, with the workspace list's place.
@@ -33,6 +39,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var machineSections: [String: String]
     /// Live workspaces the document does not place yet (`sidebar.adopt`).
     public var unplaced: [SidebarDocWorkspaceRef]
+    /// The groups of Pinned and custom sections, in document order, with their members.
+    public var bandGroups: [Group]
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
@@ -45,6 +53,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var unplaced: [SidebarDocWorkspaceRef] = []
         var placedList = false
         var sectionIndex: [String: Int] = [:]
+        var bandGroups: [Group] = []
 
         for row in rows {
             // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
@@ -65,7 +74,14 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             }
             guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
             if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
-            if row.depth == 0 { sections[index].items.append(Self.layoutItem(item)) }
+            if case let .group(name, color, icon, collapsed) = item.body, row.depth == 0 {
+                bandGroups.append(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id))
+            } else if row.depth > 0, let ref = item.body.workspace, let last = bandGroups.indices.last,
+                      bandGroups[last].id == (row.parent ?? item.parent) {
+                bandGroups[last].members.append(ref)
+            } else if row.depth == 0 {
+                sections[index].items.append(Self.layoutItem(item))
+            }
         }
         if !placedList {
             sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list, content: .workspaces))
@@ -75,6 +91,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         self.items = items
         self.machineSections = machineSections
         self.unplaced = unplaced
+        self.bandGroups = bandGroups
     }
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout [String: [Node]],
@@ -95,9 +112,12 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 machines[session, default: []].append(.workspace(ref, item: id))
             }
         case let .group(name, color, icon, collapsed):
-            machines[session, default: []].append(.group(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [])))
-        default:
-            break
+            machines[session, default: []].append(.group(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [],
+                                                                section: row.section)))
+        case .url, .tab, .app, .builtin, .room, .savedGroup, .ref, .other:
+            // Any item may sit in a machine section: it lists as a row.
+            guard row.depth == 0 else { return }
+            machines[session, default: []].append(.link(Self.listItem(item)))
         }
     }
 
@@ -107,6 +127,14 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         return LayoutSection(id: LayoutSectionID(record.id), title: record.title, showsTitle: record.showsTitle, region: record.region,
                              look: record.look, arrangement: record.arrangement, room: record.room, maxRows: record.maxRows,
                              content: contribution == nil ? .items : .app, contribution: contribution)
+    }
+
+    /// A non-workspace item as a list row: its title (a link's page title,
+    /// the stored label, else its reference). No favicon yet: the page's icon address is not in the document.
+    static func listItem(_ item: SidebarDocItem) -> SidebarListItem {
+        let ref = ref(item.body, id: item.id)
+        let title = label(item) ?? ref.value // a built-in or app takes its own title on the main actor (`arrange`)
+        return SidebarListItem(id: item.id, ref: ref, title: title)
     }
 
     static func layoutItem(_ item: SidebarDocItem) -> LayoutItem {

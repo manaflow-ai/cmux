@@ -20,6 +20,12 @@ final class SidebarListView: NSView {
     var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     var sections: [SectionID: SidebarSection] = [:]
+    /// Where a band item dragged over the list would land (sidebar-v2): the list shows it as its own drag's gap or group highlight.
+    var bandDrop: DropTarget? {
+        didSet { if bandDrop != oldValue { reload(animated: true) } }
+    }
+    /// Listed document items (link, tab, app rows) by item id.
+    var listItems: [String: SidebarListItem] = [:]
     /// The drag gap CALayer, under the rows.
     let decorations = SidebarDecorationView()
     /// Open groups' members' lines, under the rows, moving with them.
@@ -135,6 +141,7 @@ final class SidebarListView: NSView {
         tabs = [:]
         groups = [:]
         sections = [:]
+        listItems = [:]
         for section in model.sections {
             sections[section.id] = section
             for node in section.nodes {
@@ -143,6 +150,7 @@ final class SidebarListView: NSView {
                 case let .group(group):
                     groups[group.id] = group
                     for ws in group.workspaces { workspaces[ws.id] = ws }
+                case let .item(item): listItems[item.id] = item
                 }
             }
         }
@@ -164,6 +172,11 @@ final class SidebarListView: NSView {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
         }
+        // A band item dragged over the list opens the same gap a row drag does (one drop look).
+        if includeGap, drag == nil, case let .position(position)? = bandDrop {
+            o.gap = position
+            o.gapHeight = metrics.rowHeight
+        }
         guard let drag else { return o }
         switch drag.payload {
         case let .workspaces(ids):
@@ -171,6 +184,8 @@ final class SidebarListView: NSView {
             o.showEmptyPinned = true
         case let .group(group):
             o.excludedGroup = group
+        case let .item(item):
+            o.excludedItem = item
         }
         if includeGap, drag.pinTarget == nil, case let .position(position) = drag.target {
             o.gap = position
@@ -291,13 +306,20 @@ final class SidebarListView: NSView {
             view.configure(ws, row: row)
             view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
+        case let (.item(id), view as WorkspaceRowView):
+            // The workspace row's look: favicon if any, regular-weight title, no kind glyph.
+            guard let item = listItems[id] else { return }
+            view.configure(item.row, row: row)
+            view.isSecondarySelected = false
+            view.isDropTarget = false
+            view.setAccessibilityIdentifier("cmux.sidebar.item.\(id)")
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
             view.configure(group, row: row, animated: animated)
-            view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
+            view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id) || bandDrop == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)

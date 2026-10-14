@@ -28,6 +28,8 @@ nonisolated struct SidebarRowIndex: Sendable {
                     for (m, ws) in group.workspaces.enumerated() where paths[ws.id] == nil {
                         paths[ws.id] = Path(section: s, node: n, member: m)
                     }
+                case .item:
+                    continue
                 }
             }
         }
@@ -39,6 +41,7 @@ nonisolated struct SidebarRowIndex: Sendable {
         switch sections[path.section].nodes[path.node] {
         case let .workspace(ws): ws
         case let .group(group): group.workspaces[path.member ?? 0]
+        case let .item(item): item.row // never indexed: an item row has no workspace
         }
     }
 
@@ -49,6 +52,8 @@ nonisolated struct SidebarRowIndex: Sendable {
         case var .group(group):
             group.workspaces[path.member ?? 0] = row
             sections[path.section].nodes[path.node] = .group(group)
+        case .item:
+            break
         }
     }
 
@@ -73,6 +78,8 @@ nonisolated struct SidebarRowIndex: Sendable {
                     guard group.workspaces.contains(where: { changed[$0.id] != nil }) else { continue }
                     group.workspaces = group.workspaces.map(patched)
                     result[s].nodes[n] = .group(group)
+                case .item:
+                    continue
                 }
             }
         }

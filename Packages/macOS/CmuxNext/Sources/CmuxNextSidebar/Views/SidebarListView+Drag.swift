@@ -25,6 +25,12 @@ extension SidebarListView {
             hidden = [.group(group)]
             for ws in groups[group]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
             origin = .position(DropPosition(section: model.sections[s].id, index: n))
+        case let .item(item):
+            // A listed document item drags only on the document.
+            guard model.docDrag != nil, let row = displayed.row(for: press.key) else { return }
+            payload = .item(item)
+            hidden = [press.key]
+            origin = .position(DropPosition(section: row.section, index: row.siblingIndex))
         case .tab, .section, .emptySection, .folder:
             return
         }
@@ -106,7 +112,7 @@ extension SidebarListView {
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
             SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin) // The target first, then the dragged rows (Arc/Dia).
             drag.renameOnLand = anchor
-        case (.group, .intoGroup), (.group, .ontoWorkspace):
+        case (.group, .intoGroup), (.group, .ontoWorkspace), (.item, _):
             break
         }
         suppressed = drag.hiddenKeys // Rows land under the lifted view, stay hidden until it arrives.
@@ -123,7 +129,11 @@ extension SidebarListView {
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         let y = SidebarDragGeometry.baseY(displayY: drag.probeCard.midY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
-        guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else { return }
+        guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
+            drag.docTarget = nil
+            return
+        }
+        drag.probe = SidebarDropProbe(hit, displayY: drag.probeCard.midY, baseY: y)
         drag.docTarget = hit.target
         let target = hit.target == nil ? nil : rows[hit.slot.key].map { SidebarDocDrag.display(hit, row: $0) }
         drag.lift.setRefused(hit.target == nil)

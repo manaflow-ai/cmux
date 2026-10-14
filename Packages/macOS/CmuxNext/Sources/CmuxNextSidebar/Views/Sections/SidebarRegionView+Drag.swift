@@ -13,6 +13,8 @@ final class SidebarRegionDrag {
     let hidden: [NSView]
     /// A workspace item over the workspace list: the drop takes it out of the band.
     var dropsToList = false
+    /// An item's drag on the sidebar document: one hit test and one drop look for the band and the list.
+    var docBand: SidebarDocBandDrag?
 
     init(subject: SidebarRegionDragSubject, lift: DragLiftView, grab: CGPoint, followsBothAxes: Bool, hidden: [NSView]) {
         self.subject = subject
@@ -71,12 +73,22 @@ extension SidebarRegionView {
         // The card lives in the lift host; it is placed and read back in this region's coordinates.
         let host = drag.lift.superview ?? self
         let origin = host.convert(CGPoint(x: point.x - drag.grab.x, y: point.y - drag.grab.y), from: self)
+        // On the document an item goes anywhere: its card follows the pointer, the band does not make way,
+        // and the drop shows as in every section (SidebarDocDropIndicator).
+        if case let .item(id) = drag.subject, let sidebar = docHost, let doc = sidebar.model.docDrag {
+            SidebarReorderLift.follow(drag.lift, origin: origin, visible: host.visibleRect)
+            let band = drag.docBand ?? SidebarDocBandDrag(item: id.rawValue, acceptance: doc.begin([id.rawValue]))
+            drag.docBand = band
+            band.update(sidebar, doc: doc, at: convert(point, to: nil))
+            drag.lift.setRefused(band.probe?.indicator == "refused")
+            return
+        }
         if drag.followsBothAxes {
             SidebarReorderLift.follow(drag.lift, origin: origin, visible: host.visibleRect)
         } else {
             SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
-        if isWorkspaceItem(drag.subject) || (isGroupItem(drag.subject) && listTakesAnyItem?() == true), let probe = dropToListProbe {
+        if isWorkspaceItem(drag.subject), let probe = dropToListProbe {
             drag.dropsToList = probe(convert(point, to: nil))
             if drag.dropsToList {
                 // Over the list the band shows the drop's outcome: itself
@@ -102,6 +114,13 @@ extension SidebarRegionView {
     func finishDrag() {
         guard let drag = reorder else { return }
         reorder = nil
+        if let band = drag.docBand, let sidebar = docHost {
+            // One move to where the hit said; the card settles back while the move lands.
+            let target = band.target
+            band.clear(sidebar)
+            if let target, let doc = sidebar.model.docDrag { doc.drop([band.item], target) }
+            return land(drag)
+        }
         _ = dropToListProbe?(nil)
         if drag.dropsToList, case let .item(id) = drag.subject {
             // The document moves the item into the list (no remove): the band shows it until the move lands.
@@ -115,6 +134,7 @@ extension SidebarRegionView {
     func cancelDrag() {
         guard let drag = reorder else { return }
         reorder = nil
+        if let sidebar = docHost { drag.docBand?.clear(sidebar) }
         _ = dropToListProbe?(nil)
         reorderSections = nil
         relayout(animated: true)
@@ -138,12 +158,6 @@ extension SidebarRegionView {
     private func isWorkspaceItem(_ subject: SidebarRegionDragSubject) -> Bool {
         guard case let .item(id) = subject else { return false }
         return content?.sections.lazy.flatMap(\.items).first { $0.id == id }?.ref.kind == LayoutItemRef.workspaceKind
-    }
-
-    /// A group tile (the sidebar document): the list draws groups, so it can take one.
-    private func isGroupItem(_ subject: SidebarRegionDragSubject) -> Bool {
-        guard case let .item(id) = subject else { return false }
-        return content?.sections.lazy.flatMap(\.items).first { $0.id == id }?.ref.kind == SidebarDocProjection.groupKind
     }
 
     private func frame(of subject: SidebarRegionDragSubject) -> CGRect? {

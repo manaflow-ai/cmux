@@ -60,7 +60,7 @@ enum SidebarDocWiring {
             }
         }, section: { id in
             switch id {
-            case .pinned: SidebarDocStore.pinnedSection
+            case .pinned, .custom: SidebarDocStore.pinnedSection // SidebarDocDrag answers .custom itself
             case .machine(let machine): machines.daemon(machine: machine.rawValue)?.store.registryID.flatMap { store.shown?.machineSections[$0] }
             }
         }, begin: { store.acceptance(dragging: $0) }, drop: { store.move($0, to: $1, title: SidebarDocStore.moveTitle) }, adoptRef: { id in

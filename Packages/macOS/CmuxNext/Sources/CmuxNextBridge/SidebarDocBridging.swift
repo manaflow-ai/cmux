@@ -81,7 +81,7 @@ public final class SidebarDocSections {
     /// the window's room shows). Consecutive loose rows share a section; a
     /// live workspace the document does not place yet follows last (its
     /// adopt is on the way); one placed in another section (Pinned, a
-    /// custom section) is not listed here.
+    /// custom section) lists only as a member of its group there.
     public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel]) -> [CmuxNextDaemon.SidebarSection] {
         let byResource = Dictionary(workspaces.compactMap { w in w.resourceID.map { ($0.rawValue, w) } }, uniquingKeysWith: { first, _ in first })
         var sections: [CmuxNextDaemon.SidebarSection] = []
@@ -103,7 +103,18 @@ public final class SidebarDocSections {
                 flush()
                 listed.formUnion(members.map(\.id))
                 sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))
+            case .link:
+                continue // a link row has no workspace; the sidebar model lists it (`SidebarDocProjection.arrange`)
             }
+        }
+        // A group of Pinned or a custom section is mapped with its machine's rows; the sidebar
+        // model lists it in that section (`SidebarDocProjection.arrange`).
+        flush()
+        for group in projection.bandGroups {
+            let members = group.members.filter { $0.sessionID == session }.compactMap { byResource[$0.workspaceID] }
+            guard !members.isEmpty else { continue }
+            listed.formUnion(members.map(\.id))
+            sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))
         }
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         loose += workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }

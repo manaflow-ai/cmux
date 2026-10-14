@@ -49,6 +49,8 @@ final class SidebarListDrag {
     var docAcceptance: [String: SidebarDocAcceptance] = [:]
     var docGeometry: (SidebarDragGeometry, [String: SidebarRow])?
     var docTarget: SidebarDocTarget?
+    /// The document drag is over the band: its line shows there and the list opens no gap.
+    var overBand = false
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?
@@ -101,6 +103,7 @@ final class SidebarListDrag {
         switch payload {
         case let .workspaces(ids): ids.allSatisfy { model.workspace($0) != nil }
         case let .group(group): model.group(group) != nil
+        case let .item(id): model.sections.contains { $0.nodes.contains { $0.id == .item(id) } }
         }
     }
 }

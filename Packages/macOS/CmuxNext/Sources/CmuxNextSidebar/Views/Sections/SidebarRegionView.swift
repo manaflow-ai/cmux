@@ -30,9 +30,9 @@ final class SidebarRegionView: NSView {
     var dropToListProbe: ((NSPoint?) -> Bool)?
     /// A workspace item was dropped on the list.
     var onDropToList: ((LayoutItemID) -> Void)?
-    /// Whether any item (a link, a group, not only a workspace) may be
-    /// dropped on the list: true on the sidebar document.
-    var listTakesAnyItem: (() -> Bool)?
+    /// The sidebar this band draws in: on the sidebar document an item's
+    /// drag hit-tests the band and the list as one (`SidebarDocBandDrag`).
+    weak var docHost: SidebarView?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The region's height changed outside its host's layout (a drag's
     /// preview, a landed drop): the host lays its bands out again.

@@ -91,7 +91,7 @@ enum DebugSidebarRows {
         return .object([
             "edge": .string(p.edge), "display_y": .number(Double(p.displayY)), "base_y": num(p.baseY),
             "row": p.row.map(JSONValue.string) ?? .null, "fraction": num(p.fraction),
-            "target": p.target.map(JSONValue.string) ?? .null,
+            "target": p.target.map(JSONValue.string) ?? .null, "indicator": p.indicator.map(JSONValue.string) ?? .null, "refusal": p.refusal.map(JSONValue.string) ?? .null,
         ])
     }
 

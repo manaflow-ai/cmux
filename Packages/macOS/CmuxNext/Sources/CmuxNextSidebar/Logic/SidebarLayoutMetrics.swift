@@ -75,6 +75,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var excludedWorkspaces: Set<WorkspaceID> = []
     /// A group removed from the layout with its children (being dragged).
     public var excludedGroup: GroupID?
+    /// A listed document item removed from the layout (being dragged).
+    public var excludedItem: String?
     /// When set, only these workspaces show; containers force-expand.
     public var filterMatches: Set<WorkspaceID>?
     /// Show the drop zone for an empty pinned section.

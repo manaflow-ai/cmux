@@ -20,6 +20,11 @@ extension SidebarListView {
         switch (key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             view.wire(id, in: self)
+        case let (.item(id), view as WorkspaceRowView):
+            // A link, tab or app row runs as the band's item does (AXPress too).
+            view.onSelect = { [weak self] in self?.model.send(.activateItem(LayoutItemID(id))) }
+            // A reused workspace view keeps no workspace's actions: a link row has no close, more, pin or tabs.
+            (view.onClose, view.onMore, view.onPin, view.isPinned, view.onToggleTabs) = (nil, nil, nil, nil, nil)
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             view.onSelect = { [weak self] in
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))

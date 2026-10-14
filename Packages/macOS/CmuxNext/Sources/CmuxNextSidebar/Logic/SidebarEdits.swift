@@ -93,6 +93,7 @@ public nonisolated enum SidebarEdits {
         switch sections[loc.section].nodes[loc.node] {
         case let .workspace(ws): return ws
         case let .group(group): return loc.child.map { group.workspaces[$0] }
+        case .item: return nil
         }
     }
 
@@ -134,7 +135,7 @@ public nonisolated enum SidebarEdits {
     /// Whether a workspace may live in a section.
     public static func canPlace(_ ws: SidebarWorkspace, in section: SidebarSection) -> Bool {
         switch section.kind {
-        case .pinned: true
+        case .pinned, .custom: true
         case let .machine(machine): machine.id == ws.machineID
         }
     }
@@ -285,6 +286,8 @@ public nonisolated enum SidebarEdits {
                     removed.append(contentsOf: group.workspaces.filter { ids.contains($0.id) })
                     group.workspaces.removeAll { ids.contains($0.id) }
                     kept.append(.group(group))
+                case .item:
+                    kept.append(node)
                 }
             }
             sections[s].nodes = kept
@@ -340,6 +343,8 @@ public nonisolated enum SidebarEdits {
                 guard let c = loc.child else { continue }
                 body(&group.workspaces[c])
                 sections[loc.section].nodes[loc.node] = .group(group)
+            case .item:
+                continue
             }
             changed = true
         }

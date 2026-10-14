@@ -75,16 +75,21 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
 public nonisolated enum SidebarNode: Identifiable, Hashable, Sendable {
     case workspace(SidebarWorkspace)
     case group(SidebarGroup)
+    /// A sidebar document item that is not a workspace or group (a link, a
+    /// tab, an app), drawn as a row with the workspace row's look.
+    case item(SidebarListItem)
 
     public nonisolated enum ID: Hashable, Sendable {
         case workspace(WorkspaceID)
         case group(GroupID)
+        case item(String)
     }
 
     public var id: ID {
         switch self {
         case let .workspace(ws): .workspace(ws.id)
         case let .group(group): .group(group.id)
+        case let .item(item): .item(item.id)
         }
     }
 
@@ -93,6 +98,29 @@ public nonisolated enum SidebarNode: Identifiable, Hashable, Sendable {
         switch self {
         case let .workspace(ws): [ws]
         case let .group(group): group.workspaces
+        case .item: []
         }
+    }
+}
+
+/// A url, tab or app item of the sidebar document listed as a row
+/// (sidebar-v2): its document item id, what a click runs, and what it draws
+/// (favicon if any, regular-weight title, no kind glyph).
+public nonisolated struct SidebarListItem: Hashable, Sendable {
+    public var id: String
+    public var ref: LayoutItemRef
+    public var title: String
+    public var icon: WorkspaceIcon?
+
+    public init(id: String, ref: LayoutItemRef, title: String, icon: WorkspaceIcon? = nil) {
+        self.id = id
+        self.ref = ref
+        self.title = title
+        self.icon = icon
+    }
+
+    /// The row the list draws for it: a workspace row's content, never closable.
+    public var row: SidebarWorkspace {
+        SidebarWorkspace(id: WorkspaceID("item:\(id)"), title: title, icon: icon, isClosable: false)
     }
 }

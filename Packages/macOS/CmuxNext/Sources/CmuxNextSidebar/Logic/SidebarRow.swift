@@ -13,6 +13,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case emptySection(SectionID)
     /// Group by Folder's header over one folder's loose rows ("" = none).
     case folder(SectionID, String)
+    /// A document item listed as a row (`SidebarNode.item`): its item id.
+    case item(String)
 }
 
 /// A workspace row's control for its inline tabs (`sidebar.showWorkspaceTabs`).

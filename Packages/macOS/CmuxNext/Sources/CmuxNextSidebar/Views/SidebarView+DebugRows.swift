@@ -79,6 +79,12 @@ public struct SidebarDropProbe: Sendable, Equatable {
     public var fraction: CGFloat?
     /// The resolved target, or nil when the drop is refused.
     public var target: String?
+    /// The drop look on the sidebar document: `gap` (a list section opens
+    /// its gap), `into` (a group header's drop fill), `line` (the band's
+    /// insertion line), `refused`; nil off the document.
+    public var indicator: String? = nil
+    /// The reducer's refusal of a refused drop (`cross_machine`, ...).
+    public var refusal: String? = nil
 }
 
 extension SidebarView {
@@ -111,7 +117,7 @@ extension SidebarView {
 
     /// The list's rows and their views, the selection and the drag (debug).
     /// The drag's last drop probe (debug): nil while nothing is dragged.
-    public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
+    public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe ?? aboveRegion.reorder?.docBand?.probe }
 
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
         let rows = list.displayed.rows.map { row -> SidebarDebugRow in

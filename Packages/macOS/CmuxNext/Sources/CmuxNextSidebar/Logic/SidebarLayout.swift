@@ -130,6 +130,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     // valid target); a group emptied by the filter hides.
                     if filtering && children.isEmpty { continue }
                     nodes.append((node, children))
+                case let .item(item):
+                    // A link or app row matches no workspace filter.
+                    if !filtering && item.id != o.excludedItem { nodes.append((node, [])) }
                 }
             }
 
@@ -137,6 +140,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let gapHere = o.gap?.section == section.id
             if nodes.isEmpty && filtering { continue }
             if isPinned && nodes.isEmpty && !o.showEmptyPinned && !gapHere { continue }
+            // A document section's groups list under its band (sidebar-v2): it draws no header or empty zone of its own.
+            let isDocSection = section.isDocSection
+            if isDocSection && nodes.isEmpty && !gapHere { continue }
 
             let flat = o.flattensMachines && section.machine != nil
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
@@ -147,8 +153,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             previousWasMachine = section.machine != nil
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
-            let showsHeader = section.machine == nil
-                || (!flat && (machineCount > 1 || o.showsSoleMachineHeader))
+            let showsHeader = !isDocSection && (section.machine == nil
+                || (!flat && (machineCount > 1 || o.showsSoleMachineHeader)))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
             let machineLabel = Self.machineLabel(section, options: o)
@@ -205,6 +211,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             y += m.tabRowHeight + m.rowSpacing
                         }
                     }
+                case let .item(item):
+                    let content = WorkspaceRowContent(icon: item.icon)
+                    let h = m.height(for: content)
+                    rows.append(SidebarRow(
+                        key: .item(item.id), y: y, height: h, section: section.id,
+                        group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
+                        isCollapsed: false, childCount: 0, groupColor: nil, content: content
+                    ))
+                    y += h + m.rowSpacing
                 case let .group(group):
                     let groupCollapsed = group.isCollapsed && !filtering
                     var header = SidebarRow(
@@ -261,8 +276,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     y += m.groupBottomPadding
                 }
             }
+            // Group by Folder lists groups and document items (links, tabs, apps) as they are.
             func isGroup(_ entry: (node: SidebarNode, children: [SidebarWorkspace])) -> Bool {
-                if case .group = entry.node { true } else { false }
+                if case .workspace = entry.node { false } else { true }
             }
 
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering

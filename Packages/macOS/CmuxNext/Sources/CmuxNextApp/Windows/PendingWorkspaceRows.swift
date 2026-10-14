@@ -96,22 +96,4 @@ final class PendingWorkspaceRows {
         }
         return sections
     }
-
-    /// `sections` without placeholder rows, which no daemon knows: a new
-    /// workspace's slot is resolved against the rows it will sit among.
-    static func withoutPlaceholders(_ sections: [SidebarRowSection]) -> [SidebarRowSection] {
-        sections.map { section in
-            var section = section
-            section.nodes = section.nodes.compactMap { node in
-                switch node {
-                case let .workspace(workspace):
-                    return workspace.rowState == .placeholder ? nil : node
-                case var .group(group):
-                    group.workspaces.removeAll { $0.rowState == .placeholder }
-                    return .group(group)
-                }
-            }
-            return section
-        }
-    }
 }

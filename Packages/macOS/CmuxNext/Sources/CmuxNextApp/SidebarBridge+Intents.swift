@@ -24,7 +24,7 @@ extension SidebarBridge {
         // that are all pinned already only snaps back.
         if case .reorder(let ids, let position) = intent {
             switch position.section {
-            case .pinned:
+            case .pinned, .custom: // a custom section lists only on the sidebar document, which took the intent above
                 let unpinned = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned != true }
                 guard !unpinned.isEmpty else { return resync() }
                 model.apply(intent)

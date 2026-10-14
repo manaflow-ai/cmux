@@ -11,6 +11,7 @@ import AppKit
 @MainActor enum SidebarListPinDrop {
     /// Probes the band under `windowPoint`; true while a section holds the drag.
     static func holds(_ list: SidebarListView, _ drag: SidebarListDrag, at windowPoint: NSPoint) -> Bool {
+        if drag.docItems != nil { return holdsOnDocument(list, drag, at: windowPoint) }
         guard case .workspaces = drag.payload, let sidebar = sidebar(of: list) else { return false }
         let wasHeld = drag.pinTarget != nil
         drag.pinTarget = SidebarPinDrops.pinDrop(sidebar, at: windowPoint)
@@ -27,6 +28,36 @@ import AppKit
         // The slot a return to the list starts from; the list shows no slot meanwhile.
         drag.target = drag.origin.map(DropTarget.position)
         if !wasHeld { list.reload(animated: true) }
+        return true
+    }
+
+    /// A document drag over the band (any row, group or link, into Pinned or
+    /// a custom section): the band's hit and insertion line, as a band item's
+    /// own drag shows it (SidebarDocDropIndicator); the list shows no gap meanwhile.
+    private static func holdsOnDocument(_ list: SidebarListView, _ drag: SidebarListDrag, at windowPoint: NSPoint) -> Bool {
+        guard let sidebar = sidebar(of: list), let doc = list.model.docDrag,
+              let hit = sidebar.bandHit(at: windowPoint, doc: doc, acceptance: drag.docAcceptance) else {
+            guard drag.overBand else { return false }
+            // Back over the list: the line goes, its gap opens again; the band's target is no drop here.
+            drag.overBand = false
+            drag.docTarget = nil
+            sidebar(of: list)?.hideDropLine()
+            drag.docGeometry = nil
+            list.reload(animated: true)
+            return false
+        }
+        let wasOver = drag.overBand
+        drag.overBand = true
+        drag.lastWindowPoint = windowPoint
+        let point = list.convert(windowPoint, from: nil)
+        SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: list.visibleRect)
+        list.autoscroll.stop()
+        drag.docTarget = hit.target
+        drag.lift.setRefused(hit.target == nil)
+        drag.probe = SidebarDropProbe(hit, displayY: sidebar.aboveRegion.convert(windowPoint, from: nil).y, baseY: nil, indicator: "line")
+        if hit.target == nil { sidebar.hideDropLine() } else { sidebar.showDropLine(hit, in: sidebar.aboveRegion) }
+        drag.target = nil
+        if !wasOver { list.reload(animated: true) }
         return true
     }
 
@@ -48,9 +79,11 @@ import AppKit
         return true
     }
 
-    /// Hides the outline (a cancelled drag).
+    /// Hides the outline and the line (a drop or a cancelled drag).
     static func end(_ list: SidebarListView) {
-        if let sidebar = sidebar(of: list) { _ = SidebarPinDrops.pinDrop(sidebar, at: nil) }
+        guard let sidebar = sidebar(of: list) else { return }
+        _ = SidebarPinDrops.pinDrop(sidebar, at: nil)
+        sidebar.hideDropLine()
     }
 
     /// The sidebar that holds the list (and the band above it).
