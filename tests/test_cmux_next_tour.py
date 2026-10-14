@@ -74,6 +74,29 @@ FAKE_TOOLS = {
 }
 
 
+# A screen route through a prefix, the way `launchctl asuser` runs commands:
+# osascript reports a 1600x1000 display and screencapture writes an image.
+FAKE_ROUTE = r'''#!/bin/sh
+case "$1" in
+  osascript) echo "[1600, 1000]" ;;
+  /usr/sbin/screencapture) for last; do :; done; printf 'SCREEN' > "$last" ;;
+  *) exec "$@" ;;
+esac
+'''
+
+# tour.py's CLI with the probe answering that the route works; on macOS the
+# probe would find it by writing a display image.
+ROUTE_LAUNCHER = r'''import runpy, sys
+sys.path.insert(0, sys.argv[1])
+import tour
+def probe(self, scratch):
+    self.capture_prefix, self.capture_mode = [sys.argv[2]], "direct"
+tour.Session.probe_capture = probe
+sys.argv = [tour.__file__] + sys.argv[3:]
+sys.exit(tour.main())
+'''
+
+
 def executable(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -102,11 +125,17 @@ class AppWindowCaptureTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def run_tour(self, **extra: str) -> tuple[subprocess.CompletedProcess, dict]:
+    def run_tour(self, screen_route: bool = False, **extra: str) -> tuple[subprocess.CompletedProcess, dict]:
         env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
         env.update(PATH=f"{self.root / 'bin'}{os.pathsep}{env.get('PATH', '')}", FAKE_LOG=str(self.log), **extra)
         out = self.root / "out"
-        done = subprocess.run([sys.executable, str(SCRIPT), "--app", str(self.app), "--out", str(out), str(self.tour)],
+        argv = [sys.executable, str(SCRIPT)]
+        if screen_route:
+            route, launcher = self.root / "route", self.root / "launch.py"
+            executable(route, FAKE_ROUTE)
+            launcher.write_text(ROUTE_LAUNCHER, encoding="utf-8")
+            argv = [sys.executable, str(launcher), str(SCRIPT.parent), str(route)]
+        done = subprocess.run(argv + ["--app", str(self.app), "--out", str(out), str(self.tour)],
                               capture_output=True, text=True, timeout=120, env=env)
         manifest = json.loads((out / "demo/manifest.json").read_text(encoding="utf-8"))
         return done, manifest
@@ -137,6 +166,19 @@ class AppWindowCaptureTests(unittest.TestCase):
         done, _ = self.run_tour()
         self.assertIn("screen capture: app window (debug.window_snapshot)", done.stdout)
         self.assertNotIn("no screen capture route", done.stdout)
+
+    def test_without_a_window_snapshot_the_tour_uses_a_screen_route(self) -> None:
+        done, manifest = self.run_tour(screen_route=True, FAKE_SNAPSHOT_ERROR="unknown method")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["capture_mode"], "direct")
+        self.assertEqual(manifest["frame_interval"], 0.5)
+        out = self.root / "out/demo"
+        for step in manifest["steps"]:
+            self.assertEqual(step["status"], "ok")
+            self.assertEqual((out / step["shot"]).read_bytes(), b"SCREEN")
+        self.assertTrue(manifest["frames"])
+        # Cropped to the window: 1000 - (100 + 600) from the top.
+        self.assertEqual(manifest["capture_rect"], [100, 300, 800, 600])
 
     def test_a_snapshot_error_is_recorded_on_each_step(self) -> None:
         _, manifest = self.run_tour(FAKE_SNAPSHOT_ERROR="no such window")
