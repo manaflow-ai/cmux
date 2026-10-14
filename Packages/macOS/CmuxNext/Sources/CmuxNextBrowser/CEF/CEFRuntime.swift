@@ -303,6 +303,7 @@ final class CEFRuntime {
         pump.start()
 
         try? FileManager.default.createDirectory(at: storage.root, withIntermediateDirectories: true)
+        storage.keepPreviousLog()
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,

@@ -80,4 +80,16 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
     }
 
     public var logFile: URL { root.appending(path: "cef.log") }
+
+    /// The previous run's `cef.log` (plans/cmux-next/crash-elimination.md
+    /// section 4). Chromium starts `cef.log` afresh at each launch, which
+    /// would lose the FATAL line of a run that crashed.
+    public var previousLogFile: URL { root.appending(path: "cef.previous.log") }
+
+    /// Moves `cef.log` to `cef.previous.log`, replacing an older one, before
+    /// Chromium starts. One rename: false when there was no log to keep.
+    @discardableResult
+    public func keepPreviousLog() -> Bool {
+        rename(logFile.path, previousLogFile.path) == 0
+    }
 }
