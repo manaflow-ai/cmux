@@ -30,6 +30,9 @@ parser.add_argument("--repeats", type=int, default=5)
 parser.add_argument("--steps", type=int, default=20, help="wheel calls per direction in one gesture")
 parser.add_argument("--notches", type=int, default=4, help="line notches per wheel call")
 parser.add_argument("--profile-runs", type=int, default=2, help="per mode: export the Time Profiler of this many runs")
+parser.add_argument("--b-fleet-job", help="A/B in one job: the fleet build job of the second app (installed here)")
+parser.add_argument("--b-tag", help="the second app's tag")
+parser.add_argument("--b-label", default="b")
 opts = parser.parse_args()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -442,53 +445,110 @@ def record(name, ticks, terms, profile):
     return result
 
 
-launch()
-try:
+def use(app):
+    """Points the module's app globals (APP, TAG, SOCKET, CLI, Target) at `app`."""
+    global APP, TAG, SOCKET, CLI
+    APP, TAG, SOCKET, CLI = app["app"], app["tag"], app["socket"], app["cli"]
+    if app.get("target"):
+        Target.pid, Target.window_id, Target.scale, Target.point, Target.screen_point = app["target"]
+
+
+def install_b():
+    """The second app of an A/B job: the fleet artifact of --b-fleet-job, unpacked and signed ad hoc here."""
+    ci = os.path.expanduser("~/.local/bin/cmux-ci")
+    zpath, dest = os.path.join(SCRATCH, "b.zip"), os.path.join(SCRATCH, "b")
+    got = subprocess.run([ci, "artifact", opts.b_fleet_job, zpath], capture_output=True, text=True, timeout=900)
+    if got.returncode != 0:
+        sys.exit(f"FAIL cmux-ci artifact {opts.b_fleet_job}: {got.stderr[-300:]}")
+    os.makedirs(dest, exist_ok=True)
+    subprocess.run(["/usr/bin/ditto", "-x", "-k", zpath, dest], check=True)
+    os.unlink(zpath)
+    app = os.path.join(dest, f"cmux DEV {opts.b_tag}.app")
+    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app], capture_output=True, check=True)
+    return {"label": opts.b_label, "app": app, "tag": opts.b_tag, "socket": f"/tmp/cmux-debug-{opts.b_tag}.sock",
+            "cli": os.path.join(app, "Contents/Resources/bin/cmux")}
+
+
+def stop_b(app):
+    """Quits the B app as NX_APP_STOP quits A: the in-app quit, then its terminal server."""
+    import socket as so
+    try:
+        with so.socket(so.AF_UNIX, so.SOCK_STREAM) as conn:
+            conn.settimeout(20)
+            conn.connect(app["socket"])
+            conn.sendall((json.dumps({"id": 1, "method": "action.run", "params": {"id": "quitEndSessions"}}) + "\n").encode())
+            conn.recv(65536)
+    except OSError as error:
+        print(f"B quit: {error}", flush=True)
+    wait(lambda: not os.path.exists(app["socket"]) or app_pid() is None, 30)
+    tui = os.path.join(app["app"], "Contents/Resources/bin/cmux-tui")
+    if os.access(tui, os.X_OK):
+        subprocess.run([tui, "--session", f"cmux-app-{app['tag']}", "server", "stop", "--end-terminals"],
+                       capture_output=True, timeout=60)
+
+
+def prepare(app):
+    use(app)
+    launch()
     make_workspaces()
     Target.find()
-    terms = ticking_terminals()
-    summary["ticking_terminals"] = len(terms)
-    note(len(terms) >= opts.ticking, f"{len(terms)} ticking terminals")
-    # The wheel moves the list (untraced sweep).
-    # HID-tap wheel events. The accessibility row titles proved unreliable as a move check (their count changes
-    # between reads), so a run counts as a scroll only when the app commits at least 30 frames a second during
-    # the gesture (idle with 50 ticking rows: about 11 a second).
+    app["target"] = (Target.pid, Target.window_id, Target.scale, Target.point, Target.screen_point)
+    app["terms"] = ticking_terminals()
+    note(len(app["terms"]) >= opts.ticking, f"{app['label']}: {len(app['terms'])} ticking terminals")
     WHEEL.clear()
     WHEEL.update({"hid": True})
     row_titles()
     sweep("down", 6)
     sweep("up", 6)
     # CPU per tick, no input (10 s).
-    pid = Target.pid
-    cpu0 = cpu_ns(pid)
+    cpu0 = cpu_ns(Target.pid)
     t0 = time.monotonic()
-    ticks = start_ticks(terms, 10)
+    ticks = start_ticks(app["terms"], 10)
     time.sleep(11)  # harness: the measured tick window
-    cpu1 = cpu_ns(pid)
-    summary["tick_window"] = {"seconds": round(time.monotonic() - t0, 1), "ticks": ticks,
-                              "app_cpu_us_per_tick": round((cpu1 - cpu0) / 1000 / ticks, 1) if cpu0 and cpu1 and ticks else None,
-                              "app_cpu_pct": round((cpu1 - cpu0) / 1e9 / (time.monotonic() - t0) * 100, 1) if cpu0 and cpu1 else None}
-    print(f"tick window: {summary['tick_window']}", flush=True)
-    time.sleep(2)
-    runs = {"noticks": [], "ticks": []}
+    cpu1 = cpu_ns(Target.pid)
+    app["tick_window"] = {"seconds": round(time.monotonic() - t0, 1), "ticks": ticks,
+                          "app_cpu_us_per_tick": round((cpu1 - cpu0) / 1000 / ticks, 1) if cpu0 and cpu1 and ticks else None,
+                          "app_cpu_pct": round((cpu1 - cpu0) / 1e9 / (time.monotonic() - t0) * 100, 1) if cpu0 and cpu1 else None}
+    print(f"{app['label']} tick window: {app['tick_window']}", flush=True)
+
+
+A = {"label": opts.label, "app": APP, "tag": TAG, "socket": SOCKET, "cli": CLI}
+apps = [A]
+try:
+    if opts.b_fleet_job:
+        apps.append(install_b())
+    for app in apps:
+        prepare(app)
+    runs = {app["label"]: {"noticks": [], "ticks": []} for app in apps}
     for i in range(opts.repeats):
-        for mode in ("noticks", "ticks"):
-            runs[mode].append(record(f"{mode}-{i}", mode == "ticks", terms, i < opts.profile_runs))
-            time.sleep(2)  # harness: settle between runs
+        # Interleaved, the order flipped each round, so host drift lands on both apps alike.
+        for app in (apps if i % 2 == 0 else apps[::-1]):
+            use(app)
+            cua("bring_to_front", {"pid": Target.pid})
+            time.sleep(1)  # harness: the window is in front before the recorder attaches
+            for mode in ("noticks", "ticks"):
+                runs[app["label"]][mode].append(record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i < opts.profile_runs))
+                time.sleep(2)  # harness: settle between runs
     summary["runs"] = runs
-    for mode, rs in runs.items():
-        valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
-                 and r.get("app_updates", 0) >= 30 * r.get("gesture_s", 0)]
-        totals = [r["total_ms"] for r in valid]
-        summary[mode] = {"valid": len(valid), "hitch_total_ms": totals,
+    for app in apps:
+        out = summary.setdefault("apps", {}).setdefault(app["label"], {"tag": app["tag"], "tick_window": app.get("tick_window")})
+        for mode, rs in runs[app["label"]].items():
+            valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
+                     and r.get("app_updates", 0) >= 30 * r.get("gesture_s", 0)]
+            totals = [r["total_ms"] for r in valid]
+            out[mode] = {"valid": len(valid), "hitch_total_ms": totals,
                          "median_ms": statistics.median(totals) if totals else None,
                          "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
                          "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0])}
-        print(f"{mode}: {summary[mode]}", flush=True)
+            print(f"{app['label']} {mode}: {out[mode]}", flush=True)
 finally:
     summary["failures"] = failures
     with open(os.path.join(opts.out, f"release-{opts.label}.json"), "w") as fh:
         json.dump(summary, fh, indent=1)
+    for app in apps[1:]:
+        use(app)
+        stop_b(app)
+    use(A)
     subprocess.run([STOP], check=False)
     cua("end_session", {})
     shutil.rmtree(SCRATCH, ignore_errors=True)
