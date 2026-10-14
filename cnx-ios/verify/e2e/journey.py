@@ -599,15 +599,26 @@ class Journey:
                          f"attached {attached:.1f} s and the Mac ran input {ran:.1f} s after launch",
                 "metric_relaunch_attach_s": round(attached, 2)}
 
+    def pull_until(self, needle, tries=8):
+        """Pull-downs above the keyboard (y 150 -> 400) until `needle` is on screen.
+        Returns (pulls, ocr hits)."""
+        for pulls in range(tries + 1):
+            hits = self.sim.ocr_find(needle, timeout=1.5)
+            if hits:
+                return pulls, hits
+            self.sim.drag(201, 150, 201, 400, duration=0.5, hold=0.3)
+            time.sleep(0.8)
+        return tries, []
+
     def s_tui_quit_keyboard_up(self):
-        """design/terminal R2-1: `top` with the keyboard up, then `q`: the shell's
-        earlier output and the `top` line are on screen above the prompt, and a
-        pull-down shows history (no band of black, nothing out of reach)."""
+        """design/terminal R2-1, R3-1: `top` with the keyboard up, then `q`: the
+        prompt is above the composer, and pull-downs above the keyboard scroll
+        back to the output from before `top` (the content moves)."""
         self.open_seed_workspace()
         term = self.seed["term1"]
         self.hide_keyboard()
         marker = f"H{random.randint(10000, 99999)}"
-        self.mac_write(term, f"clear; echo {marker}\n")
+        self.mac_write(term, f"clear; echo {marker}; seq 1 40\n")
         self.mac_wait_text(term, marker, timeout=8, count=1)
         self.sim.tap_q(ident="terminal.composer.field")
         time.sleep(0.8)
@@ -619,19 +630,48 @@ class Journey:
         self.sim.tap_q(ident="terminal.composer.send")
         time.sleep(3)
         self.sim.shot(f"tui-quit-kbup-{self.run_id}")
-        seen = self.sim.ocr_find(marker, timeout=4)
-        check(seen, f"after quitting top with the keyboard up, the earlier output ({marker}) is not on screen (R2-1)")
+        check(self.sim.keyboard(), "the keyboard went down after q")
         top_line = [o for o in self.sim.ocr() if o[4].strip().endswith("top")]
-        comp = self.sim.find(ident="terminal.composer.field")
-        y_marker = min(o[1] for o in seen)
-        check(comp and y_marker < comp[0].frame[1], "the earlier output is not above the composer")
-        self.sim.drag(201, 200, 201, 380, duration=0.5, hold=0.3)
-        time.sleep(1.2)
-        again = self.sim.ocr_find(marker, timeout=3)
-        check(again, f"a pull-down after quitting top lost the earlier output ({marker}) (R2-1)")
+        check(top_line, "the `top` command line is not on screen after q (R2-1)")
+        before = min(o[1] for o in top_line)
+        pulls, seen = self.pull_until(marker)
+        self.sim.shot(f"tui-quit-kbup-pulled-{self.run_id}")
+        check(seen, f"pull-downs above the keyboard never reached the output before top ({marker}) (R3-1)")
+        after = [o for o in self.sim.ocr() if o[4].strip().endswith("top")]
+        moved = pulls > 0 and (not after or min(o[1] for o in after) > before + 10)
+        check(pulls == 0 or moved, "the pull-down did not move the content (R3-1)")
         self.hide_keyboard()
-        return f"after q with the keyboard up: {marker} at y {y_marker:.0f} pt above the composer, " \
-               f"'top' line {'shown' if top_line else 'not read'}; still shown after a pull-down"
+        return f"after q with the keyboard up: `top` line at y {before:.0f} pt; {marker} reached after {pulls} pull-down(s)" + \
+               (", the content moved" if pulls else " (already on screen)")
+
+    def s_shell_pull_keyboard_up(self):
+        """design/terminal R3-1: a plain shell with the keyboard up: `seq 1 80`, a
+        pull-down above the keyboard scrolls the history back to its start; a drag
+        into the keyboard still dismisses it with the prompt on the composer."""
+        self.open_seed_workspace()
+        self.hide_keyboard()
+        marker = f"S{random.randint(10000, 99999)}"
+        self.sim.tap_q(ident="terminal.composer.field")
+        time.sleep(0.8)
+        self.sim.softtype(f"clear; echo {marker}; seq 1 80")
+        self.sim.tap_q(ident="terminal.composer.send")
+        self.mac_wait_text(self.seed["term1"], "\n80", timeout=8, count=1)
+        time.sleep(1.5)
+        check(self.sim.keyboard(), "the keyboard went down after sending")
+        pulls, seen = self.pull_until(marker, tries=10)
+        self.sim.shot(f"shell-pull-kbup-{self.run_id}")
+        check(pulls > 0, "the marker was on screen before any pull (the step needs history above the screen)")
+        check(seen, f"pull-downs above the keyboard never reached row 1 of `seq 1 80` ({marker}) (R3-1)")
+        # Back to the prompt, then a drag into the keyboard dismisses it (M6).
+        jump = self.sim.find(label="Scroll to bottom")
+        if jump:
+            self.sim.tap_el(jump[0]); time.sleep(1)
+        self.sim.drag(201, 300, 201, 860, duration=1.2, hold=0.3)
+        time.sleep(1.5)
+        self.sim.shot(f"shell-pull-dismiss-{self.run_id}")
+        check(not self.sim.keyboard(), "a drag into the keyboard did not dismiss it")
+        check(not self.sim.find(label="Scroll to bottom"), "the dismissal left the prompt (jump-to-bottom shown) (M6)")
+        return f"row 1 ({marker}) reached after {pulls} pull-down(s) with the keyboard up; a drag into the keyboard dismissed it on the prompt"
 
     def s_term_keys(self):
         try:
@@ -1162,6 +1202,7 @@ class Journey:
             ("relaunch_restore", "Relaunch restores the tab and attaches", "wsdesign", self.s_relaunch_restore),
             ("term_direct", "Terminal: direct typing (soft keyboard)", "termlive", self.s_term_direct),
             ("term_composer", "Terminal: composer", "termlive", self.s_term_composer),
+            ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),
             ("term_keys", "Terminal: ^C, arrows, joystick", "termlive", self.s_term_keys),
             ("term_tui", "Terminal: vim and top TUI", "termlive", self.s_term_tui),

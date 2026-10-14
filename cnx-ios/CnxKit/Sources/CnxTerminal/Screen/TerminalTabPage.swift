@@ -60,16 +60,16 @@ public struct TerminalTabPage: View {
                     // One view from "Connecting…" to live (R2-5): a tab back
                     // from the warm set or a cold restore shows its last frame
                     // at once; once attached the label goes, the frame stays
-                    // until the live rows are drawn, then fades out in 120 ms.
+                    // until the live rows are drawn, then goes in one frame: a cut,
+                    // never a fade over live rows at other positions (R3-4).
                     // (Two views crossfading here flashed the title pill grey.)
                     TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame,
                                            showsLabel: !model.connectionState.isAttached)
                         .ignoresSafeArea()
                         .padding(.bottom, insets.bottom)
-                        .transition(.opacity)
+                        .transition(.identity)
                 }
             }
-            .animation(.easeOut(duration: 0.12), value: !model.connectionState.isAttached || model.coldFrame != nil)
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the
             // controller's keyboard layout guide at 172 pt with no keyboard

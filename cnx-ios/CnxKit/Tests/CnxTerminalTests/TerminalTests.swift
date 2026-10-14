@@ -111,6 +111,22 @@ import Testing
         #expect(artifacts.map(\.reference) == ["/tmp/cnx-e2e-070024-sample.md"])
     }
 
+    /// R3-3 (seen live): pieces of wrapped paths in scrollback, after the
+    /// whole path left the screen.
+    @Test func fragmentsInScrollbackGo() {
+        let list = [
+            TerminalArtifact(reference: "/tmp/cnx-e2e-091910.txt", kind: .text),
+            TerminalArtifact(reference: "rivate/tmp/cnx-e2e-091910.txt", kind: .text),
+            TerminalArtifact(reference: "1910.txt", kind: .text),
+            TerminalArtifact(reference: "/tm", kind: .directory),
+            TerminalArtifact(reference: "docs/a.md", kind: .markdown),
+            TerminalArtifact(reference: "/repo/docs/a.md", kind: .markdown),
+            TerminalArtifact(reference: "https://cmux.com/a", kind: .link),
+        ]
+        #expect(ArtifactExtractor.droppingFragments(list).map(\.reference)
+                == ["/tmp/cnx-e2e-091910.txt", "docs/a.md", "/repo/docs/a.md", "https://cmux.com/a"])
+    }
+
     @Test func tmpAndPrivateTmpAreOneEntry() {
         var extractor = ArtifactExtractor()
         let artifacts = extractor.scan(Data("cat /tmp/x.md\nopen /private/tmp/x.md\n".utf8))
