@@ -63,7 +63,9 @@ struct ToolRowView: View {
                     .font(.subheadline.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    // Commands cut at the tail (a token cut in the middle reads wrong);
+                    // paths keep the middle cut so the file name stays.
+                    .truncationMode(call.kind == .execute ? .tail : .middle)
             }
             if let code = call.exitCode, code != 0 {
                 Text("Exit \(code)").font(.footnote).foregroundStyle(Color.cnxDanger)

@@ -163,7 +163,9 @@ struct ChatComposer: View {
         .padding(.horizontal, collapsed ? 20 : 12)
     }
 
-    private var placeholder: String { placeholderOverride ?? "Reply to \(store.summary.agentName)" }
+    private var placeholder: String {
+        placeholderOverride ?? (store.turns.isEmpty ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+    }
 
     /// Expands the capsule, then focuses the field once it exists.
     private func expand() {

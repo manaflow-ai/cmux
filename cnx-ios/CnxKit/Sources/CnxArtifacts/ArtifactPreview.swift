@@ -198,13 +198,17 @@ public struct WebPreview: UIViewRepresentable {
     }
 }
 
-/// Pinch and double-tap zoom.
-struct ZoomableImage: View {
+/// Pinch and double-tap zoom (artifact previews and the chat's full-screen image viewer).
+public struct ZoomableImage: View {
     let image: UIImage?
     @State private var scale: CGFloat = 1
     @State private var base: CGFloat = 1
 
-    var body: some View {
+    public init(image: UIImage?) {
+        self.image = image
+    }
+
+    public var body: some View {
         if let image {
             Image(uiImage: image)
                 .resizable()

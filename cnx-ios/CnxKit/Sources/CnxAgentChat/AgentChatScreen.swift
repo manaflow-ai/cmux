@@ -788,6 +788,7 @@ struct UserBubble: View {
 /// edges line up with the bubble (no remove-badge room).
 struct SentAttachments: View {
     let attachments: [AgentAttachment]
+    @State private var viewing: ImageViewerItem?
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
@@ -813,6 +814,7 @@ struct SentAttachments: View {
                 AttachmentThumb(attachment: file).padding(.top, -6).padding(.trailing, -6)
             }
         }
+        .fullScreenCover(item: $viewing) { FullScreenImageViewer(item: $0) }
     }
 
     @ViewBuilder
@@ -826,8 +828,15 @@ struct SentAttachments: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
+        .contentShape(.rect(cornerRadius: 16, style: .continuous))
+        // Tap opens the image full screen.
+        .onTapGesture {
+            if let data = attachment.data { viewing = ImageViewerItem(id: attachment.id, name: attachment.name, data: data) }
+        }
         .accessibilityElement()
         .accessibilityLabel(Text("Image, \(attachment.name)"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens full screen")
     }
 }
 

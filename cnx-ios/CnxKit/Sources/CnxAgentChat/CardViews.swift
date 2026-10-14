@@ -74,7 +74,7 @@ struct PermissionCard: View {
                 Text(record.request.toolCall.command ?? record.request.toolCall.title)
                     .font(.subheadline.monospaced())
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
                 Spacer()
             }
             .foregroundStyle(.secondary)
