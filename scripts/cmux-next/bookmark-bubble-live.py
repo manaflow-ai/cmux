@@ -154,8 +154,13 @@ try:
     check(bool(quiet_wait(lambda: not bubbles(), 5)), "bookmark.addPage again closes the bubble")
     star = ((omnibar().get("pointer") or {}).get("frames") or {}).get("star")
     if star and open_bubble("reopen for the star click"):
-        rpc("debug.mouse", {"window": WINDOW, "action": "click", "x": star[0] + star[2] / 2, "y": star[1] + star[3] / 2})
-        time.sleep(0.6)  # a reopen would show a new bubble right after the close
+        before = [w.get("id") for w in bubbles()]
+        print("star click", rpc("debug.mouse", {"window": WINDOW, "action": "click", "x": star[0] + star[2] / 2, "y": star[1] + star[3] / 2}), flush=True)
+        timeline = []
+        for _ in range(15):  # 1.5 s of samples: a close then a reopen shows as a new panel id
+            timeline.append([(w.get("id"), round(w.get("alpha") or 0, 2)) for w in windows() if w.get("kind") == "bookmarks.edit" and w.get("visible")])
+            time.sleep(0.1)
+        print("bubble panels before", before, "after the star click", timeline, flush=True)
         check(bool(quiet_wait(lambda: not bubbles(), 5)) and not bubbles(), "a click on the star closes the bubble (no reopen)")
     check(((omnibar().get("pointer") or {}).get("frames") or {}).get("star") is not None, "the star still shows (the page stays bookmarked)")
     # 3. A click on the page outside closes it.
