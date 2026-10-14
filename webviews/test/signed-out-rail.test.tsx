@@ -228,3 +228,39 @@ test("a search never lists a signed-out harness's models", async () => {
   expect(keys.filter((key) => codexModels.has(key))).toEqual([]);
   expect(sent).toEqual([]);
 });
+
+// Review of #20692: a chat already running on a harness keeps its models (a stale or wrong row
+// must never lock the person out of the chat they are in), and Starred lists no model a pick
+// would refuse.
+test("the running chat's own harness keeps its models", async () => {
+  const { catalog } = await mount({
+    harness: "codex",
+    turnCount: 1,
+    signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined },
+  });
+  const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const tab = tabFor(codex.name);
+  expect(tab?.getAttribute("aria-disabled")).toBeNull();
+  expect(modelRows().length).toBeGreaterThan(0);
+  expect(host.querySelector(".acpmux-mp-login")).toBeNull();
+});
+
+test("Starred lists no model of a signed-out harness", async () => {
+  const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
+  const first = (id: string) => BUNDLED_MODEL_CATALOG.harnesses.find((entry) => entry.id === id)!.models[0]!.id;
+  const [codexModel, claudeModel] = [first("codex"), first("claude")];
+  // The picker reads its stars when it mounts.
+  dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify([codexModel, claudeModel]));
+  await mount({ harness: "claude", signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined } });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const starred = host.querySelector<HTMLButtonElement>('.acpmux-mp-rail-list [aria-label="Starred"]');
+  expect(starred, "the Starred tab").not.toBeNull();
+  await act(async () => starred!.click());
+  const keys = modelRows().map((row) => row.dataset.key!.slice("model:".length));
+  expect(keys).toEqual([claudeModel]);
+});
