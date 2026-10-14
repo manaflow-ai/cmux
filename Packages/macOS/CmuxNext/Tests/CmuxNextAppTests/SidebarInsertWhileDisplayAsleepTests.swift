@@ -52,6 +52,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
         let (model, sidebar, window) = try Self.sidebar()
         defer { window.orderOut(nil) }
         try #require(window.screen != nil)
+        try #require(Motion.canAnimate(in: sidebar.list), "the display is already asleep on this host")
         // Synchronous from the sleep to the wake: both notifications are process-wide.
         let workspace = NSWorkspace.shared.notificationCenter
         Motion.reduceMotionOverride = false
@@ -75,6 +76,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
         let (model, sidebar, window) = try Self.sidebar()
         defer { window.orderOut(nil) }
         try #require(window.screen != nil)
+        try #require(Motion.canAnimate(in: sidebar.list), "the display is asleep on this host")
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         try #require(Motion.animatesMovement, "animation speed is off on this host")
