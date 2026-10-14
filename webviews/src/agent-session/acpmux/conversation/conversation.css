@@ -849,7 +849,7 @@ pre.cv-math-source {
 /* Quiet and always there: a transcript row shows nothing more on hover (Leo 2026-10-13). */
 .cv-tool__chevron {
   margin-left: -4px;
-  color: var(--cv-text-muted);
+  color: var(--cv-text-dim);
 }
 /* A thought in full: a muted "Thought", then its text wrapped on the tool rows' 20px lines, the
    first line where a single-line row's text sits (Leo 2026-10-13). */
@@ -860,10 +860,10 @@ pre.cv-math-source {
 }
 .cv-thought__label {
   flex: none;
-  color: var(--cv-text-muted);
 }
 .cv-thought__text {
   min-width: 0;
+  color: var(--cv-text-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
