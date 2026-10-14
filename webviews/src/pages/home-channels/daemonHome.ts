@@ -582,7 +582,8 @@ export class DaemonHomeClient implements PageClient {
    * agent), merged newest first. A daemon without the proxy answers nothing. */
   private async cloudRuns(id: string, params: Json): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
     // The brain lists newest first only: a read by reply keys has nothing more to find.
-    if (!(await this.capable(CLOUD_RUNS_CAPABILITY)) || Array.isArray(params.turns)) return { runs: [], hasMore: false };
+    if (!(await this.capable(CLOUD_RUNS_CAPABILITY)) || Array.isArray(params.turns))
+      return { runs: [], hasMore: false };
     const agents = (this.cloud.summary(id)?.participants ?? [])
       .filter((participant) => participant.kind === "agent")
       .map((participant) => participant.id)
