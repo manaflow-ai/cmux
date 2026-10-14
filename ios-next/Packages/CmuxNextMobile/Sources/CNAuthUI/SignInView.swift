@@ -22,7 +22,7 @@ public enum SignInMode: String, Sendable, CaseIterable {
 /// drawing itself. Choreography and its reference: `SignInChoreography`,
 /// `ios-next/reference/claude-onboarding.md`.
 public struct SignInView: View {
-    enum Stage: Equatable {
+    enum Stage: Hashable {
         /// Restoring the saved session: the launch frame only.
         case launch
         case methods
@@ -75,7 +75,10 @@ public struct SignInView: View {
     /// Footer size: footnote scaled so its glyphs match the reference
     /// footer (13.3 pt tall, 18.8 pt line pitch).
     @ScaledMetric(relativeTo: .footnote) private var legalSize: CGFloat = 13.6
-    @FocusState private var isEmailFocused: Bool
+    /// Which step's email field has focus. Reduce Motion builds a new field
+    /// for the email step (the columns cross-fade), so focus is keyed by the
+    /// step: the outgoing field's removal cannot clear the new field's focus.
+    @FocusState private var emailFocus: Stage?
     @FocusState private var isCodeFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -332,7 +335,7 @@ public struct SignInView: View {
             }
 
             if stage == .methods || stage == .email {
-                emailField
+                emailField(in: stage)
                     .opacity(revealOpacity(intro))
                 if stage == .email {
                     sendCodeButton
@@ -471,31 +474,33 @@ public struct SignInView: View {
         }
     }
 
-    private var emailField: some View {
-        TextField(text: $email) {
+    private func emailField(in columnStage: Stage) -> some View {
+        // Without Reduce Motion one field glides between the steps, so its
+        // focus value stays the same; with it each step has its own field.
+        let focusValue: Stage = reduceMotion ? columnStage : .email
+        return TextField(text: $email) {
             Text(String(localized: "signin.email.placeholder", defaultValue: "Email address", comment: "Email field placeholder"))
                 .foregroundStyle(Color.cn(\.textTertiary))
         }
         .mobileEmailTextInput()
-        .focused($isEmailFocused)
+        .focused($emailFocus, equals: focusValue)
         .multilineTextAlignment(.center)
         .font(.body)
         .foregroundStyle(Color.cn(\.ink))
         .padding(.horizontal, 20)
         .frame(minHeight: 48)
-        .background { SignInFieldBackground(isFocused: isEmailFocused) }
+        .background { SignInFieldBackground(isFocused: emailFocus == focusValue) }
         .contentShape(.capsule)
-        .onTapGesture { isEmailFocused = true }
+        .onTapGesture { emailFocus = focusValue }
         .onSubmit { Task { await sendCode() } }
-        .onChange(of: isEmailFocused) { _, focused in
-            if focused, stage == .methods { go(to: .email) }
+        .onChange(of: emailFocus) { _, focused in
+            if focused != nil, stage == .methods { go(to: .email) }
         }
         .disabled(isAuthInProgress && stage == .methods)
         .accessibilityLabel(Text(String(localized: "signin.email.placeholder", defaultValue: "Email address", comment: "Email field placeholder")))
         .onAppear {
-            // Reduce Motion swaps the column instead of gliding the field;
-            // keep the keyboard on the new field.
-            if reduceMotion, stage == .email { isEmailFocused = true }
+            // Reduce Motion: the email step's own field takes the keyboard.
+            if reduceMotion, columnStage == .email { emailFocus = .email }
         }
         .accessibilityIdentifier("Email")
     }
@@ -645,7 +650,7 @@ public struct SignInView: View {
 
     private func goBack() {
         isCodeFocused = false
-        isEmailFocused = false
+        emailFocus = nil
         UIApplication.shared.dismissMobileKeyboard()
         withAnimation(stepAnimation) {
             error = nil
@@ -655,7 +660,7 @@ public struct SignInView: View {
             stage = stage == .code || stage == .emailVerification ? .email : .methods
             isSendingCode = false
         }
-        if stage == .email { isEmailFocused = true }
+        if stage == .email { emailFocus = .email }
     }
 
     // MARK: Actions
@@ -717,7 +722,7 @@ public struct SignInView: View {
         guard !isRequestingEmailVerification else { return }
         error = nil
         billingRecoveryMessage = nil
-        isEmailFocused = false
+        emailFocus = nil
         isRequestingEmailVerification = true
         defer { isRequestingEmailVerification = false }
         do {
