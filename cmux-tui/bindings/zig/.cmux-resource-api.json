@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f15eaa1d8cf1b39fcfc1867bda1022ba25a4fdd919ba9406ad526ff9b1d012ee",
+  "catalog_sha256": "f0c67f3db832d801f3b1057c92e23081e8154c3a37c84314c04c952d4683d843",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -83,6 +83,27 @@
       "class": "read"
     },
     "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.profile.avatar.get": {
+      "class": "read"
+    },
+    "chief.profile.avatar.set": {
+      "class": "mutation"
+    },
+    "chief.profile.create": {
+      "class": "mutation"
+    },
+    "chief.profile.delete": {
+      "class": "mutation"
+    },
+    "chief.profile.get": {
+      "class": "read"
+    },
+    "chief.profile.list": {
+      "class": "read"
+    },
+    "chief.profile.update": {
       "class": "mutation"
     },
     "chief.stop": {
@@ -568,6 +589,9 @@
     "sidebar.item.remove": {
       "class": "mutation"
     },
+    "sidebar.item.remove_ref": {
+      "class": "mutation"
+    },
     "sidebar.item.update": {
       "class": "mutation"
     },
@@ -575,6 +599,9 @@
       "class": "mutation"
     },
     "sidebar.pin": {
+      "class": "mutation"
+    },
+    "sidebar.reset": {
       "class": "mutation"
     },
     "sidebar.section.add": {
@@ -788,6 +815,9 @@
       "class": "read"
     },
     "workspace.move": {
+      "class": "mutation"
+    },
+    "workspace.open_url": {
       "class": "mutation"
     },
     "workspace.place": {

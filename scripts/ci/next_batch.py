@@ -388,8 +388,8 @@ def debounce_wait(at: dt.datetime, first_trigger: dt.datetime,
                   quiet: int = QUIET_SECONDS, hard_max: int = HARD_MAX_SECONDS) -> int:
     """Seconds to wait before dispatching.
 
-    Each new event cancels the waiting run (concurrency cancel-in-progress), so
-    a dispatch happens after `quiet` seconds without events, but never later
+    A newer event's run supersedes the waiting one (`superseded`), so a
+    dispatch happens after `quiet` seconds without events, but never later
     than `hard_max` after the first event since the last dispatch.
     """
     waited = int((at - first_trigger).total_seconds())
@@ -406,14 +406,44 @@ def first_trigger_since_dispatch(runs: list[dict], at: dt.datetime) -> dt.dateti
     return min(triggers, default=at)
 
 
+def superseded(runs: list[dict], run_id: int | str | None, repo: str | None = None,
+               page: int = 60) -> bool:
+    """A newer pull_request or push run whose debounce job runs exists, and it takes over the wait.
+    The older run then exits 0: a cancelled run would read red on its pull request. A fork's run
+    or a next-batch/ head's skips the job (the workflow's `if`), so it never takes over."""
+    try:
+        mine = int(run_id or 0)
+    except ValueError:
+        return False
+
+    def waits(run: dict) -> bool:
+        head = (run.get("head_repository") or {}).get("full_name") or repo
+        return (run.get("event") in {"pull_request", "push"} and head == repo
+                and not str(run.get("head_branch") or "").startswith("next-batch/"))
+
+    ids = [run.get("id") or 0 for run in runs]
+    if mine not in ids:
+        # a full listing that no longer reaches this run holds `page` newer ones; a shorter one
+        # means this run is not listed yet, so nothing newer is either
+        return len(runs) >= page and mine < min(ids)
+    return any(waits(run) and (run.get("id") or 0) > mine for run in runs)
+
+
 def cmd_debounce(args: argparse.Namespace) -> int:
     gh = GitHub(args.repo)
+    me = os.environ.get("GITHUB_RUN_ID")
     runs = gh.runs(WORKFLOW, "per_page=60")
+    if superseded(runs, me, args.repo):
+        log("a newer event's run waits instead; nothing to do")
+        return 0
     at = now()
     first = first_trigger_since_dispatch(runs, at)
     wait = debounce_wait(at, first)
     log(f"first event since the last batch at {first.isoformat()}; waiting {wait}s for quiet")
     time.sleep(wait)
+    if superseded(gh.runs(WORKFLOW, "per_page=60"), me, args.repo):
+        log("an event arrived during the wait; its run dispatches instead")
+        return 0
     gh.dispatch(WORKFLOW, BASE, {"mode": "batch", "reason": args.reason or "debounced events"})
     log("dispatched a batch")
     return 0
@@ -1195,7 +1225,7 @@ class Controller:
                 f"`{stack.base[:12]}` with " + " ".join(f"#{item.number}" for item in stack.included) + ". "
                 f"Fleet production build: job `{build.get('job_id', 'n/a')}` ({build.get('link', 'n/a')}). "
                 f"{heavy}. Validated this PR at `{pr.sha[:12]}`.\n\n"
-                "Next: land it yourself with gh-merge-green on this receipt.")
+                "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`; gh-merge-green is optional).")
 
     def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
         ref = f"{self.args.repo}#{pr.number}"

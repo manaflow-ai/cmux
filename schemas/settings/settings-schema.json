@@ -490,6 +490,16 @@
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
             }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
+            }
           }
         ],
         "id" : "agents",
@@ -3515,6 +3525,58 @@
       "title" : {
         "key" : "settings.computerUse.driver",
         "text" : "Computer Use Driver"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.freeModel",
+        "text" : "AI Models"
+      },
+      "help" : {
+        "key" : "settings.freeModel.enabled.help",
+        "text" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "freeModel.enabled",
+      "keywords" : [
+        "ai",
+        "model",
+        "free",
+        "sign in",
+        "agents",
+        "models"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "freeModel",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.freeModel.enabled.summary",
+        "text" : "Free AI model while signed out"
+      },
+      "title" : {
+        "key" : "settings.freeModel.enabled",
+        "text" : "Free AI Model Without Sign-In"
       },
       "validation" : "portable"
     },
@@ -14091,6 +14153,7 @@
     {
       "accepts" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -14102,6 +14165,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.comfortable",
+            "text" : "Comfortable"
+          },
+          "value" : "comfortable"
         },
         {
           "title" : {
@@ -14122,7 +14192,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -14131,9 +14201,11 @@
         "density",
         "expanded",
         "compact",
+        "comfortable",
         "rows",
         "preview",
         "two lines",
+        "taller",
         "t3",
         "codex"
       ],
@@ -15315,7 +15387,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -23480,7 +23552,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bbd69c17c7d4fc6e50ec942ba5808c81d70f037c9db0953d96ac637616c9560a",
+  "schema_hash" : "9ff5d40a2ccf65edc5d7a6882883672ab897ec6b9a4de0e4f34156e20931da60",
   "sections" : [
     {
       "id" : "general",

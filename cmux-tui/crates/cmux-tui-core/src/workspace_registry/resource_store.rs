@@ -1994,6 +1994,10 @@ pub struct ResourceEventBatch {
     pub previous_revision: u64,
     pub revision: u64,
     pub changes: Value,
+    /// The journal record's `placement_shift`: placements that moved by
+    /// ordinal only and are not restated in `changes`
+    /// (`crate::state::placement_shift`).
+    pub placement_shift: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -3944,21 +3948,24 @@ fn set_resource_workspace_order(
         &live,
         workspace_ids.iter().map(WorkspacePublicId::as_str),
     )?;
-    for (position, workspace_id) in workspace_ids.iter().enumerate() {
-        transaction.execute(
-            "UPDATE workspaces
-             SET position = ?1, updated_revision = ?2
-             WHERE workspace_key = (
-               SELECT workspace_key FROM resource_workspaces
-               WHERE public_id = ?3 AND deleted_revision IS NULL
-             ) AND tombstoned = 0 AND position != ?1",
-            params![
-                i64::try_from(position).context("workspace position exceeds SQLite range")?,
-                revision,
-                workspace_id.as_str(),
-            ],
-        )?;
-    }
+    // One statement: the order as a JSON array (index = position), so a
+    // creation or move at 2000 workspaces is not 2000 statements; only rows
+    // whose position changes are written.
+    let order = serde_json::to_string(
+        &workspace_ids.iter().map(WorkspacePublicId::as_str).collect::<Vec<_>>(),
+    )?;
+    transaction.execute(
+        "UPDATE workspaces
+         SET position = target.position, updated_revision = ?2
+         FROM (SELECT rw.workspace_key AS workspace_key, CAST(entry.key AS INTEGER) AS position
+               FROM json_each(?1) AS entry
+               JOIN resource_workspaces AS rw
+                 ON rw.public_id = entry.value AND rw.deleted_revision IS NULL) AS target
+         WHERE workspaces.workspace_key = target.workspace_key
+           AND workspaces.tombstoned = 0
+           AND workspaces.position != target.position",
+        params![order, revision],
+    )?;
     Ok(())
 }
 
@@ -4079,9 +4086,11 @@ fn validate_touched_resource_invariants(
             ResourceChange::TombstoneWorkspace { workspace_id } => {
                 workspaces.insert(workspace_id.to_string());
             }
-            ResourceChange::SetWorkspaceOrder { workspace_ids } => {
-                workspaces.extend(workspace_ids.iter().map(ToString::to_string));
-            }
+            // An order change writes only `workspaces.position`: the set
+            // (set_resource_workspace_order) and the contiguous positions
+            // (below) are its invariants, so it touches no workspace's own
+            // rows; validating every workspace per create cost O(n).
+            ResourceChange::SetWorkspaceOrder { .. } => {}
             ResourceChange::SetActiveWorkspace { workspace_id } => {
                 if let Some(workspace) = workspace_id {
                     workspaces.insert(workspace.to_string());

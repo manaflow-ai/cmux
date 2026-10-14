@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextWakeups
 import os
 
@@ -72,6 +73,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         super.sendEvent(event)
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { mouseDownObserver?(event) }
+        // After AppKit handled the move: a browser toolbar under the pointer in a window that is
+        // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
+        if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }
     }
 
     /// An exception AppKit caught on the main thread. With

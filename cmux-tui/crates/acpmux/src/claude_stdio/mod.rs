@@ -25,13 +25,48 @@ use tokio::sync::Mutex;
 pub const AGENT_NAME: &str = "claude-stdio";
 
 /// Claude mode ids, offered as ACP session modes.
-/// Claude's own modes. Its permission modes (acceptEdits, bypassPermissions)
-/// are not offered: acpmux's policy answers permission prompts itself, so
-/// `perms approve-edits` and `perms approve-all` cover them for every
-/// harness, and bypassPermissions would also need the process launched with
-/// --dangerously-skip-permissions. Plan and auto change what Claude does,
-/// so they stay.
-const MODES: [(&str, &str); 3] = [("default", "Normal"), ("plan", "Plan"), ("auto", "Auto")];
+/// Claude's own modes. acceptEdits is not offered: acpmux's policy answers
+/// permission prompts itself, so `perms approve-edits` covers it for every
+/// harness. Plan and auto change what Claude does, so they stay.
+/// bypassPermissions ("Full access") is the mode a new chat starts in
+/// (`hub/start_mode.rs`, cx-wx93i): Claude Code itself skips every
+/// permission check, so nothing asks. Claude Code accepts it only from a
+/// process launched with `--allow-dangerously-skip-permissions`
+/// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
+/// the chat keeps its mode.
+const MODES: [(&str, &str); 4] = [
+    ("default", "Normal"),
+    ("plan", "Plan"),
+    ("auto", "Auto"),
+    ("bypassPermissions", "Full access"),
+];
+
+/// The launch flag that lets a running Claude Code switch to
+/// bypassPermissions (it does not turn the mode on by itself).
+pub const ALLOW_BYPASS_FLAG: &str = "--allow-dangerously-skip-permissions";
+
+/// Whether Claude Code accepts `ALLOW_BYPASS_FLAG` for `profile`: it exits
+/// at start when the flag comes as root, unless `IS_SANDBOX=1` or
+/// `CLAUDE_CODE_BUBBLEWRAP` is set (Claude Code 2.1.296), and the profile
+/// must not pass a skip flag of its own.
+pub fn bypass_allowed(profile: &HarnessProfile) -> bool {
+    let own = profile
+        .argv
+        .iter()
+        .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
+    if own {
+        return false;
+    }
+    let env = |k: &str| profile.env.get(k).cloned().or_else(|| std::env::var(k).ok());
+    let sandboxed = env("IS_SANDBOX").as_deref() == Some("1")
+        || env("CLAUDE_CODE_BUBBLEWRAP").is_some_and(|v| !v.is_empty());
+    #[cfg(unix)]
+    // SAFETY: geteuid has no preconditions.
+    let root = unsafe { libc::geteuid() } == 0;
+    #[cfg(not(unix))]
+    let root = false;
+    !root || sandboxed
+}
 
 /// Claude Code's own model aliases (`set_model` and `--model`). Only Claude
 /// Code says what an alias runs; the `[1m]` suffix asks for the 1M context
@@ -203,6 +238,18 @@ pub fn spawn_plan(
         args.push("--model".into());
         args.push(m.into());
     }
+    // Lets the chat switch to bypassPermissions ("Full access") later; a
+    // process that cannot take it is never given bypassPermissions at spawn.
+    let bypass = bypass_allowed(profile);
+    if bypass {
+        args.push(ALLOW_BYPASS_FLAG.into());
+    }
+    // A profile that passes a skip flag itself takes the mode as it is.
+    let own_skip = profile
+        .argv
+        .iter()
+        .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
+    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { "default" } else { mode };
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());
@@ -216,6 +263,10 @@ pub struct Translator {
     pending: Mutex<HashMap<String, Pending>>,
     /// claude control request_id -> ACP request id we issued to the hub.
     control_out: Mutex<HashMap<String, Id>>,
+    /// claude control request_id -> the session rules made from what Claude
+    /// suggested with its permission ask (`session_rules`), held until the
+    /// answer: an "Allow for this session" hands them back.
+    suggestions: Mutex<HashMap<String, Value>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -278,6 +329,8 @@ struct BackgroundShell {
     command: String,
     task: Option<String>,
     background: bool,
+    /// Its `running` update went out (`inbound.rs` `running`).
+    announced: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -302,6 +355,7 @@ impl Translator {
         Arc::new(Self {
             pending: Mutex::new(HashMap::new()),
             control_out: Mutex::new(HashMap::new()),
+            suggestions: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -456,4 +510,23 @@ fn tool_title(name: &str, input: &Value) -> String {
         "ExitPlanMode" => "Approve plan".into(),
         _ => name.to_owned(),
     }
+}
+
+/// Claude's permission suggestions as session-only permission updates: each
+/// allow rule kept, its destination `session`. None when none is an allow.
+pub(super) fn session_rules(suggestions: &Value) -> Option<Value> {
+    let rules: Vec<Value> = suggestions
+        .as_array()?
+        .iter()
+        .filter(|s| {
+            s.get("type").and_then(Value::as_str) == Some("addRules")
+                && s.get("behavior").and_then(Value::as_str) == Some("allow")
+        })
+        .map(|s| {
+            let mut s = s.clone();
+            s["destination"] = json!("session");
+            s
+        })
+        .collect();
+    (!rules.is_empty()).then_some(Value::Array(rules))
 }

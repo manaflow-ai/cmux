@@ -3535,20 +3535,81 @@ fn mark_journal_auto_vacuum_migrated(connection: &Connection) -> anyhow::Result<
     Ok(())
 }
 
+/// A legacy registry is converted to incremental auto-vacuum only while its
+/// live data is at most this many bytes. VACUUM rewrites every live page while
+/// the caller holds the registry (in WAL mode it writes them all to the WAL):
+/// a registry that grew to 10.7 GB without journal maintenance would stall
+/// its owner for minutes, so every client read "not connected" (cx-4bd8m).
+/// Above the bound the conversion is skipped; sealing still deletes archived
+/// journal rows and SQLite reuses their pages, so the file stops growing once
+/// sealing keeps up, but it does not shrink. Sealed segments stay in this
+/// database, so a large registry may never fall under the bound: giving its
+/// free pages back needs a compaction that does not hold the registry.
+const LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Debug builds only: overrides [`LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES`], so
+/// behavior tests through the binary need no large fixture.
+#[cfg(debug_assertions)]
+const LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES_TEST_ENV: &str =
+    "CMUX_TUI_TEST_LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES";
+
+fn legacy_auto_vacuum_max_live_bytes() -> u64 {
+    #[cfg(debug_assertions)]
+    if let Some(bytes) = std::env::var(LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES_TEST_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return bytes;
+    }
+    LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES
+}
+
+/// The registry's live data in bytes: every page but the free ones. Reads
+/// only the database header, so it is cheap at any size.
+fn registry_live_bytes(connection: &Connection) -> anyhow::Result<u64> {
+    let pragma = |name: &str| -> anyhow::Result<u64> {
+        let value =
+            connection.query_row(&format!("PRAGMA {name}"), [], |row| row.get::<_, i64>(0))?;
+        Ok(u64::try_from(value).unwrap_or(0))
+    };
+    let pages = pragma("page_count")?.saturating_sub(pragma("freelist_count")?);
+    Ok(pages.saturating_mul(pragma("page_size")?))
+}
+
+/// What [`migrate_journal_auto_vacuum`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AutoVacuumMigration {
+    /// Already incremental (now marked), or marked before.
+    NotNeeded,
+    /// Converted with one full VACUUM.
+    Converted,
+    /// A legacy registry with this many live bytes, above the bound: not
+    /// converted, and asked again on the next call.
+    Deferred { live_bytes: u64 },
+}
+
 /// Convert registries created before journal maintenance to incremental
 /// auto-vacuum once. SQLite applies the auto-vacuum mode change during VACUUM;
 /// the marker keeps reopening an existing registry from repeating that work.
-fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<bool> {
+/// A legacy registry with live data above [`LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES`]
+/// is not converted (`Deferred`).
+fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<AutoVacuumMigration> {
     if meta_value(connection, JOURNAL_AUTO_VACUUM_META_KEY)?.is_some() {
-        return Ok(false);
+        return Ok(AutoVacuumMigration::NotNeeded);
     }
     let auto_vacuum = connection.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
-    if auto_vacuum != 2 {
-        eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
-        connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+    if auto_vacuum == 2 {
+        mark_journal_auto_vacuum_migrated(connection)?;
+        return Ok(AutoVacuumMigration::NotNeeded);
     }
+    let live_bytes = registry_live_bytes(connection)?;
+    if live_bytes > legacy_auto_vacuum_max_live_bytes() {
+        return Ok(AutoVacuumMigration::Deferred { live_bytes });
+    }
+    eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
+    connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
     mark_journal_auto_vacuum_migrated(connection)?;
-    Ok(auto_vacuum != 2)
+    Ok(AutoVacuumMigration::Converted)
 }
 
 fn require_resource_effect_pepper_id(

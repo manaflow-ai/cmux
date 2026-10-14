@@ -171,6 +171,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         updateEmptyState()
         repairIfEmpty()
         sendTopology()
+        layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
     }
 
     /// A workspace with no pane shows its title; Return creates the first

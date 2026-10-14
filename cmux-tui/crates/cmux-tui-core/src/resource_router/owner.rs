@@ -20,6 +20,9 @@ pub(super) enum OperationOwner {
     Connection,
     /// Settings (the settings file): the config owner (resource_router/config.rs).
     Config,
+    /// `workspace.open_url` (resource_router/open_url.rs), composed of topology
+    /// and content operations.
+    OpenUrl,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -152,6 +155,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryVisitImport
         | ResourceOperation::HistoryTrailRecord => OperationOwner::History,
         ResourceOperation::BrowserTabSetProfile => OperationOwner::BrowserProfile,
+        ResourceOperation::WorkspaceOpenUrl => OperationOwner::OpenUrl,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -218,6 +222,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SidebarItemAdd
         | ResourceOperation::SidebarItemRemove
         | ResourceOperation::SidebarItemUpdate
+        | ResourceOperation::SidebarItemRemoveRef
         | ResourceOperation::SidebarSectionAdd
         | ResourceOperation::SidebarSectionUpdate
         | ResourceOperation::SidebarSectionMove
@@ -227,6 +232,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SidebarGroupUngroup
         | ResourceOperation::SidebarAdopt
         | ResourceOperation::SidebarApply
+        | ResourceOperation::SidebarReset
         | ResourceOperation::ProjectList
         | ResourceOperation::ProjectObserve
         | ResourceOperation::ProjectAdd
@@ -285,6 +291,13 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefEngineGet
         | ResourceOperation::ChiefEngineSet
         | ResourceOperation::ChiefStop
+        | ResourceOperation::ChiefProfileList
+        | ResourceOperation::ChiefProfileGet
+        | ResourceOperation::ChiefProfileCreate
+        | ResourceOperation::ChiefProfileUpdate
+        | ResourceOperation::ChiefProfileDelete
+        | ResourceOperation::ChiefProfileAvatarSet
+        | ResourceOperation::ChiefProfileAvatarGet
         | ResourceOperation::ConversationList
         | ResourceOperation::ConversationGet
         | ResourceOperation::ConversationHistory

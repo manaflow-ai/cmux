@@ -32,17 +32,23 @@ pub mod cua_v2;
 pub mod daemon;
 pub mod deliver;
 pub mod harness_admin;
+pub mod harness_config;
 pub mod harness_health;
+pub mod harness_limits;
 pub mod hub;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
 pub mod native;
+pub mod offer_mcp;
+#[cfg(windows)]
+mod owner_only;
 pub mod peer;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;
 pub mod prompt_context;
+pub mod prompt_provenance;
 pub mod protected_folders;
 pub mod question_answer;
 pub mod registry;
@@ -60,6 +66,7 @@ pub mod subagents;
 pub mod transcript;
 pub mod trust;
 pub mod tui;
+pub mod user_settings;
 pub mod web_modes;
 
 pub mod model_catalog;

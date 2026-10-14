@@ -74,6 +74,8 @@ mod mouse_dispatch;
 mod pty_mouse;
 mod pty_write;
 mod tab_moves;
+mod workspace_pins;
+pub(crate) use workspace_pins::{WorkspaceDropGeometry, WorkspaceDropSlot};
 
 mod clipboard;
 mod left_down;
@@ -456,6 +458,8 @@ pub struct App {
     pub(crate) machine_rail_scroll: usize,
     pub(crate) machine_footer_scroll: usize,
     pub(crate) workspace_rail_scroll: usize,
+    /// The workspace rows as last drawn, for drop slots under the pointer.
+    pub(crate) workspace_drop_geometry: Option<WorkspaceDropGeometry>,
     pub(crate) workspace_footer_scroll: usize,
     pub(crate) tabs_rail_selection: usize,
     pub(crate) tabs_rail_scroll: usize,
