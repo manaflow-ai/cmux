@@ -36,6 +36,10 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// the Static status mode (Reduce Motion): a half-filled ring for work, an empty bubble, a shield,
     /// a check disc, a ! diamond.
     case still
+    /// Codex-like (Leo's team, 2026-10-14: "they like Codex's sidebar"): work spins in a neutral grey
+    /// (the shared spinner, re-tinted; a still ring when nothing may move), done is Codex's blue
+    /// dot, waiting is a muted line bubble or shield, and only an error is red (a line i in a ring).
+    case codex
 
     /// The Debug Settings switch (the Debug menu writes the same value).
     public static let tunable = Tunable<StatusIconSet>.choice(
@@ -56,6 +60,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: String(localized: "statusIconSet.symbols", defaultValue: "Symbols", bundle: .module)
         case .symbolsOutline: String(localized: "statusIconSet.symbolsOutline", defaultValue: "Outlined Symbols", bundle: .module)
         case .still: String(localized: "statusIconSet.still", defaultValue: "Static", bundle: .module)
+        case .codex: String(localized: "statusIconSet.codex", defaultValue: "Codex-like", bundle: .module)
         }
     }
 
@@ -73,6 +78,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon; a spinner for work."
         case .symbolsOutline: "SF Symbols, outlined, and a spinner for work."
         case .still: "Static glyphs, never animated: half-filled ring, empty bubble, shield, check disc, ! diamond."
+        case .codex: "Codex's sidebar: a grey spinner (a still ring under Reduce Motion), blue done dot, muted line bubble and shield, red line i."
         }
     }
 
@@ -86,6 +92,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             if state == .idle || (state.isWorking && state.progress != nil) { return nil }
             return StaticStatusGlyph(state)?.plan
         }
+        if self == .codex { return codexPlan(for: state) }
         switch state {
         case .working where state.progress == nil:
             if self == .bars { return StatusIndicatorPlan(glyph: .bars, animation: .wave, tint: .accent) }
@@ -148,6 +155,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             case nil: .symbol("exclamationmark.circle")
             }
         case .still: .vector(kind == .permission || kind == .auth ? .permission : .waiting)
+        case .codex: .vector(kind == .permission || kind == .auth ? .shieldLine : .waiting)
         }
     }
 
@@ -171,6 +179,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: .symbol("checkmark.circle.fill")
         case .symbolsOutline: .symbol("checkmark.circle")
         case .still: .vector(.done)
+        case .codex: .vector(.dot)
         }
     }
 
@@ -185,6 +194,24 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: .symbol("xmark.octagon.fill")
         case .symbolsOutline: .symbol("xmark.octagon")
         case .still: .vector(.error)
+        case .codex: .vector(.info)
+        }
+    }
+
+    /// The Codex-like set (`sets.codex` in schemas/status-glyphs/static-status.json, which the web
+    /// copy follows): Lawrence's shared spinner re-tinted for work, line glyphs for the rest.
+    private func codexPlan(for state: StatusIndicatorState) -> StatusIndicatorPlan? {
+        switch state {
+        case .working where state.progress == nil:
+            return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner)
+        case .waiting(let kind):
+            return StatusIndicatorPlan(glyph: .mark(blockedMark(kind)), animation: nil, tint: .loading)
+        case .success:
+            return StatusIndicatorPlan(glyph: .mark(doneMark), animation: nil, tint: .unread)
+        case .error:
+            return StatusIndicatorPlan(glyph: .mark(errorMark), animation: nil, tint: .danger)
+        case .idle, .busy, .paused, .working:
+            return nil
         }
     }
 }

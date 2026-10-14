@@ -19,6 +19,12 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
     case done
     /// Failed: a diamond with ! cut out.
     case error
+    /// Waiting for a permission (Codex-like): a shield outline.
+    case shieldLine
+    /// Failed (Codex-like): an i in a ring.
+    case info
+    /// Done, unread (Codex-like): a blue dot.
+    case dot
 
     /// The theme role the glyph is tinted with.
     public var tint: StatusIndicatorPlan.Tint {
@@ -29,6 +35,9 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
         case .permission: .attention
         case .done: .success
         case .error: .danger
+        case .shieldLine: .loading
+        case .info: .danger
+        case .dot: .unread
         }
     }
 
@@ -183,6 +192,66 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
             path.addRect(CGRect(x: 6, y: 7, width: 2, height: 1))
             path.addRect(CGRect(x: 3, y: 8, width: 4, height: 1))
             path.addRect(CGRect(x: 4, y: 9, width: 2, height: 1))
+        case (.shieldLine, false):
+            path.move(to: CGPoint(x: 10, y: 1))
+            path.addLine(to: CGPoint(x: 18, y: 4))
+            path.addLine(to: CGPoint(x: 18, y: 9))
+            path.addCurve(to: CGPoint(x: 10, y: 19), control1: CGPoint(x: 18, y: 14), control2: CGPoint(x: 14.5, y: 17.5))
+            path.addCurve(to: CGPoint(x: 2, y: 9), control1: CGPoint(x: 5.5, y: 17.5), control2: CGPoint(x: 2, y: 14))
+            path.addLine(to: CGPoint(x: 2, y: 4))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 10, y: 3.15))
+            path.addLine(to: CGPoint(x: 16, y: 5.4))
+            path.addLine(to: CGPoint(x: 16, y: 9))
+            path.addCurve(to: CGPoint(x: 10, y: 17.1), control1: CGPoint(x: 16, y: 13), control2: CGPoint(x: 13.2, y: 15.9))
+            path.addCurve(to: CGPoint(x: 4, y: 9), control1: CGPoint(x: 6.8, y: 15.9), control2: CGPoint(x: 4, y: 13))
+            path.addLine(to: CGPoint(x: 4, y: 5.4))
+            path.closeSubpath()
+        case (.shieldLine, true):
+            path.addRect(CGRect(x: 3, y: 0, width: 4, height: 1))
+            path.addRect(CGRect(x: 1, y: 1, width: 2, height: 1))
+            path.addRect(CGRect(x: 7, y: 1, width: 2, height: 1))
+            path.addRect(CGRect(x: 1, y: 2, width: 1, height: 4))
+            path.addRect(CGRect(x: 8, y: 2, width: 1, height: 4))
+            path.addRect(CGRect(x: 2, y: 6, width: 1, height: 2))
+            path.addRect(CGRect(x: 7, y: 6, width: 1, height: 2))
+            path.addRect(CGRect(x: 3, y: 8, width: 1, height: 1))
+            path.addRect(CGRect(x: 6, y: 8, width: 1, height: 1))
+            path.addRect(CGRect(x: 4, y: 9, width: 2, height: 1))
+        case (.info, false):
+            path.addEllipse(in: CGRect(x: 1, y: 1, width: 18, height: 18))
+            path.addEllipse(in: CGRect(x: 3, y: 3, width: 14, height: 14))
+            path.move(to: CGPoint(x: 9, y: 5))
+            path.addLine(to: CGPoint(x: 11, y: 5))
+            path.addLine(to: CGPoint(x: 11, y: 7))
+            path.addLine(to: CGPoint(x: 9, y: 7))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 9, y: 9))
+            path.addLine(to: CGPoint(x: 11, y: 9))
+            path.addLine(to: CGPoint(x: 11, y: 15))
+            path.addLine(to: CGPoint(x: 9, y: 15))
+            path.closeSubpath()
+        case (.info, true):
+            path.addRect(CGRect(x: 3, y: 0, width: 4, height: 1))
+            path.addRect(CGRect(x: 1, y: 1, width: 2, height: 1))
+            path.addRect(CGRect(x: 7, y: 1, width: 2, height: 1))
+            path.addRect(CGRect(x: 1, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 4, y: 2, width: 2, height: 1))
+            path.addRect(CGRect(x: 8, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 0, y: 3, width: 1, height: 4))
+            path.addRect(CGRect(x: 9, y: 3, width: 1, height: 4))
+            path.addRect(CGRect(x: 4, y: 4, width: 2, height: 4))
+            path.addRect(CGRect(x: 1, y: 7, width: 1, height: 1))
+            path.addRect(CGRect(x: 8, y: 7, width: 1, height: 1))
+            path.addRect(CGRect(x: 1, y: 8, width: 2, height: 1))
+            path.addRect(CGRect(x: 7, y: 8, width: 2, height: 1))
+            path.addRect(CGRect(x: 3, y: 9, width: 4, height: 1))
+        case (.dot, false):
+            path.addEllipse(in: CGRect(x: 6, y: 6, width: 8, height: 8))
+        case (.dot, true):
+            path.addRect(CGRect(x: 4, y: 3, width: 2, height: 1))
+            path.addRect(CGRect(x: 3, y: 4, width: 4, height: 2))
+            path.addRect(CGRect(x: 4, y: 6, width: 2, height: 1))
         }
         // The grid runs y-down from the top-left corner.
         var place = CGAffineTransform(a: rect.width / grid, b: 0, c: 0, d: -rect.height / grid, tx: rect.minX, ty: rect.maxY)

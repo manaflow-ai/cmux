@@ -2,16 +2,32 @@
 import { useEffect, useRef } from "react";
 import { componentEntry } from "../gallery/format";
 import { StatusGlyph } from "./StatusGlyph";
-import { STATUS_GLYPHS, type StatusGlyphName } from "./statusGlyphs.generated";
+import { STATUS_GLYPHS, STATUS_GLYPH_SETS, type StatusGlyphName } from "./statusGlyphs.generated";
 
-const NAMES = Object.keys(STATUS_GLYPHS) as StatusGlyphName[];
+/** One row of a sheet: a state, the glyph it draws and the color it is tinted with. */
+type Row = { state: string; note: string; name: StatusGlyphName; tint: string };
+
+const SETS: Record<"static" | "codex", Row[]> = {
+  static: (Object.keys(STATUS_GLYPHS) as StatusGlyphName[])
+    .filter((name) => STATUS_GLYPHS[name].set === "static")
+    .map((name) => ({ state: name, note: STATUS_GLYPHS[name].for, name, tint: STATUS_GLYPHS[name].tint })),
+  codex: Object.entries(STATUS_GLYPH_SETS.codex).map(([state, pick]) => ({
+    state,
+    note:
+      state === "working"
+        ? "work: the app's shared spinner in this grey; this still ring under Reduce Motion or Static"
+        : STATUS_GLYPHS[pick.glyph].for,
+    name: pick.glyph,
+    tint: pick.tint,
+  })),
+};
 
 // A stand-in wallpaper: a busy photo-like gradient, as the update surfaces' sheet uses.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
 /** One drawing at its own pixel size, blown up so its pixels show: `pixels` 10 is the 1x pixel art,
  * 20 the 2x master. */
-function Pixels({ name, pixels, zoom }: { name: StatusGlyphName; pixels: 10 | 20; zoom: number }) {
+function Pixels({ row, pixels, zoom }: { row: Row; pixels: 10 | 20; zoom: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const element = canvas.current;
@@ -19,25 +35,31 @@ function Pixels({ name, pixels, zoom }: { name: StatusGlyphName; pixels: 10 | 20
     if (!element || !context) return;
     context.clearRect(0, 0, pixels, pixels);
     context.fillStyle = getComputedStyle(element).color;
-    const art = STATUS_GLYPHS[name];
+    const art = STATUS_GLYPHS[row.name];
     context.fill(new Path2D(pixels === 10 ? art.x1 : art.master), "evenodd");
-  }, [name, pixels]);
+  }, [row, pixels]);
   return (
     <canvas
       ref={canvas}
       className="status-glyphs-pixels"
       width={pixels}
       height={pixels}
-      style={{ color: STATUS_GLYPHS[name].tint, width: pixels * zoom, height: pixels * zoom }}
+      style={{ color: row.tint, width: pixels * zoom, height: pixels * zoom }}
       aria-hidden="true"
     />
   );
 }
 
-function StatusGlyphSheet({ onWallpaper = false }: { onWallpaper?: boolean }) {
+function StatusGlyphSheet({
+  onWallpaper = false,
+  set = "static",
+}: {
+  onWallpaper?: boolean;
+  set?: "static" | "codex";
+}) {
   return (
     <div className="status-glyphs-stage" style={onWallpaper ? { backgroundImage: wallpaper } : undefined}>
-      <table className="status-glyphs-sheet">
+      <table className="status-glyphs-sheet" data-set={set}>
         <thead>
           <tr>
             <th scope="col">State</th>
@@ -48,26 +70,26 @@ function StatusGlyphSheet({ onWallpaper = false }: { onWallpaper?: boolean }) {
           </tr>
         </thead>
         <tbody>
-          {NAMES.map((name) => (
-            <tr key={name}>
+          {SETS[set].map((row) => (
+            <tr key={row.state}>
               <th scope="row">
-                <strong>{name}</strong>
-                <span>{STATUS_GLYPHS[name].for}</span>
+                <strong>{row.state}</strong>
+                <span>{row.note}</span>
               </th>
               <td className="status-glyphs-live">
-                <StatusGlyph name={name} label={name} />
+                <StatusGlyph name={row.name} tint={row.tint} label={row.state} />
               </td>
               <td>
                 <span className="status-glyphs-row">
-                  <StatusGlyph name={name} />
+                  <StatusGlyph name={row.name} tint={row.tint} />
                   <span>Fix the sidebar hover card</span>
                 </span>
               </td>
               <td>
-                <Pixels name={name} pixels={10} zoom={6} />
+                <Pixels row={row} pixels={10} zoom={6} />
               </td>
               <td>
-                <Pixels name={name} pixels={20} zoom={3} />
+                <Pixels row={row} pixels={20} zoom={3} />
               </td>
             </tr>
           ))}
@@ -77,7 +99,7 @@ function StatusGlyphSheet({ onWallpaper = false }: { onWallpaper?: boolean }) {
   );
 }
 
-export default componentEntry<{ onWallpaper?: boolean }>({
+export default componentEntry<{ onWallpaper?: boolean; set?: "static" | "codex" }>({
   id: "ui.status-glyphs",
   title: "Static status glyphs",
   area: "UI primitives",
@@ -93,6 +115,14 @@ export default componentEntry<{ onWallpaper?: boolean }>({
     wallpaper: {
       note: "The same sheet on a wallpaper.",
       props: { onWallpaper: true },
+    },
+    codex: {
+      note: "The Codex-like set (Leo's team, 2026-10-14): a neutral grey spinner (its still ring here), Codex's blue done dot, muted line bubble and shield, and a red line i for an error.",
+      props: { set: "codex" },
+    },
+    "codex-wallpaper": {
+      note: "The Codex-like set on a wallpaper.",
+      props: { set: "codex", onWallpaper: true },
     },
   },
 });

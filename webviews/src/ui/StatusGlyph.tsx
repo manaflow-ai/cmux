@@ -15,8 +15,11 @@ export function StatusGlyph({
   size = 10,
   label,
   className,
+  tint,
 }: {
   name: StatusGlyphName;
+  /** The color, when a set tints the glyph otherwise (`STATUS_GLYPH_SETS`); else the glyph's own. */
+  tint?: string;
   /** Width and height in px (10 is the status slot). */
   size?: number;
   /** What it says to assistive tech; absent, the glyph is hidden from it (its row says the state). */
@@ -24,6 +27,7 @@ export function StatusGlyph({
   className?: string;
 }) {
   const art = STATUS_GLYPHS[name];
+  const color = tint ?? art.tint;
   const pixelArt = usesPixelArt(size, typeof window === "undefined" ? 2 : window.devicePixelRatio);
   return (
     <svg
@@ -32,13 +36,13 @@ export function StatusGlyph({
       height={size}
       viewBox={pixelArt ? "0 0 10 10" : "0 0 20 20"}
       fill="currentColor"
-      style={{ color: art.tint, flexShrink: 0 }}
+      style={{ color, flexShrink: 0 }}
       shapeRendering={pixelArt ? "crispEdges" : "geometricPrecision"}
       role={label ? "img" : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : "true"}
       data-status-glyph={name}
-      data-tint={art.tint}
+      data-tint={color}
     >
       <path d={pixelArt ? art.x1 : art.master} fillRule="evenodd" />
     </svg>
