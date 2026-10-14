@@ -8,6 +8,7 @@ import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService } from "./attachmentService";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, threadOf } from "./model";
+import { conversationHash, hashConversation, setHash } from "./panes";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
 import {
@@ -151,6 +152,8 @@ export class HomeChannelsStore {
       open: async (conversation) => {
         await this.reloadInbox();
         await this.select(conversation);
+        // The page shows the conversation the sheet made (the narrow page's pane follows the hash).
+        if (this.routed) setHash(conversationHash(conversation), true);
       },
       fail: (message) => this.set({ error: message }),
     });
@@ -223,6 +226,14 @@ export class HomeChannelsStore {
     const open = () => {
       // A sheet route (routes.ts) opens its sheet over the open conversation.
       if (this.sheets.follow(window.location.hash)) return;
+      // A conversation the page knows opens at once (no link read: a Cloud conversation's link
+      // has no resolver yet); a message link, or one the page does not know, is resolved.
+      const known = hashConversation(window.location.hash);
+      if (known && this.snapshot.conversations.has(known)) {
+        // The page opened it already (a row click records the hash after it selects).
+        if (known !== this.snapshot.selected) void this.select(known);
+        return;
+      }
       const link = hashLink(window.location.hash);
       if (link) void this.openLink(link);
     };
@@ -372,7 +383,7 @@ export class HomeChannelsStore {
       });
       this.runs.noteMessages(messages);
       void this.loadRuns(id, messages, true);
-      this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
+      if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
     }
@@ -664,8 +675,21 @@ export class HomeChannelsStore {
     this.set({ error: undefined });
   }
 
+  /** Whether the open conversation is on screen: the narrow page's list pane hides it, and a
+   * conversation nobody sees is not read (its unread count stays). */
+  private shown = true;
+  /** The page's hash names the open conversation (false: the gallery, which owns its window hash). */
+  routed = true;
+
+  setShown(shown: boolean): void {
+    if (shown === this.shown) return;
+    this.shown = shown;
+    if (shown) this.readOpen();
+  }
+
   /** Reads the open conversation through its newest loaded message. */
   private readOpen(): void {
+    if (!this.shown) return;
     const { selected, messages } = this.snapshot;
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open) this.markRead(open, messages.at(-1)?.seq ?? 0);
@@ -750,7 +774,7 @@ export class HomeChannelsStore {
     this.set(patch);
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
-      this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
+      if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
     }
     if (batch.inboxStale) void this.reloadInbox();
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);

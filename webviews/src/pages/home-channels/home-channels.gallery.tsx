@@ -9,6 +9,7 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
 import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
+import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
 import { HomeChannelsStore } from "./store";
 
@@ -35,6 +36,9 @@ type Props = {
   hostGrants?: boolean;
   /** Adds a second Chief (one that can be archived). */
   extraChief?: boolean;
+  /** The page's own width (px): below 720 it shows one pane (panes.ts), `pane`. */
+  width?: number;
+  pane?: Pane;
 };
 
 function HomeChannelsGallery({
@@ -49,12 +53,16 @@ function HomeChannelsGallery({
   route,
   hostGrants = false,
   extraChief = false,
+  width,
+  pane,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media);
     if (provider) provider.hostGrants = hostGrants;
     if (provider && extraChief) provider.addChief("Release Chief");
     const created = new HomeChannelsStore(provider, undefined, hostGrants ? provider : null);
+    // The gallery owns its window hash: the page never writes it here.
+    created.routed = false;
     if (route) created.sheets.show(route);
     if (select)
       void created.select(select).then(() => {
@@ -65,10 +73,10 @@ function HomeChannelsGallery({
   const [strings] = useState(() => createStrings(table));
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   return (
-    <div ref={setRoot} style={{ height: "100%" }}>
+    <div ref={setRoot} style={{ height: "100%", width: width ?? "100%" }}>
       {root ? (
         <UiProvider container={root}>
-          <HomeChannelsPage store={store} strings={strings} />
+          <HomeChannelsPage store={store} strings={strings} pane={width ? pane : undefined} />
         </UiProvider>
       ) : null}
     </div>
@@ -508,6 +516,41 @@ export default componentEntry<Props>({
       props: { select: "c-chief", runs: "live" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.running .cv-tool"));
+      },
+    },
+    "narrow-list": {
+      note: "The docked Home (600 px): one pane at a time; with no conversation in the hash, the list.",
+      props: { width: 600, pane: "list" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list [data-list-row]"));
+      },
+    },
+    "narrow-conversation": {
+      note: "600 px with a conversation open: the conversation fills the page, Back in its header, the run card on one line.",
+      props: { width: 600, pane: "conversation", select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-back") && ctx.document.querySelector(".lg-run.done"));
+      },
+    },
+    "narrow-thread": {
+      note: "600 px: the thread sheet covers the conversation pane.",
+      props: { width: 600, pane: "conversation", select: "c-release", thread: "c-release-m2" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-sheet"));
+      },
+    },
+    "narrow-run-card": {
+      note: "A narrow run card (380 px page): Worked for and Open on the first line, the step count and cost under it.",
+      props: { width: 380, pane: "conversation", select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
+      },
+    },
+    "narrow-run-card-480": {
+      note: "A run card on a 480 px page: the step count and cost move under Worked for as one line, never starting with a separator.",
+      props: { width: 480, pane: "conversation", select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
       },
     },
     "draft-posted": {
