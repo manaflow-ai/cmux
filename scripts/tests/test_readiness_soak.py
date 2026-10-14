@@ -12,6 +12,7 @@ import os
 import pathlib
 import sys
 import tempfile
+import time
 import types
 import unittest
 from unittest import mock
@@ -103,15 +104,16 @@ class FakeClient:
 
 
 class FakeControlSocket:
-    """A Unix socket that answers each request line with `reply`, or holds it when `reply` is None."""
+    """A Unix socket that answers each request line with `reply`, sent in two halves `delay` seconds apart,
+    or holds it when `reply` is None."""
 
-    def __init__(self, path, reply):
+    def __init__(self, path, reply, delay=0):
         import socket
         import threading
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind(path)
         self.server.listen(8)
-        self.reply, self.held = reply, []
+        self.reply, self.delay, self.held = reply, delay, []
         threading.Thread(target=self.serve, daemon=True).start()
 
     def serve(self):
@@ -129,7 +131,14 @@ class FakeControlSocket:
                 if not chunk:
                     break
                 buffer += chunk
-            connection.sendall((json.dumps(self.reply) + "\n").encode())
+            if b"\n" not in buffer:
+                connection.close()  # the client hung up without a request
+                continue
+            # In two halves, `delay` before each: every recv beats the client's timeout, the reply does not.
+            line = (json.dumps(self.reply) + "\n").encode()
+            for part in (line[:len(line) // 2], line[len(line) // 2:]):
+                time.sleep(self.delay)
+                connection.sendall(part)
             connection.close()
 
     def close(self):
@@ -186,6 +195,37 @@ class ControlRoundTripTests(unittest.TestCase):
             self.assertEqual(self.kinds(soak), ["hang"])
             self.assertIn("slow", soak.events[0]["detail"])
 
+    def test_a_good_reply_after_hang_after_is_a_hang(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(soak_module, "Client", FakeClient):
+            path = os.path.join(directory, "app.sock")
+            server = FakeControlSocket(path, {"id": 1, "ok": True, "result": {}}, delay=0.25)
+            try:
+                soak = self.soak(path, hang_after=0.4)
+                soak.check_control()
+            finally:
+                server.close()
+            self.assertEqual(self.kinds(soak), ["hang"])
+            self.assertIn("reply after", soak.events[0]["detail"])
+
+    def test_a_slow_reply_still_counts_when_the_other_call_failed(self):
+        class PingFails(FakeClient):
+            def call(self, method, params=None):
+                if method == "system.ping":
+                    self.sock.close()  # the fake server answers one connection at a time
+                    raise ConnectionRefusedError(61, "Connection refused")
+                return super().call(method, params)
+
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(soak_module, "Client", PingFails):
+            path = os.path.join(directory, "app.sock")
+            server = FakeControlSocket(path, {"id": 1, "ok": True, "result": {}}, delay=0.25)
+            try:
+                soak = self.soak(path, hang_after=0.4)
+                soak.check_control()
+            finally:
+                server.close()
+            self.assertEqual(self.kinds(soak), ["control-error", "hang"])
+            self.assertIn("snapshot.get: reply after", soak.events[1]["detail"])
+
     def test_a_good_reply_records_nothing(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(soak_module, "Client", FakeClient):
             path = os.path.join(directory, "app.sock")
@@ -224,6 +264,15 @@ class WebKitMatcherTests(unittest.TestCase):
                 mock.patch.object(soak_module, "responsible_pid", responsible.get, create=True):
             found = soak.kinds()
         self.assertEqual({pid for pid, kind in found.items() if kind == "webkit"}, {90938, 90940})
+
+    def test_without_the_responsibility_call_webkit_started_after_the_app_counts(self):
+        soak = soak_module.Soak.__new__(soak_module.Soak)
+        soak.webkit_before = {1390}
+        with mock.patch.object(soak_module, "responsible_pid", lambda pid: None):
+            self.assertTrue(soak.owns_webkit(90938, 90859))
+            self.assertFalse(soak.owns_webkit(1390, 90859))
+        with mock.patch.object(soak_module, "responsible_pid", lambda pid: -1):
+            self.assertFalse(soak.owns_webkit(90938, 90859), "a pid the call has no answer for is not the app's")
 
 
 if __name__ == "__main__":
