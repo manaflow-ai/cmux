@@ -309,6 +309,15 @@ fn deleting_a_browser_profile_moves_its_tabs_to_the_default_profile() {
     });
     writeln!(writer, r#"{{"id":1,"cmd":"subscribe","tree_events":"deltas"}}"#).unwrap();
     writer.flush().unwrap();
+    // The subscription is live once it answers; the delete comes after.
+    loop {
+        let line = deltas.recv_timeout(Duration::from_secs(5)).expect("no subscribe reply");
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if message["id"].as_u64() == Some(1) {
+            assert_eq!(message["ok"], true, "subscribe failed: {message}");
+            break;
+        }
+    }
 
     ok(&server, &["browser", "profile", "delete", "--profile", "Work"]);
     let after = frontend_browser_tab(&profile_tree(&server)).clone();
