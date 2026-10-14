@@ -539,6 +539,21 @@ pub(crate) fn attach_closed_tab_group(
         .optional()?;
     let Some((closed_id, record)) = found else { return Ok(()) };
     let mut record: Value = serde_json::from_str(&record)?;
+    // Only the group this close recorded holds every one of its tabs.
+    let recorded = record["members"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|member| member["tab_id"].as_str())
+        .collect::<HashSet<_>>();
+    if !archive["tab_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .all(|tab| tab.as_str().is_some_and(|tab| recorded.contains(tab)))
+    {
+        return Ok(());
+    }
     record["tab_group"] = archive.clone();
     transaction.execute(
         "UPDATE closed_groups SET record_json = ?2 WHERE closed_id = ?1",
