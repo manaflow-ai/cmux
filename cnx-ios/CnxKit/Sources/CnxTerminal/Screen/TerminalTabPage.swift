@@ -99,6 +99,14 @@ public struct TerminalTabCard: View {
         self.insets = insets
     }
 
+    /// The connecting placeholder (spinner and label) only for a tab whose
+    /// session was started (its page was laid out). A tab not opened in this
+    /// launch has no session yet, so a spinner there never ends (D5,
+    /// T-TABS-02): it shows its saved frame, or the static placeholder.
+    static func showsConnecting(state: TerminalConnectionState, sessionStarted: Bool) -> Bool {
+        !state.isAttached && sessionStarted
+    }
+
     public var body: some View {
         // A picture of the page: TabsKit labels the card; nothing inside it
         // is a control (R4-3).
@@ -109,7 +117,7 @@ public struct TerminalTabCard: View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
-                if !model.connectionState.isAttached {
+                if Self.showsConnecting(state: model.connectionState, sessionStarted: model.controller?.started == true) {
                     TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot,
                                            showsLabel: !isReattaching)
                 } else if let image = model.snapshot {

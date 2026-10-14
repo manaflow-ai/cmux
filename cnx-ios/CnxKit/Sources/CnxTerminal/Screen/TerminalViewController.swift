@@ -115,7 +115,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// first report after the switch can still describe the alternate screen.
     private var placesFromReport = false
     private var refreshAfterTUI = false
-    private var started = false
+    private(set) var started = false
     private var fling: FlingAnimator?
     /// When the key bar shows (SPEC M4) and the constraints that apply it.
     private var keyBarRule = KeyBarVisibility()
