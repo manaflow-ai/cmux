@@ -1264,6 +1264,8 @@ export function VirtualTranscript({
       for (const name of events) node.removeEventListener(name, endGlide);
     };
   }, []);
+  /// The footer of the turn the pointer is over (a turnSummary row's id).
+  const pointedTurn = useRef<string | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
@@ -1814,6 +1816,30 @@ export function VirtualTranscript({
       for (const name of inputs) node?.removeEventListener(name, reader);
     };
   }, []);
+  // A turn's footer (TurnFooter) shows for the last turn, and for the turn the reader points at:
+  // anywhere from its prompt to its footer. Marked on the mounted rows, so a hover renders nothing.
+  let lastTurnId: string | undefined;
+  for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
+    if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
+  const markTurns = () => {
+    for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
+      node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
+      node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
+    }
+  };
+  useLayoutEffect(markTurns);
+  const pointAt = (target: EventTarget | null) => {
+    const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
+    const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
+    let footer: string | undefined;
+    for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
+      if (index > from && rows[index]!.kind === "user") break;
+      if (rows[index]!.kind === "turnSummary") footer = rows[index]!.id;
+    }
+    if (footer === pointedTurn.current) return;
+    pointedTurn.current = footer;
+    markTurns();
+  };
   const behind = !renderFollowing && layout.totalHeight - height - renderScroll.top > JUMP_LATEST_DISTANCE;
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
@@ -1831,7 +1857,12 @@ export function VirtualTranscript({
         {find?.open && <ChatFindBar find={find} />}
         <FindReveal.Provider value={findReveal}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
-            <div ref={thread} className="acpmux-thread">
+            <div
+              ref={thread}
+              className="acpmux-thread"
+              onPointerOver={(event) => pointAt(event.target)}
+              onPointerLeave={() => pointAt(null)}
+            >
               {mountedRanges.flatMap(({ first, last }) =>
                 rows.slice(first, last).map((row, index) => {
                   const absoluteIndex = first + index;
@@ -2445,16 +2476,22 @@ function AcpmuxPane() {
   }, []);
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
+  /// Opens the chat folder's diff in its own pane right of the chat, as the header's Changes does
+  /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
+  /// same webpage"). False when the host cannot (a remote chat, Quick Chat, the gallery): the turn's
+  /// diff then opens in place. Set below, once the header's actions exist.
+  const diffBeside = useRef<() => Promise<boolean>>(async () => false);
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
-    inspectorOpenRef.current = false;
-    setInspectorOpen(false);
-    setDiffView({
-      sessionId: sessionIdRef.current,
-      rowId,
-      path,
-      opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
-    });
+    const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
+    const inPlace = () => {
+      inspectorOpenRef.current = false;
+      setInspectorOpen(false);
+      setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
+    };
+    void diffBeside.current().then((opened) => {
+      if (!opened) inPlace();
+    }, inPlace);
   }, []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
@@ -3962,6 +3999,17 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
+  diffBeside.current = async () => {
+    // A remote or cloud chat's folder is not on this Mac, and Quick Chat's panel has no tab beside it.
+    if (quick || !localCwd) return false;
+    const reply = await callNative<{ ran?: boolean } | null>("pane.action", {
+      id: HEADER_ACTIONS.changes,
+      cwd: localCwd,
+      mode: "open",
+    });
+    window.setTimeout(refreshTabState, 400);
+    return reply?.ran === true;
+  };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
     if (!quick) void readTabState().catch(() => undefined);
@@ -4196,9 +4244,11 @@ function AcpmuxPane() {
     [],
   );
   const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
+  const onNewTab = Boolean(newTab);
   useEffect(() => {
-    // Start Agent's folder picker lists them too (cx-hkat).
-    if (!freshChat || newTab) return;
+    // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
+    // daemon's project list, where the user's renames and removals win (cx-m0p7).
+    if (!freshChat && !onNewTab) return;
     let active = true;
     void loadNewTabProjects()
       .then((projects) => {
@@ -4208,7 +4258,8 @@ function AcpmuxPane() {
     return () => {
       active = false;
     };
-  }, [freshChat, newTab, loadNewTabProjects]);
+    // A prewarmed spare page asks again when Cmd-T adopts it: before that its model is not wired.
+  }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
