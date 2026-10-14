@@ -2,8 +2,10 @@ public import CoreGraphics
 public import Foundation
 
 /// The curved main pane (cx-rkgu, Leo 2026-10-10): the workspace content
-/// sits inset in the window chrome as one rounded card, as in Edge, instead
-/// of reaching the sidebar and the window edges. Under
+/// sits inset in the window chrome as one rounded card, as in Edge. A
+/// gutter of 0 (Debug Settings, 2026-10-14) is the flush opt-in: the pane
+/// meets the window's edges and takes the window's own corners, so one
+/// outline shows there instead of the gutter's second one. Under
 /// `appearance.sidebarSurface` separate, the chrome around the card
 /// (sidebar, gutter, titlebar) is shaded a little darker so the curve reads
 /// on the one surface; by default it shares the card's surface
@@ -17,11 +19,11 @@ nonisolated extension ChromeTunables {
         default: true, code: "ChromeTunables.mainPaneCurved")
     public static let mainPaneCornerRadius = Tunable<CGFloat>.number(
         "chrome.mainPane.cornerRadius", .sidebar, "Main pane corner radius",
-        help: "Corner radius of the curved main pane. Unset: the window's corner radius less the gutter (8 in fullscreen).", default: 8, range: 0...24, step: 0.5, unit: .points,
+        help: "Corner radius of the curved main pane. Unset: the window's corner radius less the gutter (square in fullscreen without a gutter, else 8).", default: 8, range: 0...24, step: 0.5, unit: .points,
         code: "ChromeTunables.mainPaneCornerRadius")
     public static let mainPaneGutter = Tunable<CGFloat>.number(
         "chrome.mainPane.gutter", .sidebar, "Main pane gutter",
-        help: "Space between the curved main pane and the sidebar, the titlebar and the window edges.",
+        help: "Space between the curved main pane and the sidebar, the titlebar and the window edges. 0 (flush): the pane meets the window edge and takes its corners.",
         default: 6, range: 0...24, step: 0.5, unit: .points, code: "ChromeTunables.mainPaneGutter")
     public static let mainPaneShadeLight = Tunable<Double>.number(
         "chrome.mainPane.shadeLight", .sidebar, "Main pane chrome shade (light)",
@@ -46,20 +48,26 @@ extension Metrics {
         return tunable.override ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
     /// Inset of the main pane from the sidebar, titlebar and window edges;
-    /// 0 when the pane is edge to edge.
+    /// 0 when the pane is edge to edge, or the flush opt-in, where the pane
+    /// meets the window edge and one outline shows there.
     public static var mainPaneGutter: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneGutter.value) : 0 }
     /// Corner radius of the main pane; 0 when it is edge to edge.
     public static var mainPaneCornerRadius: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneCornerRadius.value) : 0 }
     /// Corner radius of the main pane in a window whose own corners have
     /// `windowCornerRadius`: concentric with them (the window radius less
-    /// the gutter), so the gutter keeps one width around each window corner.
-    /// A Debug Settings override wins; without window corners (fullscreen)
-    /// it is `mainPaneCornerRadius`.
+    /// the gutter). Without a gutter the pane's corners at the window's are
+    /// the window's own, so the two are one outline; a square window
+    /// (fullscreen) gets a square pane, rounding only at real edges. Under a
+    /// standard titlebar strip the pane's top corners sit below it, against
+    /// the window's straight side, so the pane is square too (the window
+    /// still rounds its own corners). A Debug
+    /// Settings override wins; with a gutter in fullscreen it is
+    /// `mainPaneCornerRadius`.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
-        guard mainPaneCurved, ChromeTunables.mainPaneCornerRadius.override == nil, windowCornerRadius > 0 else {
-            return mainPaneCornerRadius
-        }
-        return max(0, windowCornerRadius - mainPaneGutter)
+        guard mainPaneCurved, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
+        let gutter = mainPaneGutter
+        if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
+        return windowCornerRadius > 0 ? max(0, windowCornerRadius - gutter) : mainPaneCornerRadius
     }
     /// Black's alpha over the chrome around the main pane: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the

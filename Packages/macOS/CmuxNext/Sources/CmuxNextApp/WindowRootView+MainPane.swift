@@ -63,7 +63,8 @@ extension WindowRootView {
 
     /// Insets the content host by the gutter on every side (beside the
     /// sidebar, under the titlebar, from the window edges, also with the
-    /// sidebar hidden or in fullscreen), rounds it, and reshades the chrome.
+    /// sidebar hidden or in fullscreen; 0, the flush opt-in, meets them),
+    /// rounds it, and reshades the chrome.
     // @intent familiar first (Lawrence 2026-10-14): a margin on every side of the main pane, as in
     // Helium, the sidebar's side too.
     func applyMainPane() {
