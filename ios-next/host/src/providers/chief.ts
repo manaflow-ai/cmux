@@ -86,9 +86,20 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
 
   constructor(
     private readonly agents: AgentsProvider,
-    opts: { path?: string; log?: Logger; hostName?: string } = {},
+    opts: {
+      path?: string;
+      log?: Logger;
+      hostName?: string;
+      /**
+       * Where /spawn creates agent sessions. In bridge mode this is the Mac's
+       * acpmux (cmux-next), so a spawned session is a real Mac session listed
+       * everywhere; otherwise the host's own agents.
+       */
+      spawn?: (harness: string, task: string) => Promise<{ title: string; harnessName?: string }>;
+    } = {},
   ) {
     super();
+    this.spawnSession = opts.spawn;
     this.path = opts.path ?? join(stateDir(), "conversations.json");
     this.log = opts.log ?? (() => {});
     this.hostName = opts.hostName ?? hostname();
@@ -120,6 +131,7 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
   }
 
   private readonly hostName: string;
+  private readonly spawnSession?: (harness: string, task: string) => Promise<{ title: string; harnessName?: string }>;
 
   // ---------------------------------------------------------------- queries
 
@@ -301,12 +313,13 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
       this.addMessage(CHIEF_ID, { sender: CHIEF, text: "I hit an error. Check the agent CLI login on the Mac.", status: "delivered" });
     }
     for (const sp of spawns) {
-      const harness = this.agents.spec(sp.harness) ? sp.harness : "claude";
+      const harness = this.spawnSession ? sp.harness : this.agents.spec(sp.harness) ? sp.harness : "claude";
       try {
-        const session = await this.agents.create({ harness, prompt: sp.task });
+        const session = this.spawnSession ? await this.spawnSession(harness, sp.task) : await this.agents.create({ harness, prompt: sp.task });
+        const name = ("harnessName" in session && session.harnessName) || this.agents.spec(harness)?.name || harness;
         this.addMessage(CHIEF_ID, {
           sender: CHIEF,
-          text: `Started ${this.agents.spec(harness)?.name ?? harness}: ${session.title}`,
+          text: `Started ${name}: ${session.title}`,
           status: "delivered",
         });
       } catch (err) {

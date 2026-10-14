@@ -462,6 +462,30 @@ describe("session preview", () => {
   });
 });
 
+describe("Chief in bridge mode", () => {
+  it("starts /spawn sessions through acpmux so they are real Mac sessions", async () => {
+    const a = await fakeAcpmux();
+    cleanups.push(() => a.srv.close());
+    const agents = new AcpmuxAgents(() => a.path);
+    const { core, client } = await connectedCore({ bridge: { agents } });
+    cleanups.push(() => core.shutdown());
+    const messages: any[] = [];
+    client.peer.on("event", (t, p) => t === "conv.message" && messages.push(p.message));
+    await client.request("conv.send", { conversationId: "chief", text: "please spawn something", clientId: "c1" });
+    await waitFor(() => messages.some((m) => m.text.startsWith("Started")), 15_000);
+    expect(messages.find((m) => m.text.startsWith("Started")).text).toBe("Started Codex: phone session");
+    const created = a.calls.filter((c) => c.method === "session/new");
+    expect(created).toHaveLength(1);
+    expect(created[0].params._meta.acpmux.harness).toBe("codex");
+    expect(a.calls.some((c) => c.method === "session/prompt" && c.params.prompt[0].text === "fix the flaky test")).toBe(true);
+    // Listed by agent.list (acpmux), like any Mac session.
+    const { sessions } = await client.request("agent.list");
+    expect(sessions.map((s: any) => s.id)).toContain(created[0].params ? a.sessions.at(-1)!.sessionId : "");
+    // The host's own agents never started it.
+    expect(core.agents.list()).toEqual([]);
+  });
+});
+
 describe("transcript builder", () => {
   it("ignores replayed records and keeps ids stable across rebuilds", () => {
     const rec = { sessionId: "s", seq: 1, at: 0, dir: "mux", kind: "user_message", msg: { text: "x", promptId: "p" } };

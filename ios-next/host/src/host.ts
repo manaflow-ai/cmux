@@ -15,6 +15,8 @@ import type { DaemonTerminals } from "./bridge/daemonTerminals.ts";
 import { DaemonLayout, registerLayout, StandaloneLayout, type LayoutSource } from "./layout/index.ts";
 import type { MacBrowser } from "./bridge/macBrowser.ts";
 
+const HARNESS_DISPLAY: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", gemini: "Gemini" };
+
 export interface HostCoreOptions {
   hostId?: string;
   hostName?: string;
@@ -51,7 +53,21 @@ export class HostCore {
     this.server = new RpcServer(() => this.info(), log);
     this.terminals = new TerminalProvider(opts.terminal);
     this.agents = new AgentsProvider({ log, ...opts.agents });
-    this.chief = new ChiefProvider(this.agents, { log, hostName: this.hostName, path: opts.conversationsPath });
+    const bridgedAgents = opts.bridge?.agents;
+    this.chief = new ChiefProvider(this.agents, {
+      log,
+      hostName: this.hostName,
+      path: opts.conversationsPath,
+      // Bridge mode: Chief's /spawn starts a real cmux-next (acpmux) session.
+      ...(bridgedAgents
+        ? {
+            spawn: async (harness: string, task: string) => {
+              const session = await bridgedAgents.create({ harness, prompt: task });
+              return { title: session.title, harnessName: HARNESS_DISPLAY[harness] ?? harness };
+            },
+          }
+        : {}),
+    });
     this.browser = new BrowserProvider({ log, ...opts.browser });
     this.files = new FilesProvider({ log, ...opts.files });
     this.bridge = opts.bridge ?? {};
