@@ -36,6 +36,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
+    /// The new tab page's style switch picked a template (`newTab.setTemplate`).
+    @ObservationIgnored public var onSetNewTabTemplate: ((String) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
@@ -256,6 +258,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(["newTab": object])
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
+        case .setNewTabTemplate(let template): guard let onSetNewTabTemplate else { return Self.unsupported("newTab.setTemplate") }; onSetNewTabTemplate(template); return AgentPaneReply.success()
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -280,7 +283,7 @@ public final class AgentPaneModel {
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .preview, .setQuickActions, .tabState, .sideChat, .chatTab: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .sideChat, .chatTab, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
