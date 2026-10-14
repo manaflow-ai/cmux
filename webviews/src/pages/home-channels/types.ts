@@ -19,6 +19,14 @@ export const HomeOps = {
   updateThread: "cmux.home.updateThread",
   pin: "cmux.home.pin",
   markUnread: "cmux.home.markUnread",
+  /** What this host can do with attachments ({local, cloud}); absent op: nothing. */
+  attachmentSupport: "cmux.home.attachmentSupport",
+  /** One step of an attachment upload (begin, chunk, commit, cancel), the owner's chunked upload. */
+  attachmentUpload: "cmux.home.attachmentUpload",
+  /** Bytes of one attachment variant, base64 (images: shown as data URLs, any page CSP). */
+  attachmentRead: "cmux.home.attachmentRead",
+  /** A short-lived URL of one attachment variant (video playback with seeking, downloads). */
+  attachmentUrl: "cmux.home.attachmentUrl",
   runs: "cmux.home.runs",
   run: "cmux.home.run",
   events: "cmux.home.events",
@@ -78,8 +86,35 @@ export interface HomeMention {
 export type HomePart =
   | { type: "text"; text: string; mentions: HomeMention[] }
   | { type: "work"; title: string; status: "running" | "waiting" | "done" | "failed"; preview?: string }
-  | { type: "attachment"; name: string; mimeType: string; byteCount: number; hash: string }
+  | HomeAttachment
   | { type: "other"; text: string };
+
+/** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP. */
+export interface HomeDerivedImage {
+  hash: string;
+  mimeType: string;
+  byteCount: number;
+}
+
+/** An `attachment` part (home-messaging.md section 2): a file the owner stores by SHA-256. */
+export interface HomeAttachment {
+  type: "attachment";
+  hash: string;
+  name: string;
+  mimeType: string;
+  byteCount: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  poster?: HomeDerivedImage;
+  preview?: HomeDerivedImage;
+}
+
+/** `cmux.home.attachmentSupport`: which owners take attachments through this host. */
+export interface HomeAttachmentSupport {
+  local: boolean;
+  cloud: boolean;
+}
 
 export interface HomeReaction {
   author: string;

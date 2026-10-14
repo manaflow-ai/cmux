@@ -273,6 +273,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationAgentTokenResult.fromWire(result);
     }
 
+    public final ConversationAttachmentLinkResult conversationAttachmentLink(ConversationAttachmentLinkRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_ATTACHMENT_LINK, request.toWire());
+        return ConversationAttachmentLinkResult.fromWire(result);
+    }
+
     public final ConversationAttachmentReadResult conversationAttachmentRead(ConversationAttachmentReadRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_ATTACHMENT_READ, request.toWire());
         return ConversationAttachmentReadResult.fromWire(result);
