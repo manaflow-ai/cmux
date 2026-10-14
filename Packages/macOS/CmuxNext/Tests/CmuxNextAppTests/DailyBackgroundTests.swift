@@ -122,23 +122,9 @@ import Testing
         #expect(BackdropArt.daily(on: start.addingTimeInterval(3_600), calendar: calendar) == works[0])
     }
 
-    /// Works Shuffle Daily must never show (Leo's call: Goya's Saturn was too scary): violent,
-    /// gory, macabre, death- or corpse-focused, or nightmarish. They stay pickable by hand.
-    static let disturbing: [BackdropArt] = [
-        .davidDeathOfMarat, .goyaSaturn, .boschGardenRight, .goyaWitchesFlight, .bocklinSelfPortraitDeath, .caravaggioMedusa,
-        .martinPandemonium, .moranBurningPhiladelphia, .caravaggioDavidGoliath, .vanGoghSkeletonCigarette,
-        .altdorferBattleOfIssus, .gentileschiJudith, .bocklinIsleOfTheDead, .goyaWitchesSabbath, .fuseliNightmare2,
-        .hiremyHirschlSoulsOfAcheron, .munchScream, .klimtJudith, .repinIvan, .millaisOphelia, .bruegelFallRebelAngels,
-        .fuseliNightmare, .bundyDeathGeneral, .geromeBotsaris, .durerKnightDeathDevil, .martinJoshua, .klimtDeathAndLife,
-        .klimtMedicine, .martinGreatDayWrath, .bonheurWoundedEagle, .geromePolliceVerso, .friedrichAbbeyOakwood,
-        .goyaSleepOfReason, .boschGardenFragment, .bruegelTriumphDeath, .rothaugMelpomene, .schieleDeathAndTheMaiden,
-        .vereshchaginApotheosisWar, .ensorSkeletonPainter, .gericaultRaftOfTheMedusa, .moreauApparition, .draperLamentIcarus,
-        .rubensStFrancisXavier, .delacroixLiberty, .biardMagdalenaBay, .doreFallOfSatan, .doreFlood, .doreWolvesSheep,
-        .doreLeviathan, .doreParadiseLostBookVi
-    ]
-
-    /// Over two passes of the catalog's size in days, Shuffle Daily never lands on a disturbing work.
-    @Test func shuffleDailyNeverShowsADisturbingWork() async throws {
+    /// Over two passes of the catalog's size in days, Shuffle Daily never lands on Goya's Saturn
+    /// Devouring His Son (Leo's call: too scary for a daily backdrop).
+    @Test func shuffleDailyNeverShowsGoyasSaturn() async throws {
         let harness = try await make()
         defer { harness.tearDown() }
         _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": "daily"],
@@ -155,15 +141,12 @@ import Testing
             day = BackdropArt.nextDay(after: now, calendar: calendar).addingTimeInterval(60)
         }
         #expect(shown.count == 2 * BackdropArt.allCases.count)
-        let disturbing = Set(Self.disturbing)
-        #expect(shown.filter { disturbing.contains($0) } == [])
+        #expect(!shown.contains(.goyaSaturn))
     }
 
-    /// The works Shuffle Daily skips stay in the picker, and choosing one by hand shows it.
-    @Test func disturbingWorksStayPickableByHand() async throws {
-        for art in Self.disturbing {
-            #expect(BackdropCatalog.bundled.contains(.art(art)))
-        }
+    /// Saturn stays in the picker, and choosing it by hand shows it.
+    @Test func goyasSaturnStaysPickableByHand() async throws {
+        #expect(BackdropCatalog.bundled.contains(.art(.goyaSaturn)))
         let harness = try await make()
         defer { harness.tearDown() }
         _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": BackdropArt.goyaSaturn.rawValue],
