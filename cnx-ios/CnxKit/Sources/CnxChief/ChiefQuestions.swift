@@ -64,6 +64,9 @@ public final class ChiefQuestionFeed: @unchecked Sendable {
 /// A backend whose Chief can ask questions the phone answers.
 public protocol ChiefQuestionSource: AnyObject, Sendable {
     var questionFeed: ChiefQuestionFeed { get }
+    /// Fetches the conversation again, so the feed says whether the Mac
+    /// has an answer whose reply was lost.
+    func recheckQuestions() async throws
     /// Answers `question`. `approved` runs once Face ID approved and the
     /// answer is signed, before it is sent; the call returns once the Mac
     /// stored it, and throws otherwise.
@@ -82,31 +85,39 @@ public struct ChiefApprovalUnavailable: Error, Equatable, Sendable {
 }
 
 /// One answer's progress. Pure, so the order of states is testable: an
-/// answer is `sent` only after the Mac stored it, and a second Answer while
-/// one is in flight does nothing.
+/// answer is `sent` only after the Mac stored it, "Not sent" is said only
+/// when it truly was not (nothing signed, or the Mac refused it), and a
+/// second Answer while one is in flight does nothing.
 public struct ChiefAnswerFlow: Equatable, Sendable {
     public enum State: Equatable, Sendable {
         case idle
         /// Face ID is up (or about to be): nothing is signed yet.
         case waitingForApproval
-        /// Signed; the Mac has not stored it yet.
+        /// Signed and on its way; the Mac has not answered yet.
         case sending
         /// The Mac stored the answer.
         case sent
+        /// Not sent (nothing was signed, or the Mac refused it); `text` says why.
         case failed(String)
+        /// The answer went out but the reply was lost (the link dropped):
+        /// the Mac may have it. Check asks the Mac again.
+        case unconfirmed
+        /// Asking the Mac whether it has the answer.
+        case checking
     }
 
     public private(set) var state: State = .idle
 
     public init() {}
 
-    public var isBusy: Bool { state == .waitingForApproval || state == .sending }
+    public var isBusy: Bool { state == .waitingForApproval || state == .sending || state == .checking }
 
-    /// The person tapped Answer. False (and no change) while one is in flight or done.
+    /// The person tapped Answer. False (and no change) while one is in
+    /// flight, done, or possibly done (unconfirmed: Check first).
     public mutating func begin() -> Bool {
         switch state {
         case .idle, .failed: state = .waitingForApproval; return true
-        case .waitingForApproval, .sending, .sent: return false
+        case .waitingForApproval, .sending, .sent, .unconfirmed, .checking: return false
         }
     }
 
@@ -115,14 +126,40 @@ public struct ChiefAnswerFlow: Equatable, Sendable {
         if state == .waitingForApproval { state = .sending }
     }
 
-    /// The Mac stored the answer.
+    /// The Mac stored the answer (its reply, or a check found it answered).
     public mutating func stored() {
-        if isBusy { state = .sent }
+        if isBusy || state == .unconfirmed { state = .sent }
     }
 
+    /// The answer failed. Before signing, or a refusal from the Mac: not
+    /// sent. Anything else after it went out: unconfirmed (R2-5).
     public mutating func failed(_ error: any Error) {
-        guard isBusy else { return }
-        state = .failed(Self.text(error))
+        switch state {
+        case .waitingForApproval:
+            state = .failed(Self.text(error))
+        case .sending, .checking:
+            state = Self.isRefusal(error) ? .failed(Self.text(error)) : .unconfirmed
+        default:
+            break
+        }
+    }
+
+    /// The person tapped Check.
+    public mutating func beginCheck() -> Bool {
+        guard state == .unconfirmed else { return false }
+        state = .checking
+        return true
+    }
+
+    /// The Mac answered the check: it still waits for an answer, so this
+    /// one never reached it.
+    public mutating func checkedStillPending() {
+        if state == .checking { state = .failed(String(localized: "Not sent: your Mac doesn't have this answer. Try again.")) }
+    }
+
+    /// A refusal the Mac returned (the op reached it and was not stored).
+    static func isRefusal(_ error: any Error) -> Bool {
+        (error as? ConversationBackendError)?.code == -32000
     }
 
     /// What the sheet says for a failure.
@@ -148,6 +185,8 @@ public struct ChiefAnswerFlow: Equatable, Sendable {
         case .sending: String(localized: "Sending…")
         case .sent: String(localized: "Sent")
         case .failed(let text): text
+        case .unconfirmed: String(localized: "Couldn't confirm. Chief may have it.")
+        case .checking: String(localized: "Checking with your Mac…")
         }
     }
 }
@@ -187,6 +226,10 @@ struct ChiefApprovalNotifyingSigner: ChiefAnswerSigning {
 
 extension ChiefDaemonBackend: ChiefQuestionSource {
     public var questionFeed: ChiefQuestionFeed { core.questionFeed }
+
+    public func recheckQuestions() async throws {
+        try await core.resync()
+    }
 
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer, signer: (any ChiefAnswerSigning)?,
                        approved: @escaping @Sendable () -> Void) async throws {

@@ -102,7 +102,7 @@ public final class ChiefSession {
     /// pending one, or one whose answer is in flight or failed.
     public var openQuestion: AgentQuestion? {
         questions.last { question in
-            question.isPending || (answers[question.id].map { $0.isBusy } ?? false)
+            question.isPending || (answers[question.id].map { $0.isBusy || $0.state == .unconfirmed } ?? false)
         }
     }
 
@@ -126,6 +126,27 @@ public final class ChiefSession {
                 self?.answers[id]?.stored()
             } catch {
                 self?.answers[id]?.failed(error)
+            }
+        }
+    }
+
+    /// Check after a lost reply (R2-5): fetches the conversation again; the
+    /// question's state on the Mac settles the answer's.
+    public func checkAnswer(_ questionID: String) {
+        guard let source = backend as? any ChiefQuestionSource, var flow = answers[questionID], flow.beginCheck() else { return }
+        answers[questionID] = flow
+        Task { @MainActor [weak self] in
+            do {
+                try await source.recheckQuestions()
+                guard let self else { return }
+                let current = source.questionFeed.current.first { $0.id == questionID }
+                if let current, !current.isPending {
+                    self.answers[questionID]?.stored()
+                } else {
+                    self.answers[questionID]?.checkedStillPending()
+                }
+            } catch {
+                self?.answers[questionID]?.failed(error)
             }
         }
     }
@@ -211,6 +232,10 @@ public final class ChiefSession {
                 Task { @MainActor [weak self] in
                     guard let self, self.store === store, self.questions != found else { return }
                     self.questions = found
+                    // A lost reply whose answer the Mac did store reads Sent.
+                    for question in found where !question.isPending && self.answers[question.id]?.state == .unconfirmed {
+                        self.answers[question.id]?.stored()
+                    }
                 }
             }
         }
