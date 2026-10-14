@@ -59,7 +59,8 @@
   width: auto;
   min-width: 56px;
   max-width: 160px;
-  height: 100%;
+  /* Its own height, not a percentage, so WebKit sizes the width from the image's shape too. */
+  height: 80px;
   object-fit: cover;
   border-radius: var(--acpmux-attach-radius);
   /* A neutral checker under the image, so a transparent one still reads as a thumbnail. */
