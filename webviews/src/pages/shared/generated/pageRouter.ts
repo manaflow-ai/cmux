@@ -55,12 +55,12 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     "read": [
       "chief.profile.avatar.get",
       "chief.profile.avatar.set",
-      "chief.profile.create",
       "chief.profile.get",
       "chief.profile.list",
       "chief.profile.update"
     ],
     "gesture": [
+      "chief.profile.create",
       "chief.profile.delete",
       "workspace.open_url"
     ],

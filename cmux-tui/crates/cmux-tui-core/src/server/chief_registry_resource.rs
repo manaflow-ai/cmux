@@ -12,10 +12,11 @@
 //! bound to that page (`page-credential {page}`, the app's Channels page on
 //! its Chief owner) or no page with the daemon's own credential (a
 //! pairing-store credential is refused: a paired device can send any Origin);
-//! it lists, reads, creates and edits profile text and avatars, but a grant
-//! field (tools, harnesses, engine, self_edit) or a delete needs the
-//! person's gesture, which a WebSocket never carries (`gesture_required`;
-//! the host's page relay brings it, request_origin.rs). Every other
+//! it lists and reads Chiefs and changes display_name, role and the avatar;
+//! create, delete, instructions, personality and the grant (tools,
+//! harnesses, engine, self_edit) need the person's gesture, which a WebSocket
+//! never carries (`gesture_required`; the host's page relay brings it,
+//! request_origin.rs). Every other
 //! connection (another page, a relayed or remote client, a paired device, an
 //! agent that is not a Chief) is refused with `origin.forbidden`.
 //! The owner may do everything except delete the default Chief. A Chief
@@ -152,10 +153,11 @@ fn mutate(
         self_edit_allowed(store, operation, me, &chief, &profile)?;
     }
     if *caller == Caller::Page
-        && (operation == Op::ChiefProfileDelete || chief_registry::names_grant_field(&profile))
+        && (matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileDelete)
+            || chief_registry::names_gesture_field(&profile))
     {
         return Err(crate::request_origin::forbidden(
-            "changing a Chief's tools, harnesses, engine or self-edit rights, or deleting a Chief, needs the person's gesture in the cmux app",
+            "creating or deleting a Chief, or changing its instructions, personality, tools, harnesses, engine or self-edit rights, needs the person's gesture in the cmux app",
             json!({"derived": "agent", "required": "user", "reason": "gesture_required"}),
         ));
     }

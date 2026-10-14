@@ -1172,13 +1172,12 @@ page (`page-credential {page}`: the app's Channels page on its Chief owner) or
 a connection with no page Origin that presented the daemon's own credential.
 A pairing-store credential (an approved pairing, and the app's person page
 credential, which shares the store) is refused with or without a page Origin:
-a native client can send any Origin. It may list, read, create and edit the profile
-text and avatar. A create or update that names a grant field (`tools`,
-`harnesses`, `harness`, `model`, `effort`, `self_edit`) and every delete need
-the person's gesture: `origin.forbidden` reason `gesture_required` on the
-WebSocket, which never carries a confirmation; the host's page relay of page
-`home-channels` brings it (page-router.md). A create with no grant field gets
-the default grant. Only the host's confirmation on its page relay carries the
+a native client can send any Origin. Without a host gesture the page can change only display_name, role and the
+avatar. Create, and edits of instructions or personality, need the gesture,
+like delete and the grant fields (tools, harnesses, engine/harness/model/effort,
+self_edit): `origin.forbidden` reason `gesture_required` on the WebSocket,
+which never carries a confirmation; the host's page relay of page
+`home-channels` brings it (page-router.md). Only the host's confirmation on its page relay carries the
 gesture; no request field or claim the page makes up stands in for it. The
 operation ledger records a page's write as `user_local via page:<page>` (`user_local
 via websocket` with no page id), so a page write is told apart from a terminal's.

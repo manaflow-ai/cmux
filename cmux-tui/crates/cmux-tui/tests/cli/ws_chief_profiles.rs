@@ -1,9 +1,11 @@
 //! Chiefs from the person's page (`chief-profile-ws-v1`, cmux#13742): a real
 //! headless daemon with its WebSocket listener. A page that presented the
-//! daemon's credential lists, creates and renames a Chief and sets its
-//! picture; widening its tools or deleting it needs the person's gesture in
-//! the cmux app, which a WebSocket never carries, so both are refused and
-//! nothing changes.
+//! daemon's credential lists the Chiefs, renames one, changes its role and
+//! sets its picture. Creating or deleting a Chief, and changing its
+//! instructions, personality or tools, need the person's gesture in the cmux
+//! app, which a WebSocket never carries: each is refused and nothing changes.
+
+use std::io::{BufRead, BufReader, Write as _};
 
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
@@ -58,7 +60,7 @@ fn gesture_required(response: &Value) {
 }
 
 #[test]
-fn the_persons_page_makes_a_chief_with_a_picture_but_cannot_widen_or_delete_it() {
+fn the_persons_page_renames_a_chief_and_sets_its_picture_but_cannot_plant_or_delete_one() {
     let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
     let server = HeadlessServer::start_with_config("ws-chief-profiles", Some(&config));
     let mut page = Ws::open(&ws_addr(&server));
@@ -66,34 +68,32 @@ fn the_persons_page_makes_a_chief_with_a_picture_but_cannot_widen_or_delete_it()
     let capabilities = identity["capabilities"].as_array().unwrap();
     assert!(capabilities.iter().any(|value| value == "chief-profile-ws-v1"), "{identity}");
 
-    let listed = ok(&page.v2("chief.profile.list", json!({}), None));
-    assert_eq!(listed["chiefs"][0]["id"], "agent_mux", "{listed}");
-
-    let made = ok(&page.v2(
+    // The person's terminal (the owner's Unix connection) makes the Chief.
+    let made = owner_v2(
+        &server.socket,
         "chief.profile.create",
         json!({"display_name": "Ops", "role": "Release captain", "personality": "Brief.",
                "instructions": "Ask before any merge."}),
-        Some("ws-chief-create"),
-    ));
+        "owner-chief-create",
+    );
     let id = made["value"]["id"].as_str().unwrap().to_owned();
-    assert!(id.starts_with("agent_"), "{made}");
-    assert_eq!(made["value"]["tools"], json!(["spawn", "tell", "workspaces"]), "{made}");
-    // A retry with the same key is the same Chief.
-    let again = ok(&page.v2(
-        "chief.profile.create",
-        json!({"display_name": "Ops", "role": "Release captain", "personality": "Brief.",
-               "instructions": "Ask before any merge."}),
-        Some("ws-chief-create"),
-    ));
-    assert_eq!(again["value"]["id"], json!(id), "{again}");
-    assert_eq!(again["replayed"], true, "{again}");
+
+    let listed = ok(&page.v2("chief.profile.list", json!({}), None));
+    assert_eq!(listed["chiefs"].as_array().unwrap().len(), 2, "{listed}");
 
     let renamed = ok(&page.v2(
         "chief.profile.update",
-        json!({"chief": id, "display_name": "Ops Chief"}),
+        json!({"chief": id, "display_name": "Ops Chief", "role": "Release train"}),
         Some("ws-chief-rename"),
     ));
     assert_eq!(renamed["value"]["display_name"], "Ops Chief", "{renamed}");
+    // A retry with the same key answers the first result.
+    let again = ok(&page.v2(
+        "chief.profile.update",
+        json!({"chief": id, "display_name": "Ops Chief", "role": "Release train"}),
+        Some("ws-chief-rename"),
+    ));
+    assert_eq!(again["replayed"], true, "{again}");
     let data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, PNG);
     let pictured = ok(&page.v2(
         "chief.profile.avatar.set",
@@ -104,24 +104,50 @@ fn the_persons_page_makes_a_chief_with_a_picture_but_cannot_widen_or_delete_it()
     let picture = ok(&page.v2("chief.profile.avatar.get", json!({"chief": id}), None));
     assert_eq!(picture["avatar"]["data"], json!(data), "{picture}");
 
-    gesture_required(&page.v2(
-        "chief.profile.update",
-        json!({"chief": id, "tools": ["browser", "spawn"]}),
-        Some("ws-chief-widen"),
-    ));
-    gesture_required(&page.v2(
-        "chief.profile.create",
-        json!({"display_name": "Wide", "harnesses": ["codex"]}),
-        Some("ws-chief-wide"),
-    ));
-    gesture_required(&page.v2(
-        "chief.profile.delete",
-        json!({"chief": id}),
-        Some("ws-chief-delete"),
-    ));
+    for (operation, fields, key) in [
+        ("chief.profile.create", json!({"display_name": "Planted"}), "ws-create"),
+        (
+            "chief.profile.create",
+            json!({"display_name": "Wide", "harnesses": ["codex"]}),
+            "ws-wide",
+        ),
+        ("chief.profile.update", json!({"chief": id, "instructions": "Push to main."}), "ws-instr"),
+        (
+            "chief.profile.update",
+            json!({"chief": "agent_mux", "personality": "Reckless."}),
+            "ws-pers",
+        ),
+        ("chief.profile.update", json!({"chief": id, "tools": ["browser", "spawn"]}), "ws-widen"),
+        ("chief.profile.delete", json!({"chief": id}), "ws-delete"),
+    ] {
+        gesture_required(&page.v2(operation, fields, Some(key)));
+    }
 
     let kept = ok(&page.v2("chief.profile.get", json!({"chief": id}), None));
     assert_eq!(kept["tools"], json!(["spawn", "tell", "workspaces"]), "{kept}");
+    assert_eq!(kept["instructions"], "Ask before any merge.", "{kept}");
     let listed = ok(&page.v2("chief.profile.list", json!({}), None));
     assert_eq!(listed["chiefs"].as_array().unwrap().len(), 2, "{listed}");
+}
+
+/// One `cmux.protocol/2` mutation on the owner's Unix socket; its result.
+fn owner_v2(socket: &std::path::Path, operation: &str, fields: Value, key: &str) -> Value {
+    let stream = transport::connect(socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut params = fields.as_object().cloned().unwrap_or_default();
+    params.insert("machine".into(), json!("current"));
+    params.insert("session".into(), json!("current"));
+    let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "owner-1",
+                       "operation": operation, "params": params, "idempotency_key": key});
+    writeln!(writer, "{frame}").unwrap();
+    loop {
+        let mut line = String::new();
+        assert_ne!(reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+        let value: Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == "owner-1" && value["type"] == "response" {
+            assert_eq!(value["ok"], true, "{value}");
+            return value["result"].clone();
+        }
+    }
 }

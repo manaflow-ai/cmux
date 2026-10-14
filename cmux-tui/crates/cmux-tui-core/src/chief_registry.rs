@@ -48,16 +48,26 @@ const DEFAULT_NEW_TOOLS: [&str; 3] = ["spawn", "tell", "workspaces"];
 pub(crate) const SELF_EDITABLE: [&str; 5] =
     ["avatar", "display_name", "instructions", "personality", "role"];
 const AVATAR_TYPES: [&str; 4] = ["image/gif", "image/jpeg", "image/png", "image/webp"];
-/// The person's grant fields: what a Chief may use (tools, harnesses, its
-/// engine) and which fields it may change about itself. A page writes them
-/// only on the person's gesture (`chief-profile-ws-v1`): Chief messages
-/// render in that page, so injected content must not widen a grant.
-pub(crate) const GRANT_FIELDS: [&str; 6] =
-    ["effort", "harness", "harnesses", "model", "self_edit", "tools"];
+/// The fields a page changes only on the person's gesture
+/// (`chief-profile-ws-v1`): the person's grant (tools, harnesses, the engine's
+/// harness, model and effort, self_edit), and what the Chief is told to do
+/// (instructions, personality). Chief messages render in that page, so
+/// injected content must not plant behavior a Chief then acts on.
+pub(crate) const GESTURE_FIELDS: [&str; 8] = [
+    "effort",
+    "harness",
+    "harnesses",
+    "instructions",
+    "model",
+    "personality",
+    "self_edit",
+    "tools",
+];
 
-/// Whether request fields name a grant field ([`GRANT_FIELDS`]).
-pub(crate) fn names_grant_field(fields: &Map<String, Value>) -> bool {
-    GRANT_FIELDS.iter().any(|field| fields.contains_key(*field))
+/// Whether request fields name a field a page changes only on the person's
+/// gesture ([`GESTURE_FIELDS`]).
+pub(crate) fn names_gesture_field(fields: &Map<String, Value>) -> bool {
+    GESTURE_FIELDS.iter().any(|field| fields.contains_key(*field))
 }
 
 /// A refusal; the resource layer maps it to `operation.failed` with

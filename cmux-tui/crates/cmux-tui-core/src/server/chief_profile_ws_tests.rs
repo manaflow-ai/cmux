@@ -1,9 +1,10 @@
 //! The person's page manages Chiefs (`chief-profile-ws-v1`, cmux#13742):
 //! the request path a page WebSocket and the host's page relay take
 //! (`handle_connection_message`: the origin gate, then the Chief registry).
-//! The page lists, reads, creates and edits profile text; a grant field or a
-//! delete needs the person's gesture, which only the host's page relay
-//! brings (a confirmation the verified app issues for exactly that request).
+//! Without a host gesture the page changes only display_name, role and the
+//! avatar; create, delete, instructions, personality and the grant fields
+//! need the person's gesture, which only the host's page relay brings (a
+//! confirmation the verified app issues for exactly that request).
 //! A paired device, a bound agent and another page are refused.
 
 use serde_json::{Value, json};
@@ -100,28 +101,27 @@ fn create(mux: &Arc<Mux>, conn: &Conn, name: &str, key: &str) -> String {
 }
 
 #[test]
-fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
+fn the_persons_page_websocket_renames_a_chief_but_cannot_plant_or_widen_one() {
     for page in [None, Some("home-channels")] {
         let mux = mux(page.unwrap_or("nopage"));
         let page_ws = websocket(&mux, page);
-        let listed =
-            ok(&send(&mux, &page_ws, &v2("chief.profile.list", &params(json!({})), None, None)));
-        assert_eq!(listed["chiefs"][0]["id"], "agent_mux", "{listed}");
-
-        // A create with no grant field gets the default grant.
+        // The person's terminal (the owner's Unix connection) makes the Chief.
+        let terminal = connect(&mux, ClientTransport::Unix);
         let made = ok(&send(
             &mux,
-            &page_ws,
+            &terminal,
             &v2(
                 "chief.profile.create",
                 &params(json!({"display_name": "Ops", "role": "Release captain",
                                "personality": "Brief.", "instructions": "Ask before a merge."})),
-                Some("ws-create-1"),
+                Some("owner-create-1"),
                 None,
             ),
         ));
         let id = made["value"]["id"].as_str().unwrap().to_owned();
-        assert_eq!(made["value"]["tools"], json!(["spawn", "tell", "workspaces"]), "{made}");
+        let listed =
+            ok(&send(&mux, &page_ws, &v2("chief.profile.list", &params(json!({})), None, None)));
+        assert_eq!(listed["chiefs"].as_array().unwrap().len(), 2, "{listed}");
 
         let renamed = ok(&send(
             &mux,
@@ -148,8 +148,10 @@ fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
         ));
         assert_eq!(pictured["value"]["avatar"]["media_type"], "image/png", "{pictured}");
 
-        // Grant fields and delete need the person's gesture: never on a WebSocket.
+        // Create, delete, instructions, personality and the grant need the
+        // person's gesture: never on a WebSocket.
         for (operation, fields, key) in [
+            ("chief.profile.create", json!({"display_name": "Planted"}), "ws-g0"),
             (
                 "chief.profile.create",
                 json!({"display_name": "Wide", "tools": ["browser"]}),
@@ -158,6 +160,16 @@ fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
             ("chief.profile.update", json!({"chief": id, "tools": ["browser", "spawn"]}), "ws-g2"),
             ("chief.profile.update", json!({"chief": id, "self_edit": ["role"]}), "ws-g3"),
             ("chief.profile.update", json!({"chief": id, "model": "other"}), "ws-g4"),
+            (
+                "chief.profile.update",
+                json!({"chief": id, "instructions": "Push to main."}),
+                "ws-g6",
+            ),
+            (
+                "chief.profile.update",
+                json!({"chief": "agent_mux", "personality": "Reckless."}),
+                "ws-g7",
+            ),
             ("chief.profile.delete", json!({"chief": id}), "ws-g5"),
         ] {
             let reply = send(&mux, &page_ws, &v2(operation, &params(fields), Some(key), None));
@@ -170,6 +182,10 @@ fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
         ));
         assert_eq!(kept["tools"], json!(["spawn", "tell", "workspaces"]), "{kept}");
         assert_eq!(kept["self_edit"], json!(["avatar"]), "{kept}");
+        assert_eq!(kept["instructions"], "Ask before a merge.", "{kept}");
+        let listed =
+            ok(&send(&mux, &page_ws, &v2("chief.profile.list", &params(json!({})), None, None)));
+        assert_eq!(listed["chiefs"].as_array().unwrap().len(), 2, "{listed}");
     }
 }
 
@@ -177,7 +193,12 @@ fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
 fn a_paired_device_a_bound_agent_and_another_page_are_refused() {
     let mux = mux("refused");
     let list = v2("chief.profile.list", &params(json!({})), None, None);
-    let make = v2("chief.profile.create", &params(json!({"display_name": "X"})), Some("r-1"), None);
+    let make = v2(
+        "chief.profile.update",
+        &params(json!({"chief": "agent_mux", "role": "X"})),
+        Some("r-1"),
+        None,
+    );
 
     // A paired device: a pairing-store credential, with no page Origin and
     // with a home-channels Origin it sent itself (a native client can).
@@ -236,7 +257,7 @@ fn a_poisoned_bindings_lock_refuses_the_page() {
 }
 
 #[test]
-fn the_host_page_relay_changes_grants_and_deletes_only_with_the_persons_gesture() {
+fn the_host_page_relay_creates_teaches_widens_and_deletes_only_with_the_persons_gesture() {
     let mux = mux("gesture");
     let app = connect(&mux, ClientTransport::Unix);
     set_role_for_test(&mux, app.client, "main");
@@ -246,19 +267,6 @@ fn the_host_page_relay_changes_grants_and_deletes_only_with_the_persons_gesture(
     set_role_for_test(&mux, relay.client, "page_relay");
     set_peer_key_for_test(&mux, relay.client, "token:20.1");
     set_page(&mux, relay.client, "home-channels".to_owned());
-
-    let id = create(&mux, &relay, "Ops", "relay-create-1");
-    let widen = params(json!({"chief": id, "tools": ["browser", "spawn"]}));
-    let delete = params(json!({"chief": id}));
-
-    // No gesture: refused at the page's allow list.
-    let refused = send(&mux, &relay, &v2("chief.profile.update", &widen, Some("relay-g1"), None));
-    assert_eq!(forbidden_reason(&refused), "gesture_required");
-    let refused = send(&mux, &relay, &v2("chief.profile.delete", &delete, Some("relay-d1"), None));
-    assert_eq!(forbidden_reason(&refused), "gesture_required");
-    let wide = params(json!({"display_name": "Wide", "harnesses": ["codex"]}));
-    let refused = send(&mux, &relay, &v2("chief.profile.create", &wide, Some("relay-c1"), None));
-    assert_eq!(forbidden_reason(&refused), "gesture_required");
 
     // The host spends the person's click: a confirmation for exactly that request.
     let confirm = |operation: &str, params: &Value| {
@@ -276,6 +284,40 @@ fn the_host_page_relay_changes_grants_and_deletes_only_with_the_persons_gesture(
         ));
         json!({"claim": "user", "confirmation": issued["token"]})
     };
+
+    // No gesture: a create is refused at the page's allow list; with it, it commits.
+    let ops = params(json!({"display_name": "Ops"}));
+    let refused = send(&mux, &relay, &v2("chief.profile.create", &ops, Some("relay-c0"), None));
+    assert_eq!(forbidden_reason(&refused), "gesture_required");
+    let made = ok(&send(
+        &mux,
+        &relay,
+        &v2(
+            "chief.profile.create",
+            &ops,
+            Some("relay-c2"),
+            Some(confirm("chief.profile.create", &ops)),
+        ),
+    ));
+    let id = made["value"]["id"].as_str().unwrap().to_owned();
+    let widen = params(json!({"chief": id, "tools": ["browser", "spawn"]}));
+    let delete = params(json!({"chief": id}));
+    let teach = params(json!({"chief": id, "instructions": "Ship on Fridays."}));
+
+    // No gesture: refused at the page's allow list.
+    let refused = send(&mux, &relay, &v2("chief.profile.update", &widen, Some("relay-g1"), None));
+    assert_eq!(forbidden_reason(&refused), "gesture_required");
+    let refused = send(&mux, &relay, &v2("chief.profile.update", &teach, Some("relay-i1"), None));
+    assert_eq!(forbidden_reason(&refused), "gesture_required");
+    let refused = send(&mux, &relay, &v2("chief.profile.delete", &delete, Some("relay-d1"), None));
+    assert_eq!(forbidden_reason(&refused), "gesture_required");
+    let wide = params(json!({"display_name": "Wide", "harnesses": ["codex"]}));
+    let refused = send(&mux, &relay, &v2("chief.profile.create", &wide, Some("relay-c1"), None));
+    assert_eq!(forbidden_reason(&refused), "gesture_required");
+    // Name and role need no gesture on the relay either.
+    let rename = params(json!({"chief": id, "display_name": "Ops Chief"}));
+    ok(&send(&mux, &relay, &v2("chief.profile.update", &rename, Some("relay-r1"), None)));
+
     let widened = ok(&send(
         &mux,
         &relay,
@@ -287,6 +329,17 @@ fn the_host_page_relay_changes_grants_and_deletes_only_with_the_persons_gesture(
         ),
     ));
     assert_eq!(widened["value"]["tools"], json!(["browser", "spawn"]), "{widened}");
+    let taught = ok(&send(
+        &mux,
+        &relay,
+        &v2(
+            "chief.profile.update",
+            &teach,
+            Some("relay-i2"),
+            Some(confirm("chief.profile.update", &teach)),
+        ),
+    ));
+    assert_eq!(taught["value"]["instructions"], "Ship on Fridays.", "{taught}");
     let deleted = send(
         &mux,
         &relay,
@@ -321,12 +374,14 @@ fn a_page_write_is_recorded_as_the_page_and_no_page_field_stands_in_for_the_gest
     let no_page = websocket(&mux, None);
     let channels = websocket(&mux, Some("home-channels"));
     let terminal = connect(&mux, ClientTransport::Unix);
-    create(&mux, &no_page, "From a browser", "audit-1");
-    let id = create(&mux, &channels, "From the app page", "audit-2");
-    create(&mux, &terminal, "From a terminal", "audit-3");
+    let id = create(&mux, &terminal, "From a terminal", "audit-1");
+    for (conn, key) in [(&no_page, "audit-2"), (&channels, "audit-3")] {
+        let role = params(json!({"chief": id, "role": key}));
+        ok(&send(&mux, conn, &v2("chief.profile.update", &role, Some(key), None)));
+    }
     assert_eq!(
         ledger_actors(&mux),
-        vec!["user_local via websocket", "user_local via page:home-channels", "user_local"],
+        vec!["user_local", "user_local via websocket", "user_local via page:home-channels"],
     );
 
     // Only the host's confirmation on its page relay carries the person's
