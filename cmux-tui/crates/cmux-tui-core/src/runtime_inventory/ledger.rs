@@ -190,7 +190,7 @@ impl LaunchLedger {
 
     fn observe_tree(&self, terminal: &CmuxTerminal, requested: Instant) {
         let mut close_scan = self.close_scan.lock().unwrap_or_else(|error| error.into_inner());
-        if !close_scan.as_ref().is_some_and(|last| last.started >= requested) {
+        if close_scan.as_ref().is_none_or(|last| last.started < requested) {
             let started = Instant::now();
             let links = Arc::new(scan_links(MAX_INVENTORY_PROCESSES));
             *close_scan = Some(CloseScan { started, links });
