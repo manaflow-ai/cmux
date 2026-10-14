@@ -19,6 +19,8 @@ final class GoneTabWatch {
     /// Follows tab `key` in `store`'s tree; `release` lets it go once the tree drops it.
     func track(_ key: String, in store: DaemonStore, release: @escaping @MainActor (String) -> Void) {
         if stores[key] === store { return }
+        // Seen in another tree is not seen in this one: this tree must list it before it can drop it.
+        if stores[key] != nil { seenLive.remove(key) }
         stores[key] = store
         if AgentTabStore.liveTabs(store)?.contains(key) == true { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
