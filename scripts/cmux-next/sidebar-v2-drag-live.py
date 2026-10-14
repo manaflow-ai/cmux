@@ -384,20 +384,25 @@ try:
     else:
         record("alignment goes to the document", False, f"no sec_pinned in layout_sections={window().get('layout_sections')}")
 
-    toast(perform="sidebar.item.add", arguments={"item": "https://example.org", "section": "Pinned"})
-    added = wait(lambda: next((i for i in items() if "example.org" in str(i.get("ref"))), None), 5)
+    # A built-in item (sidebar.item.add takes workspaces, apps and built-ins, not links) into Pinned, then Remove from
+    # Sidebar: every item that shows it goes, through the document.
+    def marked():
+        return [i for i in section_items("sec_pinned") if str(i.get("ref")) == "bookmarks"]
+
+    toast(perform="sidebar.item.add", arguments={"item": "bookmarks", "section": "Pinned"})
+    added = wait(lambda: next(iter(marked()), None), 5)
     if added:
         toast(perform="sidebar.item.removeEverywhere", target_kind="sidebar-item", target_id=added["id"])
-        gone = wait(lambda: not any("example.org" in str(i.get("ref")) for i in items()), 5)
+        gone = wait(lambda: not any(str(i.get("ref")) == "bookmarks" for i in items()), 5)
         record("Remove from Sidebar goes to the document", bool(gone), f"item={added.get('id')} items={[i.get('ref') for i in items()]}")
-        undo("Remove from Sidebar", lambda: any("example.org" in str(i.get("ref")) for i in items()))
+        undo("Remove from Sidebar", lambda: bool(marked()))
     else:
-        record("Remove from Sidebar goes to the document", False, f"no example.org item after sidebar.item.add: {[i.get('ref') for i in items()]}")
+        record("Remove from Sidebar goes to the document", False, f"no bookmarks item in Pinned after sidebar.item.add: {[i.get('ref') for i in items()]}")
 
-    # Reset: the default sections again (the example.org link, the "Work" section and Pinned's alignment and spacing
-    # from the steps above go); Cmd-Z brings them back. The undo helper redid the removal, so the link goes in again first.
-    toast(perform="sidebar.item.add", arguments={"item": "https://example.org", "section": "Pinned"})
-    wait(lambda: any("example.org" in str(i.get("ref")) for i in items()), 5)
+    # Reset: the default sections again (the bookmarks item in Pinned, the "Work" section and Pinned's alignment and
+    # spacing from the steps above go); Cmd-Z brings them back. The undo helper redid the removal, so the item goes in again first.
+    toast(perform="sidebar.item.add", arguments={"item": "bookmarks", "section": "Pinned"})
+    wait(lambda: bool(marked()), 5)
     before_reset = [s.get("id") for s in window().get("layout_sections", [])]
 
     def pinned_default():
@@ -405,8 +410,8 @@ try:
         return pinned is None or (pinned.get("align") == "leading" and pinned.get("gap") is None)
 
     performed = toast(perform="sidebar.layout.reset").get("performed")
-    reset_ok = wait(lambda: not any("example.org" in str(i.get("ref")) for i in items())
-                    and not any(s.get("title") == "Work" for s in window().get("layout_sections", [])) and pinned_default(), 5)
+    reset_ok = wait(lambda: not marked() and not any(s.get("title") == "Work" for s in window().get("layout_sections", []))
+                    and pinned_default(), 5)
     record("Reset goes to the document", bool(performed and reset_ok),
            f"before={before_reset} after={[s.get('id') for s in window().get('layout_sections', [])]}")
     undo("Reset", lambda: [s.get("id") for s in window().get("layout_sections", [])] == before_reset)
