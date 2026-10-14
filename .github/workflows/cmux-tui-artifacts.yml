@@ -512,7 +512,6 @@ jobs:
           OWNER_RUN_ID: ${{ needs.tree-preflight.outputs.owner_run_id }}
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          SHA: ${{ github.sha }}
           SERVER_URL: ${{ github.server_url }}
           # The REST API host; github.com/repos/... is a 404 page, which the
           # silent curls took for "no other run" (cmuxterm-hq#1279).
@@ -568,15 +567,16 @@ jobs:
             # A feat-cmux-next push never waits for a branch (or pull request)
             # run that owns its key (cx-a1q4d, hq-a3 2026-10-14): such an
             # owner publishes only after its macOS daemon tests, which can
-            # queue for an hour. Not for the owner's own commit: two builds of
-            # one commit race on its write-once commit prefix (the same-SHA
-            # election in tree-preflight). One feat-cmux-next run builds the
+            # queue for an hour. Also for the owner's own commit (a lane commit
+            # fast-forwarded onto feat-cmux-next): the publish jobs keep
+            # whichever run's write-once publication lands first and the other
+            # run waits for it and adopts it. One feat-cmux-next run builds the
             # key: it leaves a cmux-tui-tree-feat-builder-<key> artifact, and a
             # later feat-cmux-next push of the key defers to that run while it
             # is active. A lookup that fails keeps the old deferral.
             branch_owner_takeover=false
             if [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next ]] &&
-                python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") and d.get("head_sha") not in ("", None, sys.argv[2]) else 1)' "$owner_json" "${SHA:-}" 2>/dev/null; then
+                python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") else 1)' "$owner_json" 2>/dev/null; then
               if builders="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                   -u "x-access-token:$GH_TOKEN" \
                   -H 'Accept: application/vnd.github+json' \
@@ -1413,11 +1413,33 @@ jobs:
               [[ "$name" == manifest.json ]] || fetch_published "$name"
             done
           }
+          # Two runs of one commit at once (a lane commit's side-branch run
+          # and its fast-forwarded feat-cmux-next run, cx-a1q4d) race on the
+          # write-once prefix. Both upload the files in the same order and
+          # stop at their first conflict, so the run that loses a file has
+          # written nothing of its own: it waits for the other run's manifest
+          # (written last) and keeps that publication. It never overwrites; an
+          # upload that never completes fails after CMUX_R2_ADOPT_WAIT_SECONDS.
+          adopt_after_conflict() {
+            local directory="$1" prefix="$2" waited=0
+            local limit="${CMUX_R2_ADOPT_WAIT_SECONDS:-1800}"
+            echo "Another run is publishing https://files.cmux.com/$prefix/; waiting for it to complete."
+            until published_before "$prefix"; do
+              if (( waited >= limit )); then
+                echo "::error title=immutable-r2-conflict::$prefix: another run wrote it first and did not complete it within ${limit}s; repair the prefix deliberately"
+                exit 1
+              fi
+              sleep 15
+              waited=$((waited + 15))
+            done
+            adopt_published "$directory" "$prefix"
+          }
           publish_prefix() {
             local directory="$1"
             local prefix="$2"
             local cache="$3"
             local write_once="$4"
+            local status
             if [[ "$write_once" == "true" ]] && published_before "$prefix"; then
               adopt_published "$directory" "$prefix"
               return
@@ -1425,14 +1447,20 @@ jobs:
             for file in "$directory"/*; do
               upload_args=()
               if [[ "$write_once" == "true" ]]; then
-                upload_args+=(--write-once)
+                upload_args+=(--write-once --conflict-exit-code 75)
               fi
+              status=0
               python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --bucket cmux-binaries \
                 --key "$prefix/$(basename "$file")" \
-                --cache-control "$cache"
+                --cache-control "$cache" || status=$?
+              if [[ "$status" == 75 && "$write_once" == "true" ]]; then
+                adopt_after_conflict "$directory" "$prefix"
+                return
+              fi
+              [[ "$status" == 0 ]] || exit "$status"
             done
           }
           publish_prefix assets/cmux-tui "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable" true
@@ -1499,13 +1527,20 @@ jobs:
               adopt_published "$legacy_assets" "$prefix"
               return
             fi
+            local status
             for file in "$legacy_assets"/*; do
-              python3 scripts/ci/upload-r2-object.py --write-once \
+              status=0
+              python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 75 \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --bucket cmux-binaries \
                 --key "$prefix/$(basename "$file")" \
-                --cache-control "$cache"
+                --cache-control "$cache" || status=$?
+              if [[ "$status" == 75 ]]; then
+                adopt_after_conflict "$legacy_assets" "$prefix"
+                return
+              fi
+              [[ "$status" == 0 ]] || exit "$status"
             done
           }
           publish_legacy_prefix "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
@@ -2097,6 +2132,11 @@ jobs:
           else
             echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"
           fi
+          # Two runs of one tree key at once (cx-a1q4d) race on the
+          # write-once source.json, which each writes first: the run that
+          # loses it waits for the other run's completion.json (written last)
+          # and keeps that tree. It never overwrites.
+          local status=0 waited=0 limit="${CMUX_R2_ADOPT_WAIT_SECONDS:-1800}"
           python3 scripts/ci/publish-cmux-tui-tree.py \
             --key "$KEY" \
             --source-commit "$source_commit" \
@@ -2106,7 +2146,22 @@ jobs:
             "${windows_args[@]}" \
             --uploader scripts/ci/upload-r2-object.py \
             --endpoint-url "$R2_ENDPOINT" \
-            --bucket cmux-binaries
+            --bucket cmux-binaries \
+            --conflict-exit-code 75 || status=$?
+          if [[ "$status" == 75 ]]; then
+            echo "Another run is publishing tree $KEY; waiting for its completion.json."
+            until fetch "$base/completion.json" tree/completion-other.json 2>/dev/null; do
+              if (( waited >= limit )); then
+                echo "::error title=immutable-r2-conflict::tree $KEY: another run wrote it first and did not complete it within ${limit}s; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
+                exit 1
+              fi
+              sleep 15
+              waited=$((waited + 15))
+            done
+            echo "Kept tree $KEY as the other run published it."
+          elif [[ "$status" != 0 ]]; then
+            exit "$status"
+          fi
           }
           publish_tree "$KEY_V2" v2
           if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY_V2" ]]; then
