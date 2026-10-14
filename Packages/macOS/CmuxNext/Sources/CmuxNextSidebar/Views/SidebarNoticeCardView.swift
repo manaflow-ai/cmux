@@ -238,7 +238,8 @@ final class SidebarNoticeCardView: NSView {
         shortcutLabel.font = Typography.caption
         closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: pad / 2, width: close, height: close)
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
-        dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: pad + (line.body - dismissHeight) / 2,
+        let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
+        dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: titleY + (line.body - dismissHeight) / 2,
                                      width: dismissWidth, height: dismissHeight)
         let width = max(0, b.width - 2 * pad)
         let closeRoom = !dismissButton.isHidden ? dismissWidth + Metrics.space1 : closeButton.isHidden ? 0 : close
@@ -251,7 +252,7 @@ final class SidebarNoticeCardView: NSView {
         let glyphSide = line.body, textX = pad + (showsGlyph ? glyphSide + Metrics.space2 : 0)
         icon.frame = NSRect(x: pad, y: y, width: glyphSide, height: glyphSide)
         spinner.frame = icon.frame
-        let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden ? closeRoom : 0))
+        let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden || !dismissButton.isHidden ? closeRoom : 0))
         titleLabel.frame = NSRect(x: textX, y: y, width: titleWidth, height: line.body)
         y += line.body
         let textWidth = max(0, b.width - pad - textX)

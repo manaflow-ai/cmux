@@ -22,6 +22,8 @@ final class SidebarCardTextButton: NSView {
         layer?.cornerCurve = .continuous
         label.lineBreakMode = .byClipping
         label.maximumNumberOfLines = 1
+        // VoiceOver reads the button, not its text twice.
+        label.setAccessibilityElement(false)
         addSubview(label)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -38,11 +40,12 @@ final class SidebarCardTextButton: NSView {
     static var font: NSFont { .systemFont(ofSize: Typography.caption.pointSize, weight: .medium) }
     static var height: CGFloat { ceil(font.boundingRectForFont.height) + Metrics.space1 }
 
-    /// `title` drawn, `help` as the tooltip and the VoiceOver label (nil: the title).
+    /// `title` drawn and `help` as the tooltip; VoiceOver reads `help` as the label (nil: the title).
     func configure(title: String, help: String?) {
         label.stringValue = title
-        setAccessibilityLabel(help ?? title)
         themedToolTip = help
+        setAccessibilityLabel(help ?? title)
+        setAccessibilityHelp(nil)
         needsLayout = true
         needsDisplay = true
     }
@@ -53,7 +56,7 @@ final class SidebarCardTextButton: NSView {
     /// The width the text needs, with the hover fill's inset on both sides.
     var fittingWidth: CGFloat {
         label.font = Self.font
-        return ceil(label.intrinsicContentSize.width) + 2 * Metrics.space1
+        return ceil(label.cell?.cellSize.width ?? label.intrinsicContentSize.width) + 2 * Metrics.space1
     }
 
     override func layout() {
@@ -102,7 +105,12 @@ final class SidebarCardTextButton: NSView {
         isPressed = false
     }
 
-    func press() { onPress?() }
+    /// A press (click, Space, Return, VoiceOver). The card hides after it: a keyboard focus here
+    /// moves on first, so it never stays on a hidden button.
+    func press() {
+        if window?.firstResponder === self { window?.selectNextKeyView(nil) }
+        onPress?()
+    }
 
     /// A right click on the button shows its card's menu (remind me later), the first one up the
     /// view tree.

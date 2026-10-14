@@ -27,7 +27,7 @@ extension UpdaterService {
         }
     }
 
-    /// An x menu item: hide the shown update's version until a newer one, or every update card
+    /// The Hide button or a right-click menu item: hide the shown update's version until a newer one, or every update card
     /// until the chosen time (persisted; a relaunch keeps it). With no update shown any more (it
     /// began installing while the menu was open), Hide Until a Newer Version does nothing: a
     /// recorded "" would hide every later update that names no version.
@@ -74,7 +74,7 @@ extension UpdaterService {
     }
 
     /// `debug.updater {action: "snooze", press?, at?}` (socket proofs): presses `press` (an
-    /// ``UpdateCardCloseOption`` id, or `clear`) like the x's menu does, or else re-reads the
+    /// ``UpdateCardCloseOption`` id, or `clear`) like the button or the menu does, or else re-reads the
     /// reminder as at launch at `at` (epoch seconds, default now: a reminder that ended there
     /// clears). Returns the closed version, the reminder's end, and whether each card shows.
     public func debugSnooze(press: String?, at epoch: Double?) -> [String: String] {

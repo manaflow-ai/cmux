@@ -18,7 +18,7 @@ at the control; a right-click menu item is picked with `debug.hints {pick_menu}`
   4. the card's right-click menu: Hide Until a Newer Version, Remind Me in 1 Day / 3 Days / 1 Week;
      Remind Me in 1 Day hides it; after a relaunch still hidden, also for a newer 1.99.2; 23 h later
      still hidden; 25 h later it shows;
-  5. the found-update notice (updates.downloadAutomatically off): Hide hides 1.99.3 at once, 1.99.4
+  5. the found-update notice (debug.updater available): Hide hides 1.99.3 at once, 1.99.4
      shows it again, its right-click menu's Remind Me in 3 Days hides it;
   6. window captures (main display pixels, through $NX_CAPTURE) of each state, light and dark.
 
