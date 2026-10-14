@@ -2,11 +2,15 @@ import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Cause from "effect/Cause";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/TestClock";
+import * as TestContext from "effect/TestContext";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { pauseVm, resumeVm } from "../services/vms/workflows";
 import { VmProviderOperationError } from "../services/vms/errors";
+import { providerConflictKind } from "../services/vms/drivers/types";
 
 // `cmux vm pause` / `cmux vm resume`: park a machine and wake it through the
 // same suspended-resume path every open and exec uses. Fake repository and
@@ -56,7 +60,7 @@ function fakes(options: {
   row: CloudVmRow;
   providerStatus?: "running" | "paused";
   /** Successive getStatus answers; the last one repeats. */
-  providerStatuses?: Array<"creating" | "running" | "paused">;
+  providerStatuses?: Array<"creating" | "running" | "paused" | "probe_fails">;
   pauseState?: "paused" | "in_progress" | "not_paused" | "stopped" | "destroyed" | "probe_fails";
   withPause?: boolean;
   withResume?: boolean;
@@ -124,7 +128,10 @@ function fakes(options: {
           recorded.statusProbes.push(providerVmId);
           const sequence = options.providerStatuses;
           if (sequence && sequence.length > 0) {
-            return Effect.succeed(sequence[Math.min(recorded.statusProbes.length - 1, sequence.length - 1)]);
+            const next = sequence[Math.min(recorded.statusProbes.length - 1, sequence.length - 1)];
+            return next === "probe_fails"
+              ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getStatus", cause: new Error("Status: 500") }))
+              : Effect.succeed(next);
           }
           return Effect.succeed(options.providerStatus ?? "running");
         },
@@ -156,6 +163,30 @@ describe("retries during an in-flight first call", () => {
     const result = await Effect.runPromise(resumeVm(resumeCaller).pipe(Effect.provide(layer)));
     expect(result).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.resumed).toEqual([]);
+  });
+});
+
+describe("a resume that never settles", () => {
+  // Another caller's resume stays "creating". Only a status the provider
+  // reported is a machine-state conflict; failed status reads stay the
+  // provider's failure (an outage, not "the machine is busy").
+  async function settleFailure(providerStatuses: Array<"creating" | "probe_fails">): Promise<unknown> {
+    const { layer } = fakes({ row: machineRow({ status: "paused" }), providerStatuses });
+    const exit = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(resumeVm(resumeCaller).pipe(Effect.provide(layer)));
+      yield* TestClock.adjust("2 minutes");
+      return yield* Fiber.await(fiber);
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    expect(Exit.isFailure(exit)).toBe(true);
+    return Exit.isFailure(exit) ? Cause.squash(exit.cause) : null;
+  }
+
+  test("a machine that stays starting is a state conflict", async () => {
+    expect(providerConflictKind(await settleFailure(["creating"]))).toBe("state");
+  });
+
+  test("status reads that all fail are not a state conflict", async () => {
+    expect(providerConflictKind(await settleFailure(["creating", "probe_fails"]))).toBeNull();
   });
 });
 
