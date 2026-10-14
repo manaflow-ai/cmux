@@ -162,6 +162,8 @@ pub fn discover_harnesses_from(
             }
         }
     }
+    // A `codex` the user imported from ~/.acpx stays theirs.
+    let codex_imported = agents.contains_key("codex");
     for (name, bin) in [
         ("codex", "codex-acp"),
         ("claude", "claude"),
@@ -291,13 +293,30 @@ pub fn discover_harnesses_from(
         agents.insert("codex".to_owned(), profile);
     }
     // Codex through `codex app-server`, bridged in process (cmux-codex-acp,
-    // `codex_app_server.rs`): offered beside the adapter until it becomes
-    // the default.
-    if !agents.contains_key(CODEX_APP_SERVER)
-        && let Some(codex) = which("codex")
-    {
+    // `codex_app_server.rs`), is `codex` whenever codex is installed; the
+    // ACP adapter, when found, stays as `codex-acp`. A profile's (or the
+    // family's) CODEX_PATH picks the codex binary it runs (`agent.rs`), and
+    // a `prefer` list still picks among the family's profiles.
+    if !codex_imported && let Some(codex) = which("codex") {
+        if let Some(adapter) = agents.remove("codex") {
+            agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
+        }
+        // The name the bridge had before it became `codex`, for sessions and
+        // presets that recorded it.
+        agents.entry(CODEX_APP_SERVER.to_owned()).or_insert_with(|| HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv: vec![codex.clone(), "app-server".into()],
+            env: BTreeMap::new(),
+            description: Some("Codex through codex app-server, in process (same as codex)".into()),
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        });
         agents.insert(
-            CODEX_APP_SERVER.to_owned(),
+            "codex".to_owned(),
             HarnessProfile {
                 kind: HarnessKind::Acp,
                 argv: vec![codex, "app-server".into()],
@@ -315,7 +334,10 @@ pub fn discover_harnesses_from(
     agents
 }
 
-/// The harness name of Codex through `codex app-server` in process.
+/// The harness name of the Codex ACP adapter once `codex` is the bridge.
+pub const CODEX_ACP: &str = "codex-acp";
+
+/// The bridge's name before the flip (kept for what recorded it).
 pub const CODEX_APP_SERVER: &str = "codex-app-server";
 
 /// True when the program at `path` resolves (through links) to Cursor's
