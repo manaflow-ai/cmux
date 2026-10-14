@@ -267,21 +267,23 @@
 .nt-style-option:hover,.nt-style-option:has(:checked){color:var(--agent-text)}
 .nt-style-option:has(:focus-visible){outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
 @media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option{transition:none}}
-/* A chat with the chats its agent started (ChatCards.tsx): its row, a count that opens them, and
-   when open the children indented below it. The count sits before the time column. */
+/* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
+   opens them before the row's harness icon, and when open the children indented below it. The
+   title keeps clear of the count; the icon and age columns stay where every other row has them. */
 .nt-card-family {
   position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
-.nt-card-family > .nt-card {
-  padding-right: 96px;
+.nt-cards[data-variant="list"] .nt-card-family > .nt-card .nt-card-title {
+  margin-right: 34px;
 }
 .nt-card-children-toggle {
   position: absolute;
   top: 5px;
-  right: 64px;
+  /* Row padding 10 + age column 3.2em of 11.5px + gap 6 + the harness icon + 8 of air. */
+  right: 78px;
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
@@ -301,8 +303,9 @@
 .nt-card-children {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
 }
-.nt-card-children > .nt-card {
+.nt-cards[data-variant="list"] .nt-card-children > .nt-card {
   padding-left: 30px;
 }
-
