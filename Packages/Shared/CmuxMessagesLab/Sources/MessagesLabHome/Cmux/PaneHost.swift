@@ -359,6 +359,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) lazy var swipe = SwipeReply(controller: self)
     /// cmux: the thread and reply view's Esc and clicks (PaneHost+Thread.swift).
     private(set) lazy var thread = PaneThread(controller: self)
+    /// cmux: the header blurred and darkened with the transcript under an open thread or reply view
+    /// (PaneHost+ThreadHeader.swift).
+    private(set) lazy var threadHeader = ThreadHeaderCover(controller: self)
     static let args = ProcessInfo.processInfo.arguments
     /// Test modes never take focus.
     static let noFocus = args.contains("--bench") || args.contains("--audit-resolution") || args.contains("--scroll-trace")
@@ -550,6 +553,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let sc = host.scrollView.verticalScroller, (sc.alphaValue == 0) != threadOpen {
             NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.28; sc.animator().alphaValue = threadOpen ? 0 : 1 }
         }
+        threadHeader.follow(open: threadOpen)
         prefetchNextReceipt()
         scheduleWake()
     }
