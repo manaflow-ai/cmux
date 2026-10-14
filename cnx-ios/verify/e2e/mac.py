@@ -57,6 +57,36 @@ def dev_credential():
     return m.group(1), m.group(2)
 
 
+RIG_BUNDLE = re.compile(r"\.cnx[.-]e2e[.-][0-9A-Za-z]+$")
+
+
+def running_rig_apps():
+    """[(pid, bundle_id, bundle_path)] of every running rig Mac app (a `cnx-e2e-*`
+    tagged build, bundle id com.cmuxterm.app.debug.cnx.e2e.<sha8>), from lsappinfo."""
+    out = subprocess.run(["lsappinfo", "list"], capture_output=True, text=True).stdout
+    apps = []
+    for entry in re.split(r"\n(?=\s*\d+\) )", out):
+        bundle = re.search(r'bundleID="([^"]+)"', entry)
+        pid = re.search(r"\bpid = (\d+)", entry)
+        if not bundle or not pid or not RIG_BUNDLE.search(bundle.group(1)):
+            continue
+        path = re.search(r'bundle path="([^"]+)"', entry)
+        apps.append((int(pid.group(1)), bundle.group(1), path.group(1) if path else "?"))
+    return apps
+
+
+def refuse_other_rigs(own_bundle_id):
+    """Refuse to start while another tag's rig Mac app runs: both sign in to the same
+    dev account, so the phone would list (and a step could act on) the other rig's Mac."""
+    others = [a for a in running_rig_apps() if a[1] != own_bundle_id]
+    if others:
+        lines = "\n".join(f"  pid {pid}  {bundle}  {path}" for pid, bundle, path in others)
+        raise SystemExit(
+            "refusing to start: another e2e rig Mac app (a different cnx-e2e tag) is running and "
+            f"shares the dev account:\n{lines}\n"
+            "Wait for that run to finish (or, if it is yours and abandoned, quit that app), then rerun.")
+
+
 class Mac:
     def __init__(self, rig_dir, source_app):
         self.rig = rig_dir

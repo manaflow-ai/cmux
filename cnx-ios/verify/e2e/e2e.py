@@ -19,7 +19,7 @@ sys.path.insert(0, HERE)
 os.environ.setdefault("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer")
 
 from sim import Sim  # noqa: E402
-from mac import Mac  # noqa: E402
+from mac import Mac, pb, refuse_other_rigs  # noqa: E402
 from journey import Journey  # noqa: E402
 from latency import Latency  # noqa: E402
 
@@ -135,6 +135,8 @@ def main():
     a = ap.parse_args()
 
     mac_app = os.path.abspath(a.mac_app or newest_mac_app())
+    # Before anything builds or launches: one rig per dev account at a time.
+    refuse_other_rigs(pb(os.path.join(mac_app, "Contents/Info.plist"), "Print :CFBundleIdentifier"))
     sim_name = a.sim_name or ("cnx-e2e2-ios26" if a.ios == "26" else "cnx-e2e2-ios27")
     stamp = datetime.datetime.now().strftime("%Y-%m-%d")
     run = datetime.datetime.now().strftime("%H%M%S") + f"-ios{a.ios}"
