@@ -67,6 +67,8 @@ The helper calls `enter_helper_sandbox()` (Chromium `Sandbox::initialize` via `l
 
 `on_before_command_line_processing` adds `--cmux-tabbed-windows` and `--disable-field-trial-config` when the fork API is present, `--use-mock-keychain` under `CMUX_MOCK_KEYCHAIN`, and `--load-extension` for dev (cmux2:`crates/engine/src/client.rs:75-110`).
 
+Chrome's own promotions never show in a cmux tab (cx-lqitn): `--no-first-run`, `--no-default-browser-check`, `--disable-search-engine-choice-screen` and `--enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy` turn off in-product help bubbles (for example "Split view makes it easier to multitask"), tutorials, "New" badges, the first-run experience, What's New, the default-browser prompt and the search engine choice dialog. `CEFSwitches.chromePromptOffSwitches` lists why each one is there; `scripts/cmux-next/chrome-promos-live.py` is the live check.
+
 ### Fork API detection and the added C API
 
 The engine resolves the fork symbols with `dlopen(RTLD_NOLOAD)` + `dlsym` and checks `cmux_cef_api_version() == 1`. Stock CEF falls back to Alloy (cmux2:`crates/engine/src/fork.rs:43-92`). The symbols are plain C exports, so the CEF API hash is unchanged. The build script copies the header into dist (fork:`scripts/build-cmux-cef.sh`, last lines). `nm -gU` on the dist framework shows all 11 exports.
