@@ -16,14 +16,14 @@ public nonisolated struct MetricTunable: Sendable {
     public var descriptor: TunableDescriptor { tunable.descriptor }
 
     static func make(_ name: String, _ section: TunableSection, _ label: String, help: String,
-                     compact: CGFloat, comfortable: CGFloat, key: MetricKey? = nil,
+                     compact: CGFloat, comfortable: CGFloat, tight: CGFloat? = nil, key: MetricKey? = nil,
                      range: ClosedRange<Double>? = nil) -> MetricTunable {
         let upper = max((Double(comfortable) * 2.5).rounded(.up), 24)
         let step = comfortable < 10 ? 0.5 : 1
         let note = compact == comfortable ? "" : " Default \(TunableExport.format(Double(compact))) compact, \(TunableExport.format(Double(comfortable))) comfortable."
         let tunable = DerivedTunable<CGFloat>.number(
             "metrics.\(name)", section, label, help: help + note, range: range ?? 0...upper, step: step, unit: .points,
-            code: "MetricTunables.\(name)") { Metrics.pick(compact, comfortable, key) }
+            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key) }
         return MetricTunable(compact: compact, comfortable: comfortable, key: key, tunable: tunable)
     }
 }
@@ -52,11 +52,11 @@ public nonisolated enum MetricTunables {
     // MARK: Tabs
 
     public static let tabStripHeight = MetricTunable.make("tabStripHeight", .tabs, "Tab strip height", help: "Height of a pane's tab strip.",
-                                                          compact: 26, comfortable: 36, key: .tabStripHeight)
+                                                          compact: 28, comfortable: 36, tight: 26, key: .tabStripHeight)
     public static let tabHeight = MetricTunable.make("tabHeight", .tabs, "Tab height", help: "Height of a tab inside the strip.",
-                                                     compact: 22, comfortable: 30)
-    /// Fields and small controls (the strip's +, toolbar and editor fields): the tab height before
-    /// compact tabs (Leo 2026-10-12: the tab shrinks, the controls keep their size).
+                                                     compact: 24, comfortable: 30, tight: 22)
+    /// Fields and small controls (the strip's +, toolbar and editor fields): the default tab height,
+    /// kept under Compact tabs (Leo 2026-10-12: the tab shrinks, the controls keep their size).
     public static let controlHeight = MetricTunable.make("controlHeight", .shape, "Control height", help: "Height of fields and small controls, and the tab strip's + button.",
                                                          compact: 24, comfortable: 30)
     public static let tabMaxWidth = MetricTunable.make("tabMaxWidth", .tabs, "Tab max width", help: "Widest an unpinned tab gets.",

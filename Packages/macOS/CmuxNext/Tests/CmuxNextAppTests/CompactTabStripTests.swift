@@ -34,6 +34,12 @@ import Testing
     }
 
     @Test func compactTabsAreTighterAndTheirButtonsKeepTheirSize() async throws {
+        let key = ChromeTunables.compactTabs.descriptor.key
+        // Debug Settings overrides apply once the store is active; no file, so nothing is written.
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([ChromeTunables.compactTabs.descriptor])
+        try #require(TunableStore.shared.set(key, .bool(true)) == .bool(true), "the toggle takes the override")
+        defer { TunableStore.shared.set(key, nil) }
         let (strip, window) = Self.strip()
         defer { window.orderOut(nil) }
         var intents: [TabStripIntent] = []
@@ -41,6 +47,8 @@ import Testing
 
         let row = Metrics.sidebarRowHeight
         let cell = try #require(strip.cells[TabID("tab1")])
+        #expect(strip.bounds.height == 26 && cell.frame.height == 22, "the strip is \(strip.bounds.height) pt, a tab \(cell.frame.height) pt")
+        #expect(strip.metrics.iconTitleSpacing == 4, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
         #expect(cell.frame.height < row, "a tab (\(cell.frame.height) pt) is as tall as a sidebar row (\(row) pt)")
         #expect(strip.bounds.height <= row + Metrics.space1, "the strip (\(strip.bounds.height) pt) is taller than a sidebar row and a grid step")
         #expect(strip.metrics.contentLeadingInset < Metrics.space4, "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in")
