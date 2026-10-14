@@ -182,6 +182,7 @@ public final class BackdropVideoView: NSView {
             (app, NSWindow.didDeminiaturizeNotification, window), (app, NSApplication.didHideNotification, nil),
             (app, NSApplication.didUnhideNotification, nil), (app, Notification.Name.NSProcessInfoPowerStateDidChange, nil),
             (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
+            (app, Motion.speedDidChange, nil),
             (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),
         ]
         names.append((app, NSWindow.willCloseNotification, window))
