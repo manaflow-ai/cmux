@@ -49,8 +49,6 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var scrollFadeWidth: CGFloat
     /// Inset of the tab background from the tab frame, so neighbors read as separate.
     public var tabBackgroundInset: CGFloat
-    /// Height of the 1 px separator between tabs.
-    public var separatorHeight: CGFloat
     /// Vertical distance outside the strip that hands a dragged tab to the drag session.
     public var tearOffDistance: CGFloat
 
@@ -70,6 +68,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Between the name and the collapsed member count.
     public var groupChipCountSpacing: CGFloat
     public var groupUnderlineHeight: CGFloat
+    /// Whether a line separates tabs (`tabs.separators`), its height and its strength.
+    public var showsSeparators: Bool
+    public var separatorHeight: CGFloat
+    public var separatorOpacity: CGFloat
     /// A group chip's icon: the tab icon size, inset inside the pill's height.
     public var groupChipIconSize: CGFloat { max(0, min(iconSize, groupChipHeight - 2 * Metrics.space1)) }
     /// Between a group chip's icon and its name or count.
@@ -122,7 +124,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         newTabButtonWidth = Metrics.controlHeight
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
-        separatorHeight = TabTunables.separatorHeight.value
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.itemCornerRadius
         groupChipOuterInset = Metrics.space1
@@ -132,6 +133,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         groupChipMaxNameWidth = (Metrics.tabMaxWidth / 2).rounded()
         groupChipCountSpacing = Metrics.space2
         groupUnderlineHeight = TabTunables.groupUnderlineHeight.value
+        showsSeparators = TabTunables.separators.value
+        separatorHeight = TabTunables.separatorHeight.value
+        separatorOpacity = TabTunables.separatorOpacity.value
     }
 
     /// Token-derived metrics for the current density.

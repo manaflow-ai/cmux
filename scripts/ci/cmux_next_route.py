@@ -95,6 +95,7 @@ SWIFT_JOB_INPUTS = (
     # check-app-ffi-pin.sh's sources (the pinned CCmuxAppFFI release) and the
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
+    "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",
@@ -104,8 +105,8 @@ SWIFT_JOB_INPUTS = (
     "scripts/cmux-next/build-app-ffi.sh",
 )
 
-# Keep the fast gate narrow. App-host, manifest, resource and toolchain edits
-# continue to use the Release configuration as their pull-request gate.
+# Keep the per-PR route narrow. App-host, manifest, resource and toolchain edits
+# are covered by the batch Release cadence and the base-push backstop.
 CANARY_SWIFT_PREFIXES = (
     PACKAGE + "Sources/",
 )

@@ -63,6 +63,8 @@ struct Reopened {
     tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
     placements: Vec<(String, String)>,
+    /// A closed tab's id to the id it reopened as.
+    reopened_as: std::collections::HashMap<String, String>,
 }
 
 impl Reopened {
@@ -70,6 +72,14 @@ impl Reopened {
         if !self.workspaces.contains(&workspace) {
             self.workspaces.push(workspace);
         }
+    }
+
+    /// Note `tab`, reopened from the closed tab `record`.
+    fn note_tab(&mut self, record: &Value, tab: String) {
+        if let Some(closed) = record["tab_id"].as_str() {
+            self.reopened_as.insert(closed.to_string(), tab.clone());
+        }
+        self.tabs.push(tab);
     }
 }
 
@@ -273,7 +283,20 @@ impl Mux {
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
         }
         if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
-            self.reopen_tab_group(&mutation.actor, group, &mut reopened)?;
+            // A closed group (Close Group) names its closed tabs: it forms
+            // again around those this reopen brought back.
+            let mut group = group.clone();
+            let closed = !restore.is_empty();
+            if closed {
+                let tabs = group["tab_ids"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|tab| reopened.reopened_as.get(tab.as_str()?).cloned())
+                    .collect::<Vec<_>>();
+                group["tab_ids"] = serde_json::json!(tabs);
+            }
+            self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }
         if let Some(group) = record.get("screen_group").filter(|group| group.is_object()) {
             self.reopen_screen_group(&mutation.actor, group, &mut reopened)?;
@@ -323,15 +346,22 @@ impl Mux {
     /// of the first. A group formed since keeps its tabs.
     /// None still open forms nothing; a live group of that id (a retried
     /// reopen) is left as it is.
+    ///
+    /// `closed`: the archive is a closed group's (Close Group) and names the
+    /// tabs this reopen brought back, which are already in `reopened`. A
+    /// live group of that id (an earlier partial reopen formed it) takes
+    /// them in.
     fn reopen_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
         archive: &Value,
+        closed: bool,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
         let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
         let presentation = self.presentation_snapshot();
-        if !presentation.tab_groups.groups.contains_key(&id) {
+        let live = presentation.tab_groups.groups.contains_key(&id);
+        if !live || closed {
             let wanted = archive["tab_ids"]
                 .as_array()
                 .into_iter()
@@ -355,6 +385,9 @@ impl Mux {
                             .find_map(|(surface, id)| (id.as_str() == tab).then_some(*surface))
                     })
                     .collect::<Vec<_>>();
+                if live {
+                    return open;
+                }
                 let pane = home
                     .as_deref()
                     .and_then(|pane| pane_by_public_id(state, pane))
@@ -369,18 +402,29 @@ impl Mux {
             if members.is_empty() {
                 return Ok(());
             }
-            self.tab_group_create(
-                StripRequest::local(actor, "closed.reopen"),
-                move |_| Ok(members),
-                archive["name"].as_str().map(str::to_string),
-                archive["color"].as_str().map(str::to_string),
-                id.clone(),
-                archive["icon"].as_str().map(str::to_string),
-            )?;
+            if live {
+                self.tab_group_add(
+                    StripRequest::local(actor, "closed.reopen"),
+                    &id,
+                    move |_| Ok(members),
+                    None,
+                )?;
+            } else {
+                self.tab_group_create(
+                    StripRequest::local(actor, "closed.reopen"),
+                    move |_| Ok(members),
+                    archive["name"].as_str().map(str::to_string),
+                    archive["color"].as_str().map(str::to_string),
+                    id.clone(),
+                    archive["icon"].as_str().map(str::to_string),
+                )?;
+            }
         }
         let outcome = self.tab_group_outcome(&id);
-        for surface in &outcome.members {
-            reopened.tabs.push(self.public_tab_of(*surface)?);
+        if !closed {
+            for surface in &outcome.members {
+                reopened.tabs.push(self.public_tab_of(*surface)?);
+            }
         }
         if let Some(pane) = outcome.pane {
             let (workspace, _) = self.public_screen_of_pane(pane)?;
@@ -494,7 +538,7 @@ impl Mux {
                 let record = ConversationTabRecord::from_wire(&tab["conversation"])
                     .context("the closed conversation tab has no valid record")?;
                 let target = ConversationTabTarget::Pane(Some(pane));
-                self.new_conversation_tab_as(actor, target, record, None, None)?.surface.id
+                self.new_conversation_tab_as(actor, target, record, None, None, None)?.surface.id
             }
             Some("browser") if tab.get("remote").is_some_and(|value| !value.is_null()) => {
                 let record = RemoteTerminalRecord::from_wire(&tab["remote"])
@@ -554,8 +598,8 @@ impl Mux {
                     None => {
                         // ARCHIVE-1: the archived screen and the stopped
                         // program come back above the new shell.
-                        let (spawn, _seed) = self.reopen_terminal_spawn(tab);
-                        self.new_tab_with_options_as(actor, Some(pane), spawn, None)?.id
+                        let (spawn, _seed, size) = self.reopen_terminal_spawn(tab);
+                        self.new_tab_with_options_as(actor, Some(pane), spawn, size)?.id
                     }
                 }
             }
@@ -622,7 +666,8 @@ impl Mux {
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
         reopened.note_workspace(workspace);
         reopened.screens.push(screen);
-        reopened.tabs.push(self.public_tab_of(surface)?);
+        // The member names the tab (its record does too since cx-gzh.31).
+        reopened.note_tab(record, self.public_tab_of(surface)?);
         Ok(())
     }
 
@@ -688,7 +733,7 @@ impl Mux {
             } else {
                 self.reopen_tab_record(actor, pane, tab, false)?
             };
-            reopened.tabs.push(self.public_tab_of(surface)?);
+            reopened.note_tab(tab, self.public_tab_of(surface)?);
         }
         if reused.is_none() {
             reopened.tabs.push(self.public_tab_of(first)?);
@@ -702,16 +747,16 @@ impl Mux {
     fn first_terminal_spawn(
         &self,
         screen: &Value,
-    ) -> (TerminalSpawnOptions, Option<terminal_archive::SeedGuard<'_>>) {
+    ) -> (TerminalSpawnOptions, Option<terminal_archive::SeedGuard<'_>>, Option<(u16, u16)>) {
         match screen["tabs"]
             .as_array()
             .and_then(|tabs| tabs.iter().find(|tab| tab["kind"] == "terminal"))
         {
             Some(tab) => {
-                let (spawn, guard) = self.reopen_terminal_spawn(tab);
-                (spawn, Some(guard))
+                let (spawn, guard, size) = self.reopen_terminal_spawn(tab);
+                (spawn, Some(guard), size)
             }
-            None => (TerminalSpawnOptions::new(None, Vec::new()), None),
+            None => (TerminalSpawnOptions::new(None, Vec::new()), None, None),
         }
     }
 
@@ -731,12 +776,12 @@ impl Mux {
                     .map(|candidate| candidate.id)
             })
         });
-        let (spawn, _seed) = self.first_terminal_spawn(screen);
+        let (spawn, _seed, size) = self.first_terminal_spawn(screen);
         let first = match workspace {
             Some(workspace) => {
-                self.new_screen_named_as(actor, Some(workspace), None, spawn, None)?
+                self.new_screen_named_as(actor, Some(workspace), None, spawn, size)?
             }
-            None => self.new_workspace_with_spawn_as(actor, None, spawn, None)?,
+            None => self.new_workspace_with_spawn_as(actor, None, spawn, size)?,
         };
         self.fill_screen(actor, first.id, screen, reopened)
     }
@@ -749,14 +794,15 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let screens = record["screens"].as_array().cloned().unwrap_or_default();
         let name = record["name"].as_str().map(str::to_string);
-        let (spawn, _seed) =
-            screens.first().map_or((TerminalSpawnOptions::new(None, Vec::new()), None), |screen| {
+        let (spawn, _seed, size) = screens
+            .first()
+            .map_or((TerminalSpawnOptions::new(None, Vec::new()), None, None), |screen| {
                 self.first_terminal_spawn(screen)
             });
         // Created last, so the row `restore_placement` drops in the reopen
         // commit moves no other row; the closed row's place comes back.
         let first = NewWorkspacePlacement::Bottom
-            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, None))?;
+            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, size))?;
         let (workspace, key) = self
             .with_state(|state| {
                 let (index, _) = state.screen_of(state.pane_of(first.id)?)?;
@@ -770,8 +816,8 @@ impl Mux {
             let surface = if index == 0 {
                 first.clone()
             } else {
-                let (spawn, _seed) = self.first_terminal_spawn(screen);
-                self.new_screen_named_as(actor, Some(workspace), None, spawn, None)?
+                let (spawn, _seed, size) = self.first_terminal_spawn(screen);
+                self.new_screen_named_as(actor, Some(workspace), None, spawn, size)?
             };
             self.fill_screen(actor, surface.id, screen, reopened)?;
         }

@@ -206,6 +206,11 @@ pub struct Message {
     /// (their `reply_to` stays as it was).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_root: Option<String>,
+    /// The thread object a root carries (`thread.update`,
+    /// conversation-thread-objects-v1): title, owner and resolution. Only a
+    /// root (no `thread_root`) has one; absent when all are empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread: Option<ThreadState>,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<String>,
@@ -216,6 +221,53 @@ pub struct Message {
     /// Set by the owner for a message a paired install sent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<Origin>,
+}
+
+/// The thread object of a root message (conversation-thread-objects-v1).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThreadState {
+    /// The thread's title. Absent: readers show the root's first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The participant who owns the thread (a person or a Chief).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    /// Set by `status: resolved`. The thread reads as resolved only while no
+    /// live reply has a seq above `resolved.seq`: a new reply reopens it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<ThreadResolution>,
+}
+
+impl ThreadState {
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none() && self.owner.is_none() && self.resolved.is_none()
+    }
+
+    /// The status readers show, given the seq of the thread's newest live
+    /// reply.
+    pub fn status(&self, last_reply_seq: Option<u64>) -> ThreadStatus {
+        match &self.resolved {
+            Some(resolved) if last_reply_seq.is_none_or(|seq| seq <= resolved.seq) => {
+                ThreadStatus::Resolved
+            }
+            _ => ThreadStatus::Open,
+        }
+    }
+}
+
+/// Who resolved a thread, when, and the conversation's last seq then.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThreadResolution {
+    pub by: String,
+    pub at: String,
+    pub seq: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadStatus {
+    Open,
+    Resolved,
 }
 
 /// The conversation state every op validates against: everything in a
@@ -231,13 +283,19 @@ pub struct ConversationHead {
     pub created_at: String,
     pub updated_at: String,
     pub read_cursors: BTreeMap<String, u64>,
-    /// Agent text messages since the last human text message: the loop guard
-    /// (budget.rs). Always on the wire, as the cloud head has it.
+    /// Agent text messages at the top level since its last human text
+    /// message: the loop guard (budget.rs). Always on the wire, as the cloud
+    /// head has it.
     #[serde(default)]
     pub agent_text_streak: u32,
     /// When the last agent text message was sent (RFC 3339 UTC, milliseconds).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_agent_text_at: Option<String>,
+    /// The same streak per thread (key: the root message id; the top level is
+    /// `agent_text_streak`): only threads above 0, absent when none is
+    /// (budget.rs, home-core `thread_agent_streaks`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub thread_agent_streaks: BTreeMap<String, u32>,
 }
 
 impl ConversationHead {
@@ -303,6 +361,19 @@ pub enum Op {
     /// A person answers the question part at `part_index`.
     #[serde(rename = "question.answer")]
     QuestionAnswer { message_id: String, part_index: u32, answer: crate::question::QuestionAnswer },
+    /// Sets the thread object of root `root` (conversation-thread-objects-v1):
+    /// any participant, a Chief too. An empty `title` or `owner` clears it;
+    /// `status` resolves or reopens the thread.
+    #[serde(rename = "thread.update")]
+    ThreadUpdate {
+        root: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<ThreadStatus>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<String>,
+    },
 }
 
 impl Op {
@@ -314,6 +385,7 @@ impl Op {
             | Self::ReactionAdd { message_id, .. }
             | Self::ReactionRemove { message_id, .. }
             | Self::QuestionAnswer { message_id, .. } => Some(message_id),
+            Self::ThreadUpdate { root, .. } => Some(root),
             Self::MessageSend { .. }
             | Self::ReadCursorSet { .. }
             | Self::ParticipantsAdd { .. }

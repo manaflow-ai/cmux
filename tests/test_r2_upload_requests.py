@@ -246,6 +246,19 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertIn("nightly/manifest.json", result.stdout)
         self.assertIn("immutable R2 object already exists with a different SHA-256", result.stderr)
 
+    def test_write_once_conflict_with_a_conflict_exit_code_is_quiet(self):
+        # A caller that waits for the other publisher's upload and keeps it
+        # (two runs of one commit at once, cx-a1q4d) asks for its own exit
+        # code: no annotation, so the run's retry workflow is not told to
+        # leave it red, and the existing object is never overwritten.
+        endpoint, requests = self.start_endpoint(existing=True)
+        result = self.upload("manifest.json", "--write-once", "--conflict-exit-code", "75",
+                             endpoint=endpoint, body=BODY + b"changed")
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertEqual([r[0] for r in requests], ["HEAD", "GET"])
+        self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
+        self.assertIn("another publisher wrote it first", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

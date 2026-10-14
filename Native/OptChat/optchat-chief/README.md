@@ -51,6 +51,30 @@ follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
 ends, and the end posts what the turn said and "(turn stopped)".
 
+## Several Chiefs and channels
+
+One host is one Chief (`src/membership.rs`). Several Chiefs on one owner run
+one host each, with their own `MUX_HOME`, acpmux home, participant id
+(`OPTCHAT_CHIEF_PARTICIPANT`) and token (`conversation-agent-token` for that
+id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
+conversation the Chief takes part in is a wake of that conversation, read and
+answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
+it too (never its own; other agents never do). Loop guard: the owner's
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
+texts in one thread (the replies of one root, or the top level) since a
+person's text in that thread; the owner refuses more (`agent_budget`), and a
+Chief pre-checks it from the messages it read (`thread_agent_streak` on the
+thread its reply goes into) so it stays quiet instead of running that turn.
+A person's text resets its own thread only. A page shows "Chiefs paused" for
+a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
+"Channels" paragraph to the system prompt: the Chief acts on its own when a
+message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
+In a conversation of more than two participants the reply goes into the
+thread of the message it answers (`reply_to` that message, `thread_root` its
+root, else the message itself). The local owner has no wake queue: a side
+conversation's messages that arrive while the host is down are not read after
+the restart. Behavior test: `tests/channels_daemon.rs` (real daemon).
+
 ## Pure Rust over ACP
 
 The Chief's own path is Rust end to end, checked 2026-10-05:
@@ -272,8 +296,8 @@ For the bundled host in a tagged cmux-next DEV app, `MUX_HOME` is
    variable set, or `launchctl setenv CMUX_NEXT_MUX_HOST /abs/path/optchat-chief`
    before `open`). The app starts the host when Home first opens, as
    `optchat-chief host --daemon-socket <daemon socket> --mux-home ~/.cmux/mux/tags/<tag>`,
-   with `MUX_AGENT_TOKEN_FILE`, `CMUX_SOCKET_PATH`, `ACPMUX_*`, `MUX_HARNESS`
-   and `CMUX_MCP_COMMAND` set. Its stderr goes to `$MUX_HOME/host.log`.
+   with `MUX_AGENT_TOKEN_FILE`, `CMUX_SOCKET_PATH`, `ACPMUX_*` and `MUX_HARNESS`
+   set. Its stderr goes to `$MUX_HOME/host.log`.
 
 3. Open Home and write in the Chief conversation. The reply shows as the
    `mux` participant (the conversation is the same one mux/host creates).
@@ -343,6 +367,9 @@ replies).
 | `CMUX_DAEMON_SOCKET` | (`--daemon-socket`) | the session daemon (local-conversations-v1) |
 | `MUX_HOME` | `~/.cmux/mux` (`--mux-home`) | where everything lives |
 | `MUX_AGENT_TOKEN_FILE` | required (exit 2 without) | the app's agent_mux token |
+| `OPTCHAT_CHIEF_PARTICIPANT` | `agent_mux` | the participant this Chief binds and answers as (one host per Chief, each with its own `MUX_HOME` and token); its main conversation is its oldest DM with the person ([Several Chiefs and channels](#several-chiefs-and-channels)) |
+| `MUX_CHIEF_TITLE` | `Chief` | the title of the Chief's conversation when the host creates it; for a Chief that is not agent_mux, also its participant name |
+| `OPTCHAT_GROUP_WAKE` | unset | local source: `mention` or `every` makes the other local conversations the Chief takes part in wake it (a mention or reply, or every person's message); unset, it answers only in its main conversation |
 | `OPTCHAT_CHIEF_ENGINE` | `acpmux` | `acpmux` or `native` (Messages API loop in the host) |
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
@@ -354,7 +381,6 @@ replies).
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
-| `CMUX_MCP_COMMAND` | none | cmux binary whose `mcp serve` is added as MCP server `cmux` |
 | `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
 | `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
@@ -796,7 +822,7 @@ file. A sign-in kept in the keyring instead of auth.json is not linked. The node
 deleted when it ends (and a crash's leftovers before the next node in the
 slot). The start-up probe fails when the session lists any `$skill`
 command.
-acpmux gives codex no MCP servers, so the memory tools are the launcher's
+acpmux gives codex no `optchat` MCP server, so the memory tools are the launcher's
 `zoom` and `date` commands (`optchat-chief zoom ID N`, `optchat-chief date
 ID`), named by absolute path in AGENTS.md.
 

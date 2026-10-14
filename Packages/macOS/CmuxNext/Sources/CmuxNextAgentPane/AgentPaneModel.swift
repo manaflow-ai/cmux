@@ -99,8 +99,8 @@ public final class AgentPaneModel {
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
     @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
 
-    /// Whether this host supports converting a fresh chat without a chooser page.
-    @ObservationIgnored private let allowsTabConversion: Bool
+    /// Whether this pane's tab may turn into a terminal or browser tab (`tab.open`, `tab.typeAhead`): a local tab's, also one that adopted the spare (cx-ckt2z).
+    @ObservationIgnored public package(set) var allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
     @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
@@ -234,14 +234,8 @@ public final class AgentPaneModel {
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             markPainted()
             return AgentPaneReply.success()
-        case .openTab(let request):
-            guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
-            onOpenTab(request)
-            return AgentPaneReply.success()
-        case .typeAhead(let text):
-            guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
-            onTypeAhead(text)
-            return AgentPaneReply.success()
+        case .openTab(let request): return request.open(in: self)
+        case .typeAhead(let text): return AgentPaneOpenTab.typeAhead(text, in: self)
         case .touched: return AgentPaneReply.success()
         // The shell box runs on this Mac: never for a chat on another machine (cx-k21v).
         case .shellRun, .shellRead, .shellStop:
@@ -264,11 +258,11 @@ public final class AgentPaneModel {
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
-        case .useFolder(let cwd, _) where remoteChat:
-            // A folder of that machine: its acpmux checks the folder and its trust at the start;
-            // this Mac's disk is never read for it (cx-k21v).
+        case .useFolder(let cwd, let confirm) where remoteChat:
+            // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
+            // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
             guard cwd.hasPrefix("/") else { return Self.transportFailure(.pathInvalid) }
-            return AgentPaneReply.success(["status": "ok", "cwd": cwd])
+            return await startFolders.useRemote(cwd, confirm: confirm, transport: transport)
         case .useFolder(let cwd, let confirm): return await startFolders.use(cwd, confirm: confirm, transport: transport)
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
@@ -283,7 +277,7 @@ public final class AgentPaneModel {
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .preview, .setQuickActions, .tabState, .sideChat, .chatTab, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .sideChat, .subagentPane, .chatTab, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)

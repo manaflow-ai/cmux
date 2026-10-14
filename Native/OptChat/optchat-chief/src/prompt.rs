@@ -126,9 +126,23 @@ pub enum Tools {
 /// The system prompt for `tools`: the spec's prompt, the cmux section (its
 /// tool lines for `tools`), then the user's instructions file.
 pub fn system_text(user: Option<&str>, tools: &Tools) -> String {
+    chief_system_text(user, tools, false)
+}
+
+/// `system_text` for a Chief turn: with `profile_tool` (the record grants
+/// the `profile` tool; constant for the host's life) the launcher section of
+/// a harness without the MCP server names `chief profile` too. A Claude
+/// harness finds the tool in its MCP list.
+pub fn chief_system_text(user: Option<&str>, tools: &Tools, profile_tool: bool) -> String {
     let base = base_prompt();
     let cmux = match tools {
         Tools::Mcp => CMUX_INSTRUCTIONS.to_owned(),
+        Tools::Cli(chief) if profile_tool => format!(
+            "{}\n- Your profile: `{chief} profile` prints your record and what you may\n  \
+change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
+`{{\"avatar_path\": \"/abs/pic.png\"}}` sets your picture.",
+            cli_instructions(chief)
+        ),
         Tools::Cli(chief) => cli_instructions(chief),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {

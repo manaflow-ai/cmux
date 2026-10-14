@@ -29,6 +29,8 @@ export { AccountIndexDO } from "./account-index-do.ts"
 export { AddressDO } from "./address-do.ts"
 export { ConversationDO } from "./conversation-do.ts"
 export { MuxDO } from "./mux-do.ts"
+export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
+import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
@@ -38,6 +40,7 @@ export { WireTicketDO } from "./wire-ticket.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
+import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -171,6 +174,9 @@ export default {
     // A chief's wake queue (mux:<agent>): the chief's agent token or its owner; install_kind is resolved.
     const mux = url.pathname.match(/^\/v1\/wire\/mux\/(agent_[A-Za-z0-9_.-]{1,64})$/)
     if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "mux", mux[1]!)
+    // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
+    const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
+    if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrain[2] === "brain" ? "brain" : "runs", chiefBrain[3])
     // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
@@ -194,6 +200,7 @@ export default {
     // The usage reconcile worker's period levels (service key; cx-y79zh S2).
     if (url.pathname === BILLING_LEVELS_PATH) return handleBillingLevels(request, env)
     if (url.pathname === BILLING_SYNC_PATH) return handleBillingSync(request, env)
+    if (url.pathname === BILLING_TEAM_MODE_PATH) return handleBillingTeamMode(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
     const tvmExport = url.pathname.match(/^\/v1\/team-vm\/export\/(team_[A-Za-z0-9_-]{1,64})\/([0-9a-f]{64})$/)

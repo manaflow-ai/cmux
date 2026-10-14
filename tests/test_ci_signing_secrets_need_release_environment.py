@@ -8,7 +8,7 @@ release App credentials, the FFI release App credentials and the
 content-signing key) therefore lives only in GitHub
 environments whose deployment policy admits the refs that really release:
 
-- `release`: branch main and tags v*
+- `release`: branch main, branches rc/** and tags v*
 - `release-next`: branch nightly-next
 - `content-signing`: the content-signing key only
 - `ffi-release`: branch feat-cmux-next, the FFI release App credentials

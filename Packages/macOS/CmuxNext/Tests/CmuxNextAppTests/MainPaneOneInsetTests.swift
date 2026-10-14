@@ -9,11 +9,11 @@ extension MainPaneGutterSuites {
     /// Edge containers batch 1 (Leo 2026-10-12, "odd padding all around the window and panes"): the
     /// window stacked insets. The curved main pane sat a 6 pt gutter in from the window, every pane
     /// sat another 2 pt (plus a 2 pt column gap at the sides) inside it as its own outlined, rounded
-    /// box, and beside the sidebar the gutter came on top of the sidebar's own 6 pt row inset. One
-    /// inset is left: the main pane's gutter at the window edges. Inside it panes are flush and told
-    /// apart by one line, and the sidebar's row inset is the only gap between its rows and the pane.
+    /// box, and beside the sidebar the gutter came on top of the sidebar's own 6 pt row inset. Inside
+    /// the main pane panes are flush and told apart by one line. The gutter itself runs on every side
+    /// of the main pane, the sidebar's too (Lawrence 2026-10-14: a margin all round, as in Helium).
     /// With the gutter at 0 (the Debug Settings flush opt-in, 2026-10-14) the pane meets the window
-    /// edges.
+    /// edges and the sidebar.
     @MainActor @Suite(.serialized) struct MainPaneOneInsetTests {
         func root(sidebarHidden: Bool) -> (NSWindow, WindowRootView) {
             _ = NSApplication.shared
@@ -71,13 +71,13 @@ extension MainPaneGutterSuites {
             }
         }
 
-        @Test func theSidebarsRowInsetIsTheOnlyGapBesideIt() throws {
+        @Test func theGutterRunsBesideTheSidebarToo() throws {
             let (window, root) = root(sidebarHidden: false)
             defer { window.close() }
             try #require(Metrics.mainPaneCurved && root.sidebar.frame.width > 0)
             let sidebar = root.sidebar.frame, card = root.contentHost.frame
-            #expect(card.minX == sidebar.maxX, "no gutter on top of the sidebar's own row inset")
-            #expect(Metrics.mainPaneGutter > 0, "the default keeps a gutter at the window edges")
+            #expect(Metrics.mainPaneGutter > 0, "the default keeps a gutter on every side")
+            #expect(card.minX - sidebar.maxX == Metrics.mainPaneGutter, "the card starts \(card.minX - sidebar.maxX) pt after the sidebar")
             #expect(window.contentView!.bounds.maxX - card.maxX == Metrics.mainPaneGutter, "the gutter at the window edge")
         }
 
@@ -89,7 +89,7 @@ extension MainPaneGutterSuites {
             #expect(root.contentHost.frame.minX == Metrics.mainPaneGutter)
         }
 
-        /// Flush (gutter 0): the pane meets every window edge but the sidebar's.
+        /// Flush (gutter 0): the pane meets every window edge, and the sidebar when it shows.
         @Test(arguments: [false, true])
         func withNoGutterThePaneMeetsTheWindowEdges(sidebarHidden: Bool) throws {
             try MainPaneGutterSuites.withGutter(0) {

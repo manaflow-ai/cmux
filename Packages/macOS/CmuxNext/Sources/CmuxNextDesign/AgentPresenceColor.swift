@@ -4,12 +4,11 @@ public import CmuxTheme
 /// An agent's presence color (cx-gg84): one of the theme's ANSI accents,
 /// picked by a stable hash of the agent's key (its session id), so the same
 /// agent keeps its color across rows, panes and restarts, and the colors
-/// follow the terminal palette. Kept readable over the sidebar like the group
-/// colors (`GroupColor.themeRGB`).
+/// follow the terminal palette, kept readable over the sidebar (`GroupColor.themeRGB`).
 public nonisolated struct AgentPresenceColor: Sendable {
-    /// The accents in pick order: the group colors' automatic order, then
-    /// blue, which presence may use because it is never the app's selection.
-    static let order: [GroupColor] = GroupColor.automaticOrder + [.blue]
+    /// The accents in pick order (the ANSI accents by index, the two mixed
+    /// ones, then blue, which presence may use because it is never the app's selection).
+    static let order: [GroupColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink, .blue]
 
     /// The agent's color key (its session id).
     public let key: String
@@ -19,7 +18,7 @@ public nonisolated struct AgentPresenceColor: Sendable {
     /// The color in `tokens`' palette.
     public func rgb(tokens: ThemeTokens) -> ThemeRGB {
         let color = Self.order[Self.index(forKey: key, count: Self.order.count)]
-        return color.themeRGB(tokens) ?? color.headerRGB(tokens)
+        return color.themeRGB(tokens) ?? color.swatchRGB(tokens)
     }
 
     /// The color in the active theme scope.

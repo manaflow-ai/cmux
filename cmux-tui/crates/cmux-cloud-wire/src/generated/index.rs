@@ -121,6 +121,8 @@ pub mod op_names {
     pub const MUX_ACK: &str = "mux.ack";
     pub const MUX_CONFIGURE: &str = "mux.configure";
     pub const NETWORK_LIST: &str = "network.list";
+    pub const PARTICIPANT_AVATAR_GET: &str = "participant.avatar.get";
+    pub const PARTICIPANT_AVATAR_SET: &str = "participant.avatar.set";
     pub const PARTICIPANTS_ADD: &str = "participants.add";
     pub const PARTICIPANTS_REMOVE: &str = "participants.remove";
     pub const PUSH_TARGET_REGISTER: &str = "push.target.register";
@@ -176,6 +178,7 @@ pub mod op_names {
     pub const TEAM_VM_SSH_CERT_REVOKE: &str = "team_vm.ssh_cert.revoke";
     pub const TEAM_VM_STATUS: &str = "team_vm.status";
     pub const TEAM_VM_TAINT_ACCEPT: &str = "team_vm.taint.accept";
+    pub const THREAD_UPDATE: &str = "thread.update";
     pub const TITLE_SET: &str = "title.set";
     pub const TUNNEL_ATTACH: &str = "tunnel.attach";
     pub const TUNNEL_DETACH: &str = "tunnel.detach";
@@ -308,6 +311,8 @@ pub mod op_names {
         MUX_ACK,
         MUX_CONFIGURE,
         NETWORK_LIST,
+        PARTICIPANT_AVATAR_GET,
+        PARTICIPANT_AVATAR_SET,
         PARTICIPANTS_ADD,
         PARTICIPANTS_REMOVE,
         PUSH_TARGET_REGISTER,
@@ -363,6 +368,7 @@ pub mod op_names {
         TEAM_VM_SSH_CERT_REVOKE,
         TEAM_VM_STATUS,
         TEAM_VM_TAINT_ACCEPT,
+        THREAD_UPDATE,
         TITLE_SET,
         TUNNEL_ATTACH,
         TUNNEL_DETACH,
@@ -498,6 +504,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "mux.ack" => visitor.visit::<MuxAckOp>(),
         "mux.configure" => visitor.visit::<MuxConfigureOp>(),
         "network.list" => visitor.visit::<NetworkListOp>(),
+        "participant.avatar.get" => visitor.visit::<ParticipantAvatarGetOp>(),
+        "participant.avatar.set" => visitor.visit::<ParticipantAvatarSetOp>(),
         "participants.add" => visitor.visit::<ParticipantsAddOp>(),
         "participants.remove" => visitor.visit::<ParticipantsRemoveOp>(),
         "push.target.register" => visitor.visit::<PushTargetRegisterOp>(),
@@ -553,6 +561,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "team_vm.ssh_cert.revoke" => visitor.visit::<TeamVmSshCertRevokeOp>(),
         "team_vm.status" => visitor.visit::<TeamVmStatusOp>(),
         "team_vm.taint.accept" => visitor.visit::<TeamVmTaintAcceptOp>(),
+        "thread.update" => visitor.visit::<ThreadUpdateOp>(),
         "title.set" => visitor.visit::<TitleSetOp>(),
         "tunnel.attach" => visitor.visit::<TunnelAttachOp>(),
         "tunnel.detach" => visitor.visit::<TunnelDetachOp>(),

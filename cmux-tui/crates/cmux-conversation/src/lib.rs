@@ -25,7 +25,7 @@ pub use attachments::{
 };
 pub use budget::{
     BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, check_agent_streak,
-    parse_rfc3339_millis,
+    in_thread, parse_rfc3339_millis, streak_of, thread_agent_streak, with_turn,
 };
 pub use id::{encode_id, format_rfc3339_millis};
 pub use link::{ConversationLink, MAX_LINK_BYTES, format_link, parse_link};
@@ -49,7 +49,8 @@ pub use search::{
 };
 pub use types::{
     AgentClass, Change, ConversationHead, DerivedImage, Message, Op, Origin, Part, PartRef,
-    Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun, WorkStatus,
+    Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun,
+    ThreadResolution, ThreadState, ThreadStatus, WorkStatus,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.

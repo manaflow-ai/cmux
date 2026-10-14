@@ -73,9 +73,12 @@ function openMenuRows(
     const box = row.getBoundingClientRect();
     return box.height > 0 && box.top >= top - 0.5 && box.bottom <= bottom + 0.5;
   });
+  const dialog = popup.closest<HTMLElement>("[role=dialog]");
   return {
     rows: rows.length,
     shown_in_page: whole.length,
+    height: Math.round(frame.height),
+    ...(dialog ? { dialog_height: Math.round(dialog.getBoundingClientRect().height) } : {}),
     // A Base UI menu marks its positioner; a list the page positions itself, itself (popupHost.ts).
     escaped: popup.hasAttribute("data-escaped") || (popup.parentElement?.hasAttribute("data-escaped") ?? false),
   };
@@ -247,7 +250,14 @@ export function createAcpmuxDebug(
 
     chatState() {
       return host.automation
-        ? { ...automation.automationState(host.automation), follow: followTrace.snapshot() }
+        ? {
+            ...automation.automationState(host.automation),
+            follow: followTrace.snapshot(),
+            // The summary card as drawn (summary/SummaryCard.tsx), and the subagent this pane shows.
+            summaryCard: summaryCardState(),
+            subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
+            focused: document.hasFocus(),
+          }
         : NO_AUTOMATION;
     },
     async sendPrompt(text) {
@@ -287,5 +297,19 @@ export function createAcpmuxDebug(
     loadRun(options = {}) {
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
+  };
+}
+
+/// The summary card's rows as drawn: each subagent's name and status, or null with no card.
+function summaryCardState() {
+  const card = document.querySelector(".acpmux-summary-card");
+  if (!card) return null;
+  return {
+    collapsed: card.hasAttribute("data-collapsed"),
+    agents: [...card.querySelectorAll<HTMLElement>(".acpmux-summary-agent")].map((row) => ({
+      name: row.querySelector(".acpmux-summary-agent__name")?.textContent ?? "",
+      status: row.dataset.status ?? "",
+      current: row.getAttribute("aria-current") === "true",
+    })),
   };
 }

@@ -24,10 +24,19 @@ enum DragTunables {
     /// Chrome's split targets were too eager); before that the drop joins the pane.
     static let splitDwell = Tunable<Double>.number(
         "tabDrag.splitDwell", .tabDrag, "Split dwell",
-        help: "How long a dragged tab rests on a pane edge before the drop splits the pane; before that it joins the pane. 0 splits at once.",
-        default: 0.25, range: 0...1.5, step: 0.05, unit: .seconds, code: "DragTunables.splitDwell")
+        help: "How long a dragged tab rests on a pane edge before the drop splits the pane; before that it joins the pane. 0 splits at once (classic).",
+        default: 0, range: 0...1.5, step: 0.05, unit: .seconds, code: "DragTunables.splitDwell")
+
+    /// The sidebar slot between two rows opens its new-workspace gap only once the pointer has
+    /// stayed in it this long; before that a point on a row drops into that row's workspace.
+    /// Opening the gap at once slid the row out from under a pointer crossing that slot on its
+    /// way to the row, and the drop made a new workspace (cx-8g6ez).
+    static let sidebarSlotDwell = Tunable<Double>.number(
+        "tabDrag.sidebarSlotDwell", .tabDrag, "Sidebar slot dwell",
+        help: "How long a dragged tab rests between two sidebar rows before a new-workspace gap opens there; before that the row under the pointer takes the tab. 0 opens it at once. Stays under the 0.5 s spring-load delay, which would select the row first.",
+        default: 0.25, range: 0...0.45, step: 0.05, unit: .seconds, code: "DragTunables.sidebarSlotDwell")
 
     static var all: [TunableDescriptor] {
-        [ghostTargetScale, ghostLandScale, ghostCardInset, ghostPanelPad].map(\.descriptor) + [splitDwell.descriptor]
+        [ghostTargetScale, ghostLandScale, ghostCardInset, ghostPanelPad].map(\.descriptor) + [splitDwell.descriptor, sidebarSlotDwell.descriptor]
     }
 }

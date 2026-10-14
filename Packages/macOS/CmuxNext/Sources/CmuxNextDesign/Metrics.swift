@@ -124,7 +124,11 @@ public struct Metrics {
     /// chrome line.
     public static var tabBackgroundInset: CGFloat { scale(ChromeTunables.tabBackgroundInset.value) }
     /// Inset of a tab's icon from its pill's leading edge.
-    public static var tabContentLeadingInset: CGFloat { scale(ChromeTunables.tabContentLeadingInset.value) }
+    public static var tabContentLeadingInset: CGFloat {
+        scale((compactTabs ? ChromeTunables.compactTabContentLeadingInset : ChromeTunables.tabContentLeadingInset).value)
+    }
+    /// The opt-in tight tab strip (`ChromeTunables.compactTabs`), at compact density only.
+    public static var compactTabs: Bool { density == .compact && ChromeTunables.compactTabs.value }
     /// The chrome line: tab pills and toolbar button shapes, from the
     /// content border's left edge.
     public static var paneChromeInset: CGFloat { PaneChromeMetrics.pillLeading }
@@ -148,10 +152,13 @@ public struct Metrics {
     public static var paneSeparation: PaneSeparation {
         PaneSeparation.resolve(DesignSettings.shared.paneChrome, unset: defaultPaneSeparation)
     }
-    /// The separation when cmux.json sets none: inside the curved main pane,
-    /// whose gutter is the window's one inset, panes are flush and divided by
-    /// one line (no padded, outlined box per pane); without it, borders.
-    public static var defaultPaneSeparation: PaneSeparation { mainPaneCurved ? .dividers : .borders }
+    /// The separation when cmux.json sets none: the `appearance.chromeStyle`
+    /// one, else inside the curved main pane, whose gutter is the window's
+    /// one inset, panes are flush and divided by one line (no padded,
+    /// outlined box per pane); without it, borders.
+    public static var defaultPaneSeparation: PaneSeparation {
+        DesignSettings.shared.chromeStyle.paneSeparation ?? (mainPaneCurved ? .dividers : .borders)
+    }
     /// Pane border: subtle only for the `borders` separation, and none
     /// under `appearance.borders` none. The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {
@@ -202,21 +209,33 @@ public struct Typography {
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
         (compact ? compactSize : comfortableSize) * scale
     }
+    /// The system font designs chrome uses.
+    public enum Design: Hashable, Sendable {
+        case `default`, monospaced, monospacedDigit
+    }
+
+    /// The system font of `design` at `size` and `weight`, made once per
+    /// process and kept alive. Use it instead of a fresh `NSFont.systemFont`
+    /// or `monospacedSystemFont` call in a computed property: a font made
+    /// and dropped on every draw can come back nil (`CheckedFont`, #20557).
+    public static func system(_ design: Design = .default, size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        CheckedFont.system(design, size: size, weight: weight)
+    }
 
     /// Tab titles, sidebar rows, palette results.
-    public static var body: NSFont { .systemFont(ofSize: size(12, 13), weight: .regular) }
+    public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
     /// Selected or emphasized row titles.
-    public static var bodyEmphasized: NSFont { .systemFont(ofSize: size(12, 13), weight: .medium) }
+    public static var bodyEmphasized: NSFont { system(.default, size: size(12, 13), weight: .medium) }
     /// Subtitles, shortcut hints, counts.
-    public static var caption: NSFont { .systemFont(ofSize: size(10.5, 11), weight: .regular) }
+    public static var caption: NSFont { system(.default, size: size(10.5, 11), weight: .regular) }
     /// Section headers (uppercase is not used; weight and color carry hierarchy).
-    public static var header: NSFont { .systemFont(ofSize: size(11, 12), weight: .semibold) }
+    public static var header: NSFont { system(.default, size: size(11, 12), weight: .semibold) }
     /// Palette search field.
-    public static var search: NSFont { .systemFont(ofSize: size(16, 18), weight: .regular) }
+    public static var search: NSFont { system(.default, size: size(16, 18), weight: .regular) }
     /// Shortcut glyphs.
-    public static var shortcut: NSFont { .monospacedSystemFont(ofSize: size(10.5, 11), weight: .medium) }
+    public static var shortcut: NSFont { system(.monospaced, size: size(10.5, 11), weight: .medium) }
     /// Page titles in windows that introduce something (onboarding).
-    public static var title: NSFont { .systemFont(ofSize: size(20, 22), weight: .semibold) }
+    public static var title: NSFont { system(.default, size: size(20, 22), weight: .semibold) }
     /// The line under a page title.
-    public static var subtitle: NSFont { .systemFont(ofSize: size(13, 14), weight: .regular) }
+    public static var subtitle: NSFont { system(.default, size: size(13, 14), weight: .regular) }
 }

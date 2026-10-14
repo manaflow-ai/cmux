@@ -4,6 +4,76 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    TeamDomainState {
+        Pending = "pending",
+        Verified = "verified",
+        Lost = "lost",
+        Lapsed = "lapsed",
+    }
+}
+
+/// A team; a personal account is a team of one.
+pub type TeamId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationPolicy {
+    pub allowed_providers: Option<Vec<IntegrationProvider>>,
+    pub github: TeamIntegrationPolicyGithub,
+    pub source: TeamIntegrationPolicySource,
+    pub locked: bool,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<String>,
+}
+
+wire_enum! {
+    TeamIntegrationPolicyGithubScope {
+        LinkingUserRepos = "linking_user_repos",
+        Installation = "installation",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationPolicyGithub {
+    pub scope: TeamIntegrationPolicyGithubScope,
+    pub require_org_admin: bool,
+    pub repo_allowlist: Option<Vec<RepoPattern>>,
+}
+
+wire_enum! {
+    TeamIntegrationPolicySource {
+        Default = "default",
+        Admin = "admin",
+        Sso = "sso",
+        Mdm = "mdm",
+        TeamPolicy = "team_policy",
+    }
+}
+
+wire_enum! {
+    TeamJournalStream {
+        Tasks = "tasks",
+        Mail = "mail",
+        Memory = "memory",
+        Files = "files",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMember {
+    pub user: UserId,
+    pub role: TeamRole,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicy {
+    pub version: i64,
+    pub values: TeamPolicyValues,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<String>,
+}
+
 /// Set keys of a team policy; an absent key means the product default and the user's choice.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValues {

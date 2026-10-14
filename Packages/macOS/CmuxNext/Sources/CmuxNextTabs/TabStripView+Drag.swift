@@ -26,7 +26,7 @@ extension TabStripView {
         hoverCards.dismiss(.action)
         cells[press.id]?.isLifted = true
         installEscapeMonitor()
-        updateSeparators()
+        TabSeparatorVisibility.apply(to: self)
     }
 
     func updateDrag(at point: CGPoint, event: NSEvent?) {

@@ -7,7 +7,7 @@ import CmuxNextSidebar
 /// Tab…, Rename Tab Group…, Rename Group…), which start from the target's
 /// own name. It lists nothing itself: pickers of these kinds (Go to Tab…,
 /// Add Tab to Group…, Reopen and Delete Saved Tab Group…) keep the lists
-/// from `next`.
+/// from `next`; Move to Group lists SidebarEdits.joinableGroups.
 final class TabAndGroupTargetSource: PaletteTargetSource {
     private unowned let services: AppServices
     private let next: any PaletteTargetSource
@@ -31,11 +31,7 @@ final class TabAndGroupTargetSource: PaletteTargetSource {
         case .tabGroup:
             name = panes.flatMap(\.tabGroups).first { $0.id.rawValue == target.id }?.name
         case .workspaceGroup:
-            let nodes = (services.windows.active?.sidebar.model.sections ?? []).flatMap(\.nodes)
-            name = nodes.compactMap { node -> String? in
-                guard case .group(let group) = node, group.id.rawValue == target.id else { return nil }
-                return group.name
-            }.first
+            name = SidebarEdits.groups(in: services.windows.active?.sidebar.model.sections ?? []).first { $0.id.rawValue == target.id }?.name
         default:
             return next.title(of: target)
         }

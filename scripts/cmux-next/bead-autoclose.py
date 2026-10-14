@@ -18,11 +18,12 @@ their title, with the pull request as its external reference, and a GraphQL
 comment links the new bead back to the PR. The board is reached through BEADS_SSH_HOST
 (the host whose ~/agent-tasks holds the board) or, for tests, BEADS_BD_COMMAND
 (an executable run with bd's arguments); with neither set it refuses to run.
-State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled and the pull
-requests handled within OVERLAP of it. Each run searches from OVERLAP before
-that merge (search indexes merges late) and skips the pull requests already
-handled, so a merge is never handled twice. A board ssh cannot reach stops the
-run with its merges unhandled; the next run retries them.
+State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled, the pull
+requests handled within OVERLAP of it, and open pull requests already checked
+for bead creation. Each run searches from OVERLAP before that merge (search
+indexes merges late) and skips the pull requests already handled, so a merge
+is never handled twice. A board ssh cannot reach stops the run with its merges
+and open pull requests unhandled; the next run retries them.
 
 Usage: scripts/cmux-next/bead-autoclose.py [--dry-run] [--since ISO8601]
 """
@@ -224,17 +225,18 @@ def format_time(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def read_state(path: Path) -> tuple[str, dict[str, str], str]:
-    """(last merge handled, pull requests handled, window start of a run that handled none)."""
+def read_state(path: Path) -> tuple[str, dict[str, str], str, dict[str, str]]:
+    """Return merge state and the open PRs already checked for a bead."""
     try:
         text = path.read_text().strip()
     except OSError:
-        return "", {}, ""
+        return "", {}, "", {}
     try:
         state = json.loads(text)
     except ValueError:
-        return text, {}, ""  # a bare merge time
-    return state.get("last", ""), dict(state.get("handled", {})), state.get("since", "")
+        return text, {}, "", {}  # a bare merge time
+    return (state.get("last", ""), dict(state.get("handled", {})),
+            state.get("since", ""), dict(state.get("open", {})))
 
 
 def main() -> int:
@@ -247,7 +249,7 @@ def main() -> int:
         return 2
     state = Path(os.environ.get("BEAD_AUTOCLOSE_STATE",
                                 Path.home() / ".local/state/cmux-bead-autoclose/last-merged-at"))
-    last, handled, pending = read_state(state)
+    last, handled, pending, open_handled = read_state(state)
     if args.since:
         since = args.since
     elif last:
@@ -258,16 +260,20 @@ def main() -> int:
     def save() -> None:
         if args.dry_run:
             return
+        snapshot = {"handled": handled, "open": open_handled}
         if not last:
             # Nothing handled yet (the board was unreachable): keep this run's
             # window start, so the next run does not lose its merges.
-            state.parent.mkdir(parents=True, exist_ok=True)
-            state.write_text(json.dumps({"since": since}, sort_keys=True) + "\n")
-            return
-        keep = parse_time(last) - OVERLAP
-        kept = {number: at for number, at in handled.items() if parse_time(at) >= keep}
+            snapshot["since"] = since
+        else:
+            keep = parse_time(last) - OVERLAP
+            snapshot["last"] = last
+            snapshot["handled"] = {
+                number: at for number, at in handled.items()
+                if parse_time(at) >= keep
+            }
         state.parent.mkdir(parents=True, exist_ok=True)
-        state.write_text(json.dumps({"last": last, "handled": kept}, sort_keys=True) + "\n")
+        state.write_text(json.dumps(snapshot, sort_keys=True) + "\n")
 
     open_failed = False
     try:
@@ -283,11 +289,17 @@ def main() -> int:
                 handled[number] = pull["mergedAt"]  # a failed close retries while in the window
                 last = max(last, pull["mergedAt"]) if last else pull["mergedAt"]
         for pull in open_pull_requests():
+            number = str(pull["number"])
+            if number in open_handled:
+                continue
             if beads_named(pull, include_comments=True):
+                open_handled[number] = pull.get("createdAt") or format_time(datetime.now(timezone.utc))
                 continue
             _, outcome = create_for_pull(pull, args.dry_run)
             print(f"#{pull['number']} {outcome}")
             open_failed = open_failed or outcome.startswith("failed ")
+            if not outcome.startswith("failed "):
+                open_handled[number] = pull.get("createdAt") or format_time(datetime.now(timezone.utc))
     except BoardUnreachable as error:
         save()
         print(f"bead-autoclose: the board is unreachable ({error}); the rest waits for the next run",

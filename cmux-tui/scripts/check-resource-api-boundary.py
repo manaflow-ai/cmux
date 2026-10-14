@@ -233,6 +233,7 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "workspace.close",
         "workspace.create",
         "workspace.layout.apply",
+        "workspace.open_url",
         "workspace.run",
     }
 )
@@ -1093,6 +1094,26 @@ def _validate_catalog_type(
                 "types.SidebarLayoutSnapshot.fields.sections.items",
                 "types.SidebarLayoutOpSectionAdd.fields.section",
                 "types.SidebarLayoutOpItemAdd.fields.item",
+                # The sidebar document (sidebar-doc-v1): sections, items,
+                # targets, patches and ops are the reducer's own objects
+                # (cmux-layout-reducer sidebar_doc), validated there, and a
+                # newer app's keys must survive a round trip.
+                "types.SidebarSectionSnapshot.fields.kind",
+                "types.SidebarItemSnapshot.fields.body",
+                "types.SidebarDocMutation.fields.inverse.items",
+                "operations.sidebar.adopt.params.fields.refs.items",
+                "operations.sidebar.adopt.params.fields.to",
+                "operations.sidebar.apply.params.fields.ops.items",
+                "operations.sidebar.group.create.params.fields.to",
+                "operations.sidebar.group.update.params.fields.patch",
+                "operations.sidebar.item.add.params.fields.item",
+                "operations.sidebar.item.add.params.fields.to",
+                "operations.sidebar.item.update.params.fields.patch",
+                "operations.sidebar.move.params.fields.to",
+                "operations.sidebar.section.add.params.fields.place",
+                "operations.sidebar.section.add.params.fields.section",
+                "operations.sidebar.section.move.params.fields.place",
+                "operations.sidebar.section.update.params.fields.patch",
                 # Conversation message parts and reactions: the conversation
                 # reducer (cmux-conversation) validates them, and a newer
                 # app's part kinds (questions, attachments, work cards) must

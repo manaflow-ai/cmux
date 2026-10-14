@@ -4,6 +4,7 @@ import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSidebar
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
@@ -70,11 +71,13 @@ final class AppControl {
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
-            .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
+            .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
+            .mainActor("debug.sidebar_perf") { call in .value(.object(SidebarView.perfCounters(reset: call.params["reset"]?.boolValue == true).mapValues { .number(Double($0)) })) },
             // Click by Hint labels (hint-mode-e2e.py).
             .mainActor("debug.hints") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -132,7 +135,7 @@ final class AppControl {
             .mainActor("debug.layers") { [weak services] call in
                 guard let services else { return .value(.null) }
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
-                return .value(DebugLayers.report(services: services))
+                return .value(DebugLayers.report(services: services, params: call.params))
             },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
@@ -339,10 +342,10 @@ final class AppControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
-            // Instant new tab: spares, opening times, the field (new-tab.md 2.3).
+            // Instant new tab: spares, opening times, the field (new-tab.md 2.3); new terminal stages (cx-6so.58).
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
-            }.withDeadline(.fixed(.seconds(15))),
+            }.withDeadline(.fixed(.seconds(15))), DebugNewTerminalTrace.method(services),
             // R131: hover card retarget timing across the focused strip's tabs.
             .async("debug.hover_sweep") { [weak services] call in
                 guard let services else { return .null }

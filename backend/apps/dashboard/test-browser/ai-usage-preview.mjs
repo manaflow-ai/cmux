@@ -1,6 +1,6 @@
 // Run: start the console dev server (bun run dev), then `node test-browser/ai-usage-preview.mjs http://127.0.0.1:3010`
 // with playwright installed (a Freestyle webviews VM; never on the laptop). Writes screenshots to $ARTIFACTS_DIR.
-// Browser check of the AI usage preview route (cx-y79zh.1): screenshots of both variants in each state,
+// Browser check of the AI usage preview route (cx-y79zh.1): screenshots of each sample state,
 // and the hover/edit behavior: row actions hidden at rest, shown on hover; Edit -> field -> Save updates the limit.
 import { chromium } from "playwright"
 const base = process.argv[2] ?? "http://127.0.0.1:3010"
@@ -20,9 +20,10 @@ for (const scheme of ["light", "dark"]) {
 const page = await browser.newPage({ viewport: { width: 900, height: 900 } })
 const errors = []
 page.on("pageerror", (e) => errors.push(String(e)))
-for (const variant of ["meter", "ledger"]) {
-  await page.goto(`${base}/preview/ai-usage?state=billed-team&variant=${variant}`, { waitUntil: "networkidle" })
-  const row = variant === "meter" ? page.locator(".aiu-member").nth(2) : page.locator(".aiu-table tbody tr").nth(2)
+{
+  const variant = "meter"
+  await page.goto(`${base}/preview/ai-usage?state=billed-team`, { waitUntil: "networkidle" })
+  const row = page.locator(".aiu-member").nth(2)
   const action = row.locator(".aiu-actions button").first()
   check(`${variant}: actions hidden at rest`, !(await action.isVisible()))
   await row.hover()

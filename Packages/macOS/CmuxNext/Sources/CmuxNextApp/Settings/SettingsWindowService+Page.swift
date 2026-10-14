@@ -24,9 +24,8 @@ extension SettingsWindowService {
                 ]
             }),
             "profile_colors": .array(GroupColor.allCases.map { color in
-                // Opaque colors only (hex drops alpha): grey keeps its own swatch and fill.
-                ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.markColor)),
-                 "fill": .string(Self.hex(color == .grey ? color.fill : color.themedChipFill))]
+                // Opaque colors only (hex drops alpha).
+                ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.markColor)), "fill": .string(Self.hex(color.chipFill))]
             }),
             // R82 commit 4: theme levels of the active window, terminal facts, the settings file
             // and the wallpaper choices (thumbnails at cmux-page://cmux.settings/backdrop/<id>).
@@ -45,18 +44,16 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            // Art carries its picker collection (Dark Art, Museum Icons, Calm, Doré) and the
-            // person's own images theirs ("Your images"); the page groups the grid by it.
+            // Each choice carries its picker collection (an art collection, "Your images", Moving
+            // wallpapers); the page groups the grid by it.
             "backdrops": .array(Self.backdrops.choices.map { choice -> JSONValue in
                 var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(choice.title),
                                                 "attribution": .string(choice.attribution)]
-                if case .art(let art) = choice {
-                    row["collection"] = .string(art.collection.rawValue)
-                    row["collection_title"] = .string(art.collection.title)
-                } else if case .file = choice {
-                    row["collection"] = .string(BackdropUserImages.collection)
-                    row["collection_title"] = .string(BackdropUserImages.collectionTitle)
+                if let collection = choice.pickerCollection {
+                    row["collection"] = .string(collection.id)
+                    row["collection_title"] = .string(collection.title)
                 }
+                if choice.isVideo { row["video"] = .bool(true) }
                 return .object(row)
             }),
             "derived": .object(pageDerivedNumbers()),

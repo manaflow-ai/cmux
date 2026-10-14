@@ -132,7 +132,8 @@ impl Hub {
     }
 
     /// Reattach every running agent host. Called once at daemon start,
-    /// before agents may spawn.
+    /// before agents may spawn; a prompt to a kept session may still adopt
+    /// its host first (`readopt`).
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
         // Pooled sessions of a previous daemon were never taken: end them.
         self.sweep_pool_hosts().await;
@@ -165,6 +166,16 @@ impl Hub {
                 }
                 continue;
             };
+            // This runs after the ready line, so a prompt can reach the host
+            // first (`ensure_child` -> `readopt`, under the spawn lock). One
+            // adoption per host: a second link would replace the first
+            // child, and the requests open on it would be lost.
+            let _spawning = session.spawn_lock.lock().await;
+            if let Some(child) = session.child.lock().await.as_ref()
+                && child.is_alive().await
+            {
+                continue;
+            }
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }
@@ -487,13 +498,15 @@ impl Hub {
         work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
+        self.rebuild_processes(session);
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
             match (work.prompt_request.clone(), work.prompt_response.clone()) {
                 // The prompt never reached this host (or another host ran
                 // it): nothing can answer it any more.
                 (None, _) => {
                     let error = "the agent host never received this turn's prompt";
-                    self.append(session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error}));
+                    self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error}));
+                    self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
                     *session.turn.lock().unwrap() = Some(TurnInfo {
@@ -546,7 +559,19 @@ impl Hub {
         // now for an unsandboxed agent): its permissions are cancelled too,
         // never answered from the log or shown again.
         let floored = Self::web_turn(session) && self.remote_floor_breach(session).is_some();
-        for (id, m, params, _) in work.requests {
+        // Every request that starts its own task is counted before the
+        // answers below are sent, so no group of them is shown while one
+        // still waits for its spawn (`AskInFlight`).
+        let asks: Vec<_> = work
+            .requests
+            .iter()
+            .map(|(id, m, _, _)| {
+                (m == method::SESSION_REQUEST_PERMISSION
+                    && !work.permissions.contains_key(&id.to_string()))
+                .then(|| super::permission_groups::AskInFlight::new(session))
+            })
+            .collect();
+        for ((id, m, params, _), ask) in work.requests.into_iter().zip(asks) {
             if m == method::SESSION_REQUEST_PERMISSION
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
@@ -569,9 +594,9 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
-            tokio::spawn(
-                async move { hub.on_agent_request(s, id, m, params, epoch, turn_id).await },
-            );
+            tokio::spawn(async move {
+                hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
+            });
         }
     }
 

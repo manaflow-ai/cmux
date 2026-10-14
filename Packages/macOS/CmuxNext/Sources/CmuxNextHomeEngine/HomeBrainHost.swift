@@ -18,12 +18,11 @@ import os
 /// DevTools channel rule); Release and RC never bundle or start it: Home
 /// works and the Chief does not answer. Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
-/// The mux home is the Chief home (`ChiefHome`): one per account, shared by
-/// every build, so the memory is one history; isolated launches (agent
-/// preflights, tests) get their own. The host lock keeps one host per home:
-/// a second build's launch exits at once and its Home shows the running
-/// host's conversation, which lives in the Chief home's own owner. When the
-/// host dies while the app runs, Home starts it again (`ChiefBrainWatch`).
+/// The mux home is this build's Chief home (`ChiefHome`, one Chief per
+/// build); isolated launches (agent preflights, tests) get their own. The
+/// host lock keeps one host per home: a second launch (or one `cmux chief`
+/// started) exits at once. When the host dies while the app runs, Home
+/// starts it again (`ChiefBrainWatch`).
 public nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
@@ -69,11 +68,11 @@ public nonisolated struct HomeBrainHost: Sendable {
         acpmuxEnvironment["ACPMUX_HOME"] = home.acpmuxHome.path
         acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
         return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
-                             acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
+                             acpmux: AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
     }
 
-    /// The Chief home's mux home (`ChiefHome`), the same for every build of
-    /// one account; the engine bar, sidebar and files read it.
+    /// This build's Chief home's mux home (`ChiefHome`); the engine bar,
+    /// sidebar and files read it.
     public static func muxHome(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                         userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
@@ -93,6 +92,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
+            // `cmux chief` in the brain's turns and subagents opens this Chief
+            // (one Chief per build), never the shared home by default.
+            "CMUX_CHIEF_HOME": muxHome.path,
             // The host's chief create request must equal the app's (the owner
             // refuses a different request under the same key).
             "MUX_USER_NAME": HomeChiefName.localUserName,
@@ -104,7 +106,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             variables.merge(acpmux.childEnvironment) { $1 }
             variables["ACPMUX_BIN"] = acpmux.executable.path
         }
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "CMUX_MCP_COMMAND"] {
+        // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
+        // turns included, its own `cmux mcp serve` (one server per turn).
+        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
         return variables

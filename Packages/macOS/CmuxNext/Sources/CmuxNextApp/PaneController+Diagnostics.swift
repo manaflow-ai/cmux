@@ -95,6 +95,8 @@ struct PaneSurfaceStatus {
                 "drawing": terminal.drawing.map(JSONValue.bool) ?? .null,
                 "paused": terminal.pause.map { .string($0.rawValue) } ?? .null,
                 "grid": terminal.grid.map { .string("\($0.columns)x\($0.rows)") } ?? .null,
+                // What the view fits; `grid` follows it once the owner echoes the view's claim.
+                "fit_grid": terminal.fitGrid.map { .string("\($0.columns)x\($0.rows)") } ?? .null,
                 "in_host": .bool(terminal.surfaceInHost),
                 "in_window": .bool(terminal.inWindow),
                 "hidden": .bool(terminal.hidden),

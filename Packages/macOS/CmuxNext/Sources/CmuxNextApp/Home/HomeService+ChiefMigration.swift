@@ -21,19 +21,35 @@ nonisolated struct ChiefOwnerMigrationAdapter: ChiefMigrationOwner {
 }
 
 extension HomeService {
-    /// Moves the old per-tag Chiefs into the Chief home before Home or the
-    /// brain host use its owner (home-state-ownership.md section 7). While an
+    /// NIGHTLY only (``ChiefHome/importsOldChiefs``): backs up the shared
+    /// Chief home once (``ChiefAdoption``), then moves the old per-tag Chiefs
+    /// into it before Home or the brain host use its owner
+    /// (home-state-ownership.md section 7). While an
     /// older build's host still runs, Home says so and the owner stays
-    /// unpublished; the next launch tries again. Nothing is stopped.
+    /// unpublished; the next launch tries again. Nothing is stopped. Every
+    /// other build's Chief home starts empty.
     func installChiefMigration() {
         let home = chief.home
+        guard home.importsOldChiefs else { return }
         let create = HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let olds = ChiefMigration.oldChiefs(userHome: FileManager.default.homeDirectoryForCurrentUser, applicationSupport: support)
         let logger = logger
         let tool = BundledChiefMemoryTool.bundled()
+        let build = Bundle.main.bundleIdentifier ?? ChiefHome.nightlyBundleID
         chief.prepare = { [weak self] connection in
+            // NIGHTLY's backup of the shared home first, before anything here writes it.
+            // Nothing else here writes the home before its backup exists: a
+            // failed backup skips the move until a later launch.
+            do {
+                let adoption = try ChiefAdoption(home: home).run(by: build)
+                logger.info("chief adoption: \(String(describing: adoption), privacy: .public)")
+                if adoption == .busy { return }
+            } catch {
+                logger.error("chief adoption failed: \(String(describing: error), privacy: .public)")
+                return
+            }
             let outcome: ChiefMigration.Outcome
             do {
                 outcome = try await ChiefMigration.run(home: home, owner: ChiefOwnerMigrationAdapter(connection: connection, create: create), olds: olds, tool: tool)

@@ -3,8 +3,8 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 
-/// One color dot in the group editor: the theme's palette color, or for
-/// none (grey) the neutral fill with a hairline edge. The chosen dot gets a
+/// One color dot in the group editor: the group palette's swatch, or for
+/// none (grey) the grey swatch with a hairline edge. The chosen dot gets a
 /// ring in the primary text color.
 final class SidebarGroupSwatchView: NSView {
     let color: GroupColor
@@ -57,7 +57,7 @@ final class SidebarGroupSwatchView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            // The same color the group's header bar takes; none draws an edge too.
+            // The group's swatch, as its members' line draws it; none draws an edge too.
             fill.backgroundColor = color.headerFill.cgColor
             fill.borderColor = Palette.textTertiary.cgColor
             fill.borderWidth = color == .grey ? Metrics.dividerThickness : 0
@@ -172,12 +172,19 @@ enum GroupEditorStrings {
     static var customColor: String { String(localized: "sidebar.groupColor.custom", defaultValue: "Custom color", bundle: .module) }
     static var emoji: String { String(localized: "sidebar.groupEditor.emoji", defaultValue: "Choose emoji or icon", bundle: .module) }
 
-    /// A dot's spoken name: none, or its slot in the theme's palette (the
-    /// color itself follows the theme, so no fixed color word is used).
+    /// A dot's spoken name: none, or the palette color's own name (group
+    /// colors are a fixed palette, not the theme's).
     static func colorName(_ color: GroupColor) -> String {
-        guard color != .grey, let slot = GroupColor.editorOrder.firstIndex(of: color) else {
-            return String(localized: "sidebar.groupColor.none", defaultValue: "No color", bundle: .module)
+        switch color {
+        case .grey: String(localized: "sidebar.groupColor.none", defaultValue: "No color", bundle: .module)
+        case .blue: String(localized: "sidebar.groupColor.blue", defaultValue: "Blue", bundle: .module)
+        case .red: String(localized: "sidebar.groupColor.red", defaultValue: "Red", bundle: .module)
+        case .yellow: String(localized: "sidebar.groupColor.yellow", defaultValue: "Yellow", bundle: .module)
+        case .green: String(localized: "sidebar.groupColor.green", defaultValue: "Green", bundle: .module)
+        case .pink: String(localized: "sidebar.groupColor.pink", defaultValue: "Pink", bundle: .module)
+        case .purple: String(localized: "sidebar.groupColor.purple", defaultValue: "Purple", bundle: .module)
+        case .cyan: String(localized: "sidebar.groupColor.cyan", defaultValue: "Cyan", bundle: .module)
+        case .orange: String(localized: "sidebar.groupColor.orange", defaultValue: "Orange", bundle: .module)
         }
-        return String(format: String(localized: "sidebar.groupColor.slot", defaultValue: "Theme color %d", bundle: .module), slot)
     }
 }

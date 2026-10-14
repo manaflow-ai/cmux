@@ -44,6 +44,13 @@ import Testing
             if !arguments.isEmpty { params["args"] = .object(arguments) }
             runs.removeAll()
             let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: params))
+            // A person-only action keeps its CLI verb but the socket refuses it
+            // (browserProfile.delete since cx-dwg.10): exactly that refusal, and no run.
+            if descriptor.isPersonOnly {
+                Self.expectPersonOnlyRefusal(result, "\(descriptor.cliName) (\(descriptor.id))")
+                #expect(runs.isEmpty, "\(descriptor.id) ran over the socket")
+                continue
+            }
             if case .failure(let error) = result {
                 Issue.record("\(descriptor.cliName) (\(descriptor.id)): \(error.code) \(error.message)")
                 continue
@@ -51,6 +58,16 @@ import Testing
             #expect(runs.first?.0 == descriptor.id, "\(descriptor.cliName) ran \(String(describing: runs.first?.0))")
             #expect(runs.first?.1.origin == .script, "\(descriptor.id) origin")
         }
+    }
+
+    static func expectPersonOnlyRefusal(_ result: Result<JSONValue, ControlError>, _ context: String) {
+        guard case .failure(let error) = result else {
+            Issue.record("\(context): expected the person-only refusal, got \(result)")
+            return
+        }
+        #expect(error.code == "unavailable", "\(context): \(error.message)")
+        #expect(error.data?["reason"] == .string(ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action")),
+                "\(context): \(error.message)")
     }
 
     @Test func actionListReportsEverySurface() throws {

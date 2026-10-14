@@ -26,6 +26,9 @@ public struct Motion {
     /// (`NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`).
     public static let reduceMotionDidChange = Notification.Name("CmuxNextDesign.Motion.reduceMotionDidChange")
 
+    /// Posted on the main actor when `ui.animationSpeed` (`DesignSettings.animationSpeed`) changes.
+    public static let speedDidChange = Notification.Name("CmuxNextDesign.Motion.speedDidChange")
+
     /// System Reduce Motion (Accessibility > Display), or the test override.
     public static var reduceMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -33,10 +36,15 @@ public struct Motion {
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
 
-    public static var policy: MotionPolicy { MotionPolicy(speed: speed, reduceMotion: reduceMotion) }
+    public static var policy: MotionPolicy { MotionPolicy(speed: speed, reduceMotion: reduceMotion, liveResize: isLiveResizing) }
 
     /// Position, size, scale and scroll animate. When false, snap.
     public static var animatesMovement: Bool { policy.animatesMovement }
+    /// Pane layout changes (split, close, move, swap, zoom, column reveal,
+    /// screen switch) spring: `ui.paneAnimations` is on and movement
+    /// animates. Off by default, so they apply in one frame; direct
+    /// manipulation (trackpad fling, wheel, divider drag) keeps its physics.
+    public static var animatesPaneLayout: Bool { DesignSettings.shared.paneAnimations && animatesMovement }
     /// Opacity and color changes animate.
     public static var animatesFades: Bool { policy.animatesFades }
     /// Spinners and pulses run.

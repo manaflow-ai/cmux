@@ -40,16 +40,4 @@ export const AI_USAGE_CSS = `
 .aiu-edit input { width: 7em; font-variant-numeric: tabular-nums; }
 .aiu-dollar { color: var(--muted); }
 .aiu-hint { flex-basis: 100%; color: var(--muted); font-size: 12px; }
-.aiu-stats { display: flex; gap: 40px; margin: 0; }
-.aiu-stats div { display: flex; flex-direction: column; }
-.aiu-stats dt { color: var(--muted); font-size: 13px; }
-.aiu-stats dd { margin: 2px 0 0; font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.aiu-v-ledger .aiu-meta { display: inline; }
-.aiu-sentence { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; border-radius: calc(var(--aiu-r) - 6px); }
-.aiu-table th { color: var(--muted); font-weight: 500; font-size: 13px; border-bottom: 1px solid var(--line); }
-.aiu-table td, .aiu-table th { padding: 10px 12px; vertical-align: middle; }
-.aiu-table tr:last-child td { border-bottom: 0; }
-.aiu-table td .aiu-actions { margin-left: 8px; }
-.aiu-num { text-align: right; font-variant-numeric: tabular-nums; }
-.aiu-num .aiu-flag { display: block; }
 `

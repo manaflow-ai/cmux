@@ -49,7 +49,22 @@ shown or hidden; tab animations must be fast and smooth.
    Use Normal Animations, Turn Off Animations
    (`appearance.animationSpeed.{fast,normal,off}`). "off" wins over Reduce
    Motion.
-9. Performance (architecture.md sections 3 and 5): hot-path animation is
+9. Pane layout motion is OFF by default (Lawrence 2026-10-14: "get rid of
+   big animations by default for the panes"). `ui.paneAnimations` (toggle
+   "Animate Panes", default false) gates every pane layout spring:
+   split grow-in, close and move-away, swap, zoom and unzoom
+   (`PaneZoomMotion`), divider ratio changes from the model, the column
+   strip's programmatic reveal and centering, row reveal and the screen
+   switch slide. Off: they apply in one frame (`Motion.animatesPaneLayout`,
+   read by `LayoutViewContext.animatesPaneLayout`). Why instant and not a
+   short fade: a terminal reflows once at the final size, nothing draws a
+   half-moved pane, and a crossfade over a reflowing terminal reads as
+   flicker; it also matches classic cmux, whose splits apply at once. Kept
+   on: direct manipulation (trackpad fling settle, wheel notches, divider
+   drag), focus ring and dim fades, hover feedback, tab strip motion and
+   the drop-target overlay. `ui.paneAnimations` true restores the springs;
+   `ui.animationSpeed` "off" and Reduce Motion still snap them.
+10. Performance (architecture.md sections 3 and 5): hot-path animation is
    CALayer or display-link driven; a display link runs only while something
    moves and pauses itself; idle CPU stays 0%; nothing blocks the main
    thread. The token lookup is a Bool and a multiply per spring step.

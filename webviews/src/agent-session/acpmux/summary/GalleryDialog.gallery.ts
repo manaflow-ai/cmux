@@ -47,7 +47,7 @@ export default agentPaneEntry({
   id: "agent-pane.chat-gallery",
   title: "Chat gallery",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/summary/GalleryDialog.tsx", "agent-session/acpmux/summary/SummaryPopover.tsx"],
+  covers: ["agent-session/acpmux/summary/GalleryDialog.tsx", "agent-session/acpmux/summary/SummaryBody.tsx"],
   // The gallery opens over the pane; nothing under it moves.
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   checks: {
