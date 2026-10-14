@@ -26,6 +26,9 @@ public final class AppStore {
     public var macData: [String: MacDataMachine] = [:]
     /// Live mode: this phone's connection to each Mac it dials.
     public var macConnection: [String: MacConnection] = [:]
+    /// What each Mac's host said it does (`version` service `capabilities`), for
+    /// Macs this phone has linked to. Absent: unknown (older host, or never linked).
+    public var macCapabilities: [String: Set<String>] = [:]
     /// True once live data drives the store (false in mock mode).
     public var tracksMacData = false
     /// How many Macs the signed-in account has in any team or its personal
