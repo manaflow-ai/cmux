@@ -63,13 +63,15 @@ impl HomeView {
     /// The CLI the reads run: the `cmux-tui` beside the bundled `cmux` (the same binary of the
     /// same build). The `cmux` name is the curated CLI, which refuses the `session` scope
     /// (`"session" is not part of cmux`); the `cmux-tui` name keeps the full grammar that the
-    /// app's own tooling uses. Without a bundled CLI: `cmux-tui` on PATH.
+    /// app's own tooling uses. Without a bundled CLI, or with no `cmux-tui` beside it:
+    /// `cmux-tui` on PATH.
     pub fn cli_for(bundled_cmux: Option<&Path>) -> PathBuf {
         let name = format!("cmux-tui{}", std::env::consts::EXE_SUFFIX);
-        match bundled_cmux.and_then(Path::parent) {
-            Some(dir) if !dir.as_os_str().is_empty() => dir.join(name),
-            _ => PathBuf::from(name),
-        }
+        bundled_cmux
+            .and_then(Path::parent)
+            .map(|dir| dir.join(&name))
+            .filter(|beside| beside.is_file())
+            .unwrap_or_else(|| PathBuf::from(name))
     }
 
     /// The block for this turn: None when the daemon has no home workspace.

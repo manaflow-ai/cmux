@@ -695,9 +695,9 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
     for harness in ["claude", "claude-sr"] {
         let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
         // An allowlist of built-ins (checked on Claude Code 2.1.287: the
-        // session's init lists exactly these and the Chief's MCP tools), so
-        // a built-in a later Claude Code adds is not offered to a turn.
-        // ToolSearch loads the cmux MCP tools that wait behind it (cx-l0vf8).
+        // session's init lists exactly these built-ins), so a built-in a
+        // later Claude Code adds is not offered to a turn. ToolSearch loads
+        // the cmux MCP tools that wait behind it (cx-l0vf8).
         assert_eq!(
             turn.args,
             [
