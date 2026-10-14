@@ -74,7 +74,10 @@ btag=$(basename "$app" .app); btag=${btag#cmux DEV }
 as="/Users/cmux/Library/Application Support" bid=com.cmuxterm.app.debug.$btag.capslot$slot
 state="'$as/cmux/$btag-capslot$slot' '$as/cmux/tags/$btag-capslot$slot' '$as/cmux/$bid' '$as/cmux/managed-status.$bid.json' '$as/cmux-next/$bid' '/Users/cmux/Library/Caches/$bid' '/Users/cmux/.acpmux/tags/$btag-capslot$slot'"
 ssh "$host" "rm -rf $state"
-capture-host launch "$lease" "$app" pspeed >"$work/launch" 2>&1
+# A slot app is never visible, so App Nap drops it to priority 4 after ~20 s; on a loaded host the
+# main thread then waits seconds to be scheduled and every timing (and the DEBUG watchdog) reads
+# the host, not cmux. Keep it awake.
+capture-host launch "$lease" "$app" pspeed -- -NSAppSleepDisabled YES >"$work/launch" 2>&1
 grep -q 'pid=' "$work/launch" || { echo "launch failed: $(tail -3 "$work/launch")" >&2; exit 3; }
 cat "$work/launch"
 pid=$(grep -o 'pid=[0-9]*' "$work/launch" | head -1 | cut -d= -f2)
