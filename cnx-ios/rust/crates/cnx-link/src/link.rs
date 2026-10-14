@@ -44,6 +44,9 @@ const LANE_CONFIRM: Duration = Duration::from_secs(10);
 /// How long opening an input-lane channel waits for a negotiated lane that
 /// is still connecting before it falls back to the main stream.
 const LANE_WAIT: Duration = Duration::from_secs(2);
+/// How long one full channel may hold the link reader before that channel
+/// is closed (`overflow`) so the rest of the link keeps flowing.
+const CHANNEL_STALL: Duration = Duration::from_secs(3);
 
 /// Which end of the link this is: the phone opens odd channel ids, the Mac
 /// even ones. Channel 0 carries pings.
@@ -820,10 +823,28 @@ async fn read_loop<R>(
             }
             FrameType::Data => {
                 let tx = inner.lock_channels().get(&frame.channel).map(|route| route.tx.clone());
-                if let Some(tx) = tx
-                    && tx.send(ChannelEvent::Data(frame.payload)).await.is_err()
-                {
-                    inner.lock_channels().remove(&frame.channel);
+                if let Some(tx) = tx {
+                    // A full channel holds the reader only briefly: a channel
+                    // nobody reads must not stall the whole link (pings and
+                    // every other channel behind it, until the peer's
+                    // keepalive gives up). Past the stall budget the channel
+                    // is closed `overflow` on both sides and the link goes on.
+                    match tokio::time::timeout(CHANNEL_STALL, tx.send(ChannelEvent::Data(frame.payload)))
+                        .await
+                    {
+                        Ok(Ok(())) => {}
+                        Ok(Err(_)) => {
+                            inner.lock_channels().remove(&frame.channel);
+                        }
+                        Err(_) => {
+                            tracing::warn!(
+                                channel = frame.channel,
+                                "channel not read for {CHANNEL_STALL:?}; closing it"
+                            );
+                            inner.lock_channels().remove(&frame.channel);
+                            refuse(&inner, stream, frame.channel, "overflow", "the channel was not read");
+                        }
+                    }
                 }
             }
             FrameType::Close => {
@@ -1267,6 +1288,54 @@ mod tests {
         assert_eq!(input["lane"], "input");
         let old: OpenRequest = serde_json::from_str(r#"{"service":"daemon"}"#).unwrap();
         assert_eq!(old.lane, Lane::Bulk);
+    }
+
+    /// A channel its owner never reads (a terminal screen that never got
+    /// attached) fills up; the link reader must not stall behind it, or
+    /// pings and every other channel stop and the peer's keepalive closes a
+    /// healthy link. The stuck channel is closed `overflow` instead.
+    #[tokio::test]
+    async fn an_unread_channel_does_not_stall_the_link() {
+        let (phone, mac) = pair();
+        let server = tokio::spawn(async move {
+            // The first channel floods; the second echoes.
+            let flood = mac.accept().await.expect("flood");
+            let mut echo = mac.accept().await.expect("echo");
+            let flooder = tokio::spawn(async move {
+                let mut channel = flood.channel;
+                let mut sent = 0usize;
+                while channel.send(Bytes::from_static(&[9u8; 64])).await.is_ok() {
+                    sent += 1;
+                    if sent > CHANNEL_DEPTH * 4 {
+                        break;
+                    }
+                }
+                // The phone closed it once it stalled the reader.
+                loop {
+                    match channel.recv().await {
+                        Some(ChannelEvent::Closed(info)) => return info.code,
+                        Some(_) => {}
+                        None => return "gone".to_owned(),
+                    }
+                }
+            });
+            while let Some(ChannelEvent::Data(bytes)) = echo.channel.recv().await {
+                echo.channel.send(bytes).await.unwrap();
+            }
+            (mac, flooder.await.unwrap())
+        });
+        let _unread = phone.open("flood", serde_json::json!({})).await.unwrap();
+        let mut echo = phone.open("echo", serde_json::json!({})).await.unwrap();
+        tokio::time::sleep(CHANNEL_STALL + Duration::from_millis(500)).await;
+        echo.send(Bytes::from_static(b"still here")).await.unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(5), echo.recv()).await.expect("echo answered");
+        assert!(matches!(reply, Some(ChannelEvent::Data(b)) if &b[..] == b"still here"));
+        assert!(tokio::time::timeout(Duration::from_secs(2), phone.ping()).await.unwrap().is_ok());
+        assert!(!phone.is_closed());
+        drop(echo);
+        phone.close("done");
+        let (_mac, code) = server.await.unwrap();
+        assert_eq!(code, "overflow");
     }
 
     /// Any inbound frame proves the peer is alive: a link receiving data

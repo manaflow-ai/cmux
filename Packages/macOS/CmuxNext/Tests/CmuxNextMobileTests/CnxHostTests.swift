@@ -60,6 +60,10 @@ import Testing
         #expect(environment["CMUX_SOCKET_PASSWORD"] == nil)
         #expect(environment["CNX_REFRESH_TOKEN"] == nil)
         #expect(environment.keys.allSatisfy { !$0.lowercased().contains("token") })
+        #expect(environment["CNX_AGENT_TAB_HOST"] == nil)
+        var withHost = launch
+        withHost.agentTabHost = "install:mac-1"
+        #expect(withHost.environment(inherited: [:])["CNX_AGENT_TAB_HOST"] == "install:mac-1")
         #expect(environment["CNX_CHIEF_SESSION"] == nil)
         var chief = launch
         chief.chiefSession = "cmux-chief-c39c6f72"

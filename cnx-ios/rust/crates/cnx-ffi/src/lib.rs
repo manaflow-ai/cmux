@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use cnx_link::api::ApiClient;
+use cnx_link::api::{HttpClient, IceCache, IceServer};
 use cnx_link::link::{ChannelReceiver, ChannelSender};
-use cnx_link::{ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient};
+use cnx_link::{ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient, Timeline};
 use tokio::runtime::Runtime;
 
 mod browser;
@@ -140,20 +141,37 @@ pub enum ChannelMessage {
     },
 }
 
+/// One step of a dial, `millis` after `connect` was called.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TimingMark {
+    pub name: String,
+    pub millis: f64,
+}
+
+fn timing_marks(timeline: &Timeline) -> Vec<TimingMark> {
+    timeline
+        .marks()
+        .into_iter()
+        .map(|(name, at)| TimingMark { name, millis: (at.as_secs_f64() * 10_000.0).round() / 10.0 })
+        .collect()
+}
+
 /// A connected link to one Mac.
 #[derive(uniffi::Object)]
 pub struct LinkHandle {
     link: cnx_link::Link,
-    signaling: SignalingClient,
+    /// The (shared, warm) signaling socket this link was dialed on; it
+    /// stays open for the next dial while the warm pool holds it.
+    _signaling: Arc<WarmSocket>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cnx_link::LinkPath>,
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    timeline: Timeline,
 }
 
 impl Drop for LinkHandle {
     fn drop(&mut self) {
         self.link.close("handle dropped");
-        self.signaling.close();
         if let Some(task) = self.watcher.lock().unwrap_or_else(PoisonError::into_inner).take() {
             task.abort();
         }
@@ -259,10 +277,17 @@ impl LinkHandle {
         self.link.is_closed()
     }
 
-    /// Close the link, its transport and its signaling socket.
+    /// Close the link and its transport. The signaling socket stays warm
+    /// for the next dial (`reset_warm_state` closes it).
     pub fn close(&self) {
         self.link.close("closed by the app");
-        self.signaling.close();
+    }
+
+    /// The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
+    /// `link_ready`, ...), each in milliseconds since `connect` was called.
+    /// Marks recorded later (the first ping, `first_pong`) appear as they come.
+    pub fn timings(&self) -> Vec<TimingMark> {
+        timing_marks(&self.timeline)
     }
 }
 
@@ -414,9 +439,10 @@ pub async fn connect_inner(
     request: ConnectRequest,
     observer: Option<Arc<dyn LinkObserver>>,
 ) -> Result<Arc<LinkHandle>, CnxError> {
+    let timeline = Timeline::new();
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
-    let result = dial(&request).await;
+    let result = dial(&request, &timeline).await;
     let (connected, signaling) = match result {
         Ok(ok) => ok,
         Err(error) => {
@@ -455,19 +481,205 @@ pub async fn connect_inner(
     });
     // Measure once right away so the app shows an RTT immediately.
     let first_ping = connected.link.clone();
+    let ping_timeline = timeline.clone();
     tokio::spawn(async move {
-        let _ = first_ping.ping().await;
+        if first_ping.ping().await.is_ok() {
+            ping_timeline.mark("first_pong");
+        }
     });
     Ok(Arc::new(LinkHandle {
         link: connected.link,
-        signaling,
+        _signaling: signaling,
         transport,
         path: connected.path,
         watcher: Mutex::new(Some(watcher)),
+        timeline,
     }))
 }
 
-async fn dial(request: &ConnectRequest) -> Result<(cnx_link::Connected, SignalingClient), CnxError> {
+// MARK: Warm state
+
+/// What identifies a signaling socket: one per (service, team, device).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SocketKey {
+    base_url: String,
+    team_id: String,
+    device_id: String,
+}
+
+/// A signaling socket shared by the warm pool and the links dialed on it;
+/// it closes when the last of them lets go.
+#[doc(hidden)]
+pub struct WarmSocket {
+    key: SocketKey,
+    client: SignalingClient,
+}
+
+impl Drop for WarmSocket {
+    fn drop(&mut self) {
+        self.client.close();
+    }
+}
+
+/// Process-wide state kept between dials so a dial does not pay for work
+/// an earlier dial or `prewarm` already did: one HTTP connection pool (a
+/// warm TLS connection to the service), `GET /v1/ice` results per service
+/// (TTL-aware), and the link device's signaling socket.
+struct Warm {
+    http: HttpClient,
+    ice: Mutex<Vec<(String, Arc<IceCache>)>>,
+    /// Warm sockets, newest last (a few: one per team and device in use).
+    sockets: tokio::sync::Mutex<Vec<Arc<WarmSocket>>>,
+    /// Held while a socket opens, so a dial that starts while `prewarm` is
+    /// opening one waits for it instead of opening a second (the service
+    /// keeps one socket per device and would close the first).
+    opening: tokio::sync::Mutex<()>,
+}
+
+/// How many warm sockets are kept (the oldest goes first).
+const MAX_WARM_SOCKETS: usize = 8;
+
+fn warm() -> &'static Warm {
+    static WARM: OnceLock<Warm> = OnceLock::new();
+    WARM.get_or_init(|| Warm {
+        http: ApiClient::http_client(),
+        ice: Mutex::new(Vec::new()),
+        sockets: tokio::sync::Mutex::new(Vec::new()),
+        opening: tokio::sync::Mutex::new(()),
+    })
+}
+
+/// How long `GET /v1/ice` may take before a dial goes on with host candidates only.
+const ICE_BUDGET: Duration = Duration::from_secs(8);
+/// How long a reused socket may stay silent after a ping before the dial
+/// gives up on it and opens a fresh one.
+const STALE_PROBE: Duration = Duration::from_millis(2500);
+
+impl Warm {
+    fn ice_cache(&self, base_url: &str) -> Arc<IceCache> {
+        let mut caches = self.ice.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, cache)) = caches.iter().find(|(url, _)| url == base_url) {
+            return Arc::clone(cache);
+        }
+        let cache = Arc::new(IceCache::new());
+        caches.push((base_url.to_owned(), Arc::clone(&cache)));
+        cache
+    }
+
+    async fn ice_servers(&self, base_url: &str, token: &str, timeline: &Timeline) -> Vec<IceServer> {
+        let api = ApiClient::with_http(base_url, token, self.http.clone());
+        let (servers, cached) = self.ice_cache(base_url).get(&api, ICE_BUDGET).await;
+        timeline.mark(if cached { "ice_servers_cached" } else { "ice_servers_fetched" });
+        servers
+    }
+
+    /// The pooled socket for `key` while open (no probe).
+    async fn pooled(&self, key: &SocketKey) -> Option<Arc<WarmSocket>> {
+        let pool = self.sockets.lock().await;
+        pool.iter().rev().find(|s| s.key == *key && s.client.closed_reason().is_none()).cloned()
+    }
+
+    /// The pooled socket for `key` (true), else a new one (false), waiting
+    /// for one already opening.
+    async fn pooled_or_open(
+        &self,
+        key: &SocketKey,
+        token: &str,
+        timeline: &Timeline,
+    ) -> Result<(Arc<WarmSocket>, bool), CnxError> {
+        if let Some(socket) = self.pooled(key).await {
+            return Ok((socket, true));
+        }
+        let _opening = self.opening.lock().await;
+        if let Some(socket) = self.pooled(key).await {
+            timeline.mark("signaling_joined");
+            return Ok((socket, true));
+        }
+        Ok((self.open_locked(key, token, timeline).await?, false))
+    }
+
+    /// A new socket for `key`, now the pooled one.
+    async fn open(
+        &self,
+        key: &SocketKey,
+        token: &str,
+        timeline: &Timeline,
+    ) -> Result<Arc<WarmSocket>, CnxError> {
+        let _opening = self.opening.lock().await;
+        self.open_locked(key, token, timeline).await
+    }
+
+    async fn open_locked(
+        &self,
+        key: &SocketKey,
+        token: &str,
+        timeline: &Timeline,
+    ) -> Result<Arc<WarmSocket>, CnxError> {
+        let client = SignalingClient::connect(&key.base_url, token, &key.team_id, &key.device_id)
+            .await
+            .map_err(|e| CnxError::Signaling { message: e.to_string() })?;
+        timeline.mark("signaling_open");
+        let socket = Arc::new(WarmSocket { key: key.clone(), client });
+        let mut pool = self.sockets.lock().await;
+        pool.retain(|s| s.key != *key && s.client.closed_reason().is_none());
+        pool.push(Arc::clone(&socket));
+        if pool.len() > MAX_WARM_SOCKETS {
+            pool.remove(0);
+        }
+        Ok(socket)
+    }
+
+    /// Forget `socket` if it is the pooled one.
+    async fn evict(&self, socket: &Arc<WarmSocket>) {
+        self.sockets.lock().await.retain(|s| !Arc::ptr_eq(s, socket));
+    }
+}
+
+/// Warm what the next `connect` to this service, team and device needs:
+/// fetch the ICE servers (unless cached) and open the signaling socket
+/// (or, when one is open, check that it still answers). Call at launch,
+/// on foreground and after sign-in, before the user asks for a Mac. Never
+/// fails: the dial redoes whatever could not be warmed. Returns the steps.
+#[uniffi::export]
+pub async fn prewarm(base_url: String, token: String, team_id: String, device_id: String) -> Vec<TimingMark> {
+    on_runtime(async move {
+        let timeline = Timeline::new();
+        let key = SocketKey { base_url: base_url.clone(), team_id, device_id };
+        let socket = async {
+            if let Some(socket) = warm().pooled(&key).await {
+                if socket.client.probe(STALE_PROBE).await {
+                    timeline.mark("signaling_alive");
+                    return;
+                }
+                timeline.mark("signaling_stale");
+                warm().evict(&socket).await;
+            }
+            if warm().pooled_or_open(&key, &token, &timeline).await.is_err() {
+                timeline.mark("signaling_failed");
+            }
+        };
+        tokio::join!(warm().ice_servers(&base_url, &token, &timeline), socket);
+        timing_marks(&timeline)
+    })
+    .await
+}
+
+/// Forget every warm socket and cached ICE server (sign-out, account switch).
+#[uniffi::export]
+pub async fn reset_warm_state() {
+    on_runtime(async move {
+        warm().sockets.lock().await.clear();
+        for (_, cache) in warm().ice.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+            cache.clear();
+        }
+    })
+    .await;
+}
+
+async fn dial(
+    request: &ConnectRequest,
+    timeline: &Timeline,
+) -> Result<(cnx_link::Connected, Arc<WarmSocket>), CnxError> {
     for (name, value) in [
         ("base_url", &request.base_url),
         ("team_id", &request.team_id),
@@ -478,35 +690,90 @@ async fn dial(request: &ConnectRequest) -> Result<(cnx_link::Connected, Signalin
             return Err(CnxError::InvalidArgument { message: format!("{name} is empty") });
         }
     }
-    let api = ApiClient::new(&request.base_url, &request.token);
-    let ice = tokio::time::timeout(Duration::from_secs(8), api.ice()).await;
-    let ice_servers = match ice {
-        Ok(Ok(config)) => config.ice_servers,
-        _ => Vec::new(),
+    let key = SocketKey {
+        base_url: request.base_url.clone(),
+        team_id: request.team_id.clone(),
+        device_id: request.device_id.clone(),
     };
-    let signaling =
-        SignalingClient::connect(&request.base_url, &request.token, &request.team_id, &request.device_id)
-            .await
-            .map_err(|e| CnxError::Signaling { message: e.to_string() })?;
+    // ICE servers and the signaling socket are independent: get both at once.
+    let socket = async {
+        let (socket, reused) = warm().pooled_or_open(&key, &request.token, timeline).await?;
+        if reused {
+            timeline.mark("signaling_reused");
+        }
+        Ok::<_, CnxError>((socket, reused))
+    };
+    let (ice_servers, socket) =
+        tokio::join!(warm().ice_servers(&request.base_url, &request.token, timeline), socket);
+    let (socket, reused) = socket?;
     let options = DialOptions {
         ice_servers,
         include_loopback: request.include_loopback,
         relay_only: request.relay_only,
+        timeline: timeline.clone(),
         ..DialOptions::default()
     };
-    match cnx_link::dial::connect(
-        &signaling,
+    let attempt = dial_on(&socket, request, &options, reused).await;
+    match attempt {
+        Ok(connected) => Ok((connected, socket)),
+        Err(Attempt::Stale) => {
+            // The reused socket stopped answering (a phone that slept, a NAT
+            // that forgot it): redial on a fresh one, once.
+            timeline.mark("signaling_stale");
+            warm().evict(&socket).await;
+            let socket = warm().open(&key, &request.token, timeline).await?;
+            match dial_on(&socket, request, &options, false).await {
+                Ok(connected) => Ok((connected, socket)),
+                Err(Attempt::Stale) => unreachable!("only a reused socket is probed"),
+                Err(Attempt::Failed(error)) => Err(fail(&socket, error).await),
+            }
+        }
+        Err(Attempt::Failed(error)) => Err(fail(&socket, error).await),
+    }
+}
+
+enum Attempt {
+    Stale,
+    Failed(DialError),
+}
+
+/// A failed dial on a socket the backend dropped evicts it, so the retry
+/// opens a new one.
+async fn fail(socket: &Arc<WarmSocket>, error: DialError) -> CnxError {
+    if socket.client.closed_reason().is_some() || matches!(error, DialError::Signaling(_)) {
+        warm().evict(socket).await;
+    }
+    error.into()
+}
+
+/// Dial on `socket`. A reused socket is probed while the dial runs: when it
+/// does not answer within `STALE_PROBE`, the dial is abandoned as stale
+/// instead of waiting out its whole timeout.
+async fn dial_on(
+    socket: &Arc<WarmSocket>,
+    request: &ConnectRequest,
+    options: &DialOptions,
+    probe: bool,
+) -> Result<cnx_link::Connected, Attempt> {
+    let dial = cnx_link::dial::connect(
+        &socket.client,
         &request.mac_device_id,
         request.transport.into(),
-        &options,
+        options,
         LinkConfig::default(),
-    )
-    .await
-    {
-        Ok(connected) => Ok((connected, signaling)),
-        Err(error) => {
-            signaling.close();
-            Err(error.into())
+    );
+    if !probe {
+        return dial.await.map_err(Attempt::Failed);
+    }
+    tokio::pin!(dial);
+    tokio::select! {
+        result = &mut dial => result.map_err(Attempt::Failed),
+        false = socket.client.probe(STALE_PROBE) => {
+            // The probe failing may race a dial that just succeeded.
+            match tokio::time::timeout(Duration::from_millis(1), &mut dial).await {
+                Ok(result) => result.map_err(Attempt::Failed),
+                Err(_) => Err(Attempt::Stale),
+            }
         }
     }
 }

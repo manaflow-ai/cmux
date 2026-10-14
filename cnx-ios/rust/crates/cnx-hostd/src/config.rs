@@ -33,6 +33,15 @@ pub struct ServiceConfig {
     /// Workspace roots the `file` service may read below. Empty denies all.
     pub file_roots: Vec<PathBuf>,
     pub acpmux: AcpmuxTarget,
+    /// `CNX_AGENT_TAB_HOST`: the `agent_session.host` this Mac's app records
+    /// on its own agent tabs (`install:<id>`). Unset: no agent tabs from a phone.
+    pub agent_tab_host: Option<String>,
+    /// `CNX_UPLOADS_DIR` (default `<state>/uploads`): where the `upload`
+    /// service writes a file that has no workspace folder, one folder per
+    /// link session.
+    pub uploads_dir: PathBuf,
+    /// `CNX_UPLOAD_MAX_BYTES`: the largest file one `upload` accepts.
+    pub upload_max_bytes: u64,
     /// The Chief's conversation owner socket (the `chief` service):
     /// `CNX_CHIEF_SOCKET`, else `<tui_socket_dir>/<CNX_CHIEF_SESSION>.sock`,
     /// else the session of `~/.cmux/chief/<CMUX_NEXT_CHIEF_ACCOUNT or default>`
@@ -42,6 +51,8 @@ pub struct ServiceConfig {
     pub browser: crate::browser::BrowserConfig,
 }
 
+/// The default `upload` size cap: 100 MiB.
+pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// `ChiefHome.sessionName`: `cmux-chief-` and the FNV-1a 32 hash of the
 /// home's path, so hostd finds the owner every Mac build shares.
 pub fn chief_session_name(root: &Path) -> String {
@@ -204,6 +215,13 @@ impl HostConfig {
                 default_socket: env("CNX_TUI_SOCKET").map(PathBuf::from),
                 file_roots,
                 acpmux,
+                agent_tab_host: env("CNX_AGENT_TAB_HOST"),
+                uploads_dir: env("CNX_UPLOADS_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| default_state_dir().join("uploads")),
+                upload_max_bytes: env("CNX_UPLOAD_MAX_BYTES")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(DEFAULT_UPLOAD_MAX_BYTES),
                 browser,
             },
         })

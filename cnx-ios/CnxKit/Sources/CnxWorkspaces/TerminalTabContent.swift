@@ -68,55 +68,34 @@ public struct TerminalTabAction {
     }
 }
 
-/// Stand-in until CnxTerminal lands: a static terminal-looking page.
+/// The default when no terminal content is wired (previews and tests; the
+/// shell passes the Ghostty content). It says so instead of drawing a fake
+/// shell.
 public final class PlaceholderTerminalTabContent: TerminalTabContent {
     public init() {}
 
     public func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
-        AnyView(PlaceholderTerminalPage(tab: tab, workspace: workspace, insets: context.safeAreaInsets))
+        AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets))
     }
 
     public func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
-        AnyView(PlaceholderTerminalPage(tab: tab, workspace: workspace, insets: EdgeInsets(top: 62, leading: 0, bottom: 90, trailing: 0)))
+        AnyView(PlaceholderTerminalPage(tab: tab, insets: EdgeInsets(top: 62, leading: 0, bottom: 90, trailing: 0)))
     }
 }
 
 struct PlaceholderTerminalPage: View {
     let tab: WorkspaceTab
-    let workspace: Workspace
     let insets: EdgeInsets
 
-    private var lines: [String] {
-        let dir = tab.subtitle ?? workspace.directory
-        return [
-            "Last login: Sun Oct 12 09:41:07 on ttys004",
-            "\(dir) \(workspace.branch.map { "(\($0)) " } ?? "")$ \(tab.title)",
-            "",
-        ]
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(line.isEmpty ? " " : line)
-            }
-            HStack(spacing: 0) {
-                Text("\(tab.subtitle ?? workspace.directory) $ ")
-                Rectangle().fill(Color.white.opacity(0.85)).frame(width: 8, height: 15)
-            }
-            Spacer(minLength: 0)
-            Text("Live terminal arrives with CnxTerminal")
-                .font(.footnote)
-                .foregroundStyle(Color.white.opacity(0.35))
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 12)
+        ContentUnavailableView {
+            Label(tab.title, systemImage: "apple.terminal")
+        } description: {
+            Text("This terminal isn't available.")
         }
-        .font(.system(size: 13, design: .monospaced))
-        .foregroundStyle(Color.white.opacity(0.9))
-        .padding(.horizontal, 12)
-        .padding(.top, insets.top + 8)
+        .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .environment(\.colorScheme, .dark)
     }

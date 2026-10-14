@@ -8,13 +8,21 @@ import Testing
         let sps: [UInt8] = [0x67, 1, 2]
         let pps: [UInt8] = [0x68, 3]
         let idr: [UInt8] = [0x65, 9, 9, 9]
-        let bytes = Data([0, 0, 0, 1, 0x09, 0xF0] + [0, 0, 0, 1] + sps + [0, 0, 1] + pps + [0, 0, 0, 1] + idr)
+        let aud: [UInt8] = [0, 0, 0, 1, 0x09, 0xF0]
+        let start4: [UInt8] = [0, 0, 0, 1]
+        let start3: [UInt8] = [0, 0, 1]
+        var stream: [UInt8] = aud
+        stream += start4 + sps
+        stream += start3 + pps
+        stream += start4 + idr
+        let bytes = Data(stream)
         let unit = AnnexBAccessUnit(bytes)
         #expect(unit.sps == Data(sps))
         #expect(unit.pps == Data(pps))
         #expect(unit.isIDR)
         #expect(unit.units == [Data(idr)])
-        #expect(unit.avcc == Data([0, 0, 0, 4] + idr))
+        let length: [UInt8] = [0, 0, 0, 4]
+        #expect(unit.avcc == Data(length + idr))
         let p = AnnexBAccessUnit(Data([0, 0, 1, 0x41, 7, 7]))
         #expect(!p.isIDR && p.sps == nil && p.units == [Data([0x41, 7, 7])])
     }

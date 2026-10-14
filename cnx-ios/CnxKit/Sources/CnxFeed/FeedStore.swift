@@ -87,9 +87,12 @@ public enum FeedFilter: String, CaseIterable, Hashable, Sendable {
     }
 }
 
-/// Where inline answers go (the live acpmux hub). Without one, answers stay local (mock).
+/// Where inline answers go (the live acpmux hub). Without one, an answer
+/// fails visibly; only DEBUG mock content answers locally.
 @MainActor
 public protocol FeedActions: AnyObject {
+    /// Re-reads the Mac's sessions and open asks (pull to refresh).
+    func refresh() async throws
     func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws
     func respond(_ item: FeedItem, request: ACPPermissionRequest, option: ACPPermissionOption) async throws
     /// Declines a question: the one reply a phone can always send.
@@ -105,7 +108,18 @@ public protocol FeedActions: AnyObject {
 @Observable
 public final class FeedStore {
     @ObservationIgnored public weak var actions: (any FeedActions)?
-    public static let shared = FeedStore(items: FeedStore.initialItems(mockContentEnabled: DeveloperOptions.mockContentEnabled))
+    public static let shared = FeedStore(
+        items: FeedStore.initialItems(mockContentEnabled: DeveloperOptions.mockContentEnabled),
+        answersLocally: DeveloperOptions.mockContentEnabled
+    )
+    /// DEBUG mock content only: with no Mac behind the Feed, answers apply
+    /// locally. Otherwise an answer with no `actions` fails on the item.
+    @ObservationIgnored public let answersLocally: Bool
+    /// Why the last pull to refresh failed (nil after a good one).
+    public private(set) var refreshError: String?
+
+    /// Shown on an item answered while no Mac is connected.
+    public static let notConnectedMessage = "Not connected to your Mac. Nothing was sent."
 
     /// The Feed before live data: sample items only with mock content on (DEBUG).
     static func initialItems(mockContentEnabled: Bool) -> [FeedItem] {
@@ -121,13 +135,42 @@ public final class FeedStore {
     /// Called after every change (live mode saves the Feed with `FeedArchive`).
     @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
     public var filter: FeedFilter = .all
+    /// Whether the Mac's events have been read on the current link. Until
+    /// then an empty Feed is unknown, not empty (live mode starts at
+    /// `.connecting`; mock mode is always `.live`).
+    public var syncState: SyncState = .live
+    public enum SyncState: Hashable, Sendable { case connecting, live }
     public var mutedWorkspaces: Set<String> = []
     /// Events that arrived while the person was scrolled away from the top.
     public private(set) var unseenNewIDs: [String] = []
     private var liveIndex = 0
 
-    public init(items: [FeedItem]) {
+    public init(items: [FeedItem], answersLocally: Bool = false) {
         self.items = items.sorted { $0.createdAt > $1.createdAt }
+        self.answersLocally = answersLocally
+    }
+
+    /// Pull to refresh: re-reads the Mac's sessions and open asks through
+    /// `actions`. Fails visibly (`refreshError`) with no Mac connected.
+    public func refresh() async {
+        guard let actions else {
+            refreshError = answersLocally ? nil : Self.notConnectedMessage
+            return
+        }
+        do {
+            try await actions.refresh()
+            refreshError = nil
+        } catch is CancellationError {
+        } catch {
+            refreshError = actions.message(for: error)
+        }
+    }
+
+    public func clearRefreshError() { refreshError = nil }
+
+    /// No Mac to send to: the item keeps its question and says why.
+    private func failUnsent(_ id: String) {
+        mutate(id) { $0.error = Self.notConnectedMessage }
     }
 
     public var visibleItems: [FeedItem] {
@@ -241,12 +284,14 @@ public final class FeedStore {
             }
             return
         }
+        guard answersLocally else { return failUnsent(id) }
         applyAnswer(id, answer: answer)
     }
 
     /// Declines a pending question (the agent continues without an answer).
     public func decline(_ id: String) {
         guard let item = item(id: id), case .question(let question) = item.kind, question.isPending else { return }
+        guard actions != nil || answersLocally else { return failUnsent(id) }
         let attempt = item.attempt + 1
         mutate(id) {
             $0.error = nil
@@ -300,6 +345,7 @@ public final class FeedStore {
             }
             return
         }
+        guard answersLocally else { return failUnsent(id) }
         applyRespond(id, option: option)
     }
 

@@ -34,11 +34,13 @@ public struct WorkspaceScreen: View {
     @State private var source: WorkspaceTabsSource
     @State private var showsGrid: Bool
     @Environment(\.dismiss) private var dismiss
+    #if DEBUG
     private let director = WorkspaceDemoDirector.shared
+    #endif
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                startsInGrid: Bool = false) {
-        _source = State(initialValue: WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal))
+                creator: WorkspaceCreator? = nil, startsInGrid: Bool = false) {
+        _source = State(initialValue: WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator))
         _showsGrid = State(initialValue: startsInGrid)
     }
 
@@ -55,7 +57,9 @@ public struct WorkspaceScreen: View {
             .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
             .onAppear { source.exit = { dismiss() } }
+            #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
+            #endif
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
     }
 
@@ -96,6 +100,7 @@ public struct WorkspaceScreen: View {
         return "\(mac) · \(count == 1 ? "1 tab" : "\(count) tabs")"
     }
 
+    #if DEBUG
     private func run(_ command: WorkspaceDemoDirector.Command?) {
         switch command {
         case .showGrid(let shown): showsGrid = shown
@@ -111,8 +116,10 @@ public struct WorkspaceScreen: View {
         case nil: break
         }
     }
+    #endif
 }
 
+#if DEBUG
 /// DEBUG choreography for recordings: commands the open workspace runs
 /// through the same paths as its controls.
 @MainActor
@@ -138,6 +145,7 @@ public final class WorkspaceDemoDirector {
         serial &+= 1
     }
 }
+#endif
 
 /// SwiftUI disables the navigation controller's back swipes while the bar
 /// is hidden. A workspace hides the bar (TabsKit draws its own chrome, with

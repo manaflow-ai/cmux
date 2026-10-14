@@ -53,6 +53,9 @@ pub enum ApiError {
     Status { status: u16, body: String },
 }
 
+/// The HTTP client type behind [`ApiClient`] (one connection pool).
+pub type HttpClient = reqwest::Client;
+
 #[derive(Debug, Clone)]
 pub struct ApiClient {
     base: String,
@@ -62,15 +65,24 @@ pub struct ApiClient {
 
 impl ApiClient {
     pub fn new(base_url: &str, token: &str) -> Self {
+        Self::with_http(base_url, token, Self::http_client())
+    }
+
+    /// A client sharing `http`'s connection pool, so a later call reuses a
+    /// warm TLS connection instead of a new handshake. Keep one pool per
+    /// Tokio runtime (pooled connections belong to the runtime that made them).
+    pub fn with_http(base_url: &str, token: &str, http: reqwest::Client) -> Self {
+        Self { base: base_url.trim_end_matches('/').to_owned(), token: token.to_owned(), http }
+    }
+
+    /// A new HTTP client with the API's timeouts.
+    pub fn http_client() -> reqwest::Client {
         crate::install_crypto_provider();
-        Self {
-            base: base_url.trim_end_matches('/').to_owned(),
-            token: token.to_owned(),
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(20))
-                .build()
-                .expect("HTTP client builds"),
-        }
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .build()
+            .expect("HTTP client builds")
     }
 
     async fn check(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
@@ -149,6 +161,78 @@ impl ApiClient {
     }
 }
 
+/// `GET /v1/ice` results kept while their credentials have plenty of life
+/// left, so a dial does not wait on an HTTP round trip (PROTOCOL.md: the
+/// response carries `ttl`, the TURN credentials' lifetime in seconds).
+#[derive(Debug, Default)]
+pub struct IceCache {
+    entry: std::sync::Mutex<Option<(Vec<IceServer>, std::time::Instant)>>,
+}
+
+impl IceCache {
+    /// How long a STUN-only answer (no TURN, say a TURN outage) is kept:
+    /// briefly, so TURN comes back soon.
+    pub const STUN_ONLY_LIFETIME: std::time::Duration = std::time::Duration::from_secs(60);
+    /// Lifetime when the service names no `ttl`.
+    pub const DEFAULT_LIFETIME: std::time::Duration = std::time::Duration::from_secs(600);
+
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// How long `config` may be reused: half the credentials' lifetime, so
+    /// a link dialed with them still has at least that long before they
+    /// expire.
+    pub fn lifetime(config: &IceConfig) -> std::time::Duration {
+        if crate::dial::turn_url_count(&config.ice_servers) == 0 {
+            return Self::STUN_ONLY_LIFETIME;
+        }
+        match config.ttl {
+            Some(ttl) if ttl > 0 => std::time::Duration::from_secs(ttl / 2),
+            _ => Self::DEFAULT_LIFETIME,
+        }
+    }
+
+    /// The cached servers, while fresh.
+    pub fn fresh(&self) -> Option<Vec<IceServer>> {
+        let entry = self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        entry.as_ref().filter(|(_, expires)| std::time::Instant::now() < *expires).map(|(s, _)| s.clone())
+    }
+
+    pub fn store(&self, config: &IceConfig) {
+        let expires = std::time::Instant::now() + Self::lifetime(config);
+        *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((config.ice_servers.clone(), expires));
+    }
+
+    pub fn clear(&self) {
+        *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    /// The cached servers when fresh (`true`), else `GET /v1/ice` within
+    /// `budget` (`false`); a failed fetch gives no servers (host candidates
+    /// only) and caches nothing.
+    pub async fn get(&self, api: &ApiClient, budget: std::time::Duration) -> (Vec<IceServer>, bool) {
+        if let Some(servers) = self.fresh() {
+            return (servers, true);
+        }
+        match tokio::time::timeout(budget, api.ice()).await {
+            Ok(Ok(config)) => {
+                self.store(&config);
+                (config.ice_servers, false)
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "GET /v1/ice failed; host candidates only");
+                (Vec::new(), false)
+            }
+            Err(_) => {
+                tracing::warn!("GET /v1/ice timed out; host candidates only");
+                (Vec::new(), false)
+            }
+        }
+    }
+}
+
 /// STUN servers (`host:port`) named by `stun:` URLs.
 pub fn stun_servers(servers: &[IceServer]) -> Vec<String> {
     servers
@@ -169,6 +253,36 @@ pub fn stun_servers(servers: &[IceServer]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn config(urls: &[&str], ttl: Option<u64>) -> IceConfig {
+        IceConfig {
+            ice_servers: vec![IceServer {
+                urls: urls.iter().map(|u| (*u).to_owned()).collect(),
+                username: None,
+                credential: None,
+            }],
+            ttl,
+        }
+    }
+
+    #[test]
+    fn ice_cache_lifetime_follows_the_ttl() {
+        use std::time::Duration;
+        let turn = config(&["stun:s:3478", "turn:t:3478?transport=udp"], Some(14400));
+        assert_eq!(IceCache::lifetime(&turn), Duration::from_secs(7200));
+        assert_eq!(IceCache::lifetime(&config(&["turn:t"], None)), IceCache::DEFAULT_LIFETIME);
+        assert_eq!(IceCache::lifetime(&config(&["stun:s"], Some(14400))), IceCache::STUN_ONLY_LIFETIME);
+        let cache = IceCache::new();
+        assert!(cache.fresh().is_none());
+        cache.store(&turn);
+        assert_eq!(cache.fresh().unwrap(), turn.ice_servers);
+        // Already expired: a zero lifetime.
+        cache.store(&config(&["turn:t"], Some(1)));
+        assert!(cache.fresh().is_none());
+        cache.store(&turn);
+        cache.clear();
+        assert!(cache.fresh().is_none());
+    }
 
     #[test]
     fn stun_urls() {

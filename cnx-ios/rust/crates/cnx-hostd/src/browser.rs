@@ -656,7 +656,10 @@ mod tests {
 
     #[test]
     fn hello_carries_the_secret_and_the_rb_service() {
-        let frame = hello_frame("ab".repeat(32).as_str(), &Peer { device_id: "phone".into() });
+        let frame = hello_frame(
+            "ab".repeat(32).as_str(),
+            &Peer { device_id: "phone".into(), session_id: "s".into() },
+        );
         let mut deframer = StreamDeframer::default();
         deframer.extend(&frame);
         let (kind, payload) = deframer.next_frame().unwrap().unwrap();

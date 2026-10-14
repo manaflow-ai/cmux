@@ -3,8 +3,8 @@
 This is the analysis that the repository's "Remote CLI relay" rule asks for
 (`skills/cmux-socket-policy/references/remote-relay-authorization.md`). It
 covers every path by which a phone reaches this Mac through `cnx-hostd`. Each
-path goes through one link service: `daemon`, `chief`, `acpmux`, `file`, or
-`echo`.
+path goes through one link service: `daemon`, `chief`, `acpmux`, `file`,
+`upload`, or `echo`.
 Any other service is refused with `unknown_service`.
 
 The daemon allowlist lives in one place:
@@ -180,6 +180,65 @@ brain (`HomeBrainHost.bundledChiefAllowed`); the owner keeps the conversation
 and answers the phone, but Chief replies only while a brain runs in that home
 (a DEV or NIGHTLY build that opened Home, `cmux chief`, or
 `CMUX_NEXT_MUX_HOST`). The phone says so instead of pretending.
+
+## `daemon`: agent tabs and tab create, close and select
+
+Added by `feat-cnx-ios-dataflow` so tabs made on the phone are real tabs of
+the Mac.
+
+- **Terminal and browser tabs** use commands already on the allowlist:
+  `new-tab {pane, cols, rows}` (size and placement only, as above),
+  `new-browser-tab {url, pane}`, and `close-surface {surface}`. Selecting a
+  tab stays on the phone (it remembers the last tab per workspace). The phone
+  never sends `select-tab` or `report-focus` for its own navigation, because
+  both move the Mac's view for the person sitting at it.
+- **Agent chat tabs:** `new-conversation-tab` is new on the allowlist, and
+  `DaemonPolicy::agent_tab_verdict` narrows it to one shape. Rule 2 answers:
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | It creates one tab that shows an acpmux session of this Mac. The tab itself runs nothing. The session behind it is created over the phone's `acpmux` lane with `session/new`, under acpmux's remote guard: an existing folder, an asking policy, no MCP servers, and folder trust held for the person to answer. Codex and opencode are refused families there. The phone may set only `pane`, `workspace`, `cols`, `rows`, `origin`, `mutation_id`, `transaction` and `agent_session {harness, session, host_name}`. `harness` and `session` must be short identifiers (`[A-Za-z0-9._:-]`, at most 64 and 128 bytes). `host_name` is a display name of at most 256 bytes with no control characters. `conversation`/`owner` (another conversation owner), `page`/`route` (the app's own pages) and any other field are refused. |
+| Mutates or destroys objects the session does not own? | `agent_session.host` is never the phone's choice. hostd sets it to this Mac's own `install:<id>` (`CNX_AGENT_TAB_HOST`, supplied by the app's `AgentTabStore.localHost`). A phone that names any other host, such as a `registry:` host or another Mac's install, is refused. The tab therefore always belongs to this Mac's acpmux and shows in the Mac app as its own chat. Without `CNX_AGENT_TAB_HOST` (an older app), every `new-conversation-tab` is refused with `unavailable`. The Swift mirror refuses it always, because the irx lane has no such host. |
+| Reads local state the remote should not see? | No new read. A session id the phone names is one it can already attach to over `acpmux`. |
+
+- **Rule 3:** no field carries a command, argv, environment or folder. The
+  agent's folder is the `session/new` cwd, which acpmux checks.
+- **Rule 6 (tests):** `agent_tabs_get_this_macs_host` and
+  `agent_tabs_refuse_other_sources_and_hosts` (policy), and the
+  `new-conversation-tab` rewrite in `tests/host.rs`.
+
+## `acpmux`: messages larger than one link frame
+
+The link splits a write above 256 KiB into several data frames. hostd now
+joins the frames of one phone message until they parse as one JSON value
+(`MessageAssembler`, at most 32 MiB) before it sends one WebSocket message,
+so a prompt carrying an image reaches acpmux whole. A frame sequence that is
+not JSON closes the channel with `bad_request`. This adds no new method and
+does not change acpmux's own guard.
+
+## `upload`: phone attachments into this Mac
+
+`upload {name, size, cwd?}` writes the bytes that follow into one new file
+and answers `{"path","size"}`. A refusal is answered with
+`{"error","message"}` and the channel closes with that code. The phone uses
+it for terminal attachments, where the real path is inserted into the
+composer and Return is never pressed, and for agent chat files, which are
+sent as an ACP `resource_link` to that path.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It creates one regular file. Nothing is executed, opened or indexed. The file mode follows the umask, without the executable bit. |
+| Mutates or destroys objects the session does not own? | It never overwrites. The bytes go to a hidden `.<uuid>.part` file created with `O_EXCL`. That file is hard-linked to `<name>`, or to `<name> 2`, `<name> 3` and so on when the name is taken, and only then removed. A short, long or oversized upload removes the part and leaves nothing. The name is reduced to its last path component. Separators, `:` and control characters are replaced, leading dots and spaces are trimmed, and the name is cut at 120 bytes (`safe_file_name`). The size is declared first and capped at `CNX_UPLOAD_MAX_BYTES` (100 MiB by default). Receiving more than the declared size is refused. |
+| Where can it write? | With `cwd`, the folder must exist and be either the folder of a tab the daemon lists right now (`list-workspaces`, canonicalized) or inside `CNX_FILE_ROOTS`. The file goes to `<cwd>/.cmux/attachments/phone-<link session>/`, next to acpmux's own attachments, so the workspace's agent can read it without leaving its folder. hostd canonicalizes that folder again after creating it, so a `.cmux` or `attachments` symlink that points out of the workspace is refused. Without `cwd`, the file goes to `<CNX_STATE_DIR>/uploads/<link session>/` (mode 0700). The phone never picks any other part of the path. |
+| Reads local state the remote should not see? | No. The reply contains only the path of the file the phone just wrote. |
+
+- **Rule 6 (tests):** `upload_names_are_safe`, `publish_never_replaces`, and
+  the `upload` cases in `tests/host.rs`: a plain upload, a workspace folder, a
+  folder that is no tab's and outside the roots (`forbidden`), and an
+  oversized upload (`too_large`).
+- **Open:** there is no total quota per phone, and old uploads are not
+  cleaned up. Both are bounded only by the per-file cap and the person's
+  disk.
 
 ## Decisions for the person
 

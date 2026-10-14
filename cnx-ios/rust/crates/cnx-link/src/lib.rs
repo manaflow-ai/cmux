@@ -14,12 +14,14 @@ pub mod link;
 pub mod signaling;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod timing;
 
 pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind};
 pub use link::{
     Channel, ChannelEvent, CloseInfo, IncomingChannel, Lane, LaneState, Link, LinkConfig, LinkError, Role,
 };
 pub use signaling::SignalingClient;
+pub use timing::Timeline;
 
 /// Install rustls's ring provider once (HTTP and WebSocket TLS).
 pub fn install_crypto_provider() {

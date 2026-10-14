@@ -6,6 +6,7 @@ use std::io;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{oneshot, watch};
@@ -17,20 +18,27 @@ use webrtc::data_channel::data_channel_init::RTCDataChannelInit;
 use webrtc::ice::mdns::MulticastDnsMode;
 use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
 use webrtc::ice_transport::ice_candidate_type::RTCIceCandidateType;
+use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
+use webrtc::ice_transport::ice_gatherer_state::RTCIceGathererState;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::peer_connection::configuration::RTCConfiguration;
+use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 
 use super::{DialError, DialFuture, Dialed, Dialer, LinkPath, SessionEvents, TransportKind};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient};
+use crate::timing::Timeline;
 
 /// The data channel label (PROTOCOL.md).
 pub const LABEL: &str = "cnx-link";
 /// The input lane's data channel: ordered and reliable, its own SCTP stream
 /// (PROTOCOL.md "Lanes").
 pub const INPUT_LABEL: &str = "cnx-input";
+/// How long a working relay pair waits for a direct pair to also work
+/// before it is nominated (relay only: no wait).
+const RELAY_HEAD_START: Duration = Duration::from_millis(300);
 /// Largest message written to the data channel; the link is a byte stream,
 /// so message boundaries carry no meaning.
 const MAX_MESSAGE: usize = 16 * 1024;
@@ -51,6 +59,21 @@ async fn new_peer_connection(options: &super::DialOptions) -> Result<Arc<RTCPeer
     if options.exclude_cgnat {
         settings.set_ip_filter(Box::new(|ip| !super::is_cgnat(ip)));
     }
+    // Nominate the first working pair. webrtc-rs holds a valid srflx pair
+    // back 500 ms, prflx 1 s and relay 2 s after checks start, hoping a
+    // better pair turns up; a link that works now beats one that might work
+    // a little better later (the path watcher reports any later change).
+    // Relay keeps a short head start so a LAN pair still wins when both work.
+    if !options.stock_ice_waits {
+        settings.set_host_acceptance_min_wait(Some(Duration::ZERO));
+        settings.set_srflx_acceptance_min_wait(Some(Duration::ZERO));
+        settings.set_prflx_acceptance_min_wait(Some(Duration::ZERO));
+        settings.set_relay_acceptance_min_wait(Some(if options.relay_only {
+            Duration::ZERO
+        } else {
+            RELAY_HEAD_START
+        }));
+    }
     let api = APIBuilder::new().with_setting_engine(settings).build();
     let config = RTCConfiguration {
         ice_servers: options
@@ -69,18 +92,68 @@ async fn new_peer_connection(options: &super::DialOptions) -> Result<Arc<RTCPeer
         },
         ..Default::default()
     };
-    Ok(Arc::new(api.new_peer_connection(config).await.map_err(transport_error)?))
+    let pc = Arc::new(api.new_peer_connection(config).await.map_err(transport_error)?);
+    instrument(&pc, &options.timeline);
+    Ok(pc)
+}
+
+/// Record ICE, DTLS and candidate steps on `timeline`.
+fn instrument(pc: &RTCPeerConnection, timeline: &Timeline) {
+    timeline.mark("pc_created");
+    let ice = timeline.clone();
+    pc.on_ice_connection_state_change(Box::new(move |state: RTCIceConnectionState| {
+        match state {
+            RTCIceConnectionState::Checking => ice.mark("ice_checking"),
+            RTCIceConnectionState::Connected => ice.mark("ice_connected"),
+            RTCIceConnectionState::Failed => ice.mark("ice_failed"),
+            _ => {}
+        }
+        Box::pin(async {})
+    }));
+    let peer = timeline.clone();
+    pc.on_peer_connection_state_change(Box::new(move |state: RTCPeerConnectionState| {
+        // Connected = ICE connected and the DTLS handshake done.
+        if state == RTCPeerConnectionState::Connected {
+            peer.mark("dtls_connected");
+        }
+        Box::pin(async {})
+    }));
+    let gathering = timeline.clone();
+    pc.on_ice_gathering_state_change(Box::new(move |state: RTCIceGathererState| {
+        if state == RTCIceGathererState::Complete {
+            gathering.mark("gathering_complete");
+        }
+        Box::pin(async {})
+    }));
+}
+
+fn candidate_kind(typ: RTCIceCandidateType) -> &'static str {
+    match typ {
+        RTCIceCandidateType::Host => "host",
+        RTCIceCandidateType::Srflx => "srflx",
+        RTCIceCandidateType::Prflx => "prflx",
+        RTCIceCandidateType::Relay => "relay",
+        RTCIceCandidateType::Unspecified => "unknown",
+    }
 }
 
 /// Trickle local candidates to `peer`.
-fn trickle(pc: &RTCPeerConnection, signaling: &SignalingClient, peer: &str, session_id: &str) {
+fn trickle(
+    pc: &RTCPeerConnection,
+    signaling: &SignalingClient,
+    peer: &str,
+    session_id: &str,
+    timeline: &Timeline,
+) {
     let signaling = signaling.clone();
     let peer = peer.to_owned();
     let session_id = session_id.to_owned();
+    let timeline = timeline.clone();
     pc.on_ice_candidate(Box::new(move |candidate: Option<RTCIceCandidate>| {
         if let Some(candidate) = candidate
             && let Ok(init) = candidate.to_json()
         {
+            timeline.mark(&format!("local_{}", candidate_kind(candidate.typ)));
             let _ = signaling.send_signal(
                 &peer,
                 &session_id,
@@ -98,6 +171,7 @@ fn trickle(pc: &RTCPeerConnection, signaling: &SignalingClient, peer: &str, sess
 /// Remote candidates arrive before or after the remote description; hold
 /// the early ones.
 struct RemoteCandidates {
+    timeline: Timeline,
     exclude_cgnat: bool,
     ready: bool,
     pending: Vec<RTCIceCandidateInit>,
@@ -109,6 +183,9 @@ impl RemoteCandidates {
         let address = candidate.candidate.split_whitespace().nth(4).and_then(|a| a.parse().ok());
         if self.exclude_cgnat && address.is_some_and(super::is_cgnat) {
             return;
+        }
+        if let Some(kind) = candidate.candidate.split_whitespace().nth(7) {
+            self.timeline.mark(&format!("remote_{kind}"));
         }
         if self.ready {
             if let Err(error) = pc.add_ice_candidate(candidate).await {
@@ -152,6 +229,12 @@ fn on_open(channel: &Arc<RTCDataChannel>, opened: Arc<Mutex<Option<oneshot::Send
     }));
 }
 
+/// `host-srflx` style name of the selected pair (local, then remote).
+async fn selected_pair_name(pc: &RTCPeerConnection) -> Option<String> {
+    let pair = pc.sctp().transport().ice_transport().get_selected_candidate_pair().await?;
+    Some(format!("{}-{}", candidate_kind(pair.local.typ), candidate_kind(pair.remote.typ)))
+}
+
 async fn selected_path(pc: &RTCPeerConnection) -> LinkPath {
     let pair = pc.sctp().transport().ice_transport().get_selected_candidate_pair().await;
     match pair {
@@ -185,6 +268,30 @@ impl Drop for Guard {
                 let _ = pc.close().await;
             });
         }
+    }
+}
+
+/// A signaling socket that drops mid-handshake (a Worker deploy resets
+/// every socket) need not end the dial: once offer and answer crossed
+/// (`described`), ICE and DTLS finish without it. `None` means the socket is
+/// gone and the caller keeps waiting for the data channel (the dial's
+/// timeout still bounds it). Before the answer, the loss fails the dial at
+/// once so the app redials on a fresh socket; backend refusals always fail.
+fn signaling_outage(
+    event: Result<SessionEvent, DialError>,
+    timeline: &Timeline,
+    described: bool,
+) -> Result<Option<SessionEvent>, DialError> {
+    match event {
+        Ok(SessionEvent::Disconnected) | Err(DialError::Signaling(_)) if !described => {
+            Err(DialError::Signaling("signaling socket closed before the answer".into()))
+        }
+        Ok(SessionEvent::Disconnected) | Err(DialError::Signaling(_)) => {
+            timeline.mark("signaling_lost");
+            Ok(None)
+        }
+        Ok(event) => Ok(Some(event)),
+        Err(error) => Err(error),
     }
 }
 
@@ -242,7 +349,12 @@ async fn finish(
     remote: RemoteCandidates,
     signaling: &SignalingClient,
     session_id: &str,
+    timeline: &Timeline,
 ) -> Result<Dialed, DialError> {
+    timeline.mark("channel_open");
+    if let Some(pair) = selected_pair_name(&pc).await {
+        timeline.mark(&format!("pair_{pair}"));
+    }
     let raw = channel.detach().await.map_err(transport_error)?;
     let mut stream = PollDataChannel::new(raw);
     stream.set_read_buf_capacity(64 * 1024);
@@ -314,7 +426,8 @@ impl Dialer for WebRtcDialer {
                 lane = Some(lane_rx);
             }
             let mut agreed = false;
-            trickle(&pc, signaling, mac, session_id);
+            let timeline = &options.timeline;
+            trickle(&pc, signaling, mac, session_id, timeline);
             let offer = pc.create_offer(None).await.map_err(transport_error)?;
             pc.set_local_description(offer.clone()).await.map_err(transport_error)?;
             signaling
@@ -324,15 +437,27 @@ impl Dialer for WebRtcDialer {
                     SignalPayload::WebrtcOffer { sdp: offer.sdp, lanes: super::offered_lanes(options) },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
-            let mut remote =
-                RemoteCandidates { exclude_cgnat: options.exclude_cgnat, ready: false, pending: Vec::new() };
+            timeline.mark("offer_sent");
+            let mut remote = RemoteCandidates {
+                timeline: timeline.clone(),
+                exclude_cgnat: options.exclude_cgnat,
+                ready: false,
+                pending: Vec::new(),
+            };
+            let mut signaling_up = true;
             let opened = loop {
                 tokio::select! {
                     opened = &mut open_rx => break opened.map_err(|_| DialError::Transport("data channel never opened".into()))?,
-                    event = events.next() => match event? {
+                    event = events.next(), if signaling_up => {
+                        let Some(event) = signaling_outage(event, timeline, remote.ready)? else {
+                            signaling_up = false;
+                            continue;
+                        };
+                        match event {
                         SessionEvent::Signal(envelope) => match envelope.payload {
                             SignalPayload::WebrtcAnswer { sdp, lanes } => {
                                 agreed = super::input_lane_agreed(options, &lanes);
+                                timeline.mark("answer_received");
                                 let answer = RTCSessionDescription::answer(sdp).map_err(transport_error)?;
                                 pc.set_remote_description(answer).await.map_err(transport_error)?;
                                 remote.ready(&pc).await;
@@ -345,11 +470,11 @@ impl Dialer for WebRtcDialer {
                             }
                         },
                         SessionEvent::Relay(_) | SessionEvent::Disconnected => {}
-                    },
+                    }},
                 }
             };
             let lane = lane.filter(|_| agreed);
-            finish(pc, opened, lane, events, remote, signaling, session_id).await
+            finish(pc, opened, lane, events, remote, signaling, session_id, timeline).await
         })
     }
 
@@ -378,11 +503,16 @@ impl Dialer for WebRtcDialer {
                 }
                 Box::pin(async {})
             }));
-            trickle(&pc, signaling, &first.from, &first.session_id);
+            let timeline = &options.timeline;
+            trickle(&pc, signaling, &first.from, &first.session_id, timeline);
             let offer = RTCSessionDescription::offer(sdp).map_err(transport_error)?;
             pc.set_remote_description(offer).await.map_err(transport_error)?;
-            let mut remote =
-                RemoteCandidates { exclude_cgnat: options.exclude_cgnat, ready: true, pending: Vec::new() };
+            let mut remote = RemoteCandidates {
+                timeline: timeline.clone(),
+                exclude_cgnat: options.exclude_cgnat,
+                ready: true,
+                pending: Vec::new(),
+            };
             let answer = pc.create_answer(None).await.map_err(transport_error)?;
             pc.set_local_description(answer.clone()).await.map_err(transport_error)?;
             signaling
@@ -392,10 +522,17 @@ impl Dialer for WebRtcDialer {
                     SignalPayload::WebrtcAnswer { sdp: answer.sdp, lanes: super::offered_lanes(options) },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
+            timeline.mark("answer_sent");
+            let mut signaling_up = true;
             let opened = loop {
                 tokio::select! {
                     opened = &mut open_rx => break opened.map_err(|_| DialError::Transport("data channel never opened".into()))?,
-                    event = events.next() => match event? {
+                    event = events.next(), if signaling_up => {
+                        let Some(event) = signaling_outage(event, timeline, true)? else {
+                            signaling_up = false;
+                            continue;
+                        };
+                        match event {
                         SessionEvent::Signal(envelope) => match envelope.payload {
                             SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
                             payload => {
@@ -405,11 +542,11 @@ impl Dialer for WebRtcDialer {
                             }
                         },
                         SessionEvent::Relay(_) | SessionEvent::Disconnected => {}
-                    },
+                    }},
                 }
             };
             let lane = agreed.then_some(lane_rx);
-            finish(pc, opened, lane, events, remote, signaling, &first.session_id).await
+            finish(pc, opened, lane, events, remote, signaling, &first.session_id, timeline).await
         })
     }
 }
@@ -441,5 +578,34 @@ impl AsyncWrite for DataChannelStream {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A socket lost mid-handshake keeps the dial waiting for the data
+    /// channel; a backend refusal still ends it.
+    #[test]
+    fn a_signaling_outage_does_not_fail_the_handshake() {
+        let timeline = Timeline::new();
+        assert!(matches!(signaling_outage(Ok(SessionEvent::Disconnected), &timeline, true), Ok(None)));
+        assert!(matches!(
+            signaling_outage(Err(DialError::Signaling("reset".into())), &timeline, true),
+            Ok(None)
+        ));
+        assert!(timeline.get("signaling_lost").is_some());
+        // Before the answer arrived there is nothing to finish: fail fast.
+        assert!(matches!(
+            signaling_outage(Ok(SessionEvent::Disconnected), &timeline, false),
+            Err(DialError::Signaling(_))
+        ));
+        let refused = Err(DialError::Refused { code: "offline".into(), message: String::new() });
+        assert!(signaling_outage(refused, &timeline, true).is_err());
+        assert!(matches!(
+            signaling_outage(Ok(SessionEvent::Relay(bytes::Bytes::new())), &timeline, true),
+            Ok(Some(SessionEvent::Relay(_)))
+        ));
     }
 }

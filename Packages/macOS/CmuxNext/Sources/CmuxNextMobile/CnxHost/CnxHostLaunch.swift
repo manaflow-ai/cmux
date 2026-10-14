@@ -24,6 +24,10 @@ public struct CnxHostLaunch: Sendable, Equatable {
     public var fileRoots: [String]
     /// Stack project and publishable key, for hostd's own token checks.
     public var stackProjectID: String
+    /// The `agent_session.host` this app records on its own agent tabs (`install:<id>`):
+    /// hostd sets it on an agent tab a phone creates, so the chat runs on this Mac's
+    /// acpmux and shows here as this Mac's own. Nil: phones cannot create agent tabs.
+    public var agentTabHost: String?
     /// The Chief's conversation owner session (`ChiefHome.session`), served
     /// to phones by hostd's scoped `chief` service; nil lets hostd derive it
     /// from `~/.cmux/chief/default`, the home of every build that is not an
@@ -32,7 +36,8 @@ public struct CnxHostLaunch: Sendable, Equatable {
     public var chiefSession: String?
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
-                daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String) {
+                daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
+                agentTabHost: String? = nil) {
         self.executable = executable
         self.baseURL = baseURL
         self.teamID = teamID
@@ -43,6 +48,7 @@ public struct CnxHostLaunch: Sendable, Equatable {
         self.stateDirectory = stateDirectory
         self.fileRoots = fileRoots
         self.stackProjectID = stackProjectID
+        self.agentTabHost = agentTabHost
     }
 
     /// The team hostd joins: the selected Stack team, else the personal space.
@@ -76,6 +82,7 @@ public struct CnxHostLaunch: Sendable, Equatable {
             "CNX_EXCLUDE_CGNAT": "1",
             "NO_COLOR": "1",
         ]) { $1 }
+        if let agentTabHost, !agentTabHost.isEmpty { environment["CNX_AGENT_TAB_HOST"] = agentTabHost }
         if let chiefSession { environment["CNX_CHIEF_SESSION"] = chiefSession }
         return environment
     }

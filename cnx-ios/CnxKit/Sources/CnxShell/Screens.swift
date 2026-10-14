@@ -61,7 +61,7 @@ struct WorkspacesScreen: View {
             WorkspacesList(
                 store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
                 reconnect: shell.live.map { live in
-                    { macID in live.link.target?.macID == macID ? live.foreground() : live.select(macID: macID) }
+                    { macID in live.retry(macID: macID) }
                 },
                 refresh: shell.live.map { live in { await live.workspaces.refresh() } },
                 switchTeam: { shell.switchTeam(to: $0) },
@@ -73,7 +73,7 @@ struct WorkspacesScreen: View {
                 .background(theme.colors.bg.color.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: Workspace.self) { ws in
-                    WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs)
+                    WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator)
                 }
                 .toolbar {
                     // WorkspacesList owns the title and the Mac chip row.

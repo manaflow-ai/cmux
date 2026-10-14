@@ -55,6 +55,14 @@ public struct WorkspaceCreationError: Error, Hashable, Sendable, LocalizedError 
     public var errorDescription: String? { message }
 }
 
+/// A tab the phone can open in a workspace on its Mac.
+public enum NewTabKind: Hashable, Sendable {
+    case terminal
+    /// An agent chat for a harness (`claude`).
+    case agent(String)
+    case browser
+}
+
 /// Where workspaces are really created: the mock store, or a Mac's daemon.
 @MainActor
 public protocol WorkspaceCreationBackend: AnyObject {
@@ -72,6 +80,13 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func rename(_ workspace: Workspace, to title: String) async throws
     /// Closes a workspace on its Mac.
     func close(_ workspace: Workspace) async throws
+    /// The tabs the phone may open in a workspace on `macID` now (none: the
+    /// new-tab menu says why instead of making a tab the Mac never sees).
+    func tabKinds(on macID: String) -> [NewTabKind]
+    /// Opens a tab on the Mac and returns it once the Mac lists it.
+    func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Closes a tab on the Mac.
+    func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws
 }
 
 extension WorkspaceCreationBackend {
@@ -81,6 +96,13 @@ extension WorkspaceCreationBackend {
     }
     public func close(_ workspace: Workspace) async throws {
         throw WorkspaceCreationError("Closing isn't available on this Mac")
+    }
+    public func tabKinds(on macID: String) -> [NewTabKind] { [] }
+    public func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
     }
 }
 
@@ -380,6 +402,24 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     }
 
     public func close(_ workspace: Workspace) async throws {
+        try await settle()
+    }
+
+    public func tabKinds(on macID: String) -> [NewTabKind] { [.agent("claude"), .agent("codex"), .terminal, .browser] }
+
+    /// Mock mode only: the tab exists in the mock store alone.
+    public func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        let id = "t-\(UUID().uuidString.prefix(8).lowercased())"
+        return switch kind {
+        case .agent(let harness):
+            WorkspaceTab(id: id, kind: .agent, title: harness == "codex" ? "Codex" : "Claude", subtitle: "New session", harness: harness)
+        case .browser: WorkspaceTab(id: id, kind: .browser, title: "New Tab")
+        case .terminal: WorkspaceTab(id: id, kind: .terminal, title: "zsh", subtitle: workspace.directory)
+        }
+    }
+
+    public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         try await settle()
     }
 
