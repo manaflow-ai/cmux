@@ -156,7 +156,22 @@ impl PtySurface {
         }
         let frame = AttachFrame::Output(bytes.to_vec());
         taps.retain(|tap| tap.try_send(frame.clone()));
-        !taps.is_empty()
+        let sent = !taps.is_empty();
+        drop(taps);
+        if sent {
+            self.mark_attach_output_sent();
+        }
+        sent
+    }
+
+    /// The first output a followed terminal sends an attachment
+    /// (`CMUX_TUI_DEBUG_SPANS`).
+    fn mark_attach_output_sent(&self) {
+        if crate::debug_spans::following()
+            && let Some(identity) = self.host_identity.as_ref()
+        {
+            crate::debug_spans::terminal_mark(&identity.terminal_id, "attach.first_output_sent");
+        }
     }
 
     /// Viewers without pending-sequence support reconnect from a fresh
@@ -199,7 +214,13 @@ impl PtySurface {
 
     pub(super) fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.snapshot_position.observe_frame(&frame);
-        self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
+        let mut taps = self.taps.lock().unwrap();
+        taps.retain(|tap| tap.try_send(frame.clone()));
+        let sent_output = matches!(frame, AttachFrame::OutputWithColors { .. }) && !taps.is_empty();
+        drop(taps);
+        if sent_output {
+            self.mark_attach_output_sent();
+        }
     }
 
     /// Replace every byte-stream mirror after a sidecar-only state change.
