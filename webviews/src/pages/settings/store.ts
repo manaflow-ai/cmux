@@ -341,6 +341,12 @@ export class SettingsStore {
     void this.request("cmux.settings.file.reveal", {});
   }
 
+  /** Settings > Mobile: remove one of the account's phones, then re-read the host lists. */
+  async removePhone(id: string): Promise<void> {
+    await this.request("cmux.settings.mobile.remove_phone", { id });
+    await this.refreshHost();
+  }
+
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
