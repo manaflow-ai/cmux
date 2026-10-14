@@ -145,6 +145,15 @@ const CHIEF_IDENTITY_ENV: [&str; 7] = [
     SHARED_ENV,
 ];
 
+/// This host's credential and participant: the token file binds as this
+/// Chief (`agent_mux` for the default Chief). No daemon this host starts
+/// gets them, shared or not: the default Chief's host starts the Chief
+/// home's acpmux, which every Chief of the home and the person use, so its
+/// sessions would act as the default Chief (hq-6d 2026-10-14). The host
+/// binds with its own copy; acpmux drops them from every child too
+/// (acpmux `config::CHIEF_CREDENTIAL_ENV`).
+const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
+
 /// Whether this host's acpmux is shared ([`SHARED_ENV`]).
 pub fn shared() -> bool {
     env(SHARED_ENV).as_deref() == Some("1")
@@ -437,6 +446,9 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
         .map_err(|e| format!("opening the daemon log: {e}"))?;
     let err = out.try_clone().map_err(|e| e.to_string())?;
     let mut command = Command::new(bin);
+    for key in CHIEF_CREDENTIAL_ENV {
+        command.env_remove(key);
+    }
     if shared() {
         // The Chief home's daemon serves every Chief and the person's tabs:
         // none of this Chief's identity reaches it (its sessions would act
