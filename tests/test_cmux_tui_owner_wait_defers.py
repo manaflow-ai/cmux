@@ -51,6 +51,11 @@ if "/actions/runs/" in url:
     sys.exit(0)
 if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
     sys.exit(22)
+if "daemon-tests.json" in url and os.environ.get("FAKE_MARKER", "1") != "1":
+    sys.exit(22)
+if "source.json" in url:
+    print(json.dumps({"ref": os.environ.get("FAKE_SOURCE_REF", "refs/heads/op-lane"), "daemonTests": "separate"}))
+    sys.exit(0)
 key = url.split("/tree/")[1].split("/")[0]
 names = ["cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin"]
 if "completion.json" in url:
@@ -204,6 +209,18 @@ def main():
 
     result, out, log = run_wait("")
     _check(result.returncode == 0 and "takeover=true" in out, f"the owner itself builds ({out.strip()!r})")
+
+    # A lane-branch owner publishes build-only (no daemon-tests marker). A
+    # testing run that finds its tree published unmarked tests it here, or a
+    # feat-cmux-next push racing that publish would leave the key untested.
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0")
+    _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
+           f"a tree a lane run published without the marker is flagged unmarked ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1")
+    _check(result.returncode == 0 and "unmarked=false" in out, f"a marked tree is not flagged ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_SOURCE_REF="refs/heads/feat-cmux-next")
+    _check(result.returncode == 0 and "unmarked=false" in out,
+           f"a feat-cmux-next publisher tests its own tree, so it is not flagged ({out.strip()!r})")
 
     _check({"macos-cross-shadow", "macos-cross-runtime-x86_64"} <= set(job("notify-unpublished-tree")["needs"]),
            "the hand-off runs after the jobs that keep the owner in progress")

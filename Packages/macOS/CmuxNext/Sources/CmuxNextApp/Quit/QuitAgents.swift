@@ -8,13 +8,13 @@ import os
 /// and Quit Everything's end of every agent except the Home Chief's.
 @MainActor
 enum QuitAgents {
-    /// The acpmux this app starts (same tag home), or nil when the app runs
+    /// The acpmux this app starts (its build's home), or nil when the app runs
     /// a mock agent host or has no acpmux binary.
     static func environment(_ services: AppServices) -> AcpmuxEnvironment? {
         let variables = ProcessInfo.processInfo.environment
         if services.environment.showcase || variables["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" { return nil }
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        return AcpmuxEnvironment.resolve(tag: services.environment.tag, bundledBinDirectory: bin, environment: variables)
+        return AcpmuxEnvironment.resolve(build: services.environment.build, bundledBinDirectory: bin, environment: variables)
     }
 
     /// Nil when acpmux did not answer in time (unknown, not zero).
