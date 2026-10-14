@@ -38,9 +38,7 @@ function HomeChannelsGallery({
   refuseInbox = false,
 }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(
-      offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox),
-    );
+    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox));
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
