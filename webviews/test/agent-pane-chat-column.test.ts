@@ -177,10 +177,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       const sample = () => {
         const view = scroller.getBoundingClientRect();
         const lines = [...scroller.querySelectorAll("p")];
+        const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
         const row = text
-          ? [...scroller.querySelectorAll(".acpmux-row, button.cv-command")].find((node) =>
-              node.textContent?.includes(text),
-            )
+          ? ([...scroller.querySelectorAll("button[aria-expanded]")].find(holds) ??
+            [...scroller.querySelectorAll(".acpmux-row")].find(holds))
           : undefined;
         return {
           fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
@@ -211,6 +211,15 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     frames.flatMap((frame, index) =>
       index > 0 && frame.scrollTop < frames[index - 1]!.scrollTop - 1 ? [[frames[index - 1]!, frame]] : [],
     );
+
+  /// Scrolls to the transcript's start as a reader does, so its first rows mount.
+  async function toStart(page: Page) {
+    await page.locator(".acpmux-scroll").hover();
+    for (let step = 0; step < 6; step++) await page.mouse.wheel(0, -4000);
+    await page.waitForTimeout(300);
+  }
+  /// The command's toggle, at the start of the turn.
+  const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "ls build" }).first();
 
   test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
     const chat = newChat();
@@ -288,9 +297,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   test("opening a command's output keeps the command under the pointer", async () => {
     const chat = newChat();
     const page = await open(chat, 900);
-    const command = page.locator("button.cv-command").first();
-    await command.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(200);
+    await toStart(page);
+    const command = commandToggle(page);
+    await command.waitFor();
     await watch(page, "ls build");
     await command.click();
     await page.getByText("build/step-13.o").waitFor();
@@ -372,13 +381,12 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           return true;
         }).length;
       }, text);
+    await toStart(page);
     const prompt = page.locator(".acpmux-row.acpmux-user").first();
-    await prompt.scrollIntoViewIfNeeded();
     await prompt.hover();
     await page.waitForTimeout(250);
     const onPrompt = await shown("Why does the build retry?");
-    const command = page.locator("button.cv-command").first();
-    await command.hover();
+    await commandToggle(page).hover();
     await page.waitForTimeout(250);
     expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
     await page.close();
