@@ -774,7 +774,7 @@ public final class ConversationViewController: UIViewController {
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a live change differ from a full build")
             newRows = built.rows
             tail = built
-        } else if change == .prepended, hasPositionedInitially, !fullBuild, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
+        } else if change == .prepended, hasPositionedInitially, !fullBuild, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows, index: { [rowIndex] in rowIndex[$0] }) {
             // An older page: only its rows and the boundary are built.
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a landed page differ from a full build")
             newRows = built.rows
