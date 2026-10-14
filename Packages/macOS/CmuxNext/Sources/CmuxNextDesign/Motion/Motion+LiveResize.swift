@@ -6,7 +6,11 @@ extension Motion {
     /// and the sidebar follow the edge every frame and nothing springs toward
     /// a size the next frame replaces (cx-sqj3h). Starts with the window's
     /// `willStartLiveResize` and ends with its `didEndLiveResize` (or its close).
-    public static var isLiveResizing: Bool { LiveResizeWindows.shared.isActive }
+    public static var isLiveResizing: Bool { liveResizeOverride ?? LiveResizeWindows.shared.isActive }
+
+    /// Tests set a live resize here instead of posting AppKit's notifications
+    /// to the process-wide center (check-test-notification-centers.sh).
+    static var liveResizeOverride: Bool?
 }
 
 /// The windows between `willStartLiveResize` and `didEndLiveResize`. Observes
@@ -18,8 +22,7 @@ final class LiveResizeWindows {
 
     var isActive: Bool { !resizing.isEmpty }
 
-    private init() {
-        let center = NotificationCenter.default
+    init(center: NotificationCenter = .default) {
         let changes: [(Notification.Name, Bool)] = [
             (NSWindow.willStartLiveResizeNotification, true),
             (NSWindow.didEndLiveResizeNotification, false),

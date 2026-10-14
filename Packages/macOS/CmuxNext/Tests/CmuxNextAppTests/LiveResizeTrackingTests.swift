@@ -31,12 +31,10 @@ import Testing
                  backing: .buffered, defer: true)
     }
 
-    /// `body` runs inside `window`'s live resize, as between AppKit's start and end notifications.
-    static func liveResize(_ window: NSWindow, _ body: () throws -> Void) rethrows {
-        // Motion observes windows from its first read, as the app's first frame does.
-        _ = Motion.animatesMovement
-        NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
-        defer { NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window) }
+    /// `body` runs inside a live resize, as between AppKit's start and end notifications.
+    static func liveResize(_ body: () throws -> Void) rethrows {
+        Motion.liveResizeOverride = true
+        defer { Motion.liveResizeOverride = nil }
         try body()
     }
 
@@ -61,7 +59,7 @@ import Testing
             return abs(shown.minX - target.minX) < 0.5 && abs(shown.width - target.width) < 0.5
         }
 
-        try Self.liveResize(window) {
+        try Self.liveResize {
             // One frame of the drag each: the window grows, then another client's divider move lands.
             for (step, ratio) in [0.45, 0.4, 0.35, 0.3].enumerated() {
                 window.setContentSize(NSSize(width: 1000 + 40 * CGFloat(step + 1), height: 700))
@@ -92,7 +90,7 @@ import Testing
         strip.layoutSubtreeIfNeeded()
         try #require(!strip.fadedEdges.trailing, "eight tabs overflow a 1600 pt strip")
 
-        try Self.liveResize(window) {
+        try Self.liveResize {
             // The window narrows until the tabs no longer fit.
             for width in stride(from: 1400, through: 200, by: -100) {
                 strip.setFrameSize(NSSize(width: CGFloat(width), height: strip.frame.height))
@@ -103,11 +101,23 @@ import Testing
         #expect(strip.fadedEdges.trailing, "the narrowed strip's tabs fit; the test proves nothing")
     }
 
+    @Test func aWindowIsInALiveResizeFromItsStartToItsEndOrClose() {
+        let center = NotificationCenter()
+        let windows = LiveResizeWindows(center: center)
+        let window = Self.window(width: 800, height: 600)
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+        #expect(windows.isActive)
+        center.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        #expect(!windows.isActive)
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+        center.post(name: NSWindow.willCloseNotification, object: window)
+        #expect(!windows.isActive, "a window closed mid-drag still holds every spring")
+    }
+
     @Test func aTerminalGridGoesToItsOwnerTheNextFrameOfALiveResize() throws {
         let coordinator = ResizeCoordinator()
         let owner = Owner()
-        let window = Self.window(width: 800, height: 600)
-        Self.liveResize(window) {
+        Self.liveResize {
             // Each frame of the drag fits one more column.
             for columns in 81...85 {
                 coordinator.submit(owner, size: CellSize(cols: columns, rows: 24))
