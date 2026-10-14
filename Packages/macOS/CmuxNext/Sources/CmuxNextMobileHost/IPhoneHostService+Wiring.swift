@@ -49,6 +49,7 @@ extension IPhoneHostService {
             .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
             .appendingPathComponent("cnx-host", isDirectory: true)
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
+        followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         dependencies = Dependencies(
             executable: executable,
             baseURL: base,
