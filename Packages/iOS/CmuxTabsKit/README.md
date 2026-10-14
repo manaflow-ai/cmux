@@ -56,17 +56,25 @@ transport or models.
 - **New Tab.** (+) puts one placeholder card in the grid. If your source
   lists the new tab before `createTab` returns, that tab takes the
   placeholder's slot in place, so the grid never shows two new cards. The
-  new tab then opens on Safari's new-tab spring (0.41 / 0.92: 50% / 85% /
-  99% of the way at 67 / 156 / 301 ms, within a frame of Safari), faster
-  than opening an existing tab.
+  new tab then grows from the screen's centre at 0.7 scale over the blurring
+  grid on Safari's new-tab spring (0.34 / 0.97). Closing the last tab on the
+  grid opens a fresh one at once (from 0.95, about 200 ms), never an empty
+  grid.
 - **Swipe to close.** Swipe a card left to close it, as in Safari (measured
   on an iPhone 17 Pro Max): horizontal drags only; the card lifts (scale 1.09)
-  while dragged, follows the finger 1:1 to the left and resists to the right
-  (always springs back, 0.66 / 0.86, settling to scale 1 with 0.57 / 0.94);
-  it closes past 72% of the card's width or on a left fling faster than
-  225 pt/s, keeps going left at the finger's speed, and the close goes through
-  your `close(_:)`; the grid reflows once it returns true (false: the card
-  springs back and your `notice` shows). When one tab is left, it opens.
+  while dragged, follows the finger from touch-down to the left and resists
+  to the right (100 pt gives 44 pt; always springs back, 0.66 / 0.86,
+  settling to scale 1 with 0.57 / 0.94). It closes when, projected 0.35 s
+  ahead at its release velocity, it is past 72% of the card's width, or on a
+  left fling faster than 225 pt/s. A closing card keeps flying left, lifted
+  and opaque, and is off screen within 190 ms; halfway out the kit calls your
+  `close(_:)`, so remove the tab at once and the count and reflow follow
+  (false: the card springs back and your `notice` shows). Cards also take
+  swipes while the zoom heads to the grid. When one tab is left, it opens.
+- **Long press.** A long press lifts the card into a menu: your
+  `cardMenu(for:)` groups (Copy Link, Duplicate Tab), then Close Tab and
+  Close Other Tabs. With `supportsReordering`, moving the finger instead
+  drags the card to another slot (`moveTab(_:to:)`).
 - **One tab.** A lone tab gets Safari's larger centred card (two thirds of
   the screen width, same aspect, close button and title row) with "1 Tab" in
   the bar; the grid reflows into and out of it.
@@ -74,7 +82,9 @@ transport or models.
   open it. Tracking is 1:1 with rubber banding, and release keeps the finger
   velocity.
 - **Toolbar swipe.** Swiping sideways on the address capsule moves to the
-  neighboring tab. Swiping past the last tab creates a new one.
+  neighboring tab. Swiping past the last tab creates a new one. Swiping up
+  opens the grid, the page following the finger. A swipe never triggers the
+  button it started on.
 - **Status bar.** The style follows each tab's `statusBarStyle`.
 - **Reduce Motion.** Spatial animations become short crossfades.
 

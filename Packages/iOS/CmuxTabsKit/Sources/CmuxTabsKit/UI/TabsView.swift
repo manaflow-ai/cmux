@@ -71,6 +71,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// card until the source lists the new tab (NewTabSlot).
     @State private var pendingNewTab: TabsKitNewTabOption?
     @State private var newTabSlot: NewTabSlot?
+    /// A just-created tab opening from the screen's centre (Safari's new
+    /// tab, not from its grid slot), and how.
+    @State private var newTabZoomID: String?
+    @State private var newTabZoom = NewTabZoom.plus
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     @State private var zoomPinchActive = false
@@ -112,6 +116,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         // tab's card live (the same view as the page).
                         hiddenTabId: zoomState.phase == .overview ? (staticCardID == activeID ? nil : activeID) : zoomTabId,
                         gridInteractive: zoomState.gridInteractive,
+                        swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
                         controlsInteractive: overviewVisible && zoomState.headingToOverview,
                         scroll: gridScroll, position: $overviewPosition,
                         onSelect: { closeOverview(selecting: $0) },
@@ -160,7 +165,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onReload: { if let id = activeID { source.reloadOrStop(id) } },
                         onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
                         onEndEditing: { endEditing() }, onGo: go,
-                        onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded)
+                        onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
+                        onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded)
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
@@ -236,13 +242,22 @@ struct TabsScreen<Source: TabsDataSource>: View {
             guard let wanted, wanted != zoomState.headingToOverview else { return }
             if wanted { openOverview() } else { closeOverview(selecting: activeID) }
         }
+        .onChange(of: zoomState.phase) { _, phase in
+            if phase == .page || phase == .overview { newTabZoomID = nil }
+        }
+        .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
         .onChange(of: zoomState.headingToOverview) { _, heading in
             if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
         }
         .onChange(of: tabs.isEmpty, initial: true) { _, empty in
             // Closing the last tab opens a fresh one, as Safari does.
-            if empty, !overviewVisible, let option = source.newTabOptions.first {
+            guard empty, let option = source.newTabOptions.first else { return }
+            if !overviewVisible {
                 Task { _ = await source.createTab(option) }
+            } else if zoomState.phase == .overview {
+                // Safari never leaves an empty grid: a fresh tab grows in
+                // at once (0.95 -> 1 in about 200 ms).
+                newTab(option, zoom: .lastTabClosed)
             }
         }
     }
@@ -391,6 +406,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// to the screen through the grid's reported content origin, or the
     /// layout at the last known offset before the grid has reported.
     private func zoomEndpoint() -> CGRect {
+        if let id = newTabZoomID, id == zoomTabId { return newTabZoom.rect(in: fullRect) }
         let index: Int
         if zoomTabId == TabsScreenSpace.newTabMarker {
             index = tabs.count
@@ -500,8 +516,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// in place); the zoom grows from that slot once the client created the
     /// tab, on Safari's new-tab spring. A refused create leaves the grid as
     /// it was.
-    private func newTabFromOverview(_ option: TabsKitNewTabOption) {
+    private func newTabFromOverview(_ option: TabsKitNewTabOption) { newTab(option, zoom: .plus) }
+
+    private func newTab(_ option: TabsKitNewTabOption, zoom: NewTabZoom) {
         guard zoomState.phase == .overview, pendingNewTab == nil else { return }
+        newTabZoom = zoom
         pendingNewTab = option
         newTabSlot = NewTabSlot(baseline: tabs.map(\.id))
         Task {
@@ -515,12 +534,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
         }
     }
 
-    /// Zooms from a just-created tab's card into it (grid only).
+    /// Grows a just-created tab from the screen's centre (grid only).
     private func openCreated(_ id: String) {
         guard zoomState.phase == .overview, tabs.contains(where: { $0.id == id }) else { return }
         if activeID != id { source.activate(id) }
         zoomTabId = id
-        zoomDriver.openNewTab()
+        newTabZoomID = id
+        zoomDriver.openNewTab(spring: newTabZoom.spring)
     }
 
     private func closeAll() {
@@ -636,6 +656,24 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     // MARK: Toolbar swipe
+
+    /// Swipe up on the bar: the page shrinks toward its card with the finger.
+    private func swipeUpChanged(_ up: CGFloat, _ velocity: CGFloat) {
+        if zoomState.phase == .page {
+            guard !chrome.swiping, activeID != nil else { return }
+            zoomTabId = activeID
+            prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
+            zoomDriver.beginInteraction()
+        }
+        guard zoomState.phase == .interactive else { return }
+        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: max(0, up)), velocity: BarSwipe.velocity(up: velocity))
+    }
+
+    /// Release: on to the grid or back to the page, on the release spring.
+    private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
+        guard zoomState.phase == .interactive, !zoomPinchActive else { return }
+        zoomDriver.endInteraction(velocity: BarSwipe.velocity(up: velocity), startedFromOverview: false)
+    }
 
     private func swipeChanged(_ dx: CGFloat) {
         if !chrome.swiping { chrome.swiping = true }

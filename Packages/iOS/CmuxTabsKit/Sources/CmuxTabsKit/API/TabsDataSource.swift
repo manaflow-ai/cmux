@@ -29,10 +29,12 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// Makes `id` the active tab (a card tapped, a swipe, a suggestion).
     func activate(_ id: TabsKitTab.ID)
     /// Closes `id` and returns true once it is gone from `tabs` (when it
-    /// was active, pick the next active tab). Return false when the close
-    /// was refused: the tab stays in `tabs`, its card springs back, and the
-    /// kit shows your `notice` (set it to say why). The card keeps its slot
-    /// (no reflow) until this returns.
+    /// was active, pick the next active tab). For Safari's timing take it
+    /// out of `tabs` at once (the count changes and the grid reflows while
+    /// a swiped card is still flying off) and confirm with your backend
+    /// afterwards. Return false when the close was refused: put the tab
+    /// back in `tabs`, its card springs back to its slot, and the kit shows
+    /// your `notice` (set it to say why).
     func close(_ id: TabsKitTab.ID) async -> Bool
     /// Creates a tab, appends it to `tabs`, makes it active and returns its
     /// id; nil when it could not be created (the grid stays as it was).
@@ -96,6 +98,13 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// still attaching): the kit keeps the tab's card over it, so opening a
     /// card never flashes blank. Default true.
     func isContentReady(_ id: TabsKitTab.ID) -> Bool
+    /// Groups of items above Close Tab and Close Other Tabs in a card's
+    /// long-press menu (Safari: Copy Link, Duplicate Tab). Default none.
+    func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]]
+    /// True when cards can be dragged to a new slot (long press, then move).
+    var supportsReordering: Bool { get }
+    /// A dragged card moved to `index` in `tabs`: reorder `tabs`.
+    func moveTab(_ id: TabsKitTab.ID, to index: Int)
     /// A short message the kit shows as a glass toast at the top (a tab that
     /// could not be created, a step that failed). Set it when `createTab`
     /// returns nil so the user learns why; the grid stays as it was.
@@ -136,6 +145,9 @@ extension TabsDataSource {
     public func reloadOrStop(_ id: TabsKitTab.ID) {}
     public func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
     public func isContentReady(_ id: TabsKitTab.ID) -> Bool { true }
+    public func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
+    public var supportsReordering: Bool { false }
+    public func moveTab(_ id: TabsKitTab.ID, to index: Int) {}
     public var notice: String? { nil }
     public func clearNotice() {}
 }

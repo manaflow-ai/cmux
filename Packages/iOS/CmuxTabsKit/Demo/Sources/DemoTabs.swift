@@ -152,6 +152,28 @@ final class DemoTabs: TabsDataSource {
 
     // MARK: Model
 
+    /// A card's long-press menu: Copy Link and Duplicate Tab for web pages
+    /// (the kit adds Close Tab and Close Other Tabs).
+    func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] {
+        guard let url = webPages[tab.id]?.webView.url else { return [] }
+        return [[
+            TabsKitMenuItem(title: "Copy Link", systemImage: "doc.on.doc") { UIPasteboard.general.url = url },
+            TabsKitMenuItem(title: "Duplicate Tab", systemImage: "plus.square.on.square") { [weak self] in
+                guard let self, let i = self.order.firstIndex(of: tab.id) else { return }
+                let id = self.addWebPage(url)
+                self.moveTab(id, to: i + 1)
+            },
+        ]]
+    }
+
+    var supportsReordering: Bool { true }
+
+    func moveTab(_ id: String, to index: Int) {
+        guard let from = order.firstIndex(of: id) else { return }
+        order.remove(at: from)
+        order.insert(id, at: max(0, min(index, order.count)))
+    }
+
     @discardableResult
     private func addWebPage(_ url: URL) -> String {
         let id = makeId()
