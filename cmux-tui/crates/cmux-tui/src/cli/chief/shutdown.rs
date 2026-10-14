@@ -82,7 +82,9 @@ pub(super) fn stop_brain(lock: &Path, limit: Duration) -> Result<bool, String> {
             }
         }
         stopped.push(pid);
-        while alive(pid) {
+        // Ended: gone, or no longer the lock's holder (an exited brain whose
+        // parent has not reaped it yet still answers kill(pid, 0)).
+        while alive(pid) && brain_running(lock) && holder(lock) == Some(pid) {
             if Instant::now() >= deadline {
                 return Err(timeout(pid, limit));
             }
