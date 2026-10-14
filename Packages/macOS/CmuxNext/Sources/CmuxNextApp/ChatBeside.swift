@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 
 /// Open beside (Leo 2026-10-14): what a click in a chat opens goes to the pane right of the chat,
