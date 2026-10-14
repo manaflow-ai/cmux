@@ -961,6 +961,7 @@ pub fn settings(dir: &Path) -> Settings {
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
         shared_ttl: Default::default(),
+        home_view: None,
     }
 }
 

@@ -492,6 +492,11 @@ pub(crate) struct RosterEntry {
     #[serde(default)]
     pub(crate) agent: Option<String>,
     pub(crate) updated_at_ms: u64,
+    /// When the terminal's agent entered `state` (the journal's clock, like
+    /// `updated_at_ms`): a report that keeps the state, source and session
+    /// keeps it. Absent from entries written before it: `updated_at_ms`.
+    #[serde(default)]
+    pub(crate) since_ms: Option<u64>,
 }
 
 /// Restart fences retained after a plugin child exits. A tagged observation
@@ -506,6 +511,11 @@ struct PluginExitFence {
 }
 
 impl RosterEntry {
+    /// When the agent entered its state; `updated_at_ms` for an older entry.
+    pub(crate) fn since_ms(&self) -> u64 {
+        self.since_ms.unwrap_or(self.updated_at_ms)
+    }
+
     pub(crate) fn agent_state(&self) -> AgentState {
         agent_state_from_str(&self.state).unwrap_or(AgentState::Unknown)
     }
@@ -831,6 +841,15 @@ impl AgentRoster {
                 Vec::new()
             };
         }
+        let since_ms = self
+            .entries
+            .get(terminal_id)
+            .filter(|previous| {
+                previous.state == state.as_str()
+                    && previous.source == source.as_str()
+                    && previous.session == session
+            })
+            .map_or(updated_at_ms, RosterEntry::since_ms);
         let entry = RosterEntry {
             state: state.as_str().to_string(),
             source: source.as_str().to_string(),
@@ -842,6 +861,7 @@ impl AgentRoster {
             agent: agent
                 .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone())),
             updated_at_ms,
+            since_ms: Some(since_ms),
         };
         if self.entries.get(terminal_id) == Some(&entry) {
             return Vec::new();
