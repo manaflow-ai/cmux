@@ -26,6 +26,12 @@ impl Hub {
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect(),
                     login: auth.and_then(|a| a.login.clone()),
+                    unresolved: p
+                        .env
+                        .iter()
+                        .filter(|(_, v)| v.contains("${"))
+                        .map(|(k, _)| k.clone())
+                        .collect(),
                     probe_error: probe_errors.get(id).cloned(),
                 })
             })
