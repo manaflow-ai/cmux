@@ -110,6 +110,12 @@ pub struct Request {
     /// From the same start to the request's first content delta: its time
     /// to first token.
     pub ttft_ms: Option<u64>,
+    /// Claude Code's session id (`session_id` of its stream-json line):
+    /// the key the subrouter pins an account to (it reads Claude Code's
+    /// `X-Claude-Code-Session-Id`). The subrouter answers no account in its
+    /// responses, so this id (with `id`, the upstream message id) is what
+    /// joins a request to the subrouter's session assignment and proxy log.
+    pub session: Option<String>,
 }
 
 /// The model stream of the request in flight (Claude Code's
@@ -288,6 +294,11 @@ impl TurnFold {
                                 usage,
                                 headers_ms: stream.headers_ms,
                                 ttft_ms: stream.ttft_ms,
+                                session: event
+                                    .msg
+                                    .get("session_id")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_owned),
                             });
                         }
                     }
