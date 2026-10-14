@@ -56,10 +56,7 @@ fn serve(listener: UnixListener) {
 
 /// A brain over the fake acpmux, its engine.json in `dir`, knowing
 /// `families` (`_acpmux/harnesses` at host start).
-fn brain(
-    dir: &std::path::Path,
-    families: &[(&str, optchat_chief::acpmux::Family)],
-) -> Brain {
+fn brain(dir: &std::path::Path, families: &[(&str, optchat_chief::acpmux::Family)]) -> Brain {
     let socket = dir.join("acpmux.sock");
     serve(UnixListener::bind(&socket).unwrap());
     let acpmux = Acpmux::new(socket, None, Vec::new());
@@ -125,7 +122,11 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
     let dir = tempfile::tempdir().unwrap();
     let mut brain = brain(
         dir.path(),
-        &[("claude", Family::Claude), ("claude-sr", Family::Claude), ("codex", Family::Codex)],
+        &[
+            ("claude", Family::Claude),
+            ("claude-sr", Family::Claude),
+            ("codex", Family::Codex),
+        ],
     );
     let set = |compactor_harness: &str, compactor_model: Option<&str>| EngineRequest::Set {
         harness: None,
@@ -138,8 +139,14 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
     };
 
     let answer = engine(&mut brain, set("claude-sr", Some("claude-haiku-5-5")));
-    assert_eq!(answer["engine"]["compactor_harness"], "claude-sr", "{answer:#}");
-    assert_eq!(answer["engine"]["compactor_model"], "claude-haiku-5-5", "{answer:#}");
+    assert_eq!(
+        answer["engine"]["compactor_harness"], "claude-sr",
+        "{answer:#}"
+    );
+    assert_eq!(
+        answer["engine"]["compactor_model"], "claude-haiku-5-5",
+        "{answer:#}"
+    );
     let file = optchat_chief::engine::load(&dir.path().join("engine.json"));
     assert_eq!(file.compactor_harness.as_deref(), Some("claude-sr"));
     assert_eq!(file.compactor_model.as_deref(), Some("claude-haiku-5-5"));
@@ -147,12 +154,22 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
     let refused = engine(&mut brain, set("no-such-harness", None));
     assert_eq!(refused["error"]["code"], "unknown_harness", "{refused:#}");
     assert_eq!(
-        optchat_chief::engine::load(&dir.path().join("engine.json")).compactor_harness.as_deref(),
+        optchat_chief::engine::load(&dir.path().join("engine.json"))
+            .compactor_harness
+            .as_deref(),
         Some("claude-sr"),
         "a refused set writes nothing"
     );
 
     let cleared = engine(&mut brain, set("default", Some("default")));
-    assert_eq!(cleared["engine"]["compactor_harness"], Value::Null, "{cleared:#}");
-    assert_eq!(cleared["engine"]["compactor_model"], Value::Null, "{cleared:#}");
+    assert_eq!(
+        cleared["engine"]["compactor_harness"],
+        Value::Null,
+        "{cleared:#}"
+    );
+    assert_eq!(
+        cleared["engine"]["compactor_model"],
+        Value::Null,
+        "{cleared:#}"
+    );
 }

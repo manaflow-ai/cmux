@@ -86,7 +86,10 @@ impl Brain {
                     return error("invalid_speed", reason);
                 }
             }
-            for h in [set(&harness), set(&compactor_harness)].into_iter().flatten() {
+            for h in [set(&harness), set(&compactor_harness)]
+                .into_iter()
+                .flatten()
+            {
                 if !self.settings.families.is_empty() && !self.settings.families.contains_key(&h) {
                     let known: Vec<&str> =
                         self.settings.families.keys().map(String::as_str).collect();

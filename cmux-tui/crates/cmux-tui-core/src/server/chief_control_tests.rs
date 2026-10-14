@@ -183,7 +183,9 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
     assert_eq!(
         tool_line(
             ResourceOperation::ChiefEngineSet,
-            &fields(json!({"speed":"fast","compactor_speed":"default","compactor_harness":"claude-sr","compactor_model":"default"}))
+            &fields(
+                json!({"speed":"fast","compactor_speed":"default","compactor_harness":"claude-sr","compactor_model":"default"})
+            )
         ),
         json!({"tool":"engine","action":"set","speed":"fast","compactor_speed":"default","compactor_harness":"claude-sr","compactor_model":"default"})
     );
