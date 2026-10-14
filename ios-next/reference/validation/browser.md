@@ -753,3 +753,19 @@ progress and both opacities on every display frame:
 The start differs by one frame because our zoom spring reaches 0.96 one frame
 later. The values after the start are within 0.05, except one close-button
 sample at +67 ms, which is off by 0.09; the device data is noisy there.
+
+## Round 11: titles start sooner, a deliberate deviation from Safari
+
+Aziz asked, after trying it on device, for the title rows under the cards to
+come in a little sooner. They now start at zoom progress
+`CardChrome.titleTrigger = 0.90` instead of Safari's measured 0.96. That is
+about 50 ms earlier on a tap (≈ 183 ms after the tap instead of ≈ 233 ms).
+The fade curve is unchanged: `1 − e^(−t/58 ms)`, rising 2 pt. Nothing else
+changes:
+
+- The other cards' close buttons still start at `CardChrome.closeTrigger = 0.96`.
+- The zooming card's close button still follows progress from 0.76 to 0.96.
+- Leaving the grid still hides everything within two frames.
+
+A pinch that backs off below 0.90 hides the titles again.
+`CardChromeTests` covers both triggers and the unchanged curves.
