@@ -110,3 +110,20 @@ a double step; I judged runs, not single frames.
 - Fixed here: a real host's history arrives after the chat's first layout (during the push), when programmatic scrolls are dropped. The scroll view is now created once history is in, so it opens at the bottom. The send reserve applies only after a send in that screen.
 - Fixed here: a shell call whose `input` is the command string now draws as `Ran \`cmd\``.
 - Approvals on bridged sessions: Allow is disabled up front when the host advertises `agent.mirror.v1`; when an Allow fails with `unsupported`, the card returns with Allow disabled and "Approve this on your Mac". Reject still answers from the phone. I could not trigger a real approval: the bridged codex session runs in an auto-approving mode and the harness reports no modes to switch.
+
+## V1.1 follow-up: approval exit (4.6) and error sessions (D12)
+
+Captured on `mini-cmux15` (iOS 26.5 simulator, Drawer, mock `s_auth`, 60 fps `simctl` recordings). Shifts are per-frame vertical motion at 3 px/pt, measured in the transcript band (y 140–535 pt) and the card band (y 545–740 pt).
+
+| Choice | Card exit frames | Transcript shift during exit | Card motion (pt/frame) | Result |
+| --- | --- | --- | --- | --- |
+| Allow once, light | 126–131 | 0.00 every frame | −31 (one dropped frame), −22, −22, −21, −19, −29 then leaves the band | pass |
+| Always, light | 129–136 | 0.00 every frame | −12, −19, −22, −22, −21, −19, −16, −13 | pass |
+| Reject, light | 121–127 | 0.00 every frame | −12, −19, −22, −22, −40 (one dropped frame), −16, −13 | pass |
+| Allow once, dark | 128–135 | 0.00 every frame | −12, −19, −22, −22, −21, −19, −16, −13 | pass |
+
+- Before (v1.1 evidence `permission-allowonce-stream-light.mp4`): the transcript moved 13 pt in one frame while the card left.
+- After the card is gone, the reply grows past the space the card left. The pinned view then follows with one eased scroll (e.g. 17, 33 across a dropped frame, 16, 14, 12, 10, 8, 6 pt/frame), not a step. It settles with the edited-files card and copy button above the composer.
+- The send regression shows the rise as a monotone decaying spring (72, 131, 123, 51, 43, 36, 29 … pt/frame) with no backward step. An overshooting scroll target used to cause a one-frame jump at the start of a send; it is fixed in the same commit.
+- `agents/anim-approval-exit.png`: Allow once, light, from before the tap to settled.
+- `agents/real-host-error.png`: the real host (`cmux15`, test login) lists the failed bridged `claude` session ("Not logged in · Please run /login") with the red Error badge and a red preview, in light and dark.
