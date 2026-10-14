@@ -501,6 +501,8 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
     }
 
+    /// Stores a panel lifecycle and, for journal-backed entries, its owning
+    /// agent session identity.
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,

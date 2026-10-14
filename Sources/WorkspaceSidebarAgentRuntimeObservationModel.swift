@@ -82,6 +82,7 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         notifyChanged()
     }
 
+    /// Records or removes the session that owns one panel lifecycle key.
     func setAgentLifecycleSessionID(_ sessionID: String?, key: String, panelId: UUID) {
         var next = agentLifecycleSessionIDsByPanelId
         if let sessionID, !sessionID.isEmpty {
@@ -97,11 +98,13 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         notifyChanged()
     }
 
+    /// Removes lifecycle ownership metadata for one panel.
     func clearAgentLifecycleSessionIDs(panelId: UUID) {
         guard agentLifecycleSessionIDsByPanelId.removeValue(forKey: panelId) != nil else { return }
         notifyChanged()
     }
 
+    /// Removes lifecycle ownership metadata for every panel.
     func clearAllAgentLifecycleSessionIDs() {
         guard !agentLifecycleSessionIDsByPanelId.isEmpty else { return }
         agentLifecycleSessionIDsByPanelId.removeAll()
