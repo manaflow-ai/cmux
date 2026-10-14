@@ -241,7 +241,23 @@ class Journey:
     def keybar_reveal(self, label):
         if label in self.PINNED_KEYS:
             return self.keybar_pinned(label)
-        e = self.sim.reveal_h(dict(label=label, kind="Button"), lane=self.keybar_lane(label), tries=30)
+        lane = self.keybar_lane(label)
+        # Keys scrolled out of the row are hidden from accessibility
+        # (KeyBarClipping), so the rig cannot aim at one it does not see: page
+        # the scroller forward, then back, until the key is listed.
+        sc = [e for e in self.sim.find(label="More keys") if e.frame[2] > 40]
+        y = sc[0].center[1] if sc else None
+        for direction in (1, -1):
+            for _ in range(6):
+                if self.sim.find(label=label, kind="Button") or y is None:
+                    break
+                lo, hi = lane
+                if direction > 0:
+                    self.sim.drag(hi - 8, y, lo + 8, y, duration=0.4, hold=0.2)
+                else:
+                    self.sim.drag(lo + 8, y, hi - 8, y, duration=0.4, hold=0.2)
+                time.sleep(0.4)
+        e = self.sim.reveal_h(dict(label=label, kind="Button"), lane=lane, tries=30)
         check(e, f"key bar has no {label!r}")
         return e
 
@@ -694,6 +710,9 @@ class Journey:
         link = self.sim.ocr_find("cmux.com")
         try:
             check(rows, f"Files and links did not list {sample}")
+            # The terminal now draws from the top (design/terminal B1), so its
+            # own `ls` line can show above the half sheet: tap the sheet's row.
+            rows = sorted(rows, key=lambda o: -o[1])
             x, y, w, h, _ = rows[0]
             self.sim.tap(201, y + h / 2)
             # Valid end states: the file's text, or the refusal view (the Mac shares no
