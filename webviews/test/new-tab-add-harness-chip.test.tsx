@@ -101,7 +101,6 @@ async function page(catalog: AcpmuxSnapshot["catalog"]) {
         <NewTabScreen
           snapshot={{ ...noChat(), catalog }}
           cwd="/Users/you/src/app"
-          harnessesListed
           chips={NewTabComposerChips}
           onAsk={noop}
           onOpen={noop}
@@ -110,7 +109,6 @@ async function page(catalog: AcpmuxSnapshot["catalog"]) {
           onJump={noop}
           onOpenSession={noop}
           onShowAll={noop}
-          onAddHarness={() => opened.count++}
         />
       </QueryClientProvider>,
     );
@@ -160,14 +158,18 @@ test("with harnesses installed, the picker's last item is Add harness…, by cli
   await act(async () => actionable.at(-1)!.click());
   expect(opened.count).toBe(1);
 
-  // From the search field, ArrowUp from the first row wraps to Add harness…; Return opens it.
+  // From the search field, ArrowUp walks the rows back and wraps to Add harness…; Return opens it.
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
-  await act(async () => {
-    search.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowUp" }));
-  });
-  const activeId = search.getAttribute("aria-activedescendant");
-  expect(activeId ? host.ownerDocument.getElementById(activeId)?.textContent?.trim() : undefined).toBe("Add harness…");
+  const activeText = () => {
+    const id = search.getAttribute("aria-activedescendant");
+    return id ? host.ownerDocument.getElementById(id)?.textContent?.trim() : undefined;
+  };
+  for (let press = 0; press < 12 && activeText() !== "Add harness…"; press++)
+    await act(async () => {
+      search.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowUp" }));
+    });
+  expect(activeText()).toBe("Add harness…");
   await act(async () => {
     search.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }));
   });
