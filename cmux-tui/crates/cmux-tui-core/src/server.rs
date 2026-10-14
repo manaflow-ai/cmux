@@ -1988,6 +1988,10 @@ enum Command {
         /// automatic rename read; required with `source: auto`.
         #[serde(default)]
         expected_name_revision: Option<String>,
+        /// `workspace-name-source-v1`: with `source: auto`, hand the current
+        /// name (`name` must equal it) back to the automatic namer.
+        #[serde(default)]
+        release: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3742,6 +3746,7 @@ fn handle_command_with_cancellation(
             name,
             source,
             expected_name_revision,
+            release,
             mutation,
         } => cmd_workspaces::rename_workspace(
             mux,
@@ -3752,6 +3757,7 @@ fn handle_command_with_cancellation(
                 name,
                 source,
                 expected_name_revision,
+                release,
             },
             mutation,
         ),

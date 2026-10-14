@@ -28956,12 +28956,12 @@
         },
         "fields": {
           "name": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "primitive",
               "name": "string"
             },
-            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved."
+            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved. Required unless release is true."
           },
           "expected_revision": {
             "required": false,
@@ -28997,11 +28997,22 @@
               "name": "decimal"
             },
             "description": "The workspace's extra.name_revision the caller read; a rename since then is revision.conflict."
+          },
+          "release": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "With source auto, a person hands the current name back to the automatic namer: the text stays, name_source becomes auto and name_revision advances. Needs no expected_name_revision; name, when present, must equal the current name (workspace-name-source-v1)."
           }
         },
         "extra": false,
         "constraints": [
-          "source auto requires expected_generation and expected_name_revision."
+          "source auto requires expected_generation and expected_name_revision unless release is true.",
+          "release requires source auto.",
+          "name is required unless release is true."
         ]
       },
       "result": {

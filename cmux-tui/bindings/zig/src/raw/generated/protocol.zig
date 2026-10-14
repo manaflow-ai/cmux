@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "62e6321883d459311001de28879d15034f6b9fa048a2055db7881d754d0fdb1e";
+pub const ir_sha256 = "3ae2adad6ac4f6eecd9514c0da365bb4fbe2646a1b942b7098f2e4582761d4d9";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7207,9 +7207,15 @@ pub const RenameWorkspaceRequest = struct {
     mutation_id: wire.Field([]const u8) = .absent,
     name: []const u8,
     origin: wire.Field([]const u8) = .absent,
+    /// With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed.
+    release: ?bool = null,
     /// Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision.
     source: wire.Field(NameSource) = .absent,
     workspace: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "release",
+    };
 };
 
 pub const RenameWorkspaceResult = WorkspaceMutationResult;
@@ -7229,6 +7235,7 @@ pub fn renameWorkspace(client: anytype, request: RenameWorkspaceRequest) !wire.D
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
+                .{ .name = "release", .since = 12, .capability = "workspace-name-source-v1" },
                 .{ .name = "source", .since = 12, .capability = "workspace-name-source-v1" },
             },
         },

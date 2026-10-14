@@ -3807,6 +3807,7 @@ class RenameWorkspaceRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     expected_name_revision: Union[str, None, MissingType] = field(default=MISSING)
+    release: Union[bool, MissingType] = field(default=MISSING)
     source: Union[NameSource, None, MissingType] = field(default=MISSING)
 
 

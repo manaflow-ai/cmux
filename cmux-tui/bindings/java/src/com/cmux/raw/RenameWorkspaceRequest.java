@@ -20,6 +20,8 @@ public final class RenameWorkspaceRequest implements WireValue {
     private final Field<String> mutationId;
     private final String name;
     private final Field<String> origin;
+    /** With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed. */
+    private final Field<Boolean> release;
     /** Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision. */
     private final Field<NameSource> source;
     private final Field<UInt64> workspace;
@@ -33,6 +35,7 @@ public final class RenameWorkspaceRequest implements WireValue {
         if (!builder.nameSet) throw new IllegalArgumentException("name is required");
         this.name = Wire.nonNull(builder.name, "name");
         this.origin = builder.origin;
+        this.release = builder.release;
         this.source = builder.source;
         this.workspace = builder.workspace;
     }
@@ -46,6 +49,7 @@ public final class RenameWorkspaceRequest implements WireValue {
     public Field<String> mutationId() { return mutationId; }
     public String name() { return name; }
     public Field<String> origin() { return origin; }
+    public Field<Boolean> release() { return release; }
     public Field<NameSource> source() { return source; }
     public Field<UInt64> workspace() { return workspace; }
 
@@ -78,6 +82,10 @@ public final class RenameWorkspaceRequest implements WireValue {
         if (!Wire.isMissing(rawOrigin)) {
             builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "RenameWorkspaceRequest.origin"));
         }
+        Object rawRelease = Wire.optional(object, "release");
+        if (!Wire.isMissing(rawRelease)) {
+            builder.release(Wire.bool(rawRelease, "RenameWorkspaceRequest.release"));
+        }
         Object rawSource = Wire.optional(object, "source");
         if (!Wire.isMissing(rawSource)) {
             builder.source(rawSource == null ? null : NameSource.fromWire(rawSource));
@@ -99,6 +107,7 @@ public final class RenameWorkspaceRequest implements WireValue {
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "name", name);
         Wire.put(object, "origin", origin);
+        Wire.put(object, "release", release);
         Wire.put(object, "source", source);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
@@ -107,11 +116,11 @@ public final class RenameWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof RenameWorkspaceRequest that)) return false;
-        return Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedNameRevision, that.expectedNameRevision) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(source, that.source) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedNameRevision, that.expectedNameRevision) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(release, that.release) && Objects.equals(source, that.source) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(expectedGeneration, expectedNameRevision, expectedRevision, key, mutationId, name, origin, source, workspace); }
+    public int hashCode() { return Objects.hash(expectedGeneration, expectedNameRevision, expectedRevision, key, mutationId, name, origin, release, source, workspace); }
 
     @Override
     public String toString() { return "RenameWorkspaceRequest" + toWire(); }
@@ -125,6 +134,7 @@ public final class RenameWorkspaceRequest implements WireValue {
         private String name;
         private boolean nameSet;
         private Field<String> origin = Field.omitted();
+        private Field<Boolean> release = Field.omitted();
         private Field<NameSource> source = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
@@ -155,6 +165,10 @@ public final class RenameWorkspaceRequest implements WireValue {
         }
         public Builder origin(String value) {
             this.origin = Field.ofNullable(value);
+            return this;
+        }
+        public Builder release(Boolean value) {
+            this.release = Field.of(value);
             return this;
         }
         public Builder source(NameSource value) {

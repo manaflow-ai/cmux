@@ -430,13 +430,16 @@ impl Mux {
     pub(crate) fn resource_rename_workspace_selected(
         &self,
         selectors: crate::ResourceSelectors,
-        name: String,
+        name: Option<String>,
         authority: crate::resource_name::WorkspaceNameUpdate,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        Self::validate_workspace_name(&name)?;
+        // Only a release may omit the name: it keeps the current one.
+        if let Some(name) = &name {
+            Self::validate_workspace_name(name)?;
+        }
         let mut fingerprint = serde_json::json!({
             "operation": "workspace.rename",
             "selectors": selectors,
@@ -475,6 +478,7 @@ impl Mux {
                 {
                     hook(&target);
                 }
+                let name = name.unwrap_or_else(|| state.workspaces[index].name.clone());
                 self.workspace_rename_plan(state, registry, &target, index, name, &authority)
             },
         )

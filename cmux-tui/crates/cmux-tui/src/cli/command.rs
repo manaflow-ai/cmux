@@ -2195,11 +2195,26 @@ fn request_with_required_name(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
-    params.insert("name".into(), Value::String(flags.required("name")?));
+    // `--release-to-auto` hands the current workspace name back to the
+    // automatic namer, so it takes no name (hq#1957).
+    let release =
+        operation == ResourceOperation::WorkspaceRename && flags.boolean("release-to-auto");
+    if release {
+        if flags.values.contains_key("name") {
+            return Err(UsageError::new("--release-to-auto keeps the current name; drop --name"));
+        }
+        params.insert("source".into(), Value::String("auto".into()));
+        params.insert("release".into(), Value::Bool(true));
+    } else {
+        params.insert("name".into(), Value::String(flags.required("name")?));
+    }
     // Tabs and workspaces share name provenance (hq#1957).
     if matches!(operation, ResourceOperation::TabRename | ResourceOperation::WorkspaceRename) {
         if let Some(source) = flags.take("source") {
             validate_one_of("--source", &source, &["user", "auto"])?;
+            if release && source != "auto" {
+                return Err(UsageError::new("--release-to-auto hands the name to --source auto"));
+            }
             params.insert("source".into(), Value::String(source));
         }
         insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");

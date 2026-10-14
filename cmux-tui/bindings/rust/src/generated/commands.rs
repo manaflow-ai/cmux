@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 62e6321883d459311001de28879d15034f6b9fa048a2055db7881d754d0fdb1e.
+// cmux-tui mux protocol 12, IR 3ae2adad6ac4f6eecd9514c0da365bb4fbe2646a1b942b7098f2e4582761d4d9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2592,6 +2592,9 @@ pub struct RenameWorkspaceRequest {
     pub name: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    /// With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub release: Option<bool>,
     /// Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub source: Optional<T::NameSource>,
@@ -4639,6 +4642,10 @@ impl CmuxClient {
         }
         if !request.origin.is_missing() {
             self.require_protocol_field("rename-workspace", 7)?;
+        }
+        if request.release.is_some() {
+            self.require_protocol_field("rename-workspace", 12)?;
+            self.require_capability_field("rename-workspace", "workspace-name-source-v1")?;
         }
         if !request.source.is_missing() {
             self.require_protocol_field("rename-workspace", 12)?;

@@ -10,10 +10,16 @@ pub(super) fn rename_workspace(
     let mutation = mutation(&request)?;
     let name_authority = crate::resource_name::WorkspaceNameUpdate::parse(&request.fields)
         .map_err(resource_operation_error)?;
+    // A release keeps the current name, so it may omit one.
+    let name = if name_authority.releases() && !request.fields.contains_key("name") {
+        None
+    } else {
+        Some(required_string(&request.fields, "name")?.to_string())
+    };
     let commit = mux
         .resource_rename_workspace_selected(
             request.selectors,
-            required_string(&request.fields, "name")?.to_string(),
+            name,
             name_authority,
             None,
             expected_revision(&request.fields)?,

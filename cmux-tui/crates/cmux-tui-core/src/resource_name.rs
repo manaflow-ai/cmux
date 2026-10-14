@@ -43,6 +43,9 @@ pub(crate) struct NameUpdate {
     source: NameSource,
     generation: Option<String>,
     name_revision: Option<u64>,
+    /// A person hands the current name back to the automatic namer: the
+    /// text stays, the source becomes auto, the revision advances.
+    release: bool,
 }
 
 pub(crate) type TabNameUpdate = NameUpdate;
@@ -61,7 +64,7 @@ impl NameUpdate {
     /// A person's rename with no preconditions: the request shape before
     /// name provenance.
     pub(crate) fn user() -> Self {
-        Self { source: NameSource::User, generation: None, name_revision: None }
+        Self { source: NameSource::User, generation: None, name_revision: None, release: false }
     }
 
     pub(crate) fn new(
@@ -69,15 +72,36 @@ impl NameUpdate {
         generation: Option<String>,
         name_revision: Option<u64>,
     ) -> anyhow::Result<Self> {
+        Self::with_release(source, generation, name_revision, false)
+    }
+
+    /// A release is a person's request, so it needs no expected revision; it
+    /// is only meaningful toward the automatic namer.
+    fn with_release(
+        source: Option<NameSource>,
+        generation: Option<String>,
+        name_revision: Option<u64>,
+        release: bool,
+    ) -> anyhow::Result<Self> {
         let source = source.unwrap_or_default();
-        if source == NameSource::Auto && (generation.is_none() || name_revision.is_none()) {
+        if release && source != NameSource::Auto {
+            return Err(ResourceError::validation_invalid(
+                Some("release"),
+                "release hands a name to source auto",
+            )
+            .into());
+        }
+        if source == NameSource::Auto
+            && !release
+            && (generation.is_none() || name_revision.is_none())
+        {
             return Err(ResourceError::validation_invalid(
                 Some("source"),
                 "automatic names require a generation and name revision",
             )
             .into());
         }
-        Ok(Self { source, generation, name_revision })
+        Ok(Self { source, generation, name_revision, release })
     }
 
     /// The name authority of a v1 rename, whose `expected_generation` is the
@@ -88,9 +112,10 @@ impl NameUpdate {
         source: Option<NameSource>,
         mutation_generation: Option<String>,
         name_revision: Option<u64>,
+        release: bool,
     ) -> anyhow::Result<Self> {
         let generation = mutation_generation.filter(|_| source == Some(NameSource::Auto));
-        Self::new(source, generation, name_revision)
+        Self::with_release(source, generation, name_revision, release)
     }
 
     pub(crate) fn parse(fields: &Map<String, Value>) -> anyhow::Result<Self> {
@@ -102,7 +127,18 @@ impl NameUpdate {
             .and_then(Value::as_str)
             .map(parse_name_revision)
             .transpose()?;
-        Self::new(source, generation, name_revision)
+        let release = match fields.get("release") {
+            None => false,
+            Some(value) => value.as_bool().ok_or_else(|| {
+                ResourceError::validation_invalid(Some("release"), "release is a boolean")
+            })?,
+        };
+        Self::with_release(source, generation, name_revision, release)
+    }
+
+    /// A release keeps the current text, so a request may omit the name.
+    pub(crate) fn releases(&self) -> bool {
+        self.release
     }
 
     #[cfg(test)]
@@ -117,11 +153,15 @@ impl NameUpdate {
             || self.generation.is_some()
             || self.name_revision.is_some())
         .then(|| {
-            json!({
+            let mut fingerprint = json!({
                 "source": self.source,
                 "expected_generation": self.generation,
                 "expected_name_revision": self.name_revision.map(|revision| revision.to_string()),
-            })
+            });
+            if self.release {
+                fingerprint["release"] = json!(true);
+            }
+            fingerprint
         })
     }
 
@@ -146,7 +186,7 @@ impl NameUpdate {
         {
             return Err(ResourceError::revision_conflict(expected, current.revision).into());
         }
-        if self.source == NameSource::Auto {
+        if self.source == NameSource::Auto && !self.release {
             if !name.is_some_and(|value| !value.trim().is_empty()) {
                 return Err(name_refusal(operation, resource, NAME_EMPTY).into());
             }
@@ -168,6 +208,13 @@ impl NameUpdate {
         generation: &str,
         revision: u64,
     ) -> anyhow::Result<()> {
+        if self.release {
+            return Err(ResourceError::validation_invalid(
+                Some("release"),
+                "tab names have no release",
+            )
+            .into());
+        }
         let current = CurrentName {
             unnamed: tab.name.is_none(),
             source: tab.name_source,
@@ -194,6 +241,13 @@ impl NameUpdate {
         name: String,
         generation: &str,
     ) -> anyhow::Result<()> {
+        if self.release && name != workspace.name {
+            return Err(ResourceError::validation_invalid(
+                Some("name"),
+                "a release keeps the current name",
+            )
+            .into());
+        }
         let current = CurrentName {
             unnamed: workspace.name.trim().is_empty(),
             source: workspace.name_source,

@@ -25247,6 +25247,11 @@ Result<Json> Codec<RenameWorkspaceRequest>::encode(const RenameWorkspaceRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("origin", std::move(encoded).value());
     }
+    if (value.release) {
+        auto encoded = encode_value(*value.release);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("release", std::move(encoded).value());
+    }
     if (!value.source.is_absent()) {
         auto encoded = encode_value(value.source);
         if (!encoded) return std::move(encoded).error();
@@ -25335,6 +25340,12 @@ Result<RenameWorkspaceRequest> Codec<RenameWorkspaceRequest>::decode(const Json&
             if (!decoded) return std::move(decoded).error();
             result.origin = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_release = value.find("release");
+    if (field_release) {
+        auto decoded = decode_value<bool>(*field_release);
+        if (!decoded) return std::move(decoded).error();
+        result.release = std::move(decoded).value();
     }
     const Json* field_source = value.find("source");
     if (field_source) {
@@ -37654,13 +37665,14 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand166FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand167FieldRequirements{{
     {"view", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand177FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 8> kCommand177FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_name_revision", 12U, "workspace-name-source-v1"},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
+    {"release", 12U, "workspace-name-source-v1"},
     {"source", 12U, "workspace-name-source-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 2> kCommand182FieldRequirements{{

@@ -330,6 +330,7 @@ pub(super) struct WorkspaceRenameRequest {
     pub(super) name: String,
     pub(super) source: Option<crate::resource_name::NameSource>,
     pub(super) expected_name_revision: Option<String>,
+    pub(super) release: bool,
 }
 
 pub(super) fn rename_workspace(
@@ -338,7 +339,8 @@ pub(super) fn rename_workspace(
     request: WorkspaceRenameRequest,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
-    let WorkspaceRenameRequest { workspace, key, name, source, expected_name_revision } = request;
+    let WorkspaceRenameRequest { workspace, key, name, source, expected_name_revision, release } =
+        request;
     let name_revision = expected_name_revision
         .as_deref()
         .map(crate::resource_name::parse_name_revision)
@@ -348,6 +350,7 @@ pub(super) fn rename_workspace(
         source,
         mutation.expected_generation.clone(),
         name_revision,
+        release,
     )?;
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
     let result = mux.rename_workspace_with_name_authority(

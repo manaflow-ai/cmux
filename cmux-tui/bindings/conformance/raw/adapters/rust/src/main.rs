@@ -435,6 +435,7 @@ fn real_flow(request: &Request) -> Result<Value, CmuxError> {
             mutation_id: Optional::Missing,
             name: renamed_name.to_owned(),
             origin: Optional::Missing,
+            release: None,
             source: Optional::Missing,
             workspace: Optional::Value(workspace),
         })?;

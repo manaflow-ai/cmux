@@ -4111,7 +4111,8 @@ Params:
 | `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
 | `name` | `string` | required | Empty string is stored |
 | `source` | `"user"` or `"auto"` | optional, default `user` | `workspace-name-source-v1`; `auto` never replaces a non-empty user name and cannot store an empty or whitespace name |
-| `expected_name_revision` | decimal `string` | optional; required with `source: "auto"` | `workspace-name-source-v1`; the workspace's `name_revision` the caller read |
+| `expected_name_revision` | decimal `string` | optional; required with `source: "auto"` unless `release` | `workspace-name-source-v1`; the workspace's `name_revision` the caller read |
+| `release` | `boolean` | optional, default `false` | `workspace-name-source-v1`; with `source: "auto"`, hands the current name back to the automatic namer: `name` must equal it, the source becomes `auto` and `name_revision` advances |
 | mutation fields | see common envelope | optional | Exactly-once retry and CAS; `source: "auto"` also requires `expected_generation` |
 
 Result:
@@ -4132,6 +4133,8 @@ Errors:
 | `an explicit user name cannot be replaced by an automatic title` | `source: "auto"` over a non-empty user name |
 | `automatic names cannot clear a title` | `source: "auto"` with an empty or whitespace name |
 | `automatic names require a generation and name revision` | `source: "auto"` without `expected_generation` or `expected_name_revision` |
+| `release hands a name to source auto` | `release: true` without `source: "auto"` |
+| `a release keeps the current name` | `release: true` with a `name` other than the current one |
 | `cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
 | `bad request: ...` | Missing fields or wrong JSON type |
 

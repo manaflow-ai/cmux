@@ -562,8 +562,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "fce779e020b5c3e3bf5e82ca93f46ae5e6977cc8859178a4bc3fac7cebde8994",
-      "size": 70076
+      "sha256": "df7b67480a476508df79f1dd08b85dcc9020ee4a127659bbb84097beccc15a95",
+      "size": 70153
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1812,7 +1812,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "d8c96a9827b7cb6e44b3122a2918032c119ed3f008f409e4c6245ccd50e0cbd8",
+      "sha256": "86eeb60fb9ac424481a9581a81fc0eb25109c2d6376854e57522556183c12886",
       "size": 6485
     },
     {
@@ -1942,8 +1942,8 @@
     },
     {
       "path": "RenameWorkspaceRequest.java",
-      "sha256": "f6895c897cd350ad4e11186ee2e1ebccc187e73539c20170d1eee959ced59061",
-      "size": 8148
+      "sha256": "130928afd94c647cee816e6709c8db305a60bf4640fd8750052f73f98cbdfb49",
+      "size": 8922
     },
     {
       "path": "RenderAttachEvent.java",
@@ -3072,7 +3072,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "62e6321883d459311001de28879d15034f6b9fa048a2055db7881d754d0fdb1e",
+  "ir_sha256": "3ae2adad6ac4f6eecd9514c0da365bb4fbe2646a1b942b7098f2e4582761d4d9",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

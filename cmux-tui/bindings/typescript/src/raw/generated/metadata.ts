@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 62e6321883d459311001de28879d15034f6b9fa048a2055db7881d754d0fdb1e. */
+/* cmux-tui mux protocol 12, IR 3ae2adad6ac4f6eecd9514c0da365bb4fbe2646a1b942b7098f2e4582761d4d9. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "62e6321883d459311001de28879d15034f6b9fa048a2055db7881d754d0fdb1e" as const;
+export const SDK_IR_SHA256 = "3ae2adad6ac4f6eecd9514c0da365bb4fbe2646a1b942b7098f2e4582761d4d9" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2184,6 +2184,10 @@ export const COMMAND_METADATA = {
       "origin": {
         "since": 7,
         "capability": null
+      },
+      "release": {
+        "since": 12,
+        "capability": "workspace-name-source-v1"
       },
       "source": {
         "since": 12,
@@ -21265,7 +21269,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "constraints": [
         "At least one of workspace and key must be supplied; both must identify the same workspace when supplied.",
         "origin and mutation_id are either both present or both absent.",
-        "source auto requires expected_generation and expected_name_revision."
+        "source auto requires expected_generation and expected_name_revision unless release is true.",
+        "release requires source auto."
       ],
       "fields": {
         "expected_generation": {
@@ -21350,6 +21355,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "release": {
+          "capability": "workspace-name-source-v1",
+          "default": false,
+          "description": "With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed.",
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "source": {
