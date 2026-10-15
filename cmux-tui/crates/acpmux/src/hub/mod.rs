@@ -40,6 +40,7 @@ mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
+mod offer_results;
 mod offers;
 mod secrets;
 mod seen;
