@@ -557,3 +557,4 @@ mod sizing;
 mod socket_and_render;
 mod view_leases;
 mod wire_commands;
+mod workspace_name_source;
