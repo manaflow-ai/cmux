@@ -94,14 +94,18 @@ class Bench:
 
     # ---- Mac side ----------------------------------------------------------------
     def mac_env(self, mac, drop_permille):
-        """CNX_VIDEO_DROP_PERMILLE in the rig app's launch environment (the app passes
-        its environment to cnx-hostd). Not in Info.plist: a changed bundle is a new ad
-        hoc identity, whose Keychain reads then wait on a prompt and hostd never starts."""
-        want = str(drop_permille)
-        if mac.launch_env.get("CNX_VIDEO_DROP_PERMILLE", "0") == want:
-            return False
-        mac.launch_env["CNX_VIDEO_DROP_PERMILLE"] = want
-        return True
+        """The loss share for cnx-hostd: $CNX_STATE_DIR/video-drop-permille, read at each
+        new link (the app hands hostd no other environment). Never Info.plist: a changed
+        bundle is a new ad hoc identity, whose Keychain reads then wait on a prompt and
+        hostd never starts. Returns False: no restart is needed."""
+        path = os.path.join(mac.hostd_state, "video-drop-permille")
+        os.makedirs(mac.hostd_state, exist_ok=True)
+        if drop_permille:
+            with open(path, "w") as f:
+                f.write(f"{drop_permille}\n")
+        elif os.path.exists(path):
+            os.remove(path)
+        return False
 
     def hostd_env(self, mac):
         pids = mac.hostd_pids()
@@ -161,6 +165,8 @@ class Bench:
                 mac.wait_hostd(120)
                 time.sleep(3)
             env = self.hostd_env(mac)
+            if drop:
+                env["CNX_VIDEO_DROP_PERMILLE(file)"] = str(drop)
         sim.launch(BUNDLE, args=args)
         time.sleep(4)
         shown = self.open_bench(j, sim)
