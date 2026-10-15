@@ -35,7 +35,13 @@ const sourceRun = {
   conclusion: 'failure',
 };
 const actions = {
-  listWorkflowRuns: Symbol('listWorkflowRuns'),
+  // Called directly only for cancelled promotion requests; there are none here.
+  listWorkflowRuns: async (params) => {
+    if (params.workflow_id !== 'nightly.yml' || params.status !== 'cancelled') {
+      throw new Error(`unexpected direct run lookup: ${JSON.stringify(params)}`);
+    }
+    return { data: { workflow_runs: [] } };
+  },
   listJobsForWorkflowRun: Symbol('listJobsForWorkflowRun'),
 };
 const github = {
