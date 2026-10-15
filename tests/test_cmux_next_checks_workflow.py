@@ -919,7 +919,7 @@ def evaluate(expression: str, context: dict):
 
 
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
-    """A CmuxNext package Swift PR runs the Release compile; a web-only PR does not.
+    """A PR that changes any CmuxNext package Swift file runs the Release compile; a web-only PR does not.
 
     #20543 left ordinary PRs only the Debug fast tier. A Release-only swift-frontend crash
     (EarlyPerfInliner on a main-actor generic class's isolated deinit, cx-ebm.59.5,
@@ -959,23 +959,43 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
 
     def test_a_cmuxnext_swift_pr_runs_the_release_compile_on_the_shared_route(self):
         context = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"])
-        self.assertEqual(context["needs.path_route.outputs.swift_canary"], "true")
+        self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "true")
         self.assertTrue(self.runs(context))
         # Never the reserved promotion runner on a PR, with macos-placement skipped.
         self.assertEqual(evaluate(self.job()["runs-on"], context), "shared-side-route")
         self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], context), "shared-side-route")
 
+    def test_the_cx_ebm_59_5_file_mix_runs_the_release_compile(self):
+        # 67ab9281307a: two CmuxNext Sources files and a proof script. The script made
+        # swift_canary false, so a swift_canary gate would not have run this job.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertEqual(jobs["path_route"]["outputs"].get("cmuxnext_swift"),
+                         "${{ steps.route.outputs.cmuxnext_swift }}")
+        for changed in (
+            ["Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefProfilePageRelay.swift",
+             "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/PageCallDeadline.swift",
+             "scripts/cmux-next/chief-create-click-proof.py"],
+            ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift",
+             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkspaceSpawnFirstTabTests.swift"],
+        ):
+            with self.subTest(changed=changed):
+                context = self.context(changed)
+                self.assertEqual(context["needs.path_route.outputs.swift_canary"], "false")
+                self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "true")
+                self.assertTrue(self.runs(context))
+                self.assertEqual(evaluate(self.job()["runs-on"], context), "shared-side-route")
+
     def test_a_web_only_pr_skips_the_release_compile(self):
         for changed in (["web/app/page.tsx"], ["webviews/src/app/Thing.tsx"]):
             with self.subTest(changed=changed):
                 context = self.context(changed)
-                self.assertEqual(context["needs.path_route.outputs.swift_canary"], "false")
+                self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
                 self.assertFalse(self.runs(context))
 
     def test_a_native_pr_without_cmuxnext_swift_keeps_the_full_ci_cadence(self):
         context = self.context(["App/Info.plist"])
         self.assertEqual(context["needs.path_route.outputs.native"], "true")
-        self.assertEqual(context["needs.path_route.outputs.swift_canary"], "false")
+        self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
         self.assertFalse(self.runs(context))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",))))
 
