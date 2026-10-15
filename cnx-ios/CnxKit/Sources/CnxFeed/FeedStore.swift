@@ -3,6 +3,11 @@ import CnxAgentChat
 import CnxModel
 import Foundation
 import Observation
+import OSLog
+
+#if DEBUG
+private let feedChurnLog = Logger(subsystem: "dev.cmux.cnx", category: "feed-churn")
+#endif
 
 /// One Feed event: something an agent did or needs, from any workspace and tab.
 public struct FeedItem: Identifiable, Hashable, Sendable {
@@ -156,6 +161,9 @@ public final class FeedStore {
             }
             recordReadMarks()
             refreshDerived()
+            #if DEBUG
+            if FeedStressRig.shared.config.isActive { FeedStore.logChange(from: oldValue, to: items) }
+            #endif
             onItemsChange?(items)
         }
     }
@@ -500,6 +508,23 @@ public final class FeedStore {
     }
 
     #if DEBUG
+    /// The rig's change log: what each write changed (ids and fields), to find churn.
+    static func logChange(from old: [FeedItem], to new: [FeedItem]) {
+        let before = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var fields: [String: Int] = [:]
+        var added = 0
+        for item in new {
+            guard let prior = before[item.id] else { added += 1; continue }
+            guard prior != item else { continue }
+            let a = Mirror(reflecting: prior).children, b = Mirror(reflecting: item).children
+            for (x, y) in zip(a, b) where String(describing: x.value) != String(describing: y.value) {
+                fields[x.label ?? "?", default: 0] += 1
+            }
+        }
+        let summary = fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+        feedChurnLog.notice("FEEDCHURN added=\(added, privacy: .public) removed=\(max(0, old.count + added - new.count), privacy: .public) changed=\(summary, privacy: .public)")
+    }
+
     /// Adds the next scripted live event (mock arrivals; demo driver uses it).
     public func injectLiveEvent(atTop: Bool) {
         let samples = FeedStore.liveSamples(now: Date())

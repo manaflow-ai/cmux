@@ -5,9 +5,19 @@ import Observation
 @MainActor
 @Observable
 public final class AppStore {
-    public var teams: [Team]
-    public var activeTeamID: String
-    public var workspaces: [Workspace]
+    public var teams: [Team] { didSet { refreshAttentionCount() } }
+    public var activeTeamID: String { didSet { refreshAttentionCount() } }
+    public var workspaces: [Workspace] { didSet { refreshAttentionCount() } }
+    /// The active team's workspaces that need attention (the Workspaces tab
+    /// badge). Kept as a value that changes only with the count: the
+    /// workspaces change on every Mac tree update while an agent works, and a
+    /// tab bar reading them re-rendered (and rebuilt its items) each time.
+    public private(set) var attentionCount = 0
+
+    private func refreshAttentionCount() {
+        let count = activeWorkspaces.count(where: \.needsAttention)
+        if count != attentionCount { attentionCount = count }
+    }
     public var feed: [FeedEvent]
     /// The last tab the user had open per workspace on this device,
     /// persisted across launches through `tabMemory`.
@@ -54,6 +64,7 @@ public final class AppStore {
         self.activeTeamID = activeTeamID
         self.workspaces = workspaces
         self.feed = feed
+        refreshAttentionCount()
     }
 
     public var activeTeam: Team? {

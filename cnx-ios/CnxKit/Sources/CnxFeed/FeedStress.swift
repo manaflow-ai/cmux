@@ -2,6 +2,7 @@
 #if DEBUG
 import CnxModel
 import Foundation
+import Observation
 
 /// Launch settings for the Feed stress rig, from the environment
 /// (`SIMCTL_CHILD_<NAME>` on a simulator):
@@ -21,6 +22,8 @@ public struct FeedStressConfig: Equatable, Sendable {
     public var scrollSpeed: Double
     /// Seconds to wait before scrolling (the Mac's events arriving, the pool warming).
     public var settle: Double
+    /// Seconds of frame log before scrolling, with nothing moving.
+    public var idleWindow: Double?
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         seedCount = environment["CNX_FEED_STRESS"].flatMap(Int.init)
@@ -28,6 +31,7 @@ public struct FeedStressConfig: Equatable, Sendable {
         autoscrollPasses = environment["CNX_FEED_AUTOSCROLL"].flatMap(Int.init)
         scrollSpeed = environment["CNX_FEED_SCROLL_SPEED"].flatMap(Double.init) ?? 2400
         settle = environment["CNX_FEED_SETTLE"].flatMap(Double.init) ?? 4
+        idleWindow = environment["CNX_FEED_IDLE_WINDOW"].flatMap(Double.init)
     }
 
     public var isActive: Bool { seedCount != nil || liveHz != nil || autoscrollPasses != nil }
@@ -132,7 +136,14 @@ final class FeedStressRig {
         guard config.isActive, !started else { return }
         started = true
         if let count = config.seedCount {
-            store.replaceAll(FeedStore.stressItems(count: count, now: Date()))
+            // On live data the seed goes under the Mac's events (history merge) and live
+            // mode keeps its own save; with mock content the rig saves as live mode does.
+            let seed = FeedStore.stressItems(count: count, now: Date())
+            guard DeveloperOptions.mockContentEnabled else {
+                // Live: after the coordinator loaded the account's Feed and the Mac's events.
+                return seedWhenLive(store: store, seed: seed)
+            }
+            store.replaceAll(seed)
             // As live mode: every change is saved (`LiveCoordinator.scheduleFeedSave`).
             let archive = FeedArchive(url: FileManager.default.temporaryDirectory.appending(path: "feed-stress.json"))
             self.archive = archive
@@ -145,6 +156,24 @@ final class FeedStressRig {
                 }
             }
         }
+        startLive(store: store)
+    }
+
+    /// Merges `seed` once live mode owns the store (its save installed) and the Mac's events are in.
+    private func seedWhenLive(store: FeedStore, seed: [FeedItem]) {
+        if store.onItemsChange != nil, store.syncState == .live {
+            store.mergeHistory(seed)
+            return startLive(store: store)
+        }
+        withObservationTracking { _ = store.syncState } onChange: { [weak self, weak store] in
+            Task { @MainActor in
+                guard let self, let store else { return }
+                self.seedWhenLive(store: store, seed: seed)
+            }
+        }
+    }
+
+    private func startLive(store: FeedStore) {
         if let hz = config.liveHz, hz > 0 {
             let timer = Timer(timeInterval: 1 / hz, repeats: true) { [weak self, weak store] _ in
                 MainActor.assumeIsolated {
@@ -220,6 +249,12 @@ final class FeedAutoScroller: NSObject {
         started = true
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(self?.config.settle ?? 4))
+            // `CNX_FEED_IDLE_WINDOW=S`: first S seconds untouched (what renders when nothing moves).
+            if let idle = self?.config.idleWindow, idle > 0 {
+                FrameIntervalLog.shared.begin("feed-idle")
+                try? await Task.sleep(for: .seconds(idle))
+                FrameIntervalLog.shared.end()
+            }
             self?.startPass()
         }
     }

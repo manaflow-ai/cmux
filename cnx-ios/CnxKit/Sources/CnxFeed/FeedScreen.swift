@@ -93,7 +93,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) { filterMenu }
+                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store) }
             }
             .agentChatDestinations()
         }
@@ -176,28 +176,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .trailingOverflowFade(width: 32)
         .padding(.vertical, 2)
         .sensoryFeedback(.selection, trigger: store.filter)
-    }
-
-    private var filterMenu: some View {
-        Menu {
-            Picker("Show", selection: $store.filter) {
-                ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
-            }
-            .pickerStyle(.inline)
-            Section("Workspaces") {
-                ForEach(appStore.workspaces) { workspace in
-                    Toggle(workspace.title, isOn: Binding(
-                        get: { !store.mutedWorkspaces.contains(workspace.id) },
-                        set: { on in
-                            if on { store.mutedWorkspaces.remove(workspace.id) } else { store.mutedWorkspaces.insert(workspace.id) }
-                        }
-                    ))
-                }
-            }
-        } label: {
-            Label("Filter", systemImage: "line.3.horizontal.decrease")
-        }
-        .accessibilityLabel("Filter")
     }
 
     private func refreshErrorRow(_ message: String) -> some View {
@@ -296,6 +274,36 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     }
     #endif
 }
+/// The Filter menu: its own view, so the Mac's workspace list (which changes
+/// with every tree update while an agent works: titles, status) re-renders
+/// this menu only, never the Feed's list and its layout.
+private struct FeedFilterMenu: View {
+    @Bindable var store: FeedStore
+    @Environment(AppStore.self) private var appStore
+
+    var body: some View {
+        Menu {
+            Picker("Show", selection: $store.filter) {
+                ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
+            }
+            .pickerStyle(.inline)
+            Section("Workspaces") {
+                ForEach(appStore.workspaces) { workspace in
+                    Toggle(workspace.title, isOn: Binding(
+                        get: { !store.mutedWorkspaces.contains(workspace.id) },
+                        set: { on in
+                            if on { store.mutedWorkspaces.remove(workspace.id) } else { store.mutedWorkspaces.insert(workspace.id) }
+                        }
+                    ))
+                }
+            }
+        } label: {
+            Label("Filter", systemImage: "line.3.horizontal.decrease")
+        }
+        .accessibilityLabel("Filter")
+    }
+}
+
 #if DEBUG
 @MainActor
 enum FeedScreenRig {
