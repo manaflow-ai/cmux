@@ -64,7 +64,16 @@ pub fn router_socket_path_for(home: &Path) -> PathBuf {
     {
         // SAFETY: getuid has no preconditions.
         let uid = unsafe { libc::getuid() };
-        PathBuf::from(cmux_agent_pane_policy::environment::router_socket_path(home, uid))
+        let path =
+            PathBuf::from(cmux_agent_pane_policy::environment::router_socket_path(home, uid));
+        // The short path only in a folder no other user controls (the relay binds there under
+        // the same check); else the long one, which fails to connect.
+        match path.parent() {
+            Some(dir) if !dir.starts_with(home) && !private_dir(dir, uid) => {
+                home.join("router").join("router.sock")
+            }
+            _ => path,
+        }
     }
     #[cfg(not(unix))]
     home.join("router").join("router.sock")

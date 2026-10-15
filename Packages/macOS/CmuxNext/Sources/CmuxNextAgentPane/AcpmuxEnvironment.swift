@@ -186,6 +186,23 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         return "/tmp/acpmux-\(uid)/\(String(format: "%016llx", fnv1a64(home.path))).router.sock"
     }
 
+    /// ``routerSocketPath(home:uid:)`` for a connection: the short path only when its folder is
+    /// a real folder of this user that no one else can enter (the relay binds there under the same
+    /// rule), else the long one, which then fails to connect. Another user who made the shared
+    /// folder first could otherwise answer as the relay and take the bearer.
+    static func routerSocket(home: URL, uid: UInt32 = getuid()) -> String {
+        let path = routerSocketPath(home: home, uid: uid)
+        guard !path.hasPrefix(home.path + "/") else { return path }
+        var info = stat()
+        let folder = (path as NSString).deletingLastPathComponent
+        // Made 0700 when missing, as acpmux and the relay do; it may not exist before the relay starts.
+        _ = mkdir(folder, 0o700)
+        if lstat(folder, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR, info.st_uid == uid, info.st_mode & 0o077 == 0 {
+            return path
+        }
+        return home.appendingPathComponent("router", isDirectory: true).appendingPathComponent("router.sock").path
+    }
+
     static func fnv1a64(_ text: String) -> UInt64 {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in text.utf8 {

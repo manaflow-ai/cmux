@@ -17,7 +17,7 @@ public nonisolated struct LocalRouterClient: Sendable {
     public let socketPath: String
 
     public init(acpmuxHome home: URL) {
-        socketPath = AcpmuxEnvironment.routerSocketPath(home: home, uid: getuid())
+        socketPath = AcpmuxEnvironment.routerSocket(home: home)
     }
 
     /// Hands the relay the hosted router's origin and a bearer valid until
