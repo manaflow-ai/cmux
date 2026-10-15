@@ -74,7 +74,7 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
       };
     }, selector);
 
-  test("the bar and scope row show the essentials; titles keep the full text", async () => {
+  test("the bar shows the essentials; titles keep the full text", async () => {
     const page = await open("agent-pane.composer", "footer-essentials");
     const model = await read(page, ".acpmux-model .acpmux-picker-button");
     // The title leads with the full name; the context use may follow it.
@@ -85,6 +85,11 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     expect(access?.title).toContain("Default");
     expect(access?.text).toContain("Default");
     expect(await page.locator(".acpmux-context").count()).toBe(0);
+    await page.close();
+  });
+
+  test("a new chat's location row draws this Mac as its icon; the folder keeps its name", async () => {
+    const page = await open("agent-pane.composer", "footer-essentials-new-chat");
     const computer = await read(page, '.acpmux-location-picker [title^="Computer: "]');
     expect(computer?.visible).not.toContain("This Mac");
     expect(computer?.title).toContain("This Mac");
