@@ -13,9 +13,17 @@ describe("splitForMiddleTruncation", () => {
     expect(splitForMiddleTruncation("dotfile")).toEqual(["dotf", "ile"]);
     expect(splitForMiddleTruncation("atlas-web")).toEqual(["atlas-", "web"]);
   });
-  test("a long name keeps a third of itself, at most 6 characters", () => {
-    expect(splitForMiddleTruncation("cmux-cgc-location-strip")).toEqual(["cmux-cgc-location", "-strip"]);
+  test("the tail is the name's last word when it reads whole (3 to 10 characters)", () => {
+    expect(splitForMiddleTruncation("cmux-cgc-location-strip")).toEqual(["cmux-cgc-location-", "strip"]);
+    expect(splitForMiddleTruncation("atlas-web-checkout-service")).toEqual(["atlas-web-checkout-", "service"]);
+    expect(splitForMiddleTruncation("my_project.backend")).toEqual(["my_project.", "backend"]);
+    expect(splitForMiddleTruncation("v2 rewrite")).toEqual(["v2 ", "rewrite"]);
+  });
+  test("a last word too short or too long falls back to a third of the name, 3 to 6 characters", () => {
     expect(splitForMiddleTruncation("abcdefghijklmn")).toEqual(["abcdefghij", "klmn"]);
+    expect(splitForMiddleTruncation("atlas-web-x")).toEqual(["atlas-we", "b-x"]);
+    expect(splitForMiddleTruncation("app-infrastructureservice")).toEqual(["app-infrastructures", "ervice"]);
+    expect(splitForMiddleTruncation("-leadingdash")).toEqual(["-leading", "dash"]);
   });
   test("characters outside the BMP are never cut in half", () => {
     const [head, tail] = splitForMiddleTruncation("proj-🚀🚀🚀");

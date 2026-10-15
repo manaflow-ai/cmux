@@ -72,10 +72,18 @@
 .acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
 .acpmux-composer-context > .acpmux-location-picker { flex: 0 1 auto; min-width: 0; }
-/* The folder gives up width before the computer: the computer drops its name whole instead. */
+/* The folder gives up width before the computer: the computer never shrinks (even a fraction of a
+   pixel would put an ellipsis on "This Mac"); it drops its name whole instead, and its cap below
+   bounds a long host name. */
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child { flex-shrink: 100; }
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"] { flex-shrink: 0; }
 /* The branch keeps its name: it shrinks only past half the strip. */
 .acpmux-composer-context > .acpmux-location-picker:last-child { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
+/* The folder and the branch cut only when the strip runs out of room (the rules above), never at
+   the controls' fixed cap (190 px, 145 px in a narrow pane, below), which cut a long name beside
+   empty strip. The computer keeps the cap. */
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:not([data-kind="computer"]) :is(.acpmux-location-button, .acpmux-location-readonly),
+.acpmux-composer-context > .acpmux-location-picker:last-child .acpmux-location-button { max-width: none; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;

@@ -310,6 +310,20 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         ? (computer.getAttribute("title") ?? computer.querySelector("[title]")?.getAttribute("title") ?? "")
         : null,
       branchClipped: branchLabel.scrollWidth > branchLabel.clientWidth + 0.5,
+      // Range.getBoundingClientRect is fractional, so a sub-pixel cut (an ellipsis on "This Mac")
+      // shows where scrollWidth would round it away.
+      computerClipped: (() => {
+        if (!computerLabel || getComputedStyle(computerLabel).display === "none") return null;
+        const range = document.createRange();
+        range.selectNodeContents(computerLabel);
+        return range.getBoundingClientRect().width > computerLabel.getBoundingClientRect().width + 0.01;
+      })(),
+      // Room left in the leading group after its last control (the folder cuts only to fit).
+      leadingSlack: (() => {
+        const leading = strip.querySelector(".acpmux-location-leading")!.getBoundingClientRect();
+        const last = strip.querySelector(".acpmux-location-leading > :last-child")!.getBoundingClientRect();
+        return leading.right - last.right;
+      })(),
     };
   }
 
@@ -345,6 +359,35 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(marks.computerLabelShown).toBe(false);
       expect(marks.computerIcon!.width).toBeGreaterThan(0);
       expect(marks.computerName).toContain("This Mac");
+      expect(marks.branchClipped).toBe(false);
+    });
+
+  test("the chat composer at 760 px: a long folder name shows whole when the strip has room", async () => {
+    const page = await open("agent-pane.composer-strip", "long-folder", 760);
+    await page.locator(".acpmux-composer-strip .acpmux-location-tail").waitFor();
+    const marks = await page.evaluate(measureMarks);
+    await page.close();
+    // No fixed cap cuts it beside empty strip.
+    expect(marks.head).toEqual({ clipped: false, text: "atlas-web-checkout-" });
+  });
+
+  for (const width of [300, 400])
+    test(`the chat composer at ${width} px: a long folder name cuts in the middle and keeps its last word`, async () => {
+      const page = await open("agent-pane.composer-strip", "long-folder", width);
+      await page.locator(".acpmux-composer-strip .acpmux-location-tail").waitFor();
+      const marks = await page.evaluate(measureMarks);
+      await page.close();
+      const strip = marks.strip!;
+      const tail = marks.tail!;
+      // The head takes the ellipsis ("atlas-we…"); the last word stays whole and inside the strip.
+      expect(marks.head).toEqual({ clipped: true, text: "atlas-web-checkout-" });
+      expect(marks.tailText).toBe("service");
+      // The computer keeps its whole name while the folder can still give.
+      expect(marks.computerClipped === null || marks.computerClipped === false).toBe(true);
+      // It cuts only as far as the strip needs: no empty run beside a cut name.
+      expect(marks.leadingSlack).toBeLessThanOrEqual(1);
+      expect(tail.width).toBeGreaterThan(0);
+      expect(tail.right).toBeLessThanOrEqual(strip.right);
       expect(marks.branchClipped).toBe(false);
     });
 
