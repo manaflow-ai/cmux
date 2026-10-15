@@ -184,8 +184,8 @@ async fn per_workspace_mode_gives_each_workspace_its_own_display_and_none_withou
             std::env::remove_var(key);
         }
     }
-    let hub = hub();
-    let mut local = client(&hub);
+    let first = hub();
+    let mut local = client(&first);
 
     // A malformed workspace id is refused, whatever the mode.
     for bad in [json!("not-a-workspace"), json!(format!("{WS_A}\n")), json!(7), json!("")] {
@@ -213,7 +213,7 @@ async fn per_workspace_mode_gives_each_workspace_its_own_display_and_none_withou
     let b_display = display(&local.servers(&b).await).expect("workspace B has a display");
     assert_ne!(a_display, b_display, "two workspaces never share a display");
     // The same workspace (in either case) keeps its display.
-    let a2 = local.new_session("fake", Some(&WS_A.to_uppercase())).await;
+    let a2 = local.new_session("fake", Some(WS_A.to_uppercase().as_str())).await;
     assert_eq!(display(&local.servers(&a2).await).as_deref(), Some(a_display.as_str()));
     // The workspace reaches the computer use server only, not the harness.
     let leaked = local.ask(&a, "env: ACPMUX_AGENT_WORKSPACE").await;
