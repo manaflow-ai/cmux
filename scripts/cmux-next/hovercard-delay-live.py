@@ -333,7 +333,10 @@ try:
     check(report.get("enabled") == "true" and report.get("delay_ms") == "1300",
           f"defaults: hover cards on, delay 1300 ms (Chrome) (enabled {report.get('enabled')}, delay {report.get('delay_ms')})")
 
-    for kind, points in (("rows", rows), ("tabs", tabs)):
+    for kind in ("rows", "tabs"):
+        # Fresh frames: tabs settle their widths a moment after they are added.
+        points = row_points() if kind == "rows" else tab_points()
+        print(f"{kind} now {points}", flush=True)
         if len(points) < 2:
             continue
         first = cold(kind, points[0][1], 1300)
@@ -342,13 +345,12 @@ try:
         else:
             shot("tab-card")
         warm(kind, points[1][1], first)
+        points = row_points() if kind == "rows" else tab_points()
         cancel(kind, points[0][1], 1300)
         # Away from the card (it opens right of a row and below a tab): up and left, to the
         # titlebar over the sidebar, which is no row and no tab.
         away = [60, 8]
         quick_return(kind, points[0][1], points[1][1], 1300, away)
-    if rows:
-        held_button(rows[0][1])
 
     if rows:
         set_setting("sidebar.hoverCards.delay", 300)
@@ -372,6 +374,12 @@ try:
         shot("off-no-card")
         set_setting("sidebar.hoverCards.enabled", True)
         cold("rows (on again)", rows[0][1], 1300)
+        # Last: a held press, then the press ends (a click elsewhere) and cards work again.
+        held_button(rows[0][1])
+        if opts.input == "real":
+            x, y = to_screen(OFF)
+            probe("click", x, y)
+            cold("rows (after the held press ends)", rows[0][1], 1300)
     move(None)
 finally:
     rpc("action.run", {"action": "quitEndSessions", "origin": "script"})
