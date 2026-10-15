@@ -212,22 +212,21 @@ extension BrowserPanel {
     ///
     /// A person's Back and Forward follow the engine (Chromium skips entries
     /// a page added without a user gesture, as Chrome's back button does).
-    /// Automation steps exactly one entry, as `history.back()` would, through
-    /// the DevTools Protocol when the engine has it, so a script's own
-    /// navigations are not skipped.
+    /// Automation steps exactly one entry, as `history.back()` does, so a
+    /// script's own navigations are not skipped.
     func goEngineHistory(_ page: any BrowserPage, offset: Int, dialogOwner: BrowserDialogOwner) {
-        guard dialogOwner == .automation, page.capabilities.contains(.devToolsProtocol) else {
+        guard dialogOwner == .automation else {
             offset < 0 ? page.goBack() : page.goForward()
             return
         }
+        // `history.go` steps exactly one entry, including entries the page
+        // added without a gesture, which the engine's own Back skips.
         Task { @MainActor [weak page] in
             guard let page else { return }
-            guard let historyData = try? await page.sendDevToolsProtocolMessage(method: "Page.getNavigationHistory", params: nil),
-                  let entryID = BrowserPanel.historyEntryID(in: historyData, offset: offset),
-                  let params = try? JSONSerialization.data(withJSONObject: ["entryId": entryID]),
-                  (try? await page.sendDevToolsProtocolMessage(method: "Page.navigateToHistoryEntry", params: params)) != nil else {
+            do {
+                _ = try await page.evaluateJavaScript("history.go(\(offset)); true", in: .page)
+            } catch {
                 offset < 0 ? page.goBack() : page.goForward()
-                return
             }
         }
     }
