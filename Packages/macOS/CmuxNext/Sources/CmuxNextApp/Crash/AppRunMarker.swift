@@ -28,6 +28,26 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
     if sentBySoftware || !fault { _ = raise(signal) }
 }
 
+/// Gives the calling thread an alternate signal stack, so a fatal-signal
+/// handler installed with `SA_ONSTACK` still runs when that thread has
+/// overflowed its own stack (cx-30ko). Allocated once per thread and never
+/// freed: a signal can arrive at any time. A usable alternate stack that is
+/// already there (Sentry's) is kept.
+private func installAlternateSignalStack() {
+    var current = stack_t()
+    guard sigaltstack(nil, &current) == 0 else { return }
+    if current.ss_flags & SS_DISABLE == 0, current.ss_size >= Int(MINSIGSTKSZ) { return }
+    let page = Int(getpagesize())
+    let size = (Int(SIGSTKSZ) + page - 1) / page * page
+    // One guard page below the stack: a handler that overflows it faults
+    // instead of writing over other memory.
+    guard let base = mmap(nil, size + page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0),
+          base != UnsafeMutableRawPointer(bitPattern: -1) else { return }
+    _ = mprotect(base, page, PROT_NONE)
+    var stack = stack_t(ss_sp: base.advanced(by: page), ss_size: size, ss_flags: 0)
+    if sigaltstack(&stack, nil) != 0 { _ = munmap(base, size + page) }
+}
+
 /// Marks this run as live, so the next launch can tell a crash from a
 /// normal quit (`LaunchRecovery`). Per bundle id, so tagged builds never
 /// read each other's marker.
@@ -106,8 +126,11 @@ final class AppRunMarker {
 
     /// Installs the fatal signal handlers. Call again after CefInitialize:
     /// Chromium resets these signals to their default action at start.
+    /// They run on the main thread's alternate signal stack, so a main
+    /// thread stack overflow is recorded too.
     func installHandlers() {
         guard fatalSignalDescriptor >= 0 else { return }
+        installAlternateSignalStack()
         // SIGTERM, SIGINT and SIGHUP are requested quits: `QuitSignal` turns
         // them into "Quit, keep sessions" once installed; until then this
         // handler records them.
@@ -116,7 +139,7 @@ final class AppRunMarker {
         for signal in signals {
             var action = sigaction()
             action.__sigaction_u.__sa_sigaction = fatalSignalHandler
-            action.sa_flags = SA_RESETHAND | SA_SIGINFO
+            action.sa_flags = SA_RESETHAND | SA_SIGINFO | SA_ONSTACK
             sigemptyset(&action.sa_mask)
             sigaction(signal, &action, nil)
         }

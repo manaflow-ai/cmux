@@ -295,8 +295,8 @@ pub fn list_text(page: &Value, now_ms: i64) -> String {
         out.push_str(line.trim_end());
         out.push('\n');
     }
-    if let Some(next) = page.get("nextCursor").and_then(Value::as_str) {
-        out.push_str(&format!("(more: {next} shown; raise --limit)\n"));
+    if page.get("nextCursor").and_then(Value::as_str).is_some() {
+        out.push_str(&format!("(more: {} shown; raise --limit)\n", chats.len()));
     }
     out
 }

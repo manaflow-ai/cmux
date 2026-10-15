@@ -350,17 +350,7 @@ function SessionsView({
             const mark = groupMark(group, selectedId);
             return (
               <section className="acpmux-sidebar-group" key={group.key}>
-                <div
-                  className="acpmux-sidebar-project"
-                  title={
-                    group.host
-                      ? t("sidebar.folderOnHost", {
-                          folder: group.cwd ?? "",
-                          host: group.host,
-                        })
-                      : group.cwd
-                  }
-                >
+                <div className="acpmux-sidebar-project">
                   <Icon name="folder" size={ROW_ICON} row />
                   <span>{group.label}</span>
                   {group.host && <small className="acpmux-sidebar-host">{group.host}</small>}
@@ -545,7 +535,6 @@ const SessionRow = memo(function SessionRow({
               .join(", ")
           : undefined
       }
-      title={placeLabel ? `${title}\n${placeLabel}` : title}
       onClick={() => onSelect(session.sessionId)}
     >
       <span className="acpmux-session-row-title">{title}</span>

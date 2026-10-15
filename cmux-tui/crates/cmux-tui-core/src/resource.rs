@@ -134,6 +134,8 @@ pub enum ResourceOperation {
     ChiefProfileGet,
     #[serde(rename = "chief.profile.create")]
     ChiefProfileCreate,
+    #[serde(rename = "chief.profile.adopt")]
+    ChiefProfileAdopt,
     #[serde(rename = "chief.profile.update")]
     ChiefProfileUpdate,
     #[serde(rename = "chief.profile.delete")]
@@ -142,6 +144,10 @@ pub enum ResourceOperation {
     ChiefProfileAvatarSet,
     #[serde(rename = "chief.profile.avatar.get")]
     ChiefProfileAvatarGet,
+    #[serde(rename = "participant.avatar.set")]
+    ParticipantAvatarSet,
+    #[serde(rename = "participant.avatar.get")]
+    ParticipantAvatarGet,
     #[serde(rename = "credential.verify")]
     CredentialVerify,
     #[serde(rename = "credential.mint")]
@@ -386,6 +392,8 @@ pub enum ResourceOperation {
     AgentMessageList,
     #[serde(rename = "agent.message.mark")]
     AgentMessageMark,
+    #[serde(rename = "agent.message.release")]
+    AgentMessageRelease,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -454,6 +462,8 @@ pub enum ResourceOperation {
     SidebarItemRemove,
     #[serde(rename = "sidebar.item.update")]
     SidebarItemUpdate,
+    #[serde(rename = "sidebar.item.remove_ref")]
+    SidebarItemRemoveRef,
     #[serde(rename = "sidebar.section.add")]
     SidebarSectionAdd,
     #[serde(rename = "sidebar.section.update")]
@@ -472,6 +482,8 @@ pub enum ResourceOperation {
     SidebarAdopt,
     #[serde(rename = "sidebar.apply")]
     SidebarApply,
+    #[serde(rename = "sidebar.reset")]
+    SidebarReset,
     #[serde(rename = "project.list")]
     ProjectList,
     #[serde(rename = "project.observe")]

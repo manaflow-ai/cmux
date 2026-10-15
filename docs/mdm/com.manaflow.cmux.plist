@@ -1835,6 +1835,7 @@
 				<string>bare</string>
 				<string>panes</string>
 				<string>two-tone</string>
+				<string>floating</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Window Style</string>
@@ -1852,6 +1853,47 @@
 			<string>Animate Panes</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A new tab grows into its place in the tab bar. Off shows it there at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.newTab</string>
+			<key>pfm_title</key>
+			<string>Animate New Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A new workspace row opens in the sidebar. Off shows it there at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.newWorkspace</string>
+			<key>pfm_title</key>
+			<string>Animate New Workspaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>none</string>
+			<key>pfm_description</key>
+			<string>None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.bounce</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>none</string>
+				<string>subtle</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Animation Bounce</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -2710,12 +2752,13 @@
 			<key>pfm_default</key>
 			<string>compact</string>
 			<key>pfm_description</key>
-			<string>Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.</string>
+			<string>Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.</string>
 			<key>pfm_name</key>
 			<string>sidebar.density</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>compact</string>
+				<string>comfortable</string>
 				<string>expanded</string>
 			</array>
 			<key>pfm_title</key>
@@ -3006,7 +3049,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>The text of the workspace's newest unread notification.</string>
 			<key>pfm_name</key>
@@ -4467,6 +4510,18 @@
 			<string>labs.previewFeatures</string>
 			<key>pfm_title</key>
 			<string>Show Preview Features</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.</string>
+			<key>pfm_name</key>
+			<string>labs.classicHome</string>
+			<key>pfm_title</key>
+			<string>Classic Home</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

@@ -26,6 +26,8 @@ import Testing
             SidebarSection(kind: .pinned, nodes: [.workspace(pinned)]),
             SidebarSection(kind: .machine(machine), nodes: [.workspace(unread), .workspace(selected)]),
         ], activeWorkspaceID: selectedID)
+        // The count badge and the trailing glyph: the row badge style before the corner badge.
+        model.rowBadgeStyle = .trailing
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         sidebar.layoutSubtreeIfNeeded()

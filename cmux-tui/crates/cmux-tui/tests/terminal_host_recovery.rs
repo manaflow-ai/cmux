@@ -187,6 +187,11 @@ impl RecoveryHarness {
             None => Command::new(bin()),
         };
         command
+            // The build comes from the test, never from a cmux terminal the
+            // tests run in (an inherited NIGHTLY id would drop the debug
+            // daemon's orphan grace, cx-t2sqm).
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
             .args(["--headless", "--session", &self.session, "--socket"])
             .arg(&self.socket)
             .arg("--state")
@@ -5279,6 +5284,9 @@ mod upgrade;
 
 #[path = "terminal_host_recovery/program_status_restart.rs"]
 mod program_status_restart;
+
+#[path = "terminal_host_recovery/bell_notification.rs"]
+mod bell_notification;
 
 #[path = "terminal_host_recovery/command_activity.rs"]
 mod command_activity;

@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -83,8 +84,13 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
   };
-  const open = async (): Promise<Page> => {
+  const open = async (experiments?: Record<string, string>): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    if (experiments) {
+      await page.addInitScript((arms) => {
+        (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = arms;
+      }, experiments);
+    }
     await page.goto(url());
     await page.getByText("Meanwhile the PR checks").waitFor();
     await page.mouse.move(0, 0);
@@ -112,6 +118,7 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI: load it here, again if it stalls.
     for (let attempt = 1; ; attempt++) {
@@ -150,7 +157,9 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
   });
 
   test("the footer is one row at the column's right edge: muted Worked for and time, then the actions", async () => {
-    const page = await open();
+    // The `hover-actions` experiment's "all" arm keeps a plain prompt's Copy, so the prompt has a
+    // last button to line the reply's actions up with.
+    const page = await open({ "hover-actions": "all" });
     const footer = await page.evaluate(() => {
       const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)!;
       const row = actions.closest(".acpmux-row")!.getBoundingClientRect();

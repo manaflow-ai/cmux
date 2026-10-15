@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "1c64f4e22a0c6059173778798b6afcf84656cfd200ae76d2181a7589e96529bf",
+  "catalog_sha256": "6067497d3ba2844a13049c7797bcfd4a8e00aa95f055ebf1dc41a39c54bd05dd",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -8,6 +8,9 @@
       "class": "read"
     },
     "agent.message.mark": {
+      "class": "mutation"
+    },
+    "agent.message.release": {
       "class": "mutation"
     },
     "agent.message.send": {
@@ -83,6 +86,9 @@
       "class": "read"
     },
     "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.profile.adopt": {
       "class": "mutation"
     },
     "chief.profile.avatar.get": {
@@ -364,6 +370,12 @@
     "pane.zoom": {
       "class": "mutation"
     },
+    "participant.avatar.get": {
+      "class": "read"
+    },
+    "participant.avatar.set": {
+      "class": "mutation"
+    },
     "project.add": {
       "class": "mutation"
     },
@@ -589,6 +601,9 @@
     "sidebar.item.remove": {
       "class": "mutation"
     },
+    "sidebar.item.remove_ref": {
+      "class": "mutation"
+    },
     "sidebar.item.update": {
       "class": "mutation"
     },
@@ -596,6 +611,9 @@
       "class": "mutation"
     },
     "sidebar.pin": {
+      "class": "mutation"
+    },
+    "sidebar.reset": {
       "class": "mutation"
     },
     "sidebar.section.add": {
