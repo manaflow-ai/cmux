@@ -67,7 +67,10 @@ struct SidebarChiefHomeRow: View {
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(chiefName))
-                .accessibilityValue(Text(SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected)))
+                .accessibilityValue(Text(verbatim: [
+                    SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected),
+                    isSelected ? nil : SidebarChiefHomeBackRow.shortcutKeys,
+                ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")))
                 .accessibilityHint(isSelected ? Text(ChiefStrings.backToWorkspacesTooltip(keys: nil)) : Text(verbatim: ""))
                 .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
                 .accessibilityIdentifier("SidebarChiefHomeRow")
