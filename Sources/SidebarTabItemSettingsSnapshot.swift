@@ -14,6 +14,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let compactStatusIcons: [String: String]
     let showsWorkspaceDescription: Bool
     let workspaceDescriptionColorHex: String?
+    /// Agent session rows are workspace details, so "Hide all details" hides them too.
+    let showsAgentSessions: Bool
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
@@ -82,6 +84,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
         workspaceDescriptionColorHex = settings.value(for: sidebar.workspaceDescriptionColorHex).nilIfEmpty
+        showsAgentSessions = details.showAgentSessions && !hidesAllDetails
         showsNotificationMessage = detailVisibility.showsNotificationMessage
         notificationMessageLineLimit = min(
             max(

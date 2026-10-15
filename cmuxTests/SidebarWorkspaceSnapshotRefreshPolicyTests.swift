@@ -217,6 +217,7 @@ import Testing
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
         activeCodingAgentCount: Int = 0,
         compactStatusGlyph: SidebarCompactStatusGlyph? = nil
+        agentSessions: [SidebarAgentSessionSnapshot] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -255,6 +256,7 @@ import Testing
             checklistTotalCount: 0,
             checklistFirstUncheckedText: nil,
             compactStatusGlyph: compactStatusGlyph
+            agentSessions: agentSessions
         )
     }
 
@@ -264,6 +266,7 @@ import Testing
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
         showsAgentActivity: Bool = true,
+        showsAgentSessions: Bool = true,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -282,6 +285,8 @@ import Testing
             showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails,
             customColorHex: customColorHex
+            showsAgentSessions: showsAgentSessions,
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
 

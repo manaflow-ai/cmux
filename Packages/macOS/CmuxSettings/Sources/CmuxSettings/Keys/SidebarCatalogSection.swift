@@ -165,6 +165,15 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowAgentActivity"
     )
 
+    /// Whether sidebar workspace rows list their live coding-agent sessions
+    /// (state dot, the agent's own title, age, last prompt) under the title
+    /// (`sidebar.showAgentSessions`). Defaults to on.
+    public let showAgentSessions = DefaultsKey<Bool>(
+        id: "sidebar.showAgentSessions",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowAgentSessions"
+    )
+
     /// Which side of the workspace row the loading spinner appears on
     /// (`sidebar.loadingSpinnerPosition`). Defaults to leading (left), sharing
     /// the unread-badge slot.
