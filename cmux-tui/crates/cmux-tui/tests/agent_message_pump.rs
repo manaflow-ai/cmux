@@ -5,7 +5,7 @@
 //! held message waits for the person's release; `agent.message.unsend`
 //! takes a message back before delivery (`unsent`) and asks acpmux to
 //! withdraw a delivered one (`retracted` mid-turn, `too_late` once its turn
-//! ended); only the sender or the person unsends. The daemon is the one
+//! ended); only the verified sender or the person, in the cmux app, unsends. The daemon is the one
 //! delivery path: a CLI send waits for the pump instead of handing over
 //! itself, an unsend never takes back what acpmux may hold without asking
 //! it, and one refusing recipient does not undo the others.
@@ -40,7 +40,7 @@ mod agent_message_pump {
 
     /// [`two_agents`] and their workspace's `(public id, key)`.
     fn two_agents_in(name: &str) -> (Daemon, String, (String, String)) {
-        let daemon = Daemon::start(name, &[]);
+        let daemon = Daemon::start_owner_with_acpmux(name);
         let alpha = daemon.workspace("alpha");
         daemon.place_session("a", &alpha.1);
         daemon.place_session("b", &alpha.1);
@@ -56,6 +56,11 @@ mod agent_message_pump {
 
     fn unsend(daemon: &Daemon, credential: Option<&str>, message: &str) -> Value {
         daemon.mutate("agent.message.unsend", json!({"message_id": message}), credential)
+    }
+
+    /// The person's unsend, from the verified cmux app.
+    fn app_unsend(daemon: &Daemon, message: &str) -> Value {
+        daemon.app().mutate("agent.message.unsend", json!({"message_id": message}))
     }
 
     /// The outcome of an accepted unsend for `recipient`.
@@ -134,23 +139,40 @@ mod agent_message_pump {
         let (daemon, a) = two_agents("unsend-early");
         // No acpmux session `gone`: the pump leaves the message queued.
         let queued = id(&daemon.sent(None, to("acp:gone", "never mind")));
-        let reply = unsend(&daemon, None, &queued);
+        let reply = app_unsend(&daemon, &queued);
         assert_eq!(outcome(&reply, "acp:gone"), "unsent");
         assert_eq!(reply["result"]["value"]["outcome"], "unsent", "{reply}");
         let message = &reply["result"]["value"]["message"];
         assert_eq!(state(message, "acp:gone"), "unsent", "{reply}");
         // Again: still unsent, and nothing reaches the session.
-        assert_eq!(outcome(&unsend(&daemon, None, &queued), "acp:gone"), "unsent");
+        assert_eq!(outcome(&app_unsend(&daemon, &queued), "acp:gone"), "unsent");
         assert!(daemon.prompts().is_empty(), "an unsent message was delivered");
 
-        // A held message, by its agent sender; and through the CLI.
+        // A held message, by its agent sender.
         let held = id(&daemon.sent(Some(&a), to("acp:elsewhere", "held")));
         assert_eq!(outcome(&unsend(&daemon, Some(&a), &held), "acp:elsewhere"), "unsent");
         let listed = daemon.wait_for(&held, "unsend", |m| state(m, "acp:elsewhere") == "unsent");
         assert_eq!(delivery(&listed, "acp:elsewhere")["reason"], "unsent", "{listed}");
-        let by_cli = id(&daemon.sent(None, to("acp:gone", "from the cli")));
-        let printed = daemon.cli_ok(&["agent", "message", "unsend", &by_cli]);
-        assert_eq!(printed["value"]["outcome"], "unsent", "{printed}");
+    }
+
+    #[test]
+    fn an_unverified_local_caller_cannot_unsend() {
+        let (daemon, a) = two_agents("unsend-unverified");
+        // Any local connection may be an agent that left out its credential.
+        let mine = id(&daemon.sent(Some(&a), to("acp:gone", "mine")));
+        let plain = unsend(&daemon, None, &mine);
+        assert_eq!(refusal(&plain), ("operation.failed".into(), "unsend_needs_app".into()));
+        let by_cli = daemon.cli(&["agent", "message", "unsend", &mine]);
+        assert!(!by_cli.status.success(), "the plain CLI took a message back");
+        let stderr = String::from_utf8_lossy(&by_cli.stderr);
+        assert!(stderr.contains("unsend_needs_app") || stderr.contains("cmux app"), "{stderr}");
+        assert!(daemon.withdrawals().is_empty(), "a refused unsend asked acpmux");
+        let listed = daemon.wait_for(&mine, "the queued message", |_| true);
+        assert_ne!(state(&listed, "acp:gone"), "unsent", "{listed}");
+        // Its verified sender may, and the person in the app may.
+        assert_eq!(outcome(&unsend(&daemon, Some(&a), &mine), "acp:gone"), "unsent");
+        let theirs = id(&daemon.sent(None, to("acp:gone", "the person's")));
+        assert_eq!(outcome(&app_unsend(&daemon, &theirs), "acp:gone"), "unsent");
     }
 
     #[test]
@@ -189,10 +211,10 @@ mod agent_message_pump {
         let refused = unsend(&daemon, Some(&c), &message);
         assert_eq!(refusal(&refused), ("operation.failed".into(), "unsend_not_sender".into()));
         assert!(daemon.withdrawals().is_empty(), "a refused unsend asked acpmux");
-        let missing = unsend(&daemon, None, "msg_00000000000000000000000000000000");
+        let missing = app_unsend(&daemon, "msg_00000000000000000000000000000000");
         assert_eq!(refusal(&missing).0, "resource.not_found", "{missing}");
-        // The person may take back any message.
-        assert_eq!(outcome(&unsend(&daemon, None, &message), "acp:b"), "retracted");
+        // The person, in the app, may take back any message.
+        assert_eq!(outcome(&app_unsend(&daemon, &message), "acp:b"), "retracted");
     }
 
     #[test]
@@ -226,7 +248,7 @@ mod agent_message_pump {
             std::thread::sleep(Duration::from_millis(20));
         };
         let unsending = std::thread::scope(|scope| {
-            let unsending = scope.spawn(|| unsend(&daemon, None, &message));
+            let unsending = scope.spawn(|| app_unsend(&daemon, &message));
             std::thread::sleep(Duration::from_millis(500));
             daemon.open_gate("b");
             unsending.join().unwrap()
