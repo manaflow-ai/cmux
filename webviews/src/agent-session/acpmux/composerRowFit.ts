@@ -77,6 +77,8 @@ function px(value: string): number {
 function shows(part: Element, forms: Forms): boolean {
   const unit = part.getAttribute("data-fit-part") as FitUnit | null;
   if (!unit || !UNITS.includes(unit)) return true;
+  // A mic that is listening stays in the row (composerLocation.css): it is the way to stop.
+  if (unit === "mic" && part.querySelector('[aria-pressed="true"]')) return true;
   return (part.getAttribute("data-fit-forms") ?? "").split(/\s+/).includes(forms[unit]);
 }
 
@@ -135,9 +137,9 @@ export function fitStep(
   return last;
 }
 
-/** The pane the row's steps follow: the chat column (the CSS's `acpmux-pane` container). */
+/** The pane the row's steps follow: the chat column or the quick surface (the CSS's `acpmux-pane` container). */
 function paneWidth(bar: HTMLElement): number {
-  return (bar.closest(".acpmux-main") ?? bar.ownerDocument.documentElement).clientWidth;
+  return (bar.closest(".acpmux-main, .acpmux-quick") ?? bar.ownerDocument.documentElement).clientWidth;
 }
 
 /** The extra steps `bar` takes now (`data-fit-extra`). */
@@ -185,7 +187,14 @@ export function useRowFit(bar: RefObject<HTMLElement | null>): void {
       watchChips();
       fit();
     });
-    mutation.observe(element, { childList: true, subtree: true, characterData: true });
+    // A label drawn from `data-label` (a short name, the effort suffix) changes no text node.
+    mutation.observe(element, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["data-label", "data-fit-forms", "aria-pressed"],
+    });
     return () => {
       resize.disconnect();
       mutation.disconnect();

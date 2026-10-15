@@ -343,7 +343,7 @@
    test/composer-fit-steps.test.ts holds them to the table); composerRowFit.ts marks the row with
    data-fit-<unit> when a label is too long for its width's step. The short labels and the suffix
    are drawn from data-label, so a chip's text stays its full value. */
-.acpmux-main { container: acpmux-pane / inline-size; }
+.acpmux-main, .acpmux-quick { container: acpmux-pane / inline-size; }
 [data-fit-part]:not([data-fit-forms~="full"]),
 .acpmux-model-short,
 .acpmux-model-suffix { display: none; }
@@ -356,6 +356,8 @@
 .acpmux-fit-label::before { content: attr(data-label); }
 .acpmux-composer-bar .acpmux-composer-actions { position: relative; }
 .acpmux-fit-mic { display: inline-flex; }
+/* A mic hidden from the row by its menu leaves no empty slot (and no gap) before Send. */
+.acpmux-fit-mic:empty { display: none; }
 /* Effort rides in the model chip; its own menu stays mounted for the chip's menu and automation to
    open (Reasoning in the model menu, openPicker), anchored at the chips' start, out of sight. */
 .acpmux-composer-bar .acpmux-chips { position: relative; }
@@ -429,6 +431,12 @@
     visibility: hidden;
     pointer-events: none;
   }
+}
+/* A listening mic stays in any row: its waveform shows the dictation and a click stops it. */
+.acpmux-composer-bar .acpmux-fit-mic[data-fit-part="mic"]:has(.acpmux-mic[aria-pressed="true"]) {
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
 }
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
