@@ -18,7 +18,6 @@ final class AgentPanePageSettings {
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
-    private var suggestedTasksObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
 
@@ -56,14 +55,6 @@ final class AgentPanePageSettings {
                 push()
             }
         }
-        // The Debug Settings toggle `agent.suggestedTasks` (cx-lo9yf); each page reads it when pushed.
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        suggestedTasksObservation = Task { [weak self] in
-            for await _ in ObservationStream({ AgentPaneTunables.suggestedTasks.value }) {
-                guard self != nil else { return }
-                push()
-            }
-        }
         // task-owner: lives as long as the tabs; event-driven (Observation)
         diffColorsObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.fileRoot[DiffPrefKey.section]?["colors"] }) {
@@ -89,6 +80,5 @@ final class AgentPanePageSettings {
         view.zoom = zoom
         composer.push(to: view)
         view.pushDiffColors(diffColors)
-        AgentPaneSuggestedTasks.push(to: view)
     }
 }

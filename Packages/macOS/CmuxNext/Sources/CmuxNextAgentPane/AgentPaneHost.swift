@@ -97,7 +97,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
-                offersSessionTools: @escaping @Sendable () -> Bool = { false },
+                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
