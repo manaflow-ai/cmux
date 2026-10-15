@@ -149,6 +149,9 @@ const SECRET_KINDS = ["secret_request", "secret_decision"];
 /// An agent's offer of a parallel chat and its answer (cx-807da): transcript on acpmux that has
 /// them (`paging.rs`); asked for by kind too, so an older acpmux's attach still brings them.
 const OFFER_KINDS = ["session_offer", "session_offer_decision"];
+/// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
+/// acpmux (`paging.rs`), so attach asks for them by kind, or the queue never hears either live.
+const QUEUE_KINDS = ["queue_order", "queue_updated"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -1273,7 +1276,16 @@ export class AcpmuxDirectClient {
       limit: 400,
       // The most opening a chat downloads, however large its tool output (a remote session's open).
       maxBytes: OPEN_PAGE_BYTES,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS, ...OFFER_KINDS],
+      kinds: [
+        "transcript",
+        COMMANDS_KIND,
+        USAGE_KIND,
+        CONFIG_KIND,
+        BOOKMARKS_KIND,
+        ...SECRET_KINDS,
+        ...OFFER_KINDS,
+        ...QUEUE_KINDS,
+      ],
       eventStream: true,
       visible,
     });

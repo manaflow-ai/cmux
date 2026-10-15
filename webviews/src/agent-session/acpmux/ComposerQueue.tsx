@@ -17,11 +17,12 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
-/** Shows the full prompt as a tooltip only when its two lines cut it off. */
+/** Shows the full prompt as a tooltip only when its two lines (the button's inner text) cut it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
-  const text = event.currentTarget;
-  if (text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight + 1) text.title = prompt;
-  else text.removeAttribute("title");
+  const button = event.currentTarget;
+  const text = button.firstElementChild ?? button;
+  if (text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
+  else button.removeAttribute("title");
 }
 
 export function ComposerQueue({
@@ -231,7 +232,8 @@ export function ComposerQueue({
           onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
           onClick={() => toggle(entry.id)}
         >
-          {entry.prompt}
+          {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
+          <span className="acpmux-queued-clamp">{entry.prompt}</span>
         </button>
       )}
       {editing !== entry.id && (sendNow || onChange || remove) && (
