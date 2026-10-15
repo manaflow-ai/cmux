@@ -68,6 +68,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
+        // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
+        "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

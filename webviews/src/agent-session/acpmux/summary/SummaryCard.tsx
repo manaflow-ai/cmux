@@ -14,6 +14,7 @@ import { sessionSummary } from "./sessionSummary";
 import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
+import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
 import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
@@ -44,6 +45,7 @@ export function SummaryCard({
   onAttach,
   background,
   sessions,
+  tools,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -74,6 +76,8 @@ export function SummaryCard({
   };
   /// The chats this chat's agent started, and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Sources' Use tools: the chat's tools, where acpmux can change them (cx-thur3).
+  tools?: ChatToolsControl;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -289,6 +293,7 @@ export function SummaryCard({
               subagents={hasSubagents ? <></> : undefined}
               onOpenOutput={onOpenOutput}
               onAttach={onAttach}
+              tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
             />
