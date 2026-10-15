@@ -14,6 +14,12 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queued",
     "dequeued",
     "queue_removed",
+    // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
+    // the queue a chat client shows changes with them.
+    "queue_updated",
+    "queue_order",
+    "queue_paused",
+    "queue_resumed",
     "turn_started",
     "turn_result",
     "permission_request",
