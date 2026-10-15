@@ -546,13 +546,19 @@ fn free_tier_a_lost_attest_reply_is_followed_by_an_assertion_not_a_second_attest
 
     let (status, _) = chat(port, &key);
     assert_ne!(status, 200);
-    // Wait until the relay's own retry time (free.until_ms of the backoff state), with a deadline.
+    // Wait on the relay's state, with a deadline: the backoff ends when its retry time passes
+    // and the next request may lease again (never a fixed sleep on until_ms).
     let free = admin(&dir, json!({"op": "status"})).unwrap()["free"].clone();
     assert_eq!(free["state"], "backoff", "{free}");
-    let until = free["until_ms"].as_u64().expect("backoff names its retry time");
-    assert!(until <= now_ms() + 10_000, "retry time too far: {until}");
-    std::thread::sleep(Duration::from_millis(until.saturating_sub(now_ms()) + 50));
-    let (status, body) = chat(port, &key);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let (status, body) = loop {
+        let (status, body) = chat(port, &key);
+        if status == 200 || Instant::now() >= deadline {
+            break (status, body);
+        }
+        assert_eq!(body["error"]["code"], "free.unavailable", "still in backoff: {body}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
     assert_eq!(status, 200, "{body}");
     let kinds: Vec<_> =
         asked.lock().unwrap().iter().map(|(req, _, _, fresh)| (req.clone(), *fresh)).collect();

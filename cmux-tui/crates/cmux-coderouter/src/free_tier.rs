@@ -348,11 +348,6 @@ impl FreeTier {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
         });
-        write
-            .write_all(
-                format!("{}\n", json!({"provider": true, "pid": std::process::id()})).as_bytes(),
-            )
-            .await?;
         {
             let mut inner = self.lock();
             // The old provider's connection ends (its serve loop waits on `replaced`).
@@ -373,6 +368,13 @@ impl FreeTier {
                 Self::set_state(&mut inner, FreeState::Off, None);
             }
         }
+        // The provider line comes after the registration is applied: when the app reads it, the
+        // relay's state already reflects this registration (its events follow through the writer).
+        write
+            .write_all(
+                format!("{}\n", json!({"provider": true, "pid": std::process::id()})).as_bytes(),
+            )
+            .await?;
         let writer = tokio::spawn(async move {
             while let Some(line) = outgoing.recv().await {
                 if write.write_all(format!("{line}\n").as_bytes()).await.is_err() {
