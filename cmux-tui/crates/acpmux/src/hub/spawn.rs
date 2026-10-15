@@ -101,6 +101,9 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // The workspace picks the computer use display (agent_displays.rs);
+        // `agent/command.rs` removes the key before the harness starts.
+        crate::agent_displays::mark(&mut p.env, meta.workspace_id.as_deref());
         // The bound route last: it owns the provider variables (routes.rs).
         self.apply_route(meta, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);

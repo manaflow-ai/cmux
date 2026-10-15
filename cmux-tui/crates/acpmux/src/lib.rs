@@ -16,6 +16,7 @@ pub mod adopt;
 pub mod adopt_live;
 pub mod adopt_replay;
 pub mod agent;
+pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_tools;
 pub mod catalog;
@@ -41,6 +42,7 @@ pub mod harness_limits;
 pub mod hub;
 #[cfg(windows)]
 mod job;
+pub mod launch_credential;
 pub mod launch_policy;
 pub mod live_models;
 pub mod local_stream;

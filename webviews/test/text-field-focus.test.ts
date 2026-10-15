@@ -24,6 +24,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -110,7 +111,7 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
 
   afterAll(async () => {
     await browser?.close();
-    server?.kill();
+    stopDevServer(server);
   });
 
   type FieldReport = { field: string; ring: string; shown: boolean };

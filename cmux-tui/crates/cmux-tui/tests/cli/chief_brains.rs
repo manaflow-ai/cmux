@@ -142,16 +142,35 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     // A stub acpmux that records each call (its args and ACPMUX_HOME).
     let acpmux = files.join("acpmux.sh");
     let calls = files.join("acpmux-calls");
-    fs::write(&acpmux, format!("#!/bin/sh\necho \"$* $ACPMUX_HOME\" >> '{}'\n", calls.display()))
-        .unwrap();
+    // It exits 1 as the real one does when no daemon runs in that home (cx-qryd0 review).
+    fs::write(
+        &acpmux,
+        format!("#!/bin/sh\necho \"$* $ACPMUX_HOME\" >> '{}'\nexit 1\n", calls.display()),
+    )
+    .unwrap();
     fs::set_permissions(&acpmux, fs::Permissions::from_mode(0o755)).unwrap();
     // Short: the brains' sockets live under it (103-byte limit).
     let chief_home = files.join("h");
     fs::create_dir_all(&chief_home).unwrap();
-    // An old per-Chief acpmux home (before one acpmux per Chief home): removed.
+    // An old per-Chief acpmux home (before one acpmux per Chief home): removed, also when its
+    // stop fails because no daemon runs there.
     let old = chief_home.join("c/0ldch1ef/a");
     fs::create_dir_all(old.join("state")).unwrap();
     fs::write(old.join("config.json"), "{}").unwrap();
+    // One whose daemon still holds its lock (the stop failed): kept.
+    let held = chief_home.join("c/h3ldch1ef/a");
+    fs::create_dir_all(held.join("state")).unwrap();
+    let mut holder = Command::new("python3")
+        .args(["-c", "import fcntl,sys,time; f=open(sys.argv[1],'a'); fcntl.flock(f, fcntl.LOCK_EX); print('held', flush=True); time.sleep(120)"])
+        .arg(held.join("daemon.lock"))
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut line = String::new();
+        BufReader::new(holder.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();
+        assert_eq!(line.trim(), "held");
+    }
     // The shared home stays as it is.
     let shared = chief_home.join("acpmux");
     fs::create_dir_all(&shared).unwrap();
@@ -259,11 +278,16 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     );
     let called = fs::read_to_string(&calls).unwrap_or_default();
     assert!(
-        !called.lines().any(|l| l.starts_with("daemon shutdown") && !l.ends_with("/c/0ldch1ef/a")),
+        !called.lines().any(|l| l.starts_with("daemon shutdown")
+            && !l.ends_with("/c/0ldch1ef/a")
+            && !l.ends_with("/c/h3ldch1ef/a")),
         "a daemon shutdown other than the old per-Chief home's: {called}"
     );
     assert!(shared.join("keep").exists(), "the shared acpmux home was touched");
     assert!(!old.exists(), "the old per-Chief acpmux home is still there");
+    assert!(held.exists(), "an old Chief home whose daemon holds its lock was removed");
+    let _ = holder.kill();
+    let _ = holder.wait();
     assert!(alive(restarted));
 
     // Daemon shutdown stops the rest.

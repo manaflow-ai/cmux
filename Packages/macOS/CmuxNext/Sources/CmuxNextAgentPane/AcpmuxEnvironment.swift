@@ -26,12 +26,19 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// helper; empty while Computer Use is off. Only the spawn environment
     /// carries them: the app never writes its own process environment.
     public var computerUse: [String: String] = [:]
+    /// Whether the daemon this app spawns gets ``offerToolsKey`` (`1`): its local sessions then get
+    /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while the Debug
+    /// Settings toggle `agent.suggestedTasks` is on; ``AcpmuxHost`` reads it at each daemon start, so a running
+    /// daemon keeps the value it started with.
+    public var offersSessionTools = false
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
     /// the first two from `computerUse`: the host token never leaves the app.
     public static let computerUseKeys = ["CMUX_NEXT_CUA_SOCKET", "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"]
     public static let computerUseHostKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
+    /// acpmux `agent_tools::OFFER_TOOLS_ENV`: `1` gives sessions `offer_session`.
+    public static let offerToolsKey = "ACPMUX_OFFER_TOOLS"
 
     /// The build-session kill switch (cx-9ettq): with either set, acpmux
     /// starts no agent and the Chief host does not start. A GUI test job sets
