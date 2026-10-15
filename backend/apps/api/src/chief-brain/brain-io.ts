@@ -81,6 +81,12 @@ export const postReply = async (env: Env, principal: Principal, r: Reply): Promi
   return outcome(res.frames)
 }
 
+/** A plain text message as the chief (a notice: the out-of-credits line), idempotent by `key`. */
+export const postText = async (env: Env, principal: Principal, conversation: string, text: string, key: string): Promise<SendOutcome> => {
+  const res = await conv(env, conversation).submit(conversation, principal, { t: "op", op: "message.send", params: { conversation, client_msg_id: key, parts: [{ type: "text", text }] }, idempotency_key: key, origin: "script" })
+  return outcome(res.frames)
+}
+
 /** Moves the chief's wake cursor in this conversation (MuxDO `mux.ack`). */
 export const ackWake = async (env: Env, agent: string, principal: Principal, conversation: string, seq: number): Promise<SendOutcome> => {
   const res = await mux(env, agent).submit(agent, principal, { t: "op", op: "mux.ack", params: { agent, conversation, seq }, idempotency_key: `brain-ack:${conversation}:${seq}`, origin: "script" })

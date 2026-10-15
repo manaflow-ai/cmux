@@ -1,0 +1,175 @@
+import { env, exports } from "cloudflare:workers"
+import { importJWK, SignJWT, type JWK } from "jose"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { fireAlarm } from "./setup/alarm.ts"
+
+/**
+ * The model gateway (model-gateway/gateway.ts) at the product boundary: a person writes to a Cloud
+ * Chief over POST /v1/ops, the Chief's brain answers through the gateway, and the Claude route is
+ * faked at its HTTP boundary. This file runs the route in `service-key` mode (the scoped service key
+ * of the Chatmux route, 1f-D) with Opus and Sonnet served and a paid fallback (Haiku, not served):
+ * - every request carries the service key, the payer team, the chief and a request id, the Bedrock
+ *   model id and the Chief's effort; no person's session;
+ * - each call holds and then charges prepaid credits, and the run records its token usage;
+ * - a team with no credits gets no model call and one out-of-credits notice in the conversation;
+ * - a paid fallback passes the same gate as the Chief's model: refused, there is no turn (no silent paid spend).
+ * One file on purpose: it sets the route configuration for the Worker and replaces globalThis.fetch.
+ */
+const testEnv = env as unknown as Record<string, any>
+const KEY = "chatmux_sk_test-not-a-real-key"
+beforeAll(() => {
+  Object.assign(testEnv, { CHIEF_BRAIN_CLAUDE_AUTH: "service-key", CHIEF_BRAIN_CLAUDE_SERVICE_KEY: KEY, CHIEF_BRAIN_CLAUDE_MODELS: "claude-opus-5-5,claude-sonnet-5-5", CHIEF_BRAIN_FALLBACK_MODEL: "claude-haiku-5-5" })
+})
+afterEach(() => vi.restoreAllMocks())
+
+const worker = (exports as unknown as { default: Fetcher }).default
+const sessionToken = async (sub: string) =>
+  new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
+    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
+    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
+    .setAudience(testEnv.STACK_PROJECT_ID)
+    .setSubject(sub)
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
+const http = async (method: string, path: string, token: string, body?: unknown) => {
+  const res = await worker.fetch(`https://api.test${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+  return { status: res.status, text: await res.clone().text(), json: (await res.json()) as any }
+}
+const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
+const history = async (token: string, conversation: string) => (await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation, limit: 50 } })).json.value.messages as Array<any>
+const meter = (team: string) => testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as { creditAdd(e: string, k: string, kind: string, m: number, a: string, r: string | null): Promise<unknown>; creditBalance(e: string, since: number, limit: number): Promise<{ balance_micros: number; held_micros: number }> }
+
+/** One Bedrock event-stream answer (frame CRCs zero: the reader skips them), with usage incl. a cache read. */
+const eventStream = (text: string): Uint8Array => {
+  const events = [
+    { type: "message_start", message: { id: "msg_fake", type: "message", role: "assistant", model: "claude", content: [], stop_reason: null, usage: { input_tokens: 12, cache_read_input_tokens: 900, cache_creation_input_tokens: 40, output_tokens: 1 } } },
+    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
+    { type: "content_block_stop", index: 0 },
+    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 6 } },
+    { type: "message_stop" }
+  ]
+  const frames = events.map((e) => {
+    const payload = new TextEncoder().encode(JSON.stringify({ bytes: btoa(JSON.stringify(e)) }))
+    const frame = new Uint8Array(16 + payload.length)
+    new DataView(frame.buffer).setUint32(0, frame.length)
+    frame.set(payload, 12)
+    return frame
+  })
+  const out = new Uint8Array(frames.reduce((n, f) => n + f.length, 0))
+  let at = 0
+  for (const f of frames) [out.set(f, at), (at += f.length)]
+  return out
+}
+
+interface Seen { readonly headers: Record<string, string>; readonly body: any }
+const fakeRoute = () => {
+  const real = globalThis.fetch
+  const seen: Array<Seen> = []
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input, init)
+    if (req.url.startsWith("https://claude.test/")) {
+      seen.push({ headers: Object.fromEntries(req.headers.entries()), body: await req.json() })
+      return new Response(eventStream(`Routed answer ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream" } })
+    }
+    return real(input, init)
+  })
+  return seen
+}
+
+const owner = async (sub: string, credits: number, model: string, effort = "low", allow = false) => {
+  const token = await sessionToken(sub)
+  const ensured = (await op(token, "user.ensure", {})).value
+  const team = ensured.personal_team as string
+  // A third allowed owner, on the no-deploy list (read at every call).
+  if (allow) testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = `${testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""},${ensured.id}`
+  if (credits > 0) await meter(team).creditAdd(team, `grant-${sub}`, "grant", Math.round(credits * 1e6), "test", "gateway test")
+  const chief = (await op(token, "chief.create", { display_name: "Gateway Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
+  const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(ensured.id))
+  let on = { status: 0, json: {} as any, text: "" }
+  for (let i = 0; i < 20 && on.status !== 200; i++) {
+    await fireAlarm(userDO)
+    on = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true, model, effort })
+  }
+  expect(on.status, on.text).toBe(200)
+  return { token, chief, team }
+}
+
+/** Drives the wake path until `done` holds (bounded). */
+const drive = async (conversation: string, chief: string, done: () => Promise<boolean>, what: string) => {
+  const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conversation))
+  const brain = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${chief}/${conversation}`))
+  for (let i = 0; i < 200; i++) {
+    if (await done()) return
+    await fireAlarm(conv)
+    if (i % 10 === 9) await fireAlarm(brain)
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  throw new Error(`timed out waiting for ${what}`)
+}
+const runsOf = async (token: string, chief: string, conversation: string) => (await http("GET", `/v1/chiefs/${chief}/runs?conversation=${conversation}`, token)).json.value?.runs ?? []
+
+describe("Model gateway: service-key route, credits, usage, paid fallback", { timeout: 120_000 }, () => {
+  it("sends Sonnet with the service key, payer team, chief, request id and effort; charges credits and records usage", async () => {
+    const seen = fakeRoute()
+    const { token, chief, team } = await owner("brain-claude-ok", 5, "claude-sonnet-5-5", "medium")
+    const before = await meter(team).creditBalance(team, 0, 5)
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "g1", parts: [{ type: "text", text: "route check" }] }, "g1")).ok).toBe(true)
+    await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).some((m) => m.author === chief.id), "the reply")
+    const reply = (await history(token, chief.main_conversation)).find((m) => m.author === chief.id)!
+    expect(reply.parts[0].text).toBe("Routed answer 1")
+    expect(seen).toHaveLength(1)
+    const s = seen[0]!
+    expect(s.headers["x-api-key"]).toBe(KEY)
+    expect(s.headers["x-stack-auth"]).toBeUndefined()
+    expect(s.headers["x-cmux-team-id"]).toBe(team)
+    expect(s.headers["x-cmux-chief-id"]).toBe(chief.id)
+    expect(s.headers["x-request-id"]).toMatch(/^[A-Za-z0-9._:-]{1,128}$/)
+    expect(s.headers["user-agent"]).toMatch(/cmux-cloud-chief/)
+    expect(s.body).toMatchObject({ anthropic_version: "bedrock-2023-05-31", stream: true, model: "global.anthropic.claude-sonnet-5-5", output_config: { effort: "medium" } })
+    // Usage on the run (cache hit is measurable) and the call charged to the team's prepaid credits.
+    await drive(chief.main_conversation, chief.id, async () => (await runsOf(token, chief.id, chief.main_conversation))[0]?.usage !== undefined, "run usage")
+    const run = (await runsOf(token, chief.id, chief.main_conversation))[0]
+    expect(run).toMatchObject({ model: "claude-sonnet-5-5", status: "done", usage: { input: 12, cache_read: 900, cache_write: 40, output: 6, calls: 1 } })
+    expect(run.cost_usd).toBeGreaterThan(0)
+    const after = await meter(team).creditBalance(team, 0, 5)
+    expect(after.balance_micros).toBeLessThan(before.balance_micros)
+    expect(after.held_micros).toBe(0)
+    for (const body of [JSON.stringify(run), JSON.stringify(reply)]) expect(body).not.toContain(KEY)
+  })
+
+  it("makes no model call for a team with no credits and posts one out-of-credits notice", async () => {
+    const seen = fakeRoute()
+    const { token, chief } = await owner("brain-claude-fail", 0, "claude-opus-5-5")
+    for (const k of ["n1", "n2"]) {
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: k, parts: [{ type: "text", text: `hello ${k}` }] }, k)).ok).toBe(true)
+      await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).some((m) => m.author === chief.id), "the notice")
+    }
+    // Let the second wake run its course, then: one notice, no reply, no request upstream.
+    let ticks = 0
+    await drive(chief.main_conversation, chief.id, async () => ++ticks > 40, "the second wake")
+    const mine = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+    expect(mine).toHaveLength(1)
+    expect(mine[0].parts[0].text).toContain("out of Cloud credits")
+    expect(seen).toHaveLength(0)
+  })
+
+  it("refuses a paid fallback through the same gate: no turn and no paid call when the Chief's model is refused", async () => {
+    const seen = fakeRoute()
+    // The deployment's daily cap of paid turns is spent: Opus is refused, and so is the paid fallback (Haiku).
+    testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS = "1"
+    try {
+      const { token, chief } = await owner("brain-gateway-cap", 5, "claude-opus-5-5", "low", true)
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "f1", parts: [{ type: "text", text: "anyone?" }] }, "f1")).ok).toBe(true)
+      await drive(chief.main_conversation, chief.id, async () => (await runsOf(token, chief.id, chief.main_conversation)).some((r: any) => r.status === "failed"), "the failed run")
+      const run = (await runsOf(token, chief.id, chief.main_conversation))[0]
+      expect(run.status).toBe("failed")
+      expect(run.model).toBe("claude-opus-5-5")
+      expect(seen).toHaveLength(0)
+      expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)).toHaveLength(0)
+    } finally {
+      delete testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS
+    }
+  })
+})

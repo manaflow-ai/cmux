@@ -91,6 +91,11 @@ export class BrainStream {
     private readonly now: () => number = Date.now
   ) {}
 
+  /** The running model request (pi-durable generation task id), for the gateway's credits request ids. */
+  get generationId(): string | undefined {
+    return this.generation
+  }
+
   /** A model request of the running turn starts (pi-durable GenerationTask beforeRequest). */
   request(taskId: string): void {
     const t = this.target()
