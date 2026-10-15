@@ -66,6 +66,7 @@ import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
+import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
@@ -3660,6 +3661,7 @@ function AcpmuxPane() {
             reconnect = true;
             // A switch in flight runs again on the next client.
             harnessSwitch.disconnect(switchPort);
+            setStartModeSource(undefined);
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
@@ -3700,6 +3702,17 @@ function AcpmuxPane() {
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
         /// Opens a chat this one made in a tab of its own (`chat.openTab`); false when the host opens none.
+        /// A mode pick on the shown chat. acpmux decides whether it is every new chat's start mode
+        /// (hub/start_mode.rs); a pending chat's kept answer follows it at once and then asks
+        /// acpmux again (startMode.ts), as older daemons send no `_acpmux/start_mode_changed`.
+        const setMode = async (modeId: string, ticket?: string) => {
+          await client.setMode(modeId, ticket);
+          const shown = snapshotRef.current;
+          if (shown?.origin === "remote" || shown?.origin === "peer" || shown?.summary?.host) return;
+          if (/^plan$/i.test(modeId)) return startModeChanged();
+          const name = shown?.summary?.modes?.availableModes.find((mode) => mode.id === modeId)?.name;
+          pickedMode(client.shownSession()?.harness ?? shown?.summary?.harness, modeId, name);
+        };
         const openOwnTab = (sessionId: string) =>
           mock
             ? Promise.resolve(false)
@@ -3792,7 +3805,7 @@ function AcpmuxPane() {
             );
           },
           "chat.mode": async ({ modeId }) => {
-            if (!harnessSwitch.pickMode(String(modeId))) await client.setMode(String(modeId));
+            if (!harnessSwitch.pickMode(String(modeId))) await setMode(String(modeId));
           },
           "chat.effort": async ({ configId, value }) => {
             const summary = snapshotRef.current?.summary;
@@ -4082,7 +4095,7 @@ function AcpmuxPane() {
             );
           },
           setModel: (modelId) => client.setModel(modelId),
-          setMode: (modeId, ticket) => client.setMode(modeId, ticket),
+          setMode: (modeId, ticket) => setMode(modeId, ticket),
           setConfig: (configId, value, ticket) => client.setConfig(configId, value, ticket),
           discard: (sessionId) => client.discard(sessionId),
           prewarm: (harness, cwd) => client.prewarm(harness, cwd),
@@ -4105,6 +4118,8 @@ function AcpmuxPane() {
           holdPrompt: (promptId) => void heldPrompt.hold(promptId),
         });
         harnessSwitch.connect(switchPort);
+        // A pending chat's access chip asks this client the mode acpmux starts it in.
+        setStartModeSource((harness, cwd) => client.startMode(harness, cwd));
         acpmuxPerf.markAgent("composerReady");
         client.snapshot();
         void client.warmRecentProjects();
@@ -4172,6 +4187,7 @@ function AcpmuxPane() {
       cancelled = true;
       window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
       harnessSwitch.disconnect();
+      setStartModeSource(undefined);
       retryHost.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();

@@ -57,7 +57,7 @@ pub(crate) fn harness_command(
     let route_unset = env.remove(crate::routes::UNSET_KEY);
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     let (program, args) = (&owned.0, &owned.1);
-    let mut cmd = Command::new(program);
+    let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
     // Startup files changed since the last read: refresh in the background.
     crate::login_env::refresh_if_changed();
     // The login shell's allow-list for this harness's family (login_env.rs).
