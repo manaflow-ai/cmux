@@ -61,7 +61,10 @@ final class BrowserEngineRuntime {
     /// Chromium runtime. Called once at launch.
     func registerBundledEngines() {
         guard registry.provider(for: .chromium) == nil else { return }
-        registry.register(CEFBrowserEngineProvider(runtime: .shared))
+        registry.register(CEFBrowserEngineProvider(
+            runtime: .shared,
+            devToolsLayoutStore: BrowserDevToolsLayoutStore(defaults: defaults)
+        ))
     }
 
     /// Whether an engine can create pages now.

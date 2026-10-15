@@ -11,16 +11,22 @@ import Foundation
 /// enters a window.
 ///
 /// ```swift
-/// registry.register(CEFBrowserEngineProvider(runtime: .shared))
+/// registry.register(CEFBrowserEngineProvider(
+///     runtime: .shared, devToolsLayoutStore: BrowserDevToolsLayoutStore(defaults: .standard)
+/// ))
 /// ```
 @MainActor
 public final class CEFBrowserEngineProvider: BrowserEngineProviding {
     private let runtime: CEFRuntime
+    private let devToolsLayoutStore: BrowserDevToolsLayoutStore
 
     /// Creates the provider.
-    /// - Parameter runtime: The process's CEF runtime.
-    public init(runtime: CEFRuntime) {
+    /// - Parameters:
+    ///   - runtime: The process's CEF runtime.
+    ///   - devToolsLayoutStore: Remembers the DevTools dock side and sizes across pages.
+    public init(runtime: CEFRuntime, devToolsLayoutStore: BrowserDevToolsLayoutStore) {
         self.runtime = runtime
+        self.devToolsLayoutStore = devToolsLayoutStore
     }
 
     /// Always ``BrowserEngineKind/chromium``.
@@ -62,6 +68,10 @@ public final class CEFBrowserEngineProvider: BrowserEngineProviding {
                 restoreState: restore
             )
         )
-        return CEFBrowserPage(browser: browser)
+        return CEFBrowserPage(
+            browser: browser,
+            shim: { [runtime] in runtime.shim },
+            devToolsLayoutStore: devToolsLayoutStore
+        )
     }
 }
