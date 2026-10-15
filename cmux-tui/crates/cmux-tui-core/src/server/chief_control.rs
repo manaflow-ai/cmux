@@ -8,6 +8,12 @@
 //! own turns, its subagents), a relayed, WebSocket or page connection is
 //! refused before anything is forwarded, so no agent can change the Chief's
 //! engine or stop its turn.
+//!
+//! chief-brains-v1 (cx-ebm.60.11): the optional `chief` field names the
+//! Chief. Absent, null or the default Chief's id: the default Chief's brain
+//! (the configured socket), as before. Another live Chief: its own brain's
+//! tools socket under the daemon's Chief home (`chief_brains::tools_socket`),
+//! so the request acts on that Chief only. An unknown Chief reaches no brain.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -17,8 +23,13 @@ use serde_json::{Value, json};
 use super::{
     ClientTransport, MessageWriter, Mux, ResourceError, ResourceOperation, send_resource_response,
 };
+use crate::chief_registry::DEFAULT_CHIEF;
 use crate::conversation_store::LOCAL_USER;
 use crate::resource_router::ParsedResourceRequest;
+
+/// Advertised in identify: `chief.engine.*` and `chief.stop` take `chief`,
+/// and the daemon supervises the brains of the Chiefs other than the default.
+pub(super) const CAPABILITY: &str = "chief-brains-v1";
 
 #[cfg(unix)]
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -60,6 +71,10 @@ pub(super) fn handle_with(
     if let Err(error) = require_owner(mux, client) {
         return send_resource_response(writer, id, operation, Err(error));
     }
+    let socket = match target(mux, operation, &request.fields, socket) {
+        Ok(socket) => socket,
+        Err(error) => return send_resource_response(writer, id, operation, Err(error)),
+    };
     let line = tool_line(operation, &request.fields);
     let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
     let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
@@ -82,6 +97,34 @@ pub(super) fn handle_with(
                 json!({"message": "cannot start the Chief control request"}),
             )),
         )
+}
+
+/// The tools socket the request goes to: `default` (the configured socket,
+/// or a test's) for no `chief`, null or the default Chief; the named Chief's
+/// own brain socket for another live Chief.
+fn target(
+    mux: &Mux,
+    operation: ResourceOperation,
+    fields: &serde_json::Map<String, Value>,
+    default: Option<std::path::PathBuf>,
+) -> Result<Option<std::path::PathBuf>, ResourceError> {
+    let chief = match fields.get("chief") {
+        None | Some(Value::Null) => return Ok(default),
+        Some(Value::String(chief)) if chief == DEFAULT_CHIEF => return Ok(default),
+        Some(Value::String(chief)) => chief.as_str(),
+        Some(_) => {
+            return Err(ResourceError::validation_invalid(Some("chief"), "chief must be a string"));
+        }
+    };
+    let failed = |reason: &str, message: String| {
+        ResourceError::operation_failed(operation.wire_name(), reason, json!({"message": message}))
+    };
+    if !super::chief_registry_resource::chief_names(mux).contains_key(chief) {
+        return Err(failed("not_found", format!("no Chief {chief}")));
+    }
+    crate::chief_brains::tools_socket(chief)
+        .map(Some)
+        .map_err(|(reason, message)| failed(reason, message))
 }
 
 /// cx-tgf4h: with agents off in this build session the daemon starts no

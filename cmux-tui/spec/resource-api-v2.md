@@ -1201,6 +1201,14 @@ harness refuses `fast` with `invalid_speed`), and `compactor_harness` and
 engine harness when it is a Claude one); the compactor fields apply at the
 next brain start. `chief.stop` takes an optional
 subagent `name` and then stops only that subagent.
+With capability `chief-brains-v1` all three take an optional `chief`, the
+Chief's id: for a live Chief other than the default, the daemon forwards to
+that Chief's own brain (its tools socket in the brain directory the daemon's
+brain supervisor gave it) and to no other Chief; absent, `null` or
+`agent_mux` reaches the default Chief's brain as before. A Chief that does not
+exist answers `operation.failed` reason `not_found`; a daemon that runs no
+Chief brains, `not_configured`; a Chief whose brain this daemon never
+started, `unavailable`.
 Only the owner's trusted connection may call them: a registered Unix client
 with no link peer record whose principal is `user_local`, which is a local
 client or the link's `owner_session` splice. An agent-bound connection (the

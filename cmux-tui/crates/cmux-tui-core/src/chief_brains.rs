@@ -141,6 +141,22 @@ pub fn brain_home(home: &Path, chief: &str) -> PathBuf {
     home.join("c").join(tail.to_ascii_lowercase())
 }
 
+/// The tools socket of Chief `chief`'s brain (`optchat/tools.sock` in its
+/// directory), where `chief.engine.*` and `chief.stop` with `chief` go
+/// (chief-brains-v1). Refused with a reason and a message when this daemon
+/// runs no brains (`not_configured`) or the directory is not this Chief's
+/// (`unavailable`: never started here, or another id with the same tail).
+pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
+    let config =
+        config().ok_or(("not_configured", "this daemon runs no Chief brains".to_owned()))?;
+    let mux_home = brain_home(&config.home, chief);
+    let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+    if owner.trim() != chief {
+        return Err(("unavailable", format!("Chief {chief}'s brain is not running")));
+    }
+    Ok(mux_home.join(LONGEST_SOCKET))
+}
+
 /// The longest socket path under a brain directory (the Chief home's acpmux
 /// has its own, the default Chief's). A home whose socket does not fit
 /// starts no brain.
