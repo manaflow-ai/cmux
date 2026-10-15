@@ -651,6 +651,14 @@ fn chief_engine_and_stop_act_on_the_named_chief_only() {
     assert_eq!(unknown["error"]["details"]["reason"], "not_found", "{unknown}");
     assert_eq!(counts(), [3, 2, 1]);
 
+    // A live Chief whose brain does not run now (no socket): unavailable,
+    // and the request does not fall back to another Chief's brain.
+    fs::remove_file(ops_home.join("optchat/tools.sock")).unwrap();
+    let idle = v2(&mut home, "chief.engine.get", json!({"chief": ops}));
+    assert_eq!(idle["ok"], false, "{idle}");
+    assert_eq!(idle["error"]["details"]["reason"], "unavailable", "{idle}");
+    assert_eq!(counts(), [3, 2, 1]);
+
     let daemon = i32::try_from(owned.child.id()).unwrap();
     // SAFETY: the test's own daemon child.
     unsafe { libc::kill(daemon, libc::SIGTERM) };

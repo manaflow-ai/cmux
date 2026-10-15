@@ -145,7 +145,9 @@ pub fn brain_home(home: &Path, chief: &str) -> PathBuf {
 /// directory), where `chief.engine.*` and `chief.stop` with `chief` go
 /// (chief-brains-v1). Refused with a reason and a message when this daemon
 /// runs no brains (`not_configured`) or the directory is not this Chief's
-/// (`unavailable`: never started here, or another id with the same tail).
+/// (`unavailable`: never started here, or another id with the same tail). A
+/// brain that does not run now (idle stop, restart backoff) has a path whose
+/// socket does not answer: `chief_control::ask` says `unavailable`.
 pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
     let config =
         config().ok_or(("not_configured", "this daemon runs no Chief brains".to_owned()))?;

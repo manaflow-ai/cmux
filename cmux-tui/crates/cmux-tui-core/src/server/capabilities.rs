@@ -57,6 +57,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
     }
+    if crate::chief_brains::taken().is_some() {
+        capabilities.push(chief_control::CAPABILITY);
+    }
     #[cfg(debug_assertions)]
     capabilities
         .retain(|capability| !test_hidden_capabilities().iter().any(|hidden| hidden == capability));
@@ -248,7 +251,6 @@ pub(super) fn advertised_capabilities(
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
-        chief_control::CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);

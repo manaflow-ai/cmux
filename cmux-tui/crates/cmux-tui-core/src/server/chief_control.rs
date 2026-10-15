@@ -15,7 +15,7 @@
 //! tools socket under the daemon's Chief home (`chief_brains::tools_socket`),
 //! so the request acts on that Chief only. An unknown Chief reaches no brain.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -27,8 +27,9 @@ use crate::chief_registry::DEFAULT_CHIEF;
 use crate::conversation_store::LOCAL_USER;
 use crate::resource_router::ParsedResourceRequest;
 
-/// Advertised in identify: `chief.engine.*` and `chief.stop` take `chief`,
-/// and the daemon supervises the brains of the Chiefs other than the default.
+/// Advertised in identify when this daemon runs Chief brains
+/// (`CMUX_TUI_CHIEF_BRAINS`): `chief.engine.*` and `chief.stop` take `chief`.
+/// The default Chief's brain is still the app's (not the daemon's).
 pub(super) const CAPABILITY: &str = "chief-brains-v1";
 
 #[cfg(unix)]
@@ -106,8 +107,8 @@ fn target(
     mux: &Mux,
     operation: ResourceOperation,
     fields: &serde_json::Map<String, Value>,
-    default: Option<std::path::PathBuf>,
-) -> Result<Option<std::path::PathBuf>, ResourceError> {
+    default: Option<PathBuf>,
+) -> Result<Option<PathBuf>, ResourceError> {
     let chief = match fields.get("chief") {
         None | Some(Value::Null) => return Ok(default),
         Some(Value::String(chief)) if chief == DEFAULT_CHIEF => return Ok(default),
@@ -119,12 +120,30 @@ fn target(
     let failed = |reason: &str, message: String| {
         ResourceError::operation_failed(operation.wire_name(), reason, json!({"message": message}))
     };
-    if !super::chief_registry_resource::chief_names(mux).contains_key(chief) {
+    let live = {
+        let mut store =
+            mux.chiefs().store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if store.is_none() {
+            let directory = mux.session_state_directory();
+            *store = Some(
+                crate::chief_registry::ChiefStore::open(directory.as_deref())
+                    .map_err(|e| failed("internal", format!("{e:#}")))?,
+            );
+        }
+        let store = store.as_ref().expect("chief registry opened above");
+        store.get(chief).map_err(|e| failed("internal", format!("{e:#}")))?.is_some()
+    };
+    if !live {
         return Err(failed("not_found", format!("no Chief {chief}")));
     }
-    crate::chief_brains::tools_socket(chief)
-        .map(Some)
-        .map_err(|(reason, message)| failed(reason, message))
+    crate::chief_brains::tools_socket(chief).map(Some).map_err(|(reason, message)| {
+        // As for the default Chief: with agents off no brain starts, so say why.
+        if crate::agent_launch::disabled() {
+            failed(crate::agent_launch::REASON, crate::agent_launch::MESSAGE.to_owned())
+        } else {
+            failed(reason, message)
+        }
+    })
 }
 
 /// cx-tgf4h: with agents off in this build session the daemon starts no

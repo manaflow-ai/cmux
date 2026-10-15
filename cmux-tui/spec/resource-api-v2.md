@@ -1207,8 +1207,11 @@ that Chief's own brain (its tools socket in the brain directory the daemon's
 brain supervisor gave it) and to no other Chief; absent, `null` or
 `agent_mux` reaches the default Chief's brain as before. A Chief that does not
 exist answers `operation.failed` reason `not_found`; a daemon that runs no
-Chief brains, `not_configured`; a Chief whose brain this daemon never
-started, `unavailable`.
+Chief brains, `not_configured`; a Chief whose brain does not run now (never
+started here, stopped after 30 minutes idle, or between restarts),
+`unavailable` (the next message to that Chief starts it again); with agents
+off in the build session, the same agents-disabled refusal as the default
+Chief. The daemon advertises `chief-brains-v1` only when it runs Chief brains.
 Only the owner's trusted connection may call them: a registered Unix client
 with no link peer record whose principal is `user_local`, which is a local
 client or the link's `owner_session` splice. An agent-bound connection (the
