@@ -195,14 +195,22 @@ extension BrowserPanel {
             webView.deliverAutomationMouseEvent(event)
             await BrowserReplNativeInput.roundTrip(webView)
             return
-        case .keyDown(let key, let modifiers):
-            try Self.replayKey(key, action: .keyDown, modifiers: modifiers, webView: webView)
-            return
-        case .keyUp(let key, let modifiers):
-            try Self.replayKey(key, action: .keyUp, modifiers: modifiers, webView: webView)
+        case .keyDown(let key, let modifiers), .keyUp(let key, let modifiers):
+            let action: BrowserKeyboardAction
+            if case .keyDown = step { action = .keyDown } else { action = .keyUp }
+            // Tab past the page's last control must not move the user's
+            // AppKit focus; the round trip orders the key before whatever
+            // the client sends next, as the REPL does.
+            try await webView.withAutomationFocusContainment {
+                try Self.replayKey(key, action: action, modifiers: modifiers, webView: webView)
+                await BrowserReplNativeInput.roundTrip(webView)
+            }
             return
         case .insertText(let text):
-            try await BrowserReplNativeInput.insertText(text, into: webView)
+            try await webView.withAutomationFocusContainment {
+                try await BrowserReplNativeInput.insertText(text, into: webView)
+                await BrowserReplNativeInput.roundTrip(webView)
+            }
             return
         }
         await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
