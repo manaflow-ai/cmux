@@ -237,7 +237,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private func config(_ file: FileSnapshot) async -> JSONValue {
         var config: [String: JSONValue] = ["path": .string(file.url.path), "text": .string(file.text), "hash": .string(file.hash)]
         writable = file.readOnlyReason == nil
-        showsReadOnly = !writable
         if let recovered = recoveredText, file.url == self.file {
             recoveredText = nil
             config["recoveredText"] = .string(recovered)
@@ -257,6 +256,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .editor:
             config["size"] = JSONValue(file.size)
         }
+        // Set after the awaits above, so overlapping opens leave the flag
+        // matching the config the page applies last.
+        showsReadOnly = file.readOnlyReason != nil
         return merged(.object(config), host?.look() ?? .object([:]))
     }
 
