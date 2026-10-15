@@ -63,7 +63,7 @@ enum AppearanceHandlers {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
-            let path = InterfaceSizeStep.path(context.design); try requireUnmanaged(path, context); InterfaceSizeStep.reset(context.design)
+            let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
             context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)
         })
     }
@@ -143,9 +143,9 @@ enum AppearanceHandlers {
     }
 
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
-        let path = InterfaceSizeStep.path(context.design)
+        let path = context.design.interfaceSizePath
         try requireUnmanaged(path, context)
-        let value = InterfaceSizeStep.step(context.design, by: Int(delta))
+        let value = context.design.stepInterfaceSize(by: Int(delta))
         context.writeSetting("set interface size", path, .number(value), reloadOnFailure: true)
     }
 

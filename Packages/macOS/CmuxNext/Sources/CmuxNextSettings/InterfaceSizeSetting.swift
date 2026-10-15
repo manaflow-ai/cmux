@@ -29,29 +29,28 @@ public struct InterfaceScaleSetting: Sendable {
 
 /// The palette's Interface Size step and reset: `appearance.interfaceScale` while the Debug
 /// Settings toggle `chrome.interfaceSize` is on, else the familiar `chromeFontSize` in points.
-@MainActor
-public enum InterfaceSizeStep {
-    /// The setting a step or reset writes.
-    public static func path(_ design: DesignSettings) -> [String] {
-        design.interfaceScaleEnabled ? InterfaceScaleSetting().configPath : InterfaceSizeSetting().configPath
+extension DesignSettings {
+    /// The setting an Interface Size step or reset writes.
+    public var interfaceSizePath: [String] {
+        interfaceScaleEnabled ? InterfaceScaleSetting().configPath : InterfaceSizeSetting().configPath
     }
 
-    /// Steps `design` by `delta` (a scale step, or a point) and returns the value to save.
-    public static func step(_ design: DesignSettings, by delta: Int) -> Double {
-        guard design.interfaceScaleEnabled else {
-            let points = design.overrides[.chromeFontSize] ?? (design.density == .compact ? 12 : 13)
-            design.setOverride(.chromeFontSize, points + CGFloat(delta))
-            return Double(design.overrides[.chromeFontSize] ?? points)
+    /// Steps the interface size by `delta` (a scale step, or a point) and returns the value to save.
+    public func stepInterfaceSize(by delta: Int) -> Double {
+        guard interfaceScaleEnabled else {
+            let points = overrides[.chromeFontSize] ?? (density == .compact ? 12 : 13)
+            setOverride(.chromeFontSize, points + CGFloat(delta))
+            return Double(overrides[.chromeFontSize] ?? points)
         }
-        let values = InterfaceScaleSetting().values, current = Double(design.interfaceScale)
+        let values = InterfaceScaleSetting().values, current = Double(interfaceScale)
         let index = values.enumerated().min(by: { abs($0.element - current) < abs($1.element - current) })?.offset ?? 1
         let next = values[min(max(index + delta, 0), values.count - 1)]
-        design.interfaceScale = CGFloat(next)
+        interfaceScale = CGFloat(next)
         return next
     }
 
-    /// Puts the chosen setting back to its default in `design` (the caller removes the key).
-    public static func reset(_ design: DesignSettings) {
-        if design.interfaceScaleEnabled { design.interfaceScale = CGFloat(InterfaceScaleSetting().fallback) } else { design.setOverride(.chromeFontSize, nil) }
+    /// Puts the chosen interface size back to its default (the caller removes the key).
+    public func resetInterfaceSize() {
+        if interfaceScaleEnabled { interfaceScale = CGFloat(InterfaceScaleSetting().fallback) } else { setOverride(.chromeFontSize, nil) }
     }
 }
