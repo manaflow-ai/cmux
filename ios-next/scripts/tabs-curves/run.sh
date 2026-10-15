@@ -14,7 +14,7 @@ set -uo pipefail
 slot="tabs"; runs=3; app="tabs"; motions=()
 while [[ $# -gt 0 ]]; do case "$1" in --slot) slot="$2"; shift 2 ;; --runs) runs="$2"; shift 2 ;; --app) app="$2"; shift 2 ;; *) motions+=("$1"); shift ;; esac; done
 if [[ ${#motions[@]} -eq 0 ]]; then
-  if [[ $app == kit ]]; then motions=(reflow zoomOut zoomIn swipeUp snapBack); else motions=(reflow zoomOut zoomIn swipeUp snapBack fling); fi
+  if [[ $app == kit ]]; then motions=(reflow zoomOut zoomIn swipeUp snapBack); else motions=(reflow zoomOut zoomIn swipeUp snapBack fling twoToOne tapZoomOut drag); fi
 fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="$HERE/../remote-ios.sh"
@@ -33,16 +33,26 @@ for m in "${motions[@]}"; do
       sleep 6                                            # launch and mock connect (test script only)
     fi
     case "$m" in
-      zoomOut|swipeUp) pre=() ;;
-      *) axe tap -x 344 -y 816; sleep 1.5; pre=() ;;      # open the grid
+      zoomOut|swipeUp|tapZoomOut) ;;
+      *) axe tap -x 344 -y 816; sleep 1.5 ;;               # open the grid
     esac
+    if [[ $m == twoToOne ]]; then
+      # Down to cmux and GitHub: close top, zsh and Hacker News.
+      axe tap -x 178 -y 714; sleep 1.2; axe tap -x 371 -y 426; sleep 1.2; axe tap -x 178 -y 426; sleep 1.5
+    fi
     case "$m" in
       reflow)   g="tap -x 178 -y 137" ;;
       zoomOut)  g="tap -x 344 -y 816" ;;
       zoomIn)   g="tap -x 297 -y 250" ;;
       swipeUp)  g="swipe --start-x 200 --start-y 816 --end-x 200 --end-y 566 --duration 0.25" ;;
-      snapBack) g="drag --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 1.0 --steps 60" ;;
+      snapBack|drag) g="drag --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 1.0 --steps 60" ;;
       fling)    g="swipe --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 0.12" ;;
+      twoToOne) g="tap -x 178 -y 137" ;;
+      # Tabs, then GitHub's card 150 ms into the zoom-out (one AXe session:
+      # a second process starts about 230 ms later, after the zoom-out).
+      tapZoomOut)
+        ssh "$HOST" "printf 'tap -x 344 -y 816\\nsleep 0.15\\ntap -x 297 -y 250\\n' > /tmp/tc-tapzoomout.steps"
+        g="batch --file /tmp/tc-tapzoomout.steps" ;;
     esac
     name="$m"
     if [[ $app == kit ]]; then

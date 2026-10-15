@@ -29,6 +29,9 @@ SPECS = {
     'snapBack': ('1f853c', 'cx', None, 297.65),
     # GitHub flies off from where the finger ended (right edge to 0).
     'fling': ('1f853c', 'x1', None, 0.0, 90, 28, True),
+    # Two tabs, ✕ on cmux: GitHub (green) moves to the lone slot (x0 at
+    # 209.33 to 67; Safari's 3l reference tracks the same edge).
+    'twoToOne': ('1f853c', 'x0', 209.33, 67.0),
     # CmuxTabsKit demo (run.sh --app kit): Springs (orange, active) zooms and
     # springs back; ✕ on it moves Note (cream) from row 3 left to row 2
     # right. Its orange tiles are up to ~106 px wide at full size, so the
@@ -90,12 +93,53 @@ def track(video, hexc, band_px=90, tol=28, lock_rows=False):
     return rows
 
 
+# The bottom bar's "N Tabs" label (points), for the count timing.
+COUNT_BOX = (150, 800, 252, 828)
+# motion -> (lo, hi) ms: when the count may change, against the motion's
+# first moving frame (reflow: Safari's count changes the frame before) or
+# the finger's end (fling: Safari +5..12 ms).
+COUNT_WINDOW = {'reflow': (-25.0, -8.0), 'kit-reflow': (-25.0, -8.0), 'fling': (0.0, 25.0)}
+
+
+def count_change(video):
+    """Real time of the first frame whose count label differs from the first frame's."""
+    w, h = 603, 1311
+    s = w / 402
+    x0, y0, x1, y1 = (int(v * s) for v in COUNT_BOX)
+    pts = [float(p.strip(',')) for p in subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 'v', '-show_entries', 'frame=pts_time', '-of', 'csv=p=0', video],
+        capture_output=True, text=True).stdout.split() if p.strip(',')]
+    raw = subprocess.run(['ffmpeg', '-loglevel', 'error', '-i', video, '-fps_mode', 'passthrough', '-vf', f'scale={w}:{h}',
+                          '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], capture_output=True).stdout
+    n = len(raw) // (w * h)
+    first = None
+    for i in range(n):
+        f = np.frombuffer(raw[i * w * h:(i + 1) * w * h], dtype=np.uint8).reshape(h, w)[y0:y1, x0:x1].astype(np.int16)
+        if first is None:
+            first = f
+            continue
+        # The label's glyphs change (not a tint): enough pixels move a lot.
+        if int((np.abs(f - first) > 60).sum()) > 40:
+            return pts[i]
+    return None
+
+
 def progress(rows, field, a, b):
     t = np.array([r[0] for r in rows if r[1]])
     v = np.array([r[1][field] for r in rows if r[1]])
-    if field == 'x1' and b == 0.0:   # fling: from the finger's end (x1 at about 300)
-        k = int(np.argmax(v <= 302.5))
-        t, v, a = t[k:], v[k:], v[k]
+    if field == 'x1' and b == 0.0:   # fling: from x1 = 300 (Safari's table) to the edge
+        # The frame after the card's last tracked one has it fully off
+        # screen (x1 <= 0): progress 1 there, not a missing sample.
+        last = max(i for i, r in enumerate(rows) if r[1])
+        if v[-1] < 25 and last + 1 < len(rows):
+            t = np.append(t, rows[last + 1][0])
+            v = np.append(v, 0.0)
+        a = 300.0
+        k = int(np.argmax(v <= a))
+        f = (v[k - 1] - a) / (v[k - 1] - v[k]) if k > 0 and v[k - 1] > v[k] else 1.0
+        tc = t[k - 1] + (t[k] - t[k - 1]) * f if k > 0 else t[k]
+        t = np.concatenate([[tc], t[k:]])
+        v = np.concatenate([[a], v[k:]])
         return t, (a - v) / a, a, True
     if a is None:                    # spring back: from the turnaround
         i = int(np.argmin(v))
@@ -108,6 +152,11 @@ def compare(motion, video):
     hexc, field, a, b, *band = SPECS[motion]
     saf = curves()[motion.split('-')[-1]]
     t, p, span, at_release = progress(track(video, hexc, *band), field, a, b)
+    count_ms = None
+    if motion in COUNT_WINDOW:
+        tc = count_change(video)
+        ref = t[0] if at_release else t[max(1, int(np.argmax(p > 0.005)))]
+        count_ms = None if tc is None else (tc - ref) * 1000
     st = np.arange(len(saf)) * 1000 / 60
     # Aligned by a least-squares fit of the onset half (progress 0.5 %-50 %)
     # to Safari's curve: a recording has no frames while the screen is still,
@@ -149,14 +198,77 @@ def compare(motion, video):
     worst = float(delta.max()) if len(delta) else float('nan')
     cross_ok = all(abs(d) <= 16.7 for _, _, _, d in rows) and all(o == o for _, o, _, _ in rows)
     ok = (cross_ok or worst <= 2.0) and (at_release or abs(jump) <= 8.0)
-    return {'motion': motion, 'crossings': rows, 'max_delta_pt': worst, 'jump_pt': float(jump), 'pass': ok}
+    if motion in COUNT_WINDOW:
+        lo, hi = COUNT_WINDOW[motion]
+        ok = ok and count_ms is not None and lo <= count_ms <= hi
+    return {'motion': motion, 'crossings': rows, 'max_delta_pt': worst, 'jump_pt': float(jump), 'count_ms': count_ms, 'pass': ok}
+
+
+# A card tapped during the zoom-out: from the zoom-out's onset (cmux, purple,
+# leaves full width) to the tapped card's zoom-in onset (GitHub, green, grows
+# past its card). Safari: 470-570 ms (re-audit 3, 8-interrupt).
+TAP_ZOOMOUT_WINDOW = (470.0, 570.0)
+
+
+def compare_tap_zoomout(video):
+    out = track(video, '5b59e4')
+    t_out = next((t for t, r in out if r and r['w'] < 398), None)
+    grow = track(video, '1f853c')
+    t_in = None
+    if t_out is not None:
+        # The green card first settles at its grid width, then grows.
+        settled = False
+        for t, r in grow:
+            if t <= t_out or not r:
+                continue
+            if r['w'] < 185:
+                settled = True
+            elif settled and r['w'] > 190:
+                t_in = t
+                break
+    ms = None if t_out is None or t_in is None else (t_in - t_out) * 1000
+    lo, hi = TAP_ZOOMOUT_WINDOW
+    return {'motion': 'tapZoomOut', 'open_ms': ms, 'pass': ms is not None and lo <= ms <= hi}
+
+
+# A 100 pt drag over 1.0 s on GitHub's card (the snapBack input): the card's
+# offset from its slot after the onset (its first frame 0.5 pt out) and the
+# farthest it gets (the carry past the finger). Safari, mean of 3 runs
+# (re-audit 3 saf-drag-{1,2,3}-c.csv): -30.0 / -38.9 / -61.4 pt at
+# +100 / +200 / +500 ms, -103.9 pt at most.
+DRAG_SAFARI = {100: -30.0, 200: -38.9, 500: -61.4, 'min': -103.9}
+DRAG_TOLERANCE_PT = 3.0
+
+
+def compare_drag(video):
+    rows = track(video, '1f853c')
+    t = np.array([r[0] for r in rows if r[1]])
+    off = np.array([r[1]['cx'] for r in rows if r[1]]) - 297.65
+    k = int(np.argmax(off < -0.5))
+    tt = (t - t[max(0, k - 1)]) * 1000
+    ours = {ms: float(np.interp(ms, tt, off)) for ms in (100, 200, 500)}
+    ours['min'] = float(off.min())
+    ok = all(abs(ours[key] - DRAG_SAFARI[key]) <= DRAG_TOLERANCE_PT for key in DRAG_SAFARI)
+    return {'motion': 'drag', 'ours': ours, 'pass': ok}
 
 
 if __name__ == '__main__':
+    if sys.argv[1] == 'drag':
+        r = compare_drag(sys.argv[2])
+        print('drag: ' + '  '.join(f"{k if k == 'min' else f'+{k}'} {r['ours'][k]:.1f}/{DRAG_SAFARI[k]:.1f} ({r['ours'][k] - DRAG_SAFARI[k]:+.1f})"
+                                   for k in DRAG_SAFARI) + f"  {'PASS' if r['pass'] else 'FAIL'}")
+        sys.exit(0 if r['pass'] else 1)
+    if sys.argv[1] == 'tapZoomOut':
+        r = compare_tap_zoomout(sys.argv[2])
+        print('tapZoomOut: opens ' + ('never' if r['open_ms'] is None else f"{r['open_ms']:.0f} ms")
+              + f" after the zoom-out starts (Safari {TAP_ZOOMOUT_WINDOW[0]:.0f}-{TAP_ZOOMOUT_WINDOW[1]:.0f})  {'PASS' if r['pass'] else 'FAIL'}")
+        sys.exit(0 if r['pass'] else 1)
     r = compare(sys.argv[1], sys.argv[2])
     if '--json' in sys.argv:
         print(json.dumps(r))
     else:
         print(f"{r['motion']}: " + '  '.join(f't{int(q*100)} {o:.0f}/{s:.0f} ({d:+.0f})' for q, o, s, d in r['crossings'])
-              + f"  max {r['max_delta_pt']:.1f} pt  jump {r['jump_pt']:+.1f} pt  {'PASS' if r['pass'] else 'FAIL'}")
+              + f"  max {r['max_delta_pt']:.1f} pt  jump {r['jump_pt']:+.1f} pt"
+              + ('' if r['count_ms'] is None else f"  count {r['count_ms']:+.0f} ms")
+              + f"  {'PASS' if r['pass'] else 'FAIL'}")
     sys.exit(0 if r['pass'] else 1)
