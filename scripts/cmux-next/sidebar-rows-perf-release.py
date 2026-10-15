@@ -120,11 +120,11 @@ def perf_names():
     return set(re.findall(r'"(perf-(?:tick-)?\d+)"', out.stdout or ""))
 
 
-def launch():
+def launch(frame="40,40,1100,820"):
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
     env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
-           f"CMUX_NEXT_CONFIG_FILE={CONFIG}", f"CMUX_NEXT_GHOSTTY_CONFIG={GHOSTTY}", "CMUX_NEXT_TEST_WINDOW_FRAME=40,40,1100,820"]
+           f"CMUX_NEXT_CONFIG_FILE={CONFIG}", f"CMUX_NEXT_GHOSTTY_CONFIG={GHOSTTY}", f"CMUX_NEXT_TEST_WINDOW_FRAME={frame}"]
     subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
     if not wait(lambda: os.path.exists(SOCKET) and cli("--json", "workspace", "list").returncode == 0, 120):
         sys.exit("FAIL the tagged app did not come up")
@@ -469,7 +469,7 @@ def install_b():
     app = os.path.join(dest, f"cmux DEV {opts.b_tag}.app")
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app], capture_output=True, check=True)
     return {"label": opts.b_label, "app": app, "tag": opts.b_tag, "socket": f"/tmp/cmux-debug-{opts.b_tag}.sock",
-            "cli": os.path.join(app, "Contents/Resources/bin/cmux")}
+            "cli": os.path.join(app, "Contents/Resources/bin/cmux"), "frame": "760,40,740,820"}
 
 
 def stop_b(app):
@@ -490,9 +490,29 @@ def stop_b(app):
                        capture_output=True, timeout=60)
 
 
+def scrollbar_values():
+    """AXValue of each scroll bar in the window, by x (the sidebar's is the leftmost)."""
+    reply = cua("get_window_state", {"pid": Target.pid, "window_id": Target.window_id,
+                                     "screenshot_out_file": os.path.join(SCRATCH, "bars.png")}, timeout=120)
+    bars = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("role") == "AXScrollBar" and node.get("value") not in (None, ""):
+                bars.append(((node.get("frame") or {}).get("x", 0), node.get("value")))
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(reply)
+    return [v for _, v in sorted(bars, key=lambda b: float(b[0] or 0))]
+
+
 def prepare(app):
     use(app)
-    launch()
+    launch(app["frame"])
     make_workspaces()
     Target.find()
     app["target"] = (Target.pid, Target.window_id, Target.scale, Target.point, Target.screen_point)
@@ -500,9 +520,14 @@ def prepare(app):
     note(len(app["terms"]) >= opts.ticking, f"{app['label']}: {len(app['terms'])} ticking terminals")
     WHEEL.clear()
     WHEEL.update({"hid": True})
-    row_titles()
+    # The HID wheel reaches this app's sidebar: its scroll bar moves after a sweep down (and back after up).
+    before = scrollbar_values()
     sweep("down", 6)
+    after = scrollbar_values()
     sweep("up", 6)
+    ground()
+    app["wheel_check"] = {"before": before[:3], "after": after[:3], "moved": bool(after) and after[:1] != before[:1]}
+    note(app["wheel_check"]["moved"], f"{app['label']}: the wheel moves the sidebar ({app['wheel_check']})")
     # CPU per tick, no input (10 s).
     cpu0 = cpu_ns(Target.pid)
     t0 = time.monotonic()
@@ -515,7 +540,15 @@ def prepare(app):
     print(f"{app['label']} tick window: {app['tick_window']}", flush=True)
 
 
-A = {"label": opts.label, "app": APP, "tag": TAG, "socket": SOCKET, "cli": CLI}
+def pty_count():
+    """PTYs in use on the host (/dev/ttys*), logged before and after (950 workspaces per app have no terminal)."""
+    return len([n for n in os.listdir("/dev") if n.startswith("ttys")])
+
+
+summary["ptys_before"] = pty_count()
+print(f"ptys in use before: {summary['ptys_before']}", flush=True)
+A = {"label": opts.label, "app": APP, "tag": TAG, "socket": SOCKET, "cli": CLI,
+     "frame": "10,40,740,820" if opts.b_fleet_job else "40,40,1100,820"}
 apps = [A]
 try:
     if opts.b_fleet_job:
@@ -563,6 +596,10 @@ finally:
         cua("end_session", {})
     except Exception:  # noqa: BLE001
         pass
+    summary["ptys_after"] = pty_count()
+    print(f"ptys in use after: {summary['ptys_after']}", flush=True)
+    with open(os.path.join(opts.out, f"release-{opts.label}.json"), "w") as fh:
+        json.dump(summary, fh, indent=1)
     if b_alive:
         print(f"B app still runs: its bundle stays in {SCRATCH} (no kill on build hosts)", flush=True)
     else:
