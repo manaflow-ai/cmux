@@ -226,12 +226,17 @@ final class ChiefHomeView: NSView {
         }
         // A waiting approval no line names yet: "Waiting for you", not its raw prompt.
         if waits { return ChiefPreviewText.waitingForYou }
-        let text = row.preview.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty {
-            // A pending send is mine (plain text); the newest message keeps its author's rule.
-            let author = row.isSending ? nil : row.summary.lastMessage?.author
-            let shown = author.map { HomeMarkdownPreview(text, author: $0, in: row.summary).text } ?? text
-            return shown.replacingOccurrences(of: "\n", with: " ")
+        // InboxRow.preview is intentionally a cheap mirror projection. For Chief it can contain
+        // a tool prompt or a question's option list while the richer tail read is still landing.
+        // Never leak that implementation text into the sidebar. A pending send is the one case
+        // where the projection is the user's own plain text and is safe to show immediately.
+        if row.isSending {
+            let text = row.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { return text.replacingOccurrences(of: "\n", with: " ") }
+        }
+        if let message = row.summary.lastMessage {
+            let shown = messagePreview(message, in: row.summary)
+            if !shown.isEmpty { return shown }
         }
         if row.previewAttachments != nil { return ChiefStrings.conversationAttachmentPreview }
         return ChiefStrings.conversationEmptyPreview
