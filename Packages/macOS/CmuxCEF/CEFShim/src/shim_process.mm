@@ -379,6 +379,7 @@ void cmux_shim_shutdown(void) {
   // Download callbacks hold Chromium objects: release them first.
   ForgetDownloads();
   ForgetPermissionPrompts();
+  ForgetJSDialogs();
   CefShutdown();
 }
 

@@ -95,6 +95,11 @@ final class ChromiumDebugWindowController: NSObject, NSWindowDelegate {
             status.stringValue = "load failed \(code): \(message) \(url?.absoluteString ?? "")"
         case .newBrowser(let popup, _, _, _):
             popup.close()
+        case .shim(.jsDialog(_, let token, let kind, let message, _, _, _)):
+            // The probe has no dialog UI: Chromium waits on every dialog, so
+            // answer it (OK for alert, Cancel otherwise) and say so.
+            CEFRuntime.shared.answerJSDialog(token: token, accept: kind == .alert)
+            status.stringValue = "answered \(kind) dialog: \(message)"
         case .closed:
             browser = nil
         default:
