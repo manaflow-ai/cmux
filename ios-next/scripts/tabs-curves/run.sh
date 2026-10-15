@@ -14,7 +14,7 @@ set -uo pipefail
 slot="tabs"; runs=3; app="tabs"; motions=()
 while [[ $# -gt 0 ]]; do case "$1" in --slot) slot="$2"; shift 2 ;; --runs) runs="$2"; shift 2 ;; --app) app="$2"; shift 2 ;; *) motions+=("$1"); shift ;; esac; done
 if [[ ${#motions[@]} -eq 0 ]]; then
-  if [[ $app == kit ]]; then motions=(reflow zoomOut zoomIn swipeUp snapBack); else motions=(reflow zoomOut zoomIn swipeUp snapBack fling twoToOne tapZoomOut drag lastTab); fi
+  if [[ $app == kit ]]; then motions=(reflow zoomOut zoomIn swipeUp snapBack); else motions=(reflow zoomOut zoomIn swipeUp snapBack liftBack rubberRelease fling twoToOne tapZoomOut drag lastTab); fi
 fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="$HERE/../remote-ios.sh"
@@ -51,7 +51,8 @@ for m in "${motions[@]}"; do
       zoomOut)  g="tap -x 344 -y 816" ;;
       zoomIn)   g="tap -x 297 -y 250" ;;
       swipeUp)  g="swipe --start-x 200 --start-y 816 --end-x 200 --end-y 566 --duration 0.25" ;;
-      snapBack|drag) g="drag --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 1.0 --steps 60" ;;
+      rubberRelease) g="drag --start-x 250 --start-y 250 --end-x 350 --end-y 250 --duration 1.0 --steps 60" ;;
+      snapBack|liftBack|drag) g="drag --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 1.0 --steps 60" ;;
       fling)    g="swipe --start-x 330 --start-y 250 --end-x 230 --end-y 250 --duration 0.12" ;;
       twoToOne) g="tap -x 178 -y 137" ;;
       lastTab)  g="tap -x 320 -y 137" ;;

@@ -27,6 +27,13 @@ SPECS = {
     'zoomIn': ('1f853c', 'w', 176.7, 402.0),
     # GitHub springs back from the turnaround (centre x to its slot).
     'snapBack': ('1f853c', 'cx', None, 297.65),
+    # The same release: GitHub's lift (x 1.093) scales back to its card
+    # width (re-audit 3 3h).
+    'liftBack': ('1f853c', 'w', None, 176.7),
+    # A 100 pt drag right, released: GitHub's left edge springs back from
+    # the rubber band to its slot (re-audit 3 3i; its right edge is clipped
+    # by the screen).
+    'rubberRelease': ('1f853c', 'x0', None, 209.33),
     # GitHub flies off from where the finger ended (right edge to 0).
     'fling': ('1f853c', 'x1', None, 0.0, 90, 28, True),
     # Two tabs, ✕ on cmux: GitHub (green) moves to the lone slot (x0 at
@@ -51,9 +58,20 @@ SPECS = {
 }
 
 
+# Safari curves the app does not replay (it runs a spring fitted to them):
+# progress at 1/60 s from the onset, built like SafariCurves.swift's.
+EXTRA_CURVES = {
+    # The lift's scale back on a spring back: Safari, 2 runs (re-audit 3 3h).
+    'liftBack': [0.0, 0.0414, 0.0669, 0.111, 0.1788, 0.2654, 0.3371, 0.385, 0.4843, 0.5423, 0.6084, 0.6602, 0.7127,
+                 0.7436, 0.7872, 0.8305, 0.8524, 0.8947, 0.9369, 0.939, 0.9644, 0.9804, 1.0042, 0.9804, 0.9863, 1.0],
+}
+# A motion checked against a curve of another name.
+CURVE_OF = {'rubberRelease': 'snapBackRight'}
+
+
 def curves():
     src = open(SWIFT).read()
-    out = {}
+    out = {k: np.array(v) for k, v in EXTRA_CURVES.items()}
     for name, body in re.findall(r'static let (\w+) = SafariCurve\(samples: \[(.*?)\]\)', src, re.S):
         out[name] = np.array([float(v) for v in body.replace('\n', ' ').split(',') if v.strip()])
     return out
@@ -155,8 +173,11 @@ def progress(rows, field, a, b):
         t = np.concatenate([[tc], t[k:]])
         v = np.concatenate([[a], v[k:]])
         return t, (a - v) / a, a, True
-    if a is None:                    # spring back: from the turnaround
-        i = int(np.argmin(v))
+    if a is None:                    # spring back: from the turnaround (the far end from `b`)
+        # The last frame at the extreme (a lift holds its width for the
+        # whole drag, a pixel either way; the scale back starts where it ends).
+        ext = v.min() if b > v.mean() else v.max()
+        i = int(np.nonzero(np.abs(v - ext) <= 0.8)[0][-1])   # a pixel step is 0.67 pt
         t, v, a = t[i:], v[i:], v[i]
     p = (v - a) / (b - a)
     return t, p, abs(b - a), False
@@ -164,7 +185,8 @@ def progress(rows, field, a, b):
 
 def compare(motion, video):
     hexc, field, a, b, *band = SPECS[motion]
-    saf = curves()[motion.split('-')[-1]]
+    name = motion.split('-')[-1]
+    saf = curves()[CURVE_OF.get(name, name)]
     t, p, span, at_release = progress(track(video, hexc, *band), field, a, b)
     count_ms = None
     if motion in COUNT_WINDOW:
