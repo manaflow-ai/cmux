@@ -36,8 +36,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var startupObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
-    /// workspace's colors when they share the room's light/dark mode, so it
-    /// matches the content beside it without ever flipping the window light.
+    /// workspace's colors at any light/dark, so it matches the content beside
+    /// it (with the color transition).
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
@@ -219,9 +219,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
         sidebar.sameTurn.syncNow(rows: index == nil)
         root.show(controller.contentView)
-        // The workspace's theme first, so the chrome repaints once; no
-        // crossfade, which would fade the swap itself.
+        // The workspace's theme first, so the chrome repaints once. The chrome (sidebar, titlebar)
+        // fades from what it shows now and the backdrop blends (appearance.colorTransition); the
+        // content swap itself never fades.
+        let before = themeScope.tokens
         services.themes.contentDidShow(controller)
+        if controller.themeScope.tokens != before, let window { ColorTransition.current.fade(window, regions: [root.sidebar, root.titlebar]) }
         themeScope.show(controller.themeScope)
         trimParked()
         startupObservation?.cancel()

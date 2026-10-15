@@ -5,8 +5,7 @@ always smooth animation (that can be configured, fully ... or even just instant"
 
 Launches the tagged app itself (no activation, a scratch cmux.json, an empty Ghostty config, an
 isolated Chief home; it never opens Home or the Chief pane) and gives two workspaces different
-themes over the control socket (workspace.setTheme: Rose Pine and Catppuccin Mocha; both dark,
-because a room adopts a shown workspace's colors only when light/dark matches). Then
+themes over the control socket (workspace.setTheme: Rose Pine and Catppuccin Mocha). Then
 it switches between them by id (goToWorkspace) and samples the window backdrop
 color the render server shows (debug.themes windows[].backdrop.sheet, the presentation value)
 as fast as the socket answers:
@@ -16,13 +15,15 @@ as fast as the socket answers:
   retarget   B to A, then back to B after about 250 ms: the first sample after the reversal is
              near the last one before it (no jump to an end color), and it ends on B exactly.
   instant    enabled false: the first sample after the switch is already the target, no blend.
+  series     three times: the shown workspace's theme changes dark -> light -> dark within 300 ms (Mocha, Latte, Mocha): the backdrop
+             samples and the recorded window pixels (OUT/series-N/, read through sips) never jump.
   record     (--record) one debug.window_record of a blend, frames under OUT/record/.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   color-transition-e2e.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" [--record]
 Stop the app afterwards with "$NX_APP_STOP". Exit 1 on any failed check.
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, threading, time
+import argparse, glob, json, os, socket, struct, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -91,9 +92,9 @@ def action(name, args=None, target=None):
     return reply
 
 
-def fire(name, args=None):
+def fire(name, args=None, target=None):
     """Runs an action without waiting for its reply, so sampling starts at once."""
-    thread = threading.Thread(target=action, args=(name, args), daemon=True)
+    thread = threading.Thread(target=action, args=(name, args, target), daemon=True)
     thread.start()
     return thread
 
@@ -146,6 +147,41 @@ def oklab(color):
 def distance(a, b):
     """OKLab distance between two #RRGGBB colors."""
     return sum((x - y) ** 2 for x, y in zip(oklab(rgb(a)), oklab(rgb(b)))) ** 0.5
+
+
+def bmp_pixel(path, fx, fy):
+    """RGB hex of the pixel at fractions (fx, fy) of an uncompressed 24/32-bit BMP (what sips writes)."""
+    data = open(path, "rb").read()
+    offset = struct.unpack("<I", data[10:14])[0]
+    width, height = struct.unpack("<ii", data[18:26])
+    bpp = struct.unpack("<H", data[28:30])[0] // 8
+    compression = struct.unpack("<I", data[30:34])[0]
+    masks = struct.unpack("<III", data[54:66]) if compression == 3 else (0xFF0000, 0xFF00, 0xFF)
+    stride = (width * bpp + 3) & ~3
+    x, y = int(fx * width), int(fy * abs(height))
+    row = (abs(height) - 1 - y) if height > 0 else y
+    i = offset + row * stride + x * bpp
+    if compression not in (0, 3) or bpp not in (3, 4):
+        raise ValueError(f"{path}: BMP compression {compression}, {bpp * 8} bpp")
+    word = int.from_bytes(data[i:i + bpp], "little")
+
+    def channel(mask):
+        shift = (mask & -mask).bit_length() - 1
+        return (word & mask) >> shift if mask else 0
+    return "#%02X%02X%02X" % tuple(channel(m) for m in masks)
+
+
+def frame_colors(directory, fx, fy):
+    """The color at (fx, fy) in every recorded frame, in order (sips converts each JPEG to BMP)."""
+    out = []
+    for jpg in sorted(glob.glob(os.path.join(directory, "frame-*.jpg"))):
+        bmp = jpg[:-4] + ".bmp"
+        done = subprocess.run(["sips", "-s", "format", "bmp", jpg, "--out", bmp], capture_output=True, text=True, timeout=30)
+        if done.returncode != 0:
+            print("sips:", (done.stdout + done.stderr).strip()[-200:], flush=True)
+        if os.path.exists(bmp):
+            out.append(bmp_pixel(bmp, fx, fy))
+    return out
 
 
 def sample(seconds, trigger, retrigger=None):
@@ -211,7 +247,7 @@ try:
     time.sleep(1)
     light = settled()
     report["light"], report["dark"] = light, dark
-    # Both dark: a room adopts a shown workspace's colors only when light/dark matches (ThemeScope.tokens).
+    # Two dark themes for the blend checks (the series phase below crosses light/dark).
     span = distance(light, dark) if light and dark else 0
     check(span > 0.02, f"the two workspaces have different backgrounds ({light} vs {dark}, OKLab distance {span:.3f})")
 
@@ -253,6 +289,51 @@ try:
         action("goToWorkspace", {"workspace": first_ws})
         time.sleep(1.4)  # the recording stops by itself after 1.2 s
         check(os.path.exists(os.path.join(rec, "frames.json")), "a frame recording of one blend is written")
+
+    for run in range(3):  # an intermittent one-frame flash needs more than one try
+        # theme series: the shown workspace's theme changes twice in quick succession (dark -> light,
+        # then back to the dark one before the first blend ends). The backdrop and the recorded window
+        # pixels both continue from the color on screen; neither jumps to an end color.
+        action("goToWorkspace", {"workspace": second_ws})
+        settle(dark)
+        series_dir = os.path.join(opts.out, f"series-{run}")
+        os.makedirs(series_dir, exist_ok=True)
+        rpc("debug.window_record", {"dir": series_dir, "seconds": 1.5})
+        time.sleep(0.15)
+        on_second = f"workspace:{second_ws}"
+        series = sample(1.2, lambda: fire("workspace.setTheme", {"theme": "Catppuccin Latte"}, on_second),
+                        (0.3, lambda: fire("workspace.setTheme", {"theme": "Catppuccin Mocha"}, on_second)))
+        report[f"series-{run}"] = series
+        time.sleep(0.6)  # the recording stops by itself
+        marker = next((i for i, (_, c) in enumerate(series) if c == "RETARGET"), None)
+        before_turn = colors(series[:marker]) if marker is not None else []
+        after_turn = colors(series[marker + 1:]) if marker is not None else []
+        final = settled()
+        if before_turn and after_turn and final:
+            latte_span = max(distance(dark, c) for c in before_turn)
+            jump = distance(after_turn[0], before_turn[-1])
+            check(latte_span > 0.1, f"series {run}: the light theme was blending in (moved {latte_span:.3f} from the dark one)")
+            check(jump < 0.1, f"series {run}: the second change continues from the backdrop on screen (jump {jump:.3f})")
+            check(after_turn[-1][:7] == final[:7], f"series {run}: the backdrop ends on the last theme ({after_turn[-1]} vs {final})")
+        else:
+            check(False, f"series {run}: samples on both sides of the second change")
+        pixels = frame_colors(series_dir, 0.12, 0.75)  # a blank spot low in the sidebar
+        report[f"series-{run}-pixels"] = pixels
+        try:
+            times = json.load(open(os.path.join(series_dir, "frames.json"))).get("times") or []
+        except (OSError, ValueError):
+            times = []
+        if len(pixels) > 10:
+            # Each step per one 60 Hz frame: the recorder captures on the main thread, which a theme
+            # change keeps busy, so one recorded step can span several display frames (a 40 ms gap is
+            # 2.4 frames of smooth motion). A jump changes the color within one displayed frame.
+            gaps = [max((b - a) * 1000, 1000 / 60) for a, b in zip(times, times[1:])] if len(times) == len(pixels) else []
+            steps = [distance(a, b) * ((1000 / 60) / gaps[i] if gaps else 1) for i, (a, b) in enumerate(zip(pixels, pixels[1:]))]
+            total = max(distance(pixels[0], p) for p in pixels)
+            check(total > 0.1, f"series {run} pixels: the window recolored on screen (moved {total:.3f})")
+            check(max(steps) < 0.25 * total, f"series {run} pixels: no frame jumps (largest step per 60 Hz frame {max(steps):.3f} of {total:.3f})")
+        else:
+            check(False, f"series {run} pixels: frames recorded ({len(pixels)})")
 
     # instant: enabled false.
     config(enabled=False, duration=400, curve="linear")

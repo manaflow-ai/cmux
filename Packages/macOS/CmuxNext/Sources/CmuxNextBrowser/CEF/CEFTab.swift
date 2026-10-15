@@ -91,6 +91,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// whether an override is on the page, and the calls in flight.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var deviceEmulationViewport: BrowserEmulation.Viewport?
+    /// View points per CSS px the emulation applies now (the viewport's scale; 1 for none). Observed:
+    /// the app announces it to the browser host, which scales an agent's mouse input by it (cx-mogig).
+    public internal(set) var emulationInputScale: Double = 1
     @ObservationIgnored var deviceEmulationApplied = false
     @ObservationIgnored var deviceEmulationTask: Task<Void, Never>?
     @ObservationIgnored var deviceEmulationDirty = false

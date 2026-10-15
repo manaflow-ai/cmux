@@ -3,7 +3,7 @@
 //! acpmux's `_acpmux/info` does (`sessionEnv.CMUX_WORKSPACE_ID`, unix socket
 //! only), takes prompts for those sessions (`session/prompt`, answered with
 //! `_acpmux/prompt_accepted`, or held at a gate a test opens) and answers
-//! `_acpmux/prompt_withdraw` as a test sets it, and a clock file the daemon's debug build adds to its agent
+//! `_acpmux/prompt_withdraw` as a test sets it (or holds it), and a clock file the daemon's debug build adds to its agent
 //! message clock, so a test moves time instead of waiting.
 // Shared by several test binaries; each uses a part of it.
 #![allow(dead_code)]
@@ -56,6 +56,12 @@ struct FakeAcpmux {
     /// Session id -> how many more prompts it refuses as moving
     /// (`transfer.moving`).
     moving: Mutex<HashMap<String, u32>>,
+    /// Session id -> how many more prompts it takes without a word (never
+    /// accepted, never answered).
+    silent: Mutex<HashMap<String, u32>>,
+    /// Sessions whose withdraws wait, unanswered, until released.
+    withdraw_gates: Mutex<std::collections::HashSet<String>>,
+    withdraw_gate_opened: Condvar,
 }
 
 pub struct Daemon {
@@ -245,6 +251,22 @@ impl Daemon {
     /// machine (`transfer.moving`).
     pub fn moving(&self, session: &str, count: u32) {
         self.fake.moving.lock().unwrap().insert(session.to_owned(), count);
+    }
+
+    /// `session` never accepts or answers its next `count` prompts.
+    pub fn silent(&self, session: &str, count: u32) {
+        self.fake.silent.lock().unwrap().insert(session.to_owned(), count);
+    }
+
+    /// `session`'s withdraws wait, unanswered, until [`Self::release_withdraws`].
+    pub fn hold_withdraws(&self, session: &str) {
+        self.fake.withdraw_gates.lock().unwrap().insert(session.to_owned());
+    }
+
+    /// The withdraws waiting for `session` go on.
+    pub fn release_withdraws(&self, session: &str) {
+        self.fake.withdraw_gates.lock().unwrap().remove(session);
+        self.fake.withdraw_gate_opened.notify_all();
     }
 
     /// The prompts waiting at `session`'s gate go on.
@@ -569,6 +591,12 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
             }
             (Some("session/prompt"), Some(_)) => {
                 fake.prompts.lock().unwrap().push(params.clone());
+                let mut silent = fake.silent.lock().unwrap();
+                let left = silent.get_mut(session).filter(|left| **left > 0);
+                if left.map(|left| *left -= 1).is_some() {
+                    continue;
+                }
+                drop(silent);
                 let mut gates = fake.gates.lock().unwrap();
                 while gates.contains(session) {
                     gates = fake.gate_opened.wait(gates).unwrap();
@@ -599,6 +627,11 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
             }
             (Some("_acpmux/prompt_withdraw"), _) => {
                 fake.withdrawals.lock().unwrap().push(params.clone());
+                let mut held = fake.withdraw_gates.lock().unwrap();
+                while held.contains(session) {
+                    held = fake.withdraw_gate_opened.wait(held).unwrap();
+                }
+                drop(held);
                 let msg_id = params["msgId"].clone();
                 let outcome = fake.outcomes.lock().unwrap().get(session).cloned();
                 match outcome.as_deref() {

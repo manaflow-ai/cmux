@@ -107,6 +107,8 @@ extension HomeStore {
             bumpTranscript(id)
             settle()
             rebuildRows()
+            // A view joins mid-run: the owner's live text so far (`run.live`).
+            if outcome == .applied { requestLive(id) }
             if outcome == .applied { return }
             gaps += 1
         }

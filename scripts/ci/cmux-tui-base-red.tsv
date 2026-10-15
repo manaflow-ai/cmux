@@ -5,3 +5,16 @@
 #   EXPIRES  YYYY-MM-DD, UTC, the last day the skip applies; after it the step fails
 #   OS       any, macos or linux: where the skip applies
 # Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
+protocol::tests::protocol_registry_names_every_served_method	cx-mvd3t	2026-10-18	any	_acpmux/complete (a242167877bc) not in protocol::registry()
+every_test_binary_runs_in_the_hermetic_environment	cx-5j26a	2026-10-18	any	complete_rpc, session_mcp_servers, prompt_images test binaries define no HERMETIC
+a_remote_chain_cannot_query_the_keychain	cx-3czkh	2026-10-18	macos	the Web chain's agent reads the System keychain on the AWS Mac
+the_requests_are_the_macos_hosts	cx-c0wvp	2026-10-18	any	_acpmux/attachment (a9e1681643a6) not in policy.json
+the_known_params_are_the_macos_hosts	cx-c0wvp	2026-10-18	any	_acpmux/attachment (a9e1681643a6) not in policy.json
+the_allowlist_is_what_the_page_sends	cx-c0wvp	2026-10-18	any	_acpmux/attachment (a9e1681643a6) not in policy.json
+submodule_with_missing_git_folder_is_skipped	cx-4swbu	2026-10-18	macos	macOS git exits fatal on a gitfile that points nowhere (eb8924f440e3)
+apps_store::the_customize_folder_installs_itself_and_reloads_when_it_changes	cx-pqv7y	2026-10-18	macos	local/customize 1.0.1 never listed on macOS
+close_path::kitty_create::terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled	cx-59iu3	2026-10-18	macos	terminal #1 waits on the Kitty budget (2-3 s) on macOS
+app::tests::program_status_tabs::a_remote_tab_shows_its_programs_progress_then_its_wait	cx-mqvyw	2026-10-18	linux	load red in the full rbx run (2/2), passes alone
+machine_provider_runtime::tests::provider_reconnect_replacement_commits_as_provider_active	cx-mqvyw	2026-10-18	linux	load red in the full rbx run (2/2), passes alone
+mux::tests::kitty_budget::killed_kitty_surface_cannot_block_the_next_terminal_reservation	cx-t9m9q	2026-10-18	linux	load red in the full rbx run (2/2), passes alone
+mux::tests::kitty_budget::kitty_quota_worker_disables_graphics_but_admits_terminals_after_persistent_failure	cx-t9m9q	2026-10-18	linux	load red in the full rbx run (2/2), passes alone

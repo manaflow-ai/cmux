@@ -4034,7 +4034,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>transparent</string>
+			<string>off</string>
 			<key>pfm_description</key>
 			<string>The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.</string>
 			<key>pfm_name</key>
@@ -4111,6 +4111,22 @@
 			<string>Address Bar Shadow</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.backgroundOpacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Address Bar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

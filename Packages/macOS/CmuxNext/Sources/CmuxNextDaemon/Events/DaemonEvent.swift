@@ -66,6 +66,10 @@ public enum DaemonEvent: Sendable, Hashable {
     case conversationTyping(ConversationTyping)
     /// The running reply of an agent participant (ephemeral).
     case conversationDraft(ConversationDraft)
+    /// A Chief's live run frame (`chief-live-v1`, ephemeral): reply text so far and its activity line.
+    case conversationLive(ConversationLive)
+    /// A local run after an append (`conversation-runs-v1`): its status ends live text.
+    case conversationRunChanged(ConversationRunChanged)
     /// A `cloud-*` event of `cloud-conversations-v1` (cloud conversations,
     /// the account inbox, socket states and lease requests).
     case cloudConversations(CloudConversationsEvent)

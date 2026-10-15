@@ -6894,6 +6894,13 @@ caller's own running run. The caller must be an agent participant
   (at most `at`) is when that work began and `at` the frame's time (ms); a
   client shows the elapsed time itself.
 
+Order: before it posts the run's reply message (`message.send` with
+`client_msg_id` = the run's `turn`), a producer sends every streaming step's
+last frame (`final`; a step whose stream stopped early, its row carrying the
+text, has none) and then the run's end (`conversation-run-append` with a
+terminal status), so a client sees the reply only after them and the reply
+replaces the streaming text with no jump.
+
 `frame.conversation` must be `conversation`, and `run` and `step` are keys
 like a run id; any other bad frame is `run_rejected` `invalid_live` or a bad
 request. A frame's `author` and `t` are the owner's to set: it stamps the run's

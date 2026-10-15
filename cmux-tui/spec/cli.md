@@ -874,10 +874,11 @@ app's Approve and Decline controls make the same request.
 only `--recipient` (one `agent.message.unsend`), and prints each delivery's
 outcome: `unsent` (it never reached the agent), `retracted` (acpmux told the
 agent in its turn that it was withdrawn), `too_late` (its turn ended, or the
-delivery path cannot take it back) or `failed` (acpmux refused or did not
-answer; try again). Only the message's sender, from its own terminal or ACP
-session (its launch credential), or the person in the cmux app may take it
-back; there is no time limit. From a plain terminal the command is refused
+delivery path cannot take it back) or `failed` (acpmux refused, did not
+answer or may still take it; try again). `failed` exits 1, after the result
+is printed. Only the message's sender, from its own terminal or ACP session
+(its launch credential), or the person in the cmux app may take it back;
+there is no time limit. From a plain terminal the command is refused
 with reason `unsend_needs_app`.
 
 The daemon delivers messages to acpmux recipients (its delivery pump), and

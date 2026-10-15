@@ -24,6 +24,7 @@ public final class WindowMaterialView: NSView {
     /// The view drawing ``material``; nil while opaque.
     public private(set) var materialView: NSView?
     private let tintView = NSView()
+    private let glassTint = GlassTintBlend()
     private let inactiveTintView = NSView()
     private var keyObservers: [NSObjectProtocol] = []
     /// The window gave up the keyboard. Only then does glass go grey; a window
@@ -214,7 +215,11 @@ public final class WindowMaterialView: NSView {
         let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? GlassPanelView
-        glass?.tintColor = color
+        // Liquid Glass blends its tint on the window's motion clock (appearance.colorTransition).
+        if let glass {
+            glassTint.onStep = { [weak self] in self?.updateInactiveTint() }
+            glassTint.set(glass, to: color, in: self)
+        }
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows

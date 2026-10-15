@@ -40,6 +40,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         didSet { if sendNotice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(shownNotice)) } }
     }
     private var shownNotice: String? { sendNotice ?? notice }
+    /// The Chief's activity line under the transcript (`chief-live-v1`).
+    let liveLine = HomeLiveLine()
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -78,7 +80,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var hasOlder = false
     private var olderRequested = false
     private var reportedRead: Seq = 0
-    private var stopped = false
+    private(set) var stopped = false
     /// Return was pressed while only the cache knew this conversation: the
     /// send goes once the owner confirms it (`refresh`), in the thread that
     /// was open at the Return (`deferredThreadRoot`, nil: the conversation).
@@ -104,6 +106,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         core.media = { [weak media] in media?.asset($0) }
         if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
         controller.intents = self
+        liveLine.dispatch = { [weak controller] text in if controller?.store != nil { controller?.dispatch(.setNotice(text)) } }
         video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }
     }
@@ -115,40 +118,25 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func stop() {
         stopped = true
+        liveLine.stop()
         controller.intents = nil
     }
 
     // MARK: HomeStore -> projection
 
-    private func refresh() {
+    func refresh() {
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
             sendNotice = nil
             _ = send(root: .some(deferredThreadRoot))
             deferredThreadRoot = nil
         }
+        // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
+        let live = homeStore.liveRun(in: conversation)
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
-              typing: homeStore.typing[conversation] ?? [], hasOlder: homeStore.hasOlderMessages(in: conversation),
-              draft: homeStore.drafts[conversation])
-    }
-
-    /// One update per store change (Observation, no polling), as HomeStoreBinding does.
-    private func observe() {
-        guard !stopped else { return }
-        let id = conversation
-        withObservationTracking {
-            _ = homeStore.transcriptVersion[id, default: 0] // // crash program: a dictionary read the ratchet can type
-            _ = homeStore.typing[id, default: []]
-            _ = homeStore.drafts[id] // the agent's running reply grows its bubble
-            _ = homeStore.isConfirmed(id) // a send held for the owner goes once it names this conversation
-            _ = homeStore.rows
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, !self.stopped else { return }
-                self.refresh()
-                self.observe()
-            }
-        }
+              typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
+              hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
+        liveLine.show(live?.activity)
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -224,6 +212,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         if homeStore.takeCarriedDraft(conversation) { sendNotice = CmuxStrings.chiefRestarted }
         if shownNotice != nil { controller.dispatch(.cmuxNotice(shownNotice)) }
+        liveLine.resend()
         refreshAttachments()
         onSummaryChange(summary)
         onRowsChange()
