@@ -37,6 +37,7 @@ mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub(crate) use route_switch::route_error;
+mod offer_results;
 mod offers;
 mod secrets;
 mod seen;
