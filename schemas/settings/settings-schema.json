@@ -9476,10 +9476,6 @@
         "font",
         "text",
         "size",
-        "zoom",
-        "scale",
-        "bigger",
-        "smaller",
         "chromeFontSize"
       ],
       "kind" : "number",
@@ -9499,6 +9495,68 @@
       "refuses" : [
         4,
         22,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.interfaceSize",
+        "text" : "Interface Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.9,
+        1.25,
+        1.075
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.interfaceSize.help",
+        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.interfaceScale",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
+        "interfaceScale"
+      ],
+      "kind" : "number",
+      "page_hidden" : true,
+      "path" : [
+        "appearance",
+        "interfaceScale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.9,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.09999999999999998,
+        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -23830,7 +23888,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "dc122bbb3b7899a72fbc748646938fb914310c91351a798ccfedea1e292126a8",
+  "schema_hash" : "42768ec761c195fc457b020794ebfc7a5f18b8c7f4663602b402e3c29d83a961",
   "sections" : [
     {
       "id" : "general",
