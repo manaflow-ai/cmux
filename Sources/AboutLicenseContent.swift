@@ -44,7 +44,7 @@ struct AboutLicenseContent {
             bundle: bundle
         )
 
-        return """
+        var text = """
         # \(projectHeading)
 
         \(projectSourceLabel): \(repositoryURL.absoluteString)
@@ -55,6 +55,41 @@ struct AboutLicenseContent {
         ---
 
         \(thirdPartyLicenses)
+        """
+        if let chromium = chromiumNotices() {
+            text += "\n\n---\n\n" + chromium
+        }
+        return text
+    }
+
+    /// The embedded Chromium engine's notices, when this build carries it
+    /// (scripts/cef/embed-cef.sh installs CEF's LICENSE.txt and Chromium's
+    /// CREDITS.html into the framework). CEF's BSD license is shown in full;
+    /// Chromium's credits (several MB of HTML) are named with where to read
+    /// them: chrome://credits in a Chromium pane, or the file in the bundle.
+    func chromiumNotices() -> String? {
+        let resources = bundle.privateFrameworksURL?
+            .appendingPathComponent("Chromium Embedded Framework.framework")
+            .appendingPathComponent("Resources")
+        guard let resources,
+              let license = try? String(contentsOf: resources.appendingPathComponent("LICENSE.txt"), encoding: .utf8)
+        else { return nil }
+        let heading = String(
+            localized: "about.licenses.chromiumHeading",
+            defaultValue: "Chromium browser engine",
+            bundle: bundle
+        )
+        let credits = String(
+            localized: "about.licenses.chromiumCredits",
+            defaultValue: "Chromium and its third-party components are licensed under their own terms. Open chrome://credits in a Chromium browser pane to read them; they are also in CREDITS.html inside the app's Chromium Embedded Framework.",
+            bundle: bundle
+        )
+        return """
+        # \(heading)
+
+        \(credits)
+
+        \(license)
         """
     }
 

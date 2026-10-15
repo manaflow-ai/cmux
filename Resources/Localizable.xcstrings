@@ -656246,6 +656246,124 @@
           }
         }
       }
+    },
+    "about.licenses.chromiumCredits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium and its third-party components are licensed under their own terms. Open chrome://credits in a Chromium browser pane to read them; they are also in CREDITS.html inside the app's Chromium Embedded Framework."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخضع Chromium ومكوناته الخارجية لتراخيصها الخاصة. افتح chrome://credits في جزء متصفح Chromium لقراءتها؛ وهي موجودة أيضًا في CREDITS.html داخل Chromium Embedded Framework في التطبيق."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium und seine Komponenten von Drittanbietern unterliegen eigenen Lizenzen. Öffne chrome://credits in einem Chromium-Browserbereich, um sie zu lesen; sie liegen auch als CREDITS.html im Chromium Embedded Framework der App."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium y sus componentes de terceros tienen sus propias licencias. Abre chrome://credits en un panel de navegador Chromium para leerlas; también están en CREDITS.html dentro del Chromium Embedded Framework de la app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium et ses composants tiers sont soumis à leurs propres licences. Ouvrez chrome://credits dans un volet de navigateur Chromium pour les lire ; elles figurent aussi dans CREDITS.html, dans le Chromium Embedded Framework de l’app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium とそのサードパーティ製コンポーネントには、それぞれのライセンスが適用されます。Chromium ブラウザペインで chrome://credits を開くと確認できます。アプリの Chromium Embedded Framework 内の CREDITS.html にも含まれています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium과 그 서드파티 구성 요소에는 각각의 라이선스가 적용됩니다. Chromium 브라우저 패널에서 chrome://credits를 열어 확인하세요. 앱의 Chromium Embedded Framework 안 CREDITS.html에도 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 及其第三方组件采用各自的许可条款。在 Chromium 浏览器窗格中打开 chrome://credits 即可查看；它们也位于 App 的 Chromium Embedded Framework 中的 CREDITS.html。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 及其第三方元件採用各自的授權條款。在 Chromium 瀏覽器窗格中開啟 chrome://credits 即可查看；它們也位於 App 的 Chromium Embedded Framework 中的 CREDITS.html。"
+          }
+        }
+      }
+    },
+    "about.licenses.chromiumHeading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium browser engine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محرك متصفح Chromium"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium-Browser-Engine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motor de navegador Chromium"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moteur de navigateur Chromium"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium ブラウザエンジン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 브라우저 엔진"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 浏览器引擎"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 瀏覽器引擎"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
