@@ -2591,12 +2591,13 @@ public actor VMClient {
             )
             let context = CloudOperationContext.current
             let elapsed = context.map { $0.operation == .list || $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero
-            let deadline = self.readRequests.makeDeadline(elapsed: elapsed)
             // The launch restore/revalidation holds the session identity nil
             // while it owns the token store. A read that arrives then (the first
             // `cmux vm ls` after launch) waits for it to settle instead of
-            // failing with "could not refresh your session".
+            // failing with "could not refresh your session". The read's budget
+            // starts after that wait, so a slow restore cannot spend it.
             await self.auth.awaitBootstrapped()
+            let deadline = self.readRequests.makeDeadline(elapsed: elapsed)
             let identity = await self.auth.authenticatedSessionIdentity
             guard let identity else {
                 let isAuthenticated = await self.auth.isAuthenticated
@@ -3252,8 +3253,10 @@ public actor MachineUsageClient {
     public func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
         return try await withOperation(.stats, foreground: false) {
             let context = CloudOperationContext.current
-            let deadline = readRequests.makeDeadline(elapsed: context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero, limit: .seconds(15))
+            let elapsed = context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero
+            // As in VMClient's reads: the budget starts after the launch restore settles.
             await auth.awaitBootstrapped()
+            let deadline = readRequests.makeDeadline(elapsed: elapsed, limit: .seconds(15))
             let identity = await auth.authenticatedSessionIdentity
             guard let identity else {
                 let isAuthenticated = await auth.isAuthenticated
