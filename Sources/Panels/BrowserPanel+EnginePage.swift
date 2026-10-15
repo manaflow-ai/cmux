@@ -43,6 +43,10 @@ extension BrowserPanel {
                 resolved = BrowserEngineChoice(engine: .webkit, fallback: reason, source: .setting)
             }
         }
+        // A popup page the engine already created (keeps window.opener).
+        if let adopted = takePendingAdoptedEnginePage(engine: resolved.engine) {
+            return EnginePageSetup(page: adopted, notice: nil)
+        }
         guard resolved.engine != .webkit else {
             return EnginePageSetup(
                 page: nil,

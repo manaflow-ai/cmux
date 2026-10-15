@@ -48,26 +48,60 @@ extension BrowserPanel {
         pageOverlays.attach(contentView: contentView, target: target)
     }
 
-    /// Where a page a Chromium page asks to open goes (`target=_blank`,
-    /// `window.open`, Cmd-click, middle-click): a Chromium tab next to this
-    /// panel in its pane, like a WebKit panel's new-tab links. A background
-    /// tab (Cmd-click) does not take focus.
-    ///
-    /// A sized popup (`window.open` with features) also opens as a tab for
-    /// now: keeping `window.opener` needs the engine to hand over the popup's
-    /// own page (`allowPopup`), which the Chromium adapter does not offer yet.
+    /// A page a Chromium page asks to open (`target=_blank`, `window.open`,
+    /// Cmd-click, middle-click) already exists in the opener's Chromium
+    /// window, with `window.opener` and `postMessage` intact. The engine
+    /// hands it over (`allowPopup`, then `didCreatePopup`) and the panel hosts
+    /// it as a Chromium tab next to itself in its pane, like a WebKit panel's
+    /// new-tab links (`adoptChromiumPopup`). A background tab (Cmd-click) does
+    /// not take focus. A sized popup opens as a tab too: Classic's popup
+    /// window hosts WebKit popups only.
     ///
     /// References: design spec §2 (Classic's pane tab bar is the tab strip),
-    /// cmux Next `CEF/CEFWindowPolicy.swift`, `browser-link-tabs-chrome-order.md`.
+    /// cmux Next `CEF/CEFPaneHost+Popups.swift`, `CEF/CEFWindowPolicy.swift`,
+    /// `browser-link-tabs-chrome-order.md`.
     func openChromiumPageRequest(_ request: BrowserPageOpenRequest) -> BrowserPageOpenDisposition {
-        guard let url = request.url else { return .block }
+        .allowPopup
+    }
+
+    /// Hosts `popup` (created by the engine for `request`) in a new Chromium
+    /// tab beside this panel, or closes it when no tab can open.
+    func adoptChromiumPopup(_ popup: any BrowserPage, for request: BrowserPageOpenRequest) {
+        let focus: Bool
         switch request.placement {
-        case .foregroundTab, .popup:
-            openLinkInNewTab(request: URLRequest(url: url))
-        case .backgroundTab:
-            openLinkInNewTab(request: URLRequest(url: url), focus: false)
+        case .foregroundTab, .popup: focus = true
+        case .backgroundTab: focus = false
         }
-        return .handled
+        guard let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: id, preferredWorkspaceId: workspaceId)?.workspace,
+              let paneId = workspace.paneId(forPanelId: id) else {
+            popup.close()
+            return
+        }
+        Self.pendingAdoptedEnginePage = popup
+        defer {
+            // Not taken: no panel was created for it.
+            if let pending = Self.pendingAdoptedEnginePage, pending === popup {
+                Self.pendingAdoptedEnginePage = nil
+                popup.close()
+            }
+        }
+        _ = workspace.newBrowserSurface(
+            inPane: paneId,
+            url: nil,
+            focus: focus,
+            preferredProfileID: profileID,
+            engine: popup.engineKind
+        )
+    }
+
+    /// The popup page waiting for the panel that `adoptChromiumPopup` is
+    /// creating; taken once by `makeEnginePage` during that creation.
+    static var pendingAdoptedEnginePage: (any BrowserPage)?
+
+    static func takePendingAdoptedEnginePage(engine: BrowserEngineKind) -> (any BrowserPage)? {
+        guard let page = pendingAdoptedEnginePage, page.engineKind == engine else { return nil }
+        pendingAdoptedEnginePage = nil
+        return page
     }
 }
 
@@ -97,6 +131,14 @@ final class BrowserPanelEnginePageDelegate: BrowserPageUIDelegate {
 
     func page(_ page: any BrowserPage, openNewPage request: BrowserPageOpenRequest) -> BrowserPageOpenDisposition {
         panel?.openChromiumPageRequest(request) ?? .block
+    }
+
+    func page(_ page: any BrowserPage, didCreatePopup popup: any BrowserPage, for request: BrowserPageOpenRequest) {
+        guard let panel else {
+            popup.close()
+            return
+        }
+        panel.adoptChromiumPopup(popup, for: request)
     }
 
     func page(_ page: any BrowserPage, destinationForDownload download: BrowserPageDownload) async -> URL? {
