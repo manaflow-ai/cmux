@@ -847,9 +847,6 @@ mod tests {
         JournalAuthority, JournalClass, JournalEventSchema, JournalProducer,
         JournalProducerManifest, JournalSensitivity, JournalSubject,
     };
-    use base64::Engine;
-    use flate2::read::GzDecoder;
-    use std::io::Read;
     use std::sync::Arc;
 
     thread_local! {
