@@ -476,11 +476,69 @@ def main():
                             "live_chars": len(live.get("text") or ""), "activity": live.get("activity"),
                             "status_line": drive("texts", limit=1).get("statusLine"),
                             "bubble_bottom": bubble["balloon"]["y"] if bubble else None,
+                            "bubble_top": bubble["balloon"]["y"] + bubble["balloon"]["height"] if bubble else None,
                             "last_posted": (tail[-1].get("text") or "")[:60] if tail else ""})
             stop.wait(0.25)
 
     posted_before = len([m for m in (chief_row() or {}).get("shown_tail", []) if m.get("author") == "agent_mux"])
-    threads = [threading.Thread(target=snapshots, daemon=True), threading.Thread(target=reads, daemon=True)]
+    owner_events = []
+
+    def owner_order():
+        """The owner's subscribe stream for this turn as a live client sees it (event order, seq, receive time)."""
+        session = ((rpc("debug.home") or {}).get("chief_owner") or {}).get("session")
+        try:
+            line = Line(chief_socket(session))
+            line.request("set-client-info", name="home-streaming-live order probe",
+                         capabilities=["chief-live-v1", "conversation-runs-v1", "conversation-draft-events-v1"])
+            line.request("subscribe")
+            line.sock.settimeout(0.5)
+        except (OSError, RuntimeError, SystemExit) as error:
+            owner_events.append({"error": str(error)})
+            return
+        while not stop.is_set():
+            while b"\n" not in line.buf:
+                try:
+                    chunk = line.sock.recv(1 << 16)
+                except socket.timeout:
+                    chunk = None
+                    break
+                if not chunk:
+                    return
+                line.buf += chunk
+            if chunk is None and b"\n" not in line.buf:
+                continue
+            raw, line.buf = line.buf.split(b"\n", 1)
+            try:
+                event = json.loads(raw)
+            except ValueError:
+                continue
+            name = event.get("event")
+            if name not in ("conversation-live", "conversation-run-changed", "conversation-changed", "conversation-typing", "conversation-draft"):
+                continue
+            frame = event.get("frame") or {}
+            item = {"t": round(time.time() - t0, 4), "event": name}
+            if frame:
+                item.update({k: frame.get(k) for k in ("type", "run", "step", "kind", "seq", "final", "line") if k in frame})
+                if "text" in frame:
+                    item["chars"] = len(frame["text"])
+            if name == "conversation-run-changed":
+                run = event.get("run") or {}
+                item.update({"run": run.get("id"), "status": run.get("status"),
+                             "steps": [st.get("id") for st in event.get("steps") or []]})
+            if name == "conversation-changed":
+                change = event.get("change") or {}
+                message = change.get("message") or {}
+                item.update({"kind": change.get("kind") or change.get("type"), "client_msg_id": message.get("client_msg_id"),
+                             "author": message.get("author")})
+            if name == "conversation-typing":
+                item.update({"participant": event.get("participant"), "on": event.get("on")})
+            if name == "conversation-draft":
+                d = event.get("item") or {}
+                item.update({"turn": d.get("turn"), "seq": d.get("seq"), "done": d.get("done"), "chars": len(d.get("text") or "")})
+            owner_events.append(item)
+
+    threads = [threading.Thread(target=snapshots, daemon=True), threading.Thread(target=reads, daemon=True),
+               threading.Thread(target=owner_order, daemon=True)]
     for thread in threads:
         thread.start()
     for action, extra in (("focus", {}), ("type", {"text": PROMPT}), ("send", {})):
@@ -503,6 +561,16 @@ def main():
               "live_growth": live_growth[:: max(1, len(live_growth) // 12)],
               "draft_samples": len(growth), "draft_growth": growth[:: max(1, len(growth) // 12)],
               "frames": len([f for f in os.listdir(opts.out) if f.startswith("frame-")])}
+    # The reply's hand-off: the Chief bubble's top and bottom just before and after the reply posted.
+    if posted is not None:
+        pre = [s for s in samples if s["t"] < posted and s["bubble_top"] is not None]
+        post = [s for s in samples if s["t"] >= posted and s["bubble_top"] is not None]
+        if pre and post:
+            result["handoff"] = {"before": {k: pre[-1][k] for k in ("t", "bubble_top", "bubble_bottom", "status_line")},
+                                 "after": {k: post[0][k] for k in ("t", "bubble_top", "bubble_bottom", "status_line")},
+                                 "settled": {k: post[-1][k] for k in ("t", "bubble_top", "bubble_bottom")}}
+    json.dump(owner_events, open(os.path.join(opts.out, "owner-events.json"), "w"), indent=1)
+    shutil.copy(os.path.join(MUX_HOME, "host.log"), os.path.join(opts.out, "chief-host.log")) if os.path.exists(os.path.join(MUX_HOME, "host.log")) else None
     json.dump({"result": result, "samples": samples}, open(os.path.join(opts.out, "timeline.json"), "w"), indent=1)
     print(json.dumps(result, indent=1), flush=True)
 
