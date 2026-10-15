@@ -130,6 +130,8 @@ extension CmuxSettingsFileStore {
         "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
         "sidebar.showCloudDeviceIcons",
+        "sidebar.showCloudWorkspaceIdentity",
+        "sidebar.showLocalDeviceIdentity",
         "sidebar.showPullRequests",
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",

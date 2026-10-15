@@ -84,12 +84,31 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowBranchDirectory"
     )
 
-    /// Whether workspace rows show the Cloud machine or device identity icon
-    /// independently of the Git branch and working-directory details.
+    /// Legacy combined identity toggle kept for config compatibility.
+    ///
+    /// New settings should use ``showCloudWorkspaceIdentity`` and
+    /// ``showLocalDeviceIdentity`` so the two identity types can be controlled
+    /// independently.
     public let showCloudDeviceIcons = DefaultsKey<Bool>(
         id: "sidebar.showCloudDeviceIcons",
         defaultValue: true,
         userDefaultsKey: "sidebarShowCloudDeviceIcons"
+    )
+
+    /// Whether workspace rows show Cloud workspace identity independently of
+    /// Repository branch and directory details.
+    public let showCloudWorkspaceIdentity = DefaultsKey<Bool>(
+        id: "sidebar.showCloudWorkspaceIdentity",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowCloudWorkspaceIdentity"
+    )
+
+    /// Whether workspace rows show local device identity independently of
+    /// Repository branch and directory details.
+    public let showLocalDeviceIdentity = DefaultsKey<Bool>(
+        id: "sidebar.showLocalDeviceIdentity",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowLocalDeviceIdentity"
     )
 
     public let showPullRequests = DefaultsKey<Bool>(

@@ -162,7 +162,7 @@ struct SidebarCloudWorkspaceBadgeTests {
     }
 
     @Test(arguments: [false, true], [false, true])
-    func sidebarDetailSettingsHideCloudMachineInfo(hideAll: Bool, verticalLayout: Bool) throws {
+    func repositoryDetailSettingsDoNotHideCloudMachineInfo(hideAll: Bool, verticalLayout: Bool) throws {
         let suite = "CloudSidebarVisibility.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -195,7 +195,7 @@ struct SidebarCloudWorkspaceBadgeTests {
             let badge = try #require(SidebarAppKitRowCellTests.descendants(of: rendered).compactMap { $0 as? NSImageView }.first {
                 $0.accessibilityIdentifier() == "sidebarCloudBadge"
             })
-            #expect(badge.isHidden == (hidden && hideAll))
+            #expect(!badge.isHidden)
             #expect(rendered.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
             #expect(workspace.cloudVMBinding == binding)
         }
@@ -234,6 +234,79 @@ struct SidebarCloudWorkspaceBadgeTests {
             $0.accessibilityIdentifier() == "sidebarCloudBadge"
         })
         #expect(hiddenBadge.isHidden)
+    }
+
+    @Test
+    func cloudAndDeviceIdentityPreferencesPersistIndependently() {
+        let defaults = Self.makeDefaults()
+        let sidebar = SidebarCatalogSection()
+        let defaultSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(defaultSettings.identity.showCloudWorkspaceIdentity)
+        #expect(defaultSettings.identity.showLocalDeviceIdentity)
+
+        defaults.set(false, forKey: sidebar.showCloudWorkspaceIdentity.userDefaultsKey)
+        let cloudHidden = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(!cloudHidden.identity.showCloudWorkspaceIdentity)
+        #expect(cloudHidden.identity.showLocalDeviceIdentity)
+
+        defaults.set(false, forKey: sidebar.showLocalDeviceIdentity.userDefaultsKey)
+        let bothHidden = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(!bothHidden.identity.showCloudWorkspaceIdentity)
+        #expect(!bothHidden.identity.showLocalDeviceIdentity)
+    }
+
+    @Test
+    func cloudIdentitySettingOnlyHidesCloudBadges() throws {
+        let defaults = Self.makeDefaults()
+        let sidebar = SidebarCatalogSection()
+        defaults.set(false, forKey: sidebar.showCloudWorkspaceIdentity.userDefaultsKey)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let workspace = Workspace(workingDirectory: "/home/cmux", initialSurface: .terminal)
+        defer { workspace.teardownAllPanels() }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        workspace.updateCloudPanelDirectory(
+            panelId: try #require(workspace.focusedPanelId),
+            directory: "/home/cmux"
+        )
+        let cloudSnapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: false
+        ).makeSnapshot()
+        let cloudCell = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: settings, workspaceSnapshot: cloudSnapshot),
+            tab: workspace
+        )
+        let cloudBadge = try #require(SidebarAppKitRowCellTests.descendants(of: cloudCell).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+        #expect(cloudBadge.isHidden)
+
+        let deviceWorkspace = Workspace(workingDirectory: "/home/cmux", initialSurface: .terminal)
+        defer { deviceWorkspace.teardownAllPanels() }
+        let device = SurfaceMachineID.device(.init(deviceID: UUID().uuidString, tag: "identity"))
+        let devicePanelID = try #require(deviceWorkspace.focusedPanelId)
+        deviceWorkspace.cloudBindingState.updateCatalogMetadata(
+            resources: [devicePanelID: .init(machine: device, kind: .terminal, key: "terminal")],
+            machineNames: [device.rawValue: "Studio Mac"]
+        )
+        deviceWorkspace.updateCloudPanelDirectory(
+            panelId: devicePanelID,
+            directory: "/Users/remote/project"
+        )
+        let deviceSnapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: deviceWorkspace,
+            settings: settings,
+            showsAgentActivity: false
+        ).makeSnapshot()
+        let deviceCell = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: settings, workspaceSnapshot: deviceSnapshot),
+            tab: deviceWorkspace
+        )
+        let deviceBadge = try #require(SidebarAppKitRowCellTests.descendants(of: deviceCell).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+        #expect(!deviceBadge.isHidden)
     }
 
     @Test("Cloud identity remains visible when repository details are hidden")
@@ -350,16 +423,12 @@ struct SidebarCloudWorkspaceBadgeTests {
         Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])),
             named: "cloud-\(Int(width))-pin\(isPinned)-active\(isActive)-compact\(compact)-dark\(dark)-scale\(magnification).png")
         #endif
-        #expect(badge.isHidden == compact)
-        #expect((badge.image != nil) == !compact)
-        #expect(compact || badge.toolTip == "Cloud workspace on vivid-newt")
-        if !compact {
-            #expect(badge.contentTintColor != title.textColor)
-        }
+        #expect(!badge.isHidden)
+        #expect(badge.image != nil)
+        #expect(badge.toolTip == "Cloud workspace on vivid-newt")
+        #expect(badge.contentTintColor != title.textColor)
         #expect(title.frame.width > 60)
-        if !compact {
-            #expect(badge.frame.maxX + 8 == title.frame.minX)
-        }
+        #expect(badge.frame.maxX + 8 == title.frame.minX)
         #expect(title.frame.maxX <= width)
         #expect(title.lineBreakMode == .byTruncatingTail)
         #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
