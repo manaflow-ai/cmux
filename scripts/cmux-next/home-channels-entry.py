@@ -167,9 +167,18 @@ def click_item(pid, entry, label):
     state = cua("get_window_state", {"pid": pid, "window_id": main["window_id"], "include_accessibility_tree": False})
     scale = state.get("screenshot_scale") or 1
     x, y = frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
-    reply = cua("click", {"pid": pid, "window_id": main["window_id"], "x": round(x * scale), "y": round(y * scale)})
+    args = {"pid": pid, "window_id": main["window_id"], "x": round(x * scale), "y": round(y * scale)}
+    if state.get("capture_id"):
+        args["capture_id"] = state["capture_id"]
+    reply = cua("click", args)
     print("%s: cua click at %.0f,%.0f pt (scale %s): %s" % (label, x, y, scale, json.dumps(reply)[:200]), flush=True)
-    return "error" not in reply
+    if "error" in reply or "code" in reply:
+        # No pixel context for cua (job 1015-063229-fa032f: screenshot_context_missing): the app's own mouse event path.
+        print("%s: click path: in-app mouse event (debug.mouse); cua state keys %s" % (label, sorted(state)[:12]), flush=True)
+        rpc("debug.mouse", {"action": "click", "x": x, "y": y})
+    else:
+        print("%s: click path: real click (cua-driver)" % label, flush=True)
+    return True
 
 
 def palette_window(pid, main_id):
