@@ -104,9 +104,6 @@ async function type(text: string) {
   return field;
 }
 
-const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
-
-const selected = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
 async function press(field: HTMLTextAreaElement, key: string, modifiers: Partial<KeyboardEventInit> = {}) {
   const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
   await act(async () => field.dispatchEvent(event));
