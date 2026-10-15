@@ -191,6 +191,16 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             phase = .shown(target)
             return [.cancelTimer, .show(target, sliding: false)]
         case .shown(let shown):
+            if case .hides(let reshow) = shown.leave, target?.id != shown.id {
+                guard let target else {
+                    let grace = takeToken()
+                    phase = .grace(token: grace)
+                    return [.hide, .schedule(token: grace, after: reshow)]
+                }
+                // Swaps at once, never held by a pointer heading for the card.
+                phase = .shown(target)
+                return [.show(target, sliding: true)]
+            }
             guard let target else {
                 let token = takeToken()
                 phase = .leaving(shown, token: token)
