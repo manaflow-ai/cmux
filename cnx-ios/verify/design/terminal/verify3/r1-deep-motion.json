@@ -1,0 +1,67 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv3-r1-deep.mp4",
+  "fps": 30,
+  "start": 18.0,
+  "frames": 376,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 21,
+  "moves": 0,
+  "moves_down": 0,
+  "moves_up": 0,
+  "max_move_rows": 0,
+  "low_confidence_moves": 0,
+  "reversals": 0,
+  "reversal_list": [],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.10088,
+  "black_frames": 9,
+  "black_runs": [
+   {
+    "start": 22.2333,
+    "end": 22.2333,
+    "first_i": 127,
+    "last_i": 127,
+    "frames": 1
+   },
+   {
+    "start": 23.3333,
+    "end": 23.5667,
+    "first_i": 160,
+    "last_i": 167,
+    "frames": 8
+   }
+  ],
+  "black_times": [
+   22.2333,
+   23.3333,
+   23.3667,
+   23.4,
+   23.4333,
+   23.4667,
+   23.5,
+   23.5333,
+   23.5667
+  ],
+  "source": {
+   "source_frames": 218,
+   "gaps_over_34ms": 33,
+   "frac_gaps_over_34ms": 0.1521,
+   "max_gap_ms": 578.3,
+   "effective_fps": 18.2,
+   "valid": false
+  },
+  "valid": false
+ }
+}

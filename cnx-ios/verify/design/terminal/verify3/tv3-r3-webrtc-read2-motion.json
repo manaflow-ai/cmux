@@ -1,0 +1,42 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv3-r3-webrtc-read2.mp4",
+  "fps": 30,
+  "start": 2.0,
+  "frames": 832,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 84,
+  "moves": 77,
+  "moves_down": 76,
+  "moves_up": 1,
+  "max_move_rows": 7.063,
+  "low_confidence_moves": 2,
+  "reversals": 0,
+  "reversal_list": [],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.11657,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 405,
+   "gaps_over_34ms": 96,
+   "frac_gaps_over_34ms": 0.2376,
+   "max_gap_ms": 571.7,
+   "effective_fps": 14.6,
+   "valid": false
+  },
+  "valid": false
+ }
+}

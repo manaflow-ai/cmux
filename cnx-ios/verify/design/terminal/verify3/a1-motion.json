@@ -1,0 +1,162 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv3-a1-grid-diffs.mp4",
+  "fps": 30,
+  "start": 0.0,
+  "frames": 2452,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 15.96,
+  "row_pitch_px": 47.9,
+  "row_pitch_samples": 83,
+  "moves": 134,
+  "moves_down": 37,
+  "moves_up": 97,
+  "max_move_rows": 7.52,
+  "low_confidence_moves": 10,
+  "reversals": 17,
+  "reversal_list": [
+   {
+    "t": 7.8667,
+    "shift_px": 258.0,
+    "t2": 8.0333,
+    "shift2_px": -15.0,
+    "spontaneous": true
+   },
+   {
+    "t": 8.0,
+    "shift_px": 132.0,
+    "t2": 8.0333,
+    "shift2_px": -15.0,
+    "spontaneous": true
+   },
+   {
+    "t": 18.0,
+    "shift_px": 27.0,
+    "t2": 18.0667,
+    "shift2_px": -360.0,
+    "spontaneous": true
+   },
+   {
+    "t": 23.8,
+    "shift_px": 99.0,
+    "t2": 23.8333,
+    "shift2_px": -18.0,
+    "spontaneous": true
+   },
+   {
+    "t": 35.5667,
+    "shift_px": -336.0,
+    "t2": 35.6,
+    "shift2_px": 21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 35.6,
+    "shift_px": 21.0,
+    "t2": 35.6333,
+    "shift2_px": -360.0,
+    "spontaneous": true
+   },
+   {
+    "t": 36.9333,
+    "shift_px": 240.0,
+    "t2": 37.1,
+    "shift2_px": -12.0,
+    "spontaneous": true
+   },
+   {
+    "t": 37.0667,
+    "shift_px": 87.0,
+    "t2": 37.1,
+    "shift2_px": -12.0,
+    "spontaneous": true
+   },
+   {
+    "t": 53.0667,
+    "shift_px": 360.0,
+    "t2": 53.2333,
+    "shift2_px": -12.0,
+    "spontaneous": true
+   },
+   {
+    "t": 55.4333,
+    "shift_px": 24.0,
+    "t2": 55.5,
+    "shift2_px": -360.0,
+    "spontaneous": true
+   },
+   {
+    "t": 57.2333,
+    "shift_px": 258.0,
+    "t2": 57.3667,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 57.3333,
+    "shift_px": 105.0,
+    "t2": 57.3667,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 61.2,
+    "shift_px": 18.0,
+    "t2": 61.2667,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 61.2333,
+    "shift_px": 108.0,
+    "t2": 61.2667,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 63.7333,
+    "shift_px": 33.0,
+    "t2": 63.8,
+    "shift2_px": -360.0,
+    "spontaneous": true
+   },
+   {
+    "t": 65.7667,
+    "shift_px": 93.0,
+    "t2": 65.8667,
+    "shift2_px": -12.0,
+    "spontaneous": true
+   },
+   {
+    "t": 71.5,
+    "shift_px": 33.0,
+    "t2": 71.5333,
+    "shift2_px": -360.0,
+    "spontaneous": true
+   }
+  ],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.07734,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 3215,
+   "gaps_over_34ms": 401,
+   "frac_gaps_over_34ms": 0.1248,
+   "max_gap_ms": 616.7,
+   "effective_fps": 39.3,
+   "valid": false
+  },
+  "valid": false
+ }
+}

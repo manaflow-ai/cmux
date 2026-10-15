@@ -1,0 +1,64 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv3-a2-grid-kb.mp4",
+  "fps": 30,
+  "start": 2.0,
+  "frames": 4830,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 356,
+  "moves": 339,
+  "moves_down": 27,
+  "moves_up": 312,
+  "max_move_rows": 7.501,
+  "low_confidence_moves": 12,
+  "reversals": 3,
+  "reversal_list": [
+   {
+    "t": 66.7667,
+    "shift_px": 231.0,
+    "t2": 66.9333,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 83.3333,
+    "shift_px": 99.0,
+    "t2": 83.4333,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 109.9333,
+    "shift_px": 108.0,
+    "t2": 110.0333,
+    "shift2_px": -12.0,
+    "spontaneous": true
+   }
+  ],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.08834,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 6678,
+   "gaps_over_34ms": 1478,
+   "frac_gaps_over_34ms": 0.2214,
+   "max_gap_ms": 605.0,
+   "effective_fps": 41.5,
+   "valid": false
+  },
+  "valid": false
+ }
+}

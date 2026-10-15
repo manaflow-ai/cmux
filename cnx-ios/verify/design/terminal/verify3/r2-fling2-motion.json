@@ -1,0 +1,137 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv3-r2-fling2.mp4",
+  "fps": 30,
+  "start": 1.0,
+  "frames": 870,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 87,
+  "moves": 69,
+  "moves_down": 65,
+  "moves_up": 4,
+  "max_move_rows": 7.439,
+  "low_confidence_moves": 5,
+  "reversals": 12,
+  "reversal_list": [
+   {
+    "t": 2.2,
+    "shift_px": 159.0,
+    "t2": 2.2333,
+    "shift2_px": -252.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.2333,
+    "shift_px": -252.0,
+    "t2": 2.2667,
+    "shift2_px": 315.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.2667,
+    "shift_px": 315.0,
+    "t2": 2.3,
+    "shift2_px": -45.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.3,
+    "shift_px": -45.0,
+    "t2": 2.3333,
+    "shift2_px": 261.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.3333,
+    "shift_px": 261.0,
+    "t2": 2.4,
+    "shift2_px": -84.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.3667,
+    "shift_px": 303.0,
+    "t2": 2.4,
+    "shift2_px": -84.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.4,
+    "shift_px": -84.0,
+    "t2": 2.4333,
+    "shift2_px": 213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.4333,
+    "shift_px": 213.0,
+    "t2": 2.6,
+    "shift2_px": -357.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.5,
+    "shift_px": 15.0,
+    "t2": 2.6,
+    "shift2_px": -357.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.5333,
+    "shift_px": 282.0,
+    "t2": 2.6,
+    "shift2_px": -357.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.5667,
+    "shift_px": 162.0,
+    "t2": 2.6,
+    "shift2_px": -357.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.6,
+    "shift_px": -357.0,
+    "t2": 2.6333,
+    "shift2_px": 282.0,
+    "spontaneous": true
+   }
+  ],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.09661,
+  "black_frames": 1,
+  "black_runs": [
+   {
+    "start": 4.5667,
+    "end": 4.5667,
+    "first_i": 107,
+    "last_i": 107,
+    "frames": 1
+   }
+  ],
+  "black_times": [
+   4.5667
+  ],
+  "source": {
+   "source_frames": 996,
+   "gaps_over_34ms": 372,
+   "frac_gaps_over_34ms": 0.3739,
+   "max_gap_ms": 455.0,
+   "effective_fps": 34.3,
+   "valid": false
+  },
+  "valid": false
+ }
+}

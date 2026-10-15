@@ -1,0 +1,12 @@
+2026-10-14 17:36:15.049 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 835, delta: 1.6666666666660603)) (offset 11553, bottom 15388)
+2026-10-14 17:36:15.055 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 835, delta: 1.6666666666660603)) (offset 11553, bottom 15388)
+2026-10-14 17:36:20.989 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal] surface 10: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-14 17:36:21.053 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal] surface 10: mirror reset cause=reattach size=53x42
+2026-10-14 17:36:21.053 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 17:36:21.057 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal-sizing] reading mark row 835 of 1118: kept
+2026-10-14 17:36:21.074 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal] surface 10: mirror reset cause=resized-event (rows 39, last size asked 53x42)
+2026-10-14 17:36:21.074 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 17:36:21.121 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal-sizing] reading mark restored row 835 -> 935 of 1218
+2026-10-14 17:36:21.122 E  CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal] attach surface 14: LinkError(code: "attach", message: "unknown surface 14")
+2026-10-14 17:36:21.122 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal] surface 13: mirror reset cause=reattach size=53x42
+2026-10-14 17:36:21.122 Df CnxApp[73668:2ce263b] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)

@@ -1,0 +1,42 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv3-r2-two8.mp4",
+  "fps": 30,
+  "start": 8.0,
+  "frames": 943,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 15.85,
+  "row_pitch_px": 47.6,
+  "row_pitch_samples": 95,
+  "moves": 0,
+  "moves_down": 0,
+  "moves_up": 0,
+  "max_move_rows": 0,
+  "low_confidence_moves": 0,
+  "reversals": 0,
+  "reversal_list": [],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.07239,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 374,
+   "gaps_over_34ms": 120,
+   "frac_gaps_over_34ms": 0.3217,
+   "max_gap_ms": 585.0,
+   "effective_fps": 11.9,
+   "valid": false
+  },
+  "valid": false
+ }
+}

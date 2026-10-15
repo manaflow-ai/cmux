@@ -1,0 +1,197 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv3-r2-streamread2.mp4",
+  "fps": 30,
+  "start": 4.0,
+  "frames": 897,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.01,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 27,
+  "moves": 56,
+  "moves_down": 50,
+  "moves_up": 6,
+  "max_move_rows": 6.31,
+  "low_confidence_moves": 7,
+  "reversals": 22,
+  "reversal_list": [
+   {
+    "t": 4.0333,
+    "shift_px": -18.0,
+    "t2": 4.1333,
+    "shift2_px": 108.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.0667,
+    "shift_px": -159.0,
+    "t2": 4.1333,
+    "shift2_px": 108.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.1,
+    "shift_px": -201.0,
+    "t2": 4.1333,
+    "shift2_px": 108.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.1333,
+    "shift_px": 108.0,
+    "t2": 4.2667,
+    "shift2_px": -57.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.1667,
+    "shift_px": 303.0,
+    "t2": 4.2667,
+    "shift2_px": -57.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.2,
+    "shift_px": 186.0,
+    "t2": 4.2667,
+    "shift2_px": -57.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.2667,
+    "shift_px": -57.0,
+    "t2": 4.3,
+    "shift2_px": 240.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.9,
+    "shift_px": 45.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.9333,
+    "shift_px": 21.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.9667,
+    "shift_px": 60.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.0,
+    "shift_px": 18.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.0333,
+    "shift_px": 36.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.0667,
+    "shift_px": 18.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.1,
+    "shift_px": 48.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.1333,
+    "shift_px": 30.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.1667,
+    "shift_px": 15.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.2,
+    "shift_px": 39.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.2333,
+    "shift_px": 36.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.2667,
+    "shift_px": 21.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.3,
+    "shift_px": 21.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.3667,
+    "shift_px": 18.0,
+    "t2": 5.4,
+    "shift2_px": -213.0,
+    "spontaneous": true
+   },
+   {
+    "t": 5.4,
+    "shift_px": -213.0,
+    "t2": 5.4333,
+    "shift2_px": 249.0,
+    "spontaneous": true
+   }
+  ],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.0,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 757,
+   "gaps_over_34ms": 333,
+   "frac_gaps_over_34ms": 0.4405,
+   "max_gap_ms": 1050.0,
+   "effective_fps": 25.3,
+   "valid": false
+  },
+  "valid": false
+ }
+}
