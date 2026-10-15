@@ -121,6 +121,8 @@ pub(super) fn registry_workspace(state: &State, index: usize, session: &str) -> 
         public_id: workspace.public_id.clone(),
         key: workspace.key.clone(),
         name: workspace.name.clone(),
+        name_source: workspace.name_source,
+        name_revision: workspace.name_revision,
         group_key: session.to_string(),
     }
 }
