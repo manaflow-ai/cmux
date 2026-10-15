@@ -1,3 +1,5 @@
+import CmuxNextDesign
+
 /// The chat header's Terminal button under Debug Settings `agentChat.terminalButtonAdds`
 /// (``AgentPaneTunables/terminalButtonAdds``): how the header's log of the splits it opened
 /// (AgentChatSplitToggles, oldest first) changes so the other buttons keep toggling theirs. Off,
@@ -8,7 +10,9 @@ public nonisolated struct AgentChatTerminalAdds: Sendable {
     /// Whether the toggle is on.
     public let on: Bool
 
-    public init(on: Bool = AgentPaneTunables.terminalButtonAdds.value) { self.on = on }
+    public init(on: Bool) { self.on = on }
+    /// The toggle as Debug Settings has it now.
+    public init() { self.init(on: AgentPaneTunables.terminalButtonAdds.value) }
 
     /// Whether a click of header action `id` adds a split instead of toggling the one it opened.
     public func adds(_ id: String) -> Bool { on && id == Self.terminal }
