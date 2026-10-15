@@ -11,12 +11,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use uuid::Uuid;
+
+use crate::send_queue::{SendQueue, Signal};
 
 /// A Mac as the backend reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,13 +247,6 @@ pub enum SignalingError {
     Closed,
 }
 
-enum Outgoing {
-    Text(String),
-    Binary(Vec<u8>),
-    Ping,
-    Close,
-}
-
 /// How often an idle socket is pinged, and how long it may stay silent
 /// (no frame at all, pongs included) before it counts as dead. A socket
 /// kept warm across dials must not be a half-open TCP connection (a phone
@@ -265,7 +260,7 @@ struct Shared {
     /// Counts inbound frames (any kind); `probe` waits for it to move.
     inbound: tokio::sync::watch::Sender<u64>,
     opened: std::time::Instant,
-    out: mpsc::UnboundedSender<Outgoing>,
+    out: Arc<SendQueue>,
     sessions: Mutex<HashMap<String, mpsc::UnboundedSender<SessionEvent>>>,
     events: broadcast::Sender<SignalingEvent>,
     closed: Mutex<Option<String>>,
@@ -329,33 +324,20 @@ impl SignalingClient {
         let (socket, _) = tokio_tungstenite::connect_async(request)
             .await
             .map_err(|e| SignalingError::Connect(e.to_string()))?;
-        let (mut sink, mut source) = socket.split();
-        let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Outgoing>();
+        let (sink, mut source) = socket.split();
+        let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             device_id: device_id.to_owned(),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
-            out: out_tx,
+            out: Arc::clone(&out),
             sessions: Mutex::new(HashMap::new()),
             events: broadcast::channel(256).0,
             closed: Mutex::new(None),
         });
-        let pinger = shared.out.clone();
-        tokio::spawn(async move {
-            while let Some(message) = out_rx.recv().await {
-                let message = match message {
-                    Outgoing::Text(text) => Message::Text(text.into()),
-                    Outgoing::Binary(bytes) => Message::Binary(bytes.into()),
-                    Outgoing::Ping => Message::Ping(Vec::new().into()),
-                    Outgoing::Close => break,
-                };
-                if sink.send(message).await.is_err() {
-                    break;
-                }
-            }
-            let _ = sink.close().await;
-        });
+        let pinger = Arc::clone(&out);
+        tokio::spawn(async move { out.write_out(sink).await });
         let reader_shared = Arc::clone(&shared);
         tokio::spawn(async move {
             let shared = reader_shared;
@@ -368,10 +350,10 @@ impl SignalingClient {
                     next = source.next() => next,
                     _ = keepalive.tick() => {
                         if last_inbound.elapsed() >= KEEPALIVE_TIMEOUT {
-                            let _ = pinger.send(Outgoing::Close);
+                            pinger.close();
                             break "signaling keepalive timed out".to_owned();
                         }
-                        let _ = pinger.send(Outgoing::Ping);
+                        let _ = pinger.push_signal(Signal::Ping);
                         continue;
                     }
                 };
@@ -433,7 +415,7 @@ impl SignalingClient {
         }
         let mut inbound = self.shared.inbound.subscribe();
         inbound.borrow_and_update();
-        if self.shared.out.send(Outgoing::Ping).is_err() {
+        if self.shared.out.push_signal(Signal::Ping).is_err() {
             return false;
         }
         matches!(tokio::time::timeout(timeout, inbound.changed()).await, Ok(Ok(())))
@@ -487,17 +469,24 @@ impl SignalingClient {
             from_user_id: None,
         });
         let text = serde_json::to_string(&message).expect("signal serializes");
-        self.shared.out.send(Outgoing::Text(text)).map_err(|_| SignalingError::Closed)
+        self.shared.out.push_signal(Signal::Text(text))
     }
 
     /// Close the socket. Sessions see `Disconnected`.
     pub fn close(&self) {
-        let _ = self.shared.out.send(Outgoing::Close);
+        self.shared.out.close();
     }
 
-    /// Send one WireGuard datagram through the backend relay.
+    /// Send one WireGuard datagram through the backend relay, queued by its
+    /// [`RelayClass`]: behind every signal, and dropped (oldest first) when
+    /// its class is past its bound.
     pub fn send_relay(&self, frame: &RelayFrame) -> Result<(), SignalingError> {
-        self.shared.out.send(Outgoing::Binary(frame.encode())).map_err(|_| SignalingError::Closed)
+        self.shared.out.push_relay(frame.encode(), frame.class())
+    }
+
+    /// Relay frames of `class` dropped because the socket could not keep up.
+    pub fn relay_dropped(&self, class: RelayClass) -> u64 {
+        self.shared.out.dropped(class)
     }
 }
 
@@ -606,6 +595,24 @@ mod tests {
         };
         assert_eq!(RelayFrame::decode(&frame.encode()), Some(frame));
         assert_eq!(RelayFrame::decode(&[0; 31]), None);
+    }
+
+    #[test]
+    fn relay_classes_follow_the_datagram_shape() {
+        let data = |len: usize| {
+            let mut datagram = vec![0u8; len];
+            datagram[0] = 4;
+            datagram
+        };
+        assert_eq!(relay_class(&[0xff]), RelayClass::Control);
+        let mut initiation = vec![0u8; 148];
+        initiation[0] = 1;
+        assert_eq!(relay_class(&initiation), RelayClass::Control);
+        assert_eq!(relay_class(&data(32)), RelayClass::Control, "keepalive");
+        assert_eq!(relay_class(&data(32 + 64)), RelayClass::Input, "a TCP ACK");
+        assert_eq!(relay_class(&data(RELAY_INPUT_MAX)), RelayClass::Input);
+        assert_eq!(relay_class(&data(RELAY_INPUT_MAX + 16)), RelayClass::Bulk);
+        assert_eq!(relay_class(&data(1312)), RelayClass::Bulk, "a full-size segment or RTP packet");
     }
 
     #[test]

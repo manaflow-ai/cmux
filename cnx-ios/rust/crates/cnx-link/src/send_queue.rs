@@ -1,8 +1,5 @@
 //! What the signaling socket sends next.
 //!
-//! RED: still the old unbounded first-in-first-out queue; the tests below
-//! describe the priority order and bounds the next commit implements.
-//!
 //! One WebSocket carries both signaling (JSON text: offers, answers, ICE,
 //! `wg-*`, `bye`) and the WireGuard relay frames. Until a direct route is
 //! confirmed every WireGuard datagram, video included, is also copied onto
@@ -46,11 +43,54 @@ pub(crate) enum Signal {
 }
 
 #[derive(Default)]
+struct Class {
+    frames: VecDeque<Vec<u8>>,
+    bytes: usize,
+    dropped: u64,
+}
+
+impl Class {
+    fn push(&mut self, frame: Vec<u8>, limit: usize) {
+        self.bytes += frame.len();
+        self.frames.push_back(frame);
+        while self.bytes > limit && self.frames.len() > 1 {
+            let oldest = self.frames.pop_front().expect("more than one frame");
+            self.bytes -= oldest.len();
+            self.dropped += 1;
+        }
+    }
+
+    fn pop(&mut self) -> Option<Vec<u8>> {
+        let frame = self.frames.pop_front()?;
+        self.bytes -= frame.len();
+        Some(frame)
+    }
+}
+
+#[derive(Default)]
 struct Queues {
-    /// Everything, in the order it was queued (the old unbounded channel).
-    all: VecDeque<(Option<RelayClass>, Message)>,
+    signals: VecDeque<Signal>,
+    relay: [Class; 3],
+    /// Close requested: what is still queued is not sent.
     closing: bool,
+    /// The writer is gone: nothing is accepted any more.
     closed: bool,
+}
+
+fn index(class: RelayClass) -> usize {
+    match class {
+        RelayClass::Control => 0,
+        RelayClass::Input => 1,
+        RelayClass::Bulk => 2,
+    }
+}
+
+fn limit(class: RelayClass) -> usize {
+    match class {
+        RelayClass::Control => CONTROL_BYTES,
+        RelayClass::Input => INPUT_BYTES,
+        RelayClass::Bulk => BULK_BYTES,
+    }
 }
 
 /// The outgoing side of one signaling socket.
@@ -66,16 +106,12 @@ impl SendQueue {
     }
 
     pub(crate) fn push_signal(&self, signal: Signal) -> Result<(), SignalingError> {
-        let message = match signal {
-            Signal::Text(text) => Message::Text(text.into()),
-            Signal::Ping => Message::Ping(Vec::new().into()),
-        };
         {
             let mut queues = self.lock();
             if queues.closed || queues.closing {
                 return Err(SignalingError::Closed);
             }
-            queues.all.push_back((None, message));
+            queues.signals.push_back(signal);
         }
         self.ready.notify_one();
         Ok(())
@@ -87,42 +123,58 @@ impl SendQueue {
             if queues.closed || queues.closing {
                 return Err(SignalingError::Closed);
             }
-            queues.all.push_back((Some(class), Message::Binary(frame.into())));
+            queues.relay[index(class)].push(frame, limit(class));
         }
         self.ready.notify_one();
         Ok(())
     }
 
+    /// Ask the writer to close the socket once the signals already queued
+    /// are sent.
     pub(crate) fn close(&self) {
         self.lock().closing = true;
         self.ready.notify_one();
     }
 
-    pub(crate) fn dropped(&self, _class: RelayClass) -> u64 {
-        0
+    /// Relay frames of `class` dropped so far.
+    pub(crate) fn dropped(&self, class: RelayClass) -> u64 {
+        self.lock().relay[index(class)].dropped
     }
 
+    /// Relay bytes of `class` waiting.
+    #[cfg(test)]
     pub(crate) fn queued_bytes(&self, class: RelayClass) -> usize {
-        self.lock().all.iter().filter(|(c, _)| *c == Some(class)).map(|(_, m)| m.len()).sum()
+        self.lock().relay[index(class)].bytes
     }
 
+    /// The next message, by priority; `Some(None)` once closing and the
+    /// signals queued before the close are out (relay frames are dropped).
     fn pop(&self) -> Option<Option<Message>> {
         let mut queues = self.lock();
-        if let Some((_, message)) = queues.all.pop_front() {
-            return Some(Some(message));
+        if let Some(signal) = queues.signals.pop_front() {
+            return Some(Some(match signal {
+                Signal::Text(text) => Message::Text(text.into()),
+                Signal::Ping => Message::Ping(Vec::new().into()),
+            }));
         }
         if queues.closing {
             return Some(None);
         }
-        None
+        queues.relay.iter_mut().find_map(Class::pop).map(|frame| Some(Message::Binary(frame.into())))
     }
 
     fn finish(&self) {
         let mut queues = self.lock();
         queues.closed = true;
-        queues.all.clear();
+        queues.signals.clear();
+        for class in &mut queues.relay {
+            class.frames.clear();
+            class.bytes = 0;
+        }
     }
 
+    /// Send what is queued on `sink`, by priority, until a close or a send
+    /// fails; then close the sink.
     pub(crate) async fn write_out<S>(&self, mut sink: S)
     where
         S: Sink<Message> + Unpin,
