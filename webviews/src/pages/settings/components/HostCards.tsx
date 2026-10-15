@@ -121,7 +121,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
         aria-pressed={current === id}
         aria-label={title}
-        title={pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : undefined}
+        /* tooltip-allow: what a click on a cloud tile does, shown nowhere else */ title={
+          pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : undefined
+        }
         ref={focus === BACKGROUND_KEY && current === id && state.readable && workspaceRead ? revealTile : undefined}
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
         onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
