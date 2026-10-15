@@ -83,17 +83,20 @@ pub struct StatsSummary {
     pub permission_requests: u64,
     pub permission_auto: u64,
     /// Questions asked in the range that got an answer (`permission_decision`,
-    /// a cancel included) in it, and those that did not: still open, or lost
-    /// when the daemon that asked died. The two sum to `permissionRequests`.
+    /// a cancel included) in it, and those that did not: still open, lost
+    /// when the daemon that asked died, or cancelled by the remote floor
+    /// after a restart (no decision record). The two sum to
+    /// `permissionRequests`.
     pub permission_answered: u64,
     pub permission_unanswered: u64,
     /// Ask to answer, summed over the answered questions, and the longest
     /// one. A question shown again after a restart waits from its first ask.
     pub permission_wait_ms: u64,
     pub permission_wait_max_ms: u64,
-    /// Times an agent hit an account limit (usage, rate or credit limits, or
-    /// rejected credentials; `hub::is_limit_error`): a turn that failed on
-    /// one, or a failover that carried the turn on.
+    /// Times an agent could not serve on its account (`hub::is_limit_error`,
+    /// the failover rule: usage, rate or credit limits, rejected credentials,
+    /// an overloaded provider): a turn that failed on one, or a failover to
+    /// the fallback (which may fail too, and then counts again).
     pub limit_errors: u64,
     /// Agent turn time, summed over sessions (two agents for an hour = 2h).
     pub working_ms: u64,
