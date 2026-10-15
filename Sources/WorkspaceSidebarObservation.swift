@@ -257,7 +257,7 @@ extension Workspace {
         let workspaceFields = Publishers.CombineLatest4(
             // The authoritative display title can change independently of
             // customTitle during remote reconciliation or automatic naming.
-            $title,
+            sidebarTitleDidChangePublisher,
             $customTitle,
             $customDescription,
             $isPinned
