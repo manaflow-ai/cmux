@@ -637,7 +637,9 @@ pub fn ownership(line: &[u8]) -> Option<Ownership> {
         "workspace_group.update" | "workspace_group.delete" => {
             Some(Ownership::OwnGroup { group: text("workspace_group")? })
         }
-        "workspace.place" => Some(Ownership::PlaceWorkspace { workspace: text("workspace")?, group: text("group") }),
+        "workspace.place" => {
+            Some(Ownership::PlaceWorkspace { workspace: text("workspace")?, group: text("group") })
+        }
         _ => None,
     }
 }
@@ -1258,7 +1260,8 @@ mod tests {
     /// Mac's own state: a group of this session's workspaces, a live workspace.
     #[test]
     fn group_ownership_is_checked_against_the_macs_state() {
-        let update = resource("workspace_group.update", json!({"workspace_group": "grp_1", "name": "x"}), Some("k"));
+        let update =
+            resource("workspace_group.update", json!({"workspace_group": "grp_1", "name": "x"}), Some("k"));
         assert_eq!(ownership(&update), Some(Ownership::OwnGroup { group: "grp_1".into() }));
         let delete = resource("workspace_group.delete", json!({"workspace_group": "grp_1"}), Some("k"));
         assert_eq!(ownership(&delete), Some(Ownership::OwnGroup { group: "grp_1".into() }));
@@ -1268,7 +1271,10 @@ mod tests {
             Some(Ownership::PlaceWorkspace { workspace: "ws_a".into(), group: Some("grp_1".into()) })
         );
         let out = resource("workspace.place", json!({"workspace": "ws_a", "group": null}), Some("k"));
-        assert_eq!(ownership(&out), Some(Ownership::PlaceWorkspace { workspace: "ws_a".into(), group: None }));
+        assert_eq!(
+            ownership(&out),
+            Some(Ownership::PlaceWorkspace { workspace: "ws_a".into(), group: None })
+        );
         // Creating a group names no existing object.
         assert_eq!(ownership(&resource("workspace_group.create", json!({"name": "a"}), Some("k"))), None);
 
@@ -1278,22 +1284,23 @@ mod tests {
         assert!(lists_workspace(&tree, "ws_a"));
         assert!(!lists_workspace(&tree, "ws_z"), "a workspace the Mac does not list");
         let personal = json!({"ok": true, "data": {
-            "groups": [{"id": "grp_1"}, {"id": "grp_empty"}, {"id": "grp_mixed"}, {"id": "grp_other"}],
-            "workspaces": [
-                {"session_id": "reg", "workspace_key": "k1", "group": "grp_1"},
-                {"session_id": "reg", "workspace_key": "k2", "group": "grp_mixed"},
-                {"session_id": "remote", "workspace_key": "r1", "group": "grp_mixed"},
-                {"session_id": "remote", "workspace_key": "r2", "group": "grp_other"},
-                {"session_id": "reg", "workspace_key": "k3"},
-            ]}});
+        "groups": [{"id": "grp_1"}, {"id": "grp_empty"}, {"id": "grp_mixed"}, {"id": "grp_other"}],
+        "workspaces": [
+            {"session_id": "reg", "workspace_key": "k1", "group": "grp_1"},
+            {"session_id": "reg", "workspace_key": "k2", "group": "grp_mixed"},
+            {"session_id": "remote", "workspace_key": "r1", "group": "grp_mixed"},
+            {"session_id": "remote", "workspace_key": "r2", "group": "grp_other"},
+            {"session_id": "reg", "workspace_key": "k3"},
+        ]}});
         assert!(owns_group(&personal, "reg", "grp_1"));
         assert!(owns_group(&personal, "reg", "grp_empty"), "an empty group of the person's");
         assert!(!owns_group(&personal, "reg", "grp_mixed"), "holds another machine's workspace");
         assert!(!owns_group(&personal, "reg", "grp_other"), "another machine's group");
         assert!(!owns_group(&personal, "reg", "grp_unknown"), "no such group");
-        for (line, what) in [(&update, Ownership::OwnGroup { group: "grp_1".into() }),
-            (&place, Ownership::PlaceWorkspace { workspace: "ws_a".into(), group: None })]
-        {
+        for (line, what) in [
+            (&update, Ownership::OwnGroup { group: "grp_1".into() }),
+            (&place, Ownership::PlaceWorkspace { workspace: "ws_a".into(), group: None }),
+        ] {
             let answer: Value = serde_json::from_str(&not_owned(line, &what)).unwrap();
             assert_eq!(answer["type"], "response");
             assert_eq!(answer["error"]["code"], "origin.forbidden");
