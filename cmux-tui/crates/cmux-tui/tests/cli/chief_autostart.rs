@@ -151,6 +151,9 @@ impl Sandbox {
             .env_remove("CMUX_SOCKET_PATH")
             .env_remove("CMUX_BUNDLE_ID")
             .env_remove("CMUX_TAG")
+            // The build-session kill switch only where a test sets it.
+            .env_remove("ACPMUX_AGENT_LAUNCH")
+            .env_remove("CMUX_AGENTS_DISABLED")
             // The test's own variables last, so no removal above drops one.
             .envs(env.iter().copied())
             .stdin(Stdio::null())
@@ -410,4 +413,36 @@ fn chief_shutdown_tells_the_app_until_the_next_chief_starts_it() {
     assert_success(&sandbox.chief(&["--chief-home", home_arg, "-p", "hello again"]));
     assert!(!marker.exists(), "the next cmux chief takes the marker away");
     assert_success(&sandbox.chief(&["shutdown", "--chief-home", home_arg]));
+}
+
+#[test]
+fn chief_says_at_once_that_agents_are_disabled_and_starts_nothing() {
+    // cx-tgf4h: a GUI build job runs with ACPMUX_AGENT_LAUNCH=deny (or
+    // CMUX_AGENTS_DISABLED=1). `cmux chief -p` waited 240 s for a reply that
+    // no turn could give; it must fail at once with the typed refusal and
+    // start no daemon and no brain.
+    let sandbox = Sandbox::new("chief-agents-disabled");
+    let home = sandbox.isolated();
+    let home_arg = home.to_str().unwrap();
+    for (key, value) in [("ACPMUX_AGENT_LAUNCH", "deny"), ("CMUX_AGENTS_DISABLED", "1")] {
+        let started = Instant::now();
+        let output =
+            sandbox.chief_with(&["--chief-home", home_arg, "-p", "hello"], &[(key, value)]);
+        assert!(started.elapsed() < Duration::from_secs(10), "{key}: not at once");
+        assert_eq!(output.status.code(), Some(1), "{key}: {}", stderr_of(&output));
+        assert!(output.stdout.is_empty(), "{key}: no reply");
+        let stderr = stderr_of(&output);
+        assert!(stderr.contains("agents are disabled in this build session"), "{key}: {stderr}");
+
+        let json = sandbox
+            .chief_with(&["--chief-home", home_arg, "--json", "-p", "hello"], &[(key, value)]);
+        assert_eq!(json.status.code(), Some(1), "{key}: {}", stderr_of(&json));
+        let error: Value = serde_json::from_str(stderr_of(&json).trim())
+            .unwrap_or_else(|e| panic!("{key}: typed JSON error: {e}: {}", stderr_of(&json)));
+        assert_eq!(error["code"], "operation.failed", "{key}: {error}");
+        assert_eq!(error["details"]["reason"], "agent_launch_disabled", "{key}: {error}");
+        assert_eq!(error["retryable"], false, "{key}: {error}");
+    }
+    assert_eq!(brain_starts(&home), 0, "no brain started");
+    assert!(!home.join("tui").exists(), "no session daemon started");
 }
