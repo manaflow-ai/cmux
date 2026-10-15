@@ -505,7 +505,12 @@ async fn tail_of_a_fifo_answers_at_once_and_empty() {
     let id = chat(&mut c, &format!("bg-output: {}", file.display())).await;
     let pid = format!("{id}/o1");
     let tailed = tokio::time::timeout(Duration::from_secs(5), tail(&mut c, &pid, json!({})));
-    let (data, r) = tailed.await.expect("tail of a FIFO hung");
+    let tailed = tailed.await;
+    if tailed.is_err() {
+        // Free the read that hangs, so the test ends.
+        let _ = std::fs::OpenOptions::new().write(true).open(&file);
+    }
+    let (data, r) = tailed.expect("tail of a FIFO hung");
     assert!(data.is_empty(), "{r}");
     assert_eq!(r["nextByte"], 0);
     assert_eq!(listed(&mut c, &id).await[0]["outputBytes"], 0);
