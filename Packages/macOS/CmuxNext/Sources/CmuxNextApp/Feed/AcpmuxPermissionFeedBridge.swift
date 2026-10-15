@@ -114,7 +114,7 @@ final class AcpmuxPermissionFeedBridge {
         guard FileManager.default.fileExists(atPath: socket) else { return scheduleReconnect() }
         let line = AcpmuxCheckedLine(environment: environment)
         connection = line
-        line.start(send: AcpmuxPermissionPrompt.frame(id: 1, method: "initialize", params: [
+        line.start(send: Data(acpmuxRequest: 1, method: "initialize", params: [
             "protocolVersion": 1, "clientInfo": ["name": "cmux-next-feed-bridge", "version": "1"],
             "clientCapabilities": [String: Any](),
         ]), onLine: { [weak self] data in Task { @MainActor in self?.handle(data) } },
@@ -127,11 +127,11 @@ final class AcpmuxPermissionFeedBridge {
         let challenge = ((result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
            let proof = line.personProof(nonce: nonce, connection: id) {
-            line.send(AcpmuxPermissionPrompt.frame(id: 2, method: "_acpmux/person_prove", params: ["proof": proof]))
+            line.send(Data(acpmuxRequest: 2, method: "_acpmux/person_prove", params: ["proof": proof]))
         } else {
             logger.error("feed bridge: no person challenge or no key for this daemon; phone answers stay refused")
         }
-        line.send(AcpmuxPermissionPrompt.frame(id: 3, method: "_acpmux/watch", params: ["enabled": true]))
+        line.send(Data(acpmuxRequest: 3, method: "_acpmux/watch", params: ["enabled": true]))
     }
 
     private func lost(_ line: AcpmuxCheckedLine) {
@@ -227,32 +227,32 @@ final class AcpmuxPermissionFeedBridge {
     nonisolated static func postBody(session: String, permission: String, request: [String: Any], host: String) -> [String: Any] {
         let call = request["toolCall"] as? [String: Any] ?? [:]
         let rawTitle = call["title"] as? String ?? ""
-        let title = AcpmuxPermissionPrompt.visible(FeedSecretScrubber.scrub(rawTitle))
-        let kind = AcpmuxPermissionPrompt.visible(call["kind"] as? String ?? "")
+        let title = rawTitle.secretsScrubbed.acpmuxVisible
+        let kind = (call["kind"] as? String ?? "").acpmuxVisible
         let input = call["rawInput"] as? [String: Any] ?? [:]
-        let rawCommand = AcpmuxPermissionPrompt.shownCommand(input["command"])
-        let command = rawCommand.map { AcpmuxPermissionPrompt.visible(FeedSecretScrubber.scrub($0)) }
-        let summary = AcpmuxPermissionPrompt.inputSummary(input)
+        let rawCommand = input.acpmuxShownCommand
+        let command = rawCommand.map { $0.secretsScrubbed.acpmuxVisible }
+        let summary = input.acpmuxInputSummary
         // Anything cut, dropped or redacted: the phone shows it shortened and never allows it
         // (cx-aocz): a redaction must never hide what the person signs.
-        let redacted = (rawCommand.map { FeedSecretScrubber.scrub($0) != $0 } ?? false)
-            || FeedSecretScrubber.scrub(rawTitle) != rawTitle
+        let redacted = (rawCommand.map { $0.secretsScrubbed != $0 } ?? false)
+            || rawTitle.secretsScrubbed != rawTitle
         let truncated = (command?.count ?? 0) > 8000 || title.count > 500 || kind.count > 200
             || redacted || (summary?.truncated ?? false)
         var action: [String: Any] = [
             "type": kind == "execute" ? "command" : kind == "edit" || kind == "delete" || kind == "move" ? "edit" : "tool",
-            "summary": AcpmuxPermissionPrompt.cut(title.isEmpty ? String(localized: "feed.bridge.summary", defaultValue: "An agent asks to run a tool", bundle: .module) : title, 500),
+            "summary": (title.isEmpty ? String(localized: "feed.bridge.summary", defaultValue: "An agent asks to run a tool", bundle: .module) : title).acpmuxCut(500),
         ]
-        if !kind.isEmpty { action["tool"] = AcpmuxPermissionPrompt.cut(kind, 200) }
-        if let command, !command.isEmpty { action["command"] = AcpmuxPermissionPrompt.cut(command, 8000) }
+        if !kind.isEmpty { action["tool"] = kind.acpmuxCut(200) }
+        if let command, !command.isEmpty { action["command"] = command.acpmuxCut(8000) }
         if let summary { action["input"] = summary.fields }
         if truncated { action["truncated"] = true }
         let key = "acpmux:\(permission)"
-        let heading = String(localized: "feed.bridge.title", defaultValue: "Allow \(AcpmuxPermissionPrompt.cut(title.isEmpty ? kind : title, 120))?", bundle: .module)
+        let heading = String(localized: "feed.bridge.title", defaultValue: "Allow \((title.isEmpty ? kind : title).acpmuxCut(120))?", bundle: .module)
         var params: [String: Any] = [
             "type": "request",
             "kind": "approve",
-            "title": AcpmuxPermissionPrompt.cut(heading, 200),
+            "title": heading.acpmuxCut(200),
             "prompt": ["action": action, "scopes": ["once"]],
             // The phone reads the Mac it answers from here (FeedApproveRequest).
             "context": ["host": String(host.prefix(128)), "acp_session": String(session.prefix(128))],
@@ -260,7 +260,7 @@ final class AcpmuxPermissionFeedBridge {
             "thread": String("acpmux:\(session)".prefix(200)),
             "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
         ]
-        if let command, !command.isEmpty { params["body"] = AcpmuxPermissionPrompt.cut(command, 4096) }
+        if let command, !command.isEmpty { params["body"] = command.acpmuxCut(4096) }
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
     }
 
@@ -279,7 +279,7 @@ final class AcpmuxPermissionFeedBridge {
                 return logger.error("feed bridge: the owner returned no item for \(permission, privacy: .public)")
             }
             let action = ((body["params"] as? [String: Any])?["prompt"] as? [String: Any])?["action"] as? [String: Any] ?? [:]
-            posted[id] = Posted(session: session, permission: permission, digest: AcpmuxPermissionPrompt.digest(request),
+            posted[id] = Posted(session: session, permission: permission, digest: request.acpmuxDigest,
                                 shown: FeedApproveProofCheck.shownSHA256(action: action),
                                 truncated: action["truncated"] as? Bool ?? false)
             logger.info("feed bridge: posted \(id, privacy: .public) for \(permission, privacy: .public)")
@@ -329,7 +329,7 @@ final class AcpmuxPermissionFeedBridge {
     /// The acpmux option a decision maps to, from what the prompt offers now.
     nonisolated static func option(for decision: FeedAnswerValue.Decision, offered: [[String: Any]]) -> Result<String, Refusal> {
         if decision.outcome == .allow, let scope = decision.scope, scope != .once { return .failure(.scope) }
-        return AcpmuxPermissionPrompt.option(allow: decision.outcome == .allow, offered: offered).map { .success($0) } ?? .failure(.notOffered)
+        return offered.acpmuxOption(allow: decision.outcome == .allow).map { .success($0) } ?? .failure(.notOffered)
     }
 
     /// Whether `by` may answer for the person here: an install (not a session)
@@ -352,7 +352,7 @@ final class AcpmuxPermissionFeedBridge {
               let request = now["request"] as? [String: Any] else {
             return logger.info("feed bridge: \(item, privacy: .public) answered after the prompt ended; nothing answered")
         }
-        guard AcpmuxPermissionPrompt.digest(request) == entry.digest else {
+        guard request.acpmuxDigest == entry.digest else {
             return logger.error("feed bridge: \(item, privacy: .public): the prompt changed since it was posted; nothing answered")
         }
         let option: String

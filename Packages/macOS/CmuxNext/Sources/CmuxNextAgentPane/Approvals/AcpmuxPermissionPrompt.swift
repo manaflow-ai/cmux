@@ -1,13 +1,13 @@
-public import Foundation
+import Foundation
 import CryptoKit
 
 /// An acpmux permission prompt as the app reads and answers it for the person (cx-aocz, cx-kz6m0.2):
 /// the feed bridge (an answer from the phone) and approval banners share this. Allow maps to the
 /// offered `allow_once` option, deny to the offered reject option; an option kind offered twice maps
 /// to nothing. Shown text is scrubbed of secret shapes and shows invisible characters.
-public nonisolated enum AcpmuxPermissionPrompt {
+nonisolated enum AcpmuxPermissionPrompt {
     /// One JSON-RPC request line.
-    public static func frame(id: Int, method: String, params: [String: Any]) -> Data {
+    static func frame(id: Int, method: String, params: [String: Any]) -> Data {
         let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         var data = (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
         data.append(0x0A)
@@ -15,7 +15,7 @@ public nonisolated enum AcpmuxPermissionPrompt {
     }
 
     /// sha256 of the request's canonical JSON (sorted keys).
-    public static func digest(_ request: [String: Any]) -> String {
+    static func digest(_ request: [String: Any]) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
@@ -23,28 +23,28 @@ public nonisolated enum AcpmuxPermissionPrompt {
     /// The command a tool input runs: a string, or an argv array joined as a shell would read it
     /// (`["bash", "-lc", "rm -rf ~"]` shows as `bash -lc 'rm -rf ~'`). An array with other values
     /// shows as compact JSON.
-    public static func shownCommand(_ value: Any?) -> String? {
+    static func shownCommand(_ value: Any?) -> String? {
         if let text = value as? String { return text }
         guard let parts = value as? [Any] else { return value.map(compactJSON) }
         guard let words = parts as? [String] else { return compactJSON(parts) }
         return words.map(shellQuoted).joined(separator: " ")
     }
 
-    public static func shellQuoted(_ word: String) -> String {
+    static func shellQuoted(_ word: String) -> String {
         let plain = !word.isEmpty && word.unicodeScalars.allSatisfy {
             CharacterSet.alphanumerics.contains($0) && $0.isASCII || "-_./=:,+@%".unicodeScalars.contains($0)
         }
         return plain ? word : "'" + word.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    public static func compactJSON(_ value: Any) -> String {
+    static func compactJSON(_ value: Any) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed])) ?? Data()
         return String(decoding: data, as: UTF8.self)
     }
 
     /// Bidi controls and zero-width characters shown as `<U+XXXX>`, so a command cannot read
     /// one way and run another.
-    public static func visible(_ text: String) -> String {
+    static func visible(_ text: String) -> String {
         var out = ""
         for scalar in text.unicodeScalars {
             switch scalar.value {
@@ -61,7 +61,7 @@ public nonisolated enum AcpmuxPermissionPrompt {
     /// values (paths, patterns; other values as compact JSON), `cwd` first whenever present.
     /// `env` is never shown, and its presence marks the summary truncated. `truncated`: a field
     /// beyond the first 8, a long name, a long value, or `env` (the phone then never allows).
-    public static func inputSummary(_ input: [String: Any]) -> (fields: [String: String], truncated: Bool)? {
+    static func inputSummary(_ input: [String: Any]) -> (fields: [String: String], truncated: Bool)? {
         var out: [String: String] = [:]
         let env = input.first { $0.key.lowercased() == "env" }
         var truncated = env.map { !(($0.value as? [String: Any])?.isEmpty ?? false) } ?? false
@@ -82,11 +82,11 @@ public nonisolated enum AcpmuxPermissionPrompt {
         return out.isEmpty && !truncated ? nil : (out, truncated)
     }
 
-    public static func cut(_ text: String, _ limit: Int) -> String {
+    static func cut(_ text: String, _ limit: Int) -> String {
         text.count > limit ? String(text.prefix(limit - 1)) + "…" : text
     }
 
-    public static func option(allow: Bool, offered: [[String: Any]]) -> String? {
+    static func option(allow: Bool, offered: [[String: Any]]) -> String? {
         let kinds = allow ? ["allow_once"] : ["reject_once", "reject_always"]
         for kind in kinds {
             let matches = offered.filter { $0["kind"] as? String == kind }
@@ -97,7 +97,7 @@ public nonisolated enum AcpmuxPermissionPrompt {
 
     /// A tool permission both buttons can answer: not a question (the daemon's normalized
     /// `toolCall._meta.acpmux.question`), and it offers allow once and a deny.
-    public static func isToolPermission(_ request: [String: Any]) -> Bool {
+    static func isToolPermission(_ request: [String: Any]) -> Bool {
         let tool = request["toolCall"] as? [String: Any]
         let acpmux = (tool?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
         let offered = request["options"] as? [[String: Any]] ?? []
@@ -107,7 +107,7 @@ public nonisolated enum AcpmuxPermissionPrompt {
 
     /// What the prompt asks to do, for a banner: its tool call's title, then the command it runs,
     /// secrets scrubbed and invisible characters shown (as the feed bridge shows them).
-    public static func summary(_ request: [String: Any]) -> String {
+    static func summary(_ request: [String: Any]) -> String {
         let call = request["toolCall"] as? [String: Any] ?? [:]
         let input = call["rawInput"] as? [String: Any] ?? [:]
         let lines = [call["title"] as? String, shownCommand(input["command"])]
