@@ -196,7 +196,7 @@ extension CloudSecretsService {
             message = storageError.errorDescription ?? genericSyncFailure
         } else if let delivery = error as? CloudEnvDelivery.DeliveryError {
             switch delivery {
-            case .outdatedShim, .invalidKey, .multilineValue, .tooLarge, .emptyPayload, .workspaceCleanupFailed:
+            case .outdatedShim, .invalidKey, .reservedKey, .multilineValue, .tooLarge, .emptyPayload, .workspaceCleanupFailed:
                 message = delivery.errorDescription ?? genericSyncFailure
             case .receiverFailed, .receiverNotReady, .noResult:
                 message = String(

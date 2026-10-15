@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, wr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
-import { WORK_USER_EXEC_PRELUDE, workUserExecCommand } from "../services/vms/drivers/workUserExecCommand";
+import { WORK_USER_EXEC_PRELUDE, WORK_USER_EXEC_PRESERVED_VARIABLES, workUserExecCommand } from "../services/vms/drivers/workUserExecCommand";
 import { runChild } from "./helpers/run-child";
 
 // The provider runs a work-user exec as uid 1000 with the base image's stale
@@ -44,6 +44,7 @@ async function run(shell: string, command: string, opts: { home?: string; cwd?: 
       HOME: opts.home ?? staleHome,
       USER: "ubuntu",
       LOGNAME: "ubuntu",
+      SHELL: "/bin/sh",
       CMUX_TEST_PASSWD: opts.passwd ?? `cmux:x:1000:1000::${workHome}:/bin/bash`,
     },
   });
@@ -104,9 +105,43 @@ describe("work-user exec prelude", () => {
         expect(missing.stdout).toBe(`${staleHome}\n`);
       });
 
+      test("an env file cannot change PATH, HOME, USER, LOGNAME, SHELL or IFS for the command", async () => {
+        writeEnvFile(
+          [
+            "export PATH='/nonexistent'",
+            "export HOME='/tmp/elsewhere'",
+            "export USER='mallory'",
+            "export LOGNAME='mallory'",
+            "export SHELL='/bin/false'",
+            "IFS='x'",
+            "export CMUX_TEST_URL='https://x.test'",
+            "",
+          ].join("\n"),
+        );
+        // `id`/`printf` resolve through PATH, so a clobbered PATH would fail here.
+        const out = await run(
+          shell,
+          'set -- a b; [ "${IFS-}" != x ] && ifs=kept; printf "%s|%s|%s|%s|%s|%s|%s|%s\\n" "$(id -un)" "$HOME" "$USER" "$LOGNAME" "$SHELL" "${ifs-}" "$CMUX_TEST_URL" "$*"',
+        );
+        expect(out).toMatchObject({ exitCode: 0, stderr: "" });
+        expect(out.stdout).toBe(`cmux|${workHome}|cmux|cmux|/bin/sh|kept|https://x.test|a b\n`);
+        // The command still finds the env file it can now fix (`vm env rm`).
+        const rm = await run(shell, '[ -w "$HOME/.config/cmux/env" ] && echo writable');
+        expect(rm.stdout).toBe("writable\n");
+      });
+
+      test("an env file that makes a kept name readonly is skipped, not fatal", async () => {
+        writeEnvFile("export CMUX_TEST_URL='https://x.test'\nreadonly PATH\n");
+        const out = await run(shell, 'echo "ran:${CMUX_TEST_URL-}"; exit 4');
+        expect(out).toEqual({ exitCode: 4, stdout: "ran:\n", stderr: "" });
+      });
+
       test("the prelude leaves no variables of its own behind", async () => {
         writeEnvFile("export CMUX_TEST_URL='https://x.test'\n");
-        const out = await run(shell, '[ -z "${cmux_exec_home+x}${cmux_exec_user+x}${cmux_exec_env+x}" ] && echo clean');
+        const scratch = ["cmux_exec_home", "cmux_exec_user", "cmux_exec_env"].concat(
+          WORK_USER_EXEC_PRESERVED_VARIABLES.flatMap((name) => [`cmux_exec_set_${name}`, `cmux_exec_val_${name}`]),
+        );
+        const out = await run(shell, `[ -z "${scratch.map((name) => `\${${name}+x}`).join("")}" ] && echo clean`);
         expect(out.stdout).toBe("clean\n");
       });
     });

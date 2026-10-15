@@ -156,6 +156,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// until an accepted graph reaches that receipt. This is a transient view
     /// overlay, never a second remote-state store.
     var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
+    /// When this Mac first saw each failed tabless run that carries no exit time,
+    /// so ``SurfaceFailedExitRetention`` can age it out like the others.
+    var failedExitFirstSeen: SurfaceFailedExitRetention.FirstSeen = [:]
     /// Rename receipts are transient read-your-write fences. They are keyed by
     /// daemon identity, not by a local title or projection, because one remote
     /// tab can be shown in several windows. The canonical graph remains the
@@ -385,7 +388,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     pool: hasDesktop ? displayResources : [],
                     parsed: CmuxTuiSnapshotParser.resources(from: cloudState)
                 ) + Self.portResources(machine: machine, scannedPorts: scannedPorts, previousResources: previousResources, privateAddress: summary.preferredPrivateAddress, displayPortsOwned: hasDesktop)
-                resources = resourcesWithPendingCreations(parsed, state: cloudState)
+                resources = retainingFailedExits(resourcesWithPendingCreations(parsed, state: cloudState))
             } else {
                 var fallback = hasDesktop ? displayResources : []
                 fallback.append(contentsOf: Self.portResources(machine: machine, scannedPorts: scannedPorts, previousResources: previousResources, privateAddress: summary.preferredPrivateAddress, displayPortsOwned: hasDesktop))
@@ -817,7 +820,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             parsed: CmuxTuiSnapshotParser.resources(from: state)
         )
         resources.append(contentsOf: portResources(ports))
-        resources = resourcesWithPendingCreations(resources, state: state)
+        resources = retainingFailedExits(resourcesWithPendingCreations(resources, state: state))
         if let snapshot = state.snapshotObject() {
             tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)
         }
@@ -836,6 +839,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         discoverMemberDisplaysIfNeeded(state)
         applyDisplayNamesIfChanged(state)
     }
+    /// The machine's rows with failed tabless runs aged and capped
+    /// (``SurfaceFailedExitRetention``). Takes every row on the machine.
+    func retainingFailedExits(_ resources: [SurfaceResource]) -> [SurfaceResource] {
+        let now = Date()
+        failedExitFirstSeen = SurfaceFailedExitRetention.updatingFirstSeen(failedExitFirstSeen, resources: resources, now: now)
+        return SurfaceFailedExitRetention.retained(resources, firstSeen: failedExitFirstSeen, now: now)
+    }
     func publishDelta(
         _ state: CloudVMState,
         impact: CloudVMStateDeltaImpact,
@@ -850,6 +860,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var affected = impact.resourceIDs
         affected.formUnion(pendingRemoteCreations.keys)
         var resources = CmuxTuiSnapshotParser.resources(from: state, matching: affected)
+        // Retention bounds the machine's whole set of failed runs, which a
+        // row-local patch cannot see: a failed run in the patch takes the full path.
+        if resources.contains(where: \.isFailedExitedTerminal) {
+            publish(state, ports: ports, reconcileTitles: reconcileTitles)
+            return
+        }
         resources = resourcesWithPendingCreations(resources, state: state)
         if summary.resolvedKind.hasDesktop,
            affected.contains(where: { $0.kind == .display }) {

@@ -23,9 +23,34 @@
  * Secrets. A file that does not parse is skipped rather than allowed to end
  * the command (a dot-script syntax error exits a POSIX `sh`).
  *
+ * The same exec carries cmux's own maintenance (`vm env ls|rm`, ports, secrets
+ * status, layout, transfers), so the file must not be able to break it: the
+ * variables the shell and its tools need to find programs and the work user's
+ * files (PATH, HOME, USER, LOGNAME, SHELL, IFS) are kept as they were before
+ * the file ran. `cmux env set` refuses those names; this covers a file written
+ * by hand or by an older guest.
+ *
  * POSIX sh only: the provider runs the command through the guest's shell.
  * Every name it sets is `cmux_exec_`-prefixed and unset before the command.
  */
+
+/** Variables the machine env file cannot change for an exec. */
+export const WORK_USER_EXEC_PRESERVED_VARIABLES = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS"] as const;
+
+// `cmux_exec_set_<name>` records whether the variable was set at all, so an
+// unset one (IFS usually is) is unset again rather than set to empty.
+const savePreserved = WORK_USER_EXEC_PRESERVED_VARIABLES.map(
+  (name) => `cmux_exec_set_${name}="\${${name}+1}"; cmux_exec_val_${name}="\${${name}-}"`,
+);
+const restorePreserved = WORK_USER_EXEC_PRESERVED_VARIABLES.map((name) => {
+  const exported = name === "IFS" ? "" : `; export ${name}`;
+  return `unset ${name}; if [ -n "$cmux_exec_set_${name}" ]; then ${name}="$cmux_exec_val_${name}"${exported}; fi`;
+});
+const preservedScratch = WORK_USER_EXEC_PRESERVED_VARIABLES.flatMap((name) => [
+  `cmux_exec_set_${name}`,
+  `cmux_exec_val_${name}`,
+]).join(" ");
+
 export const WORK_USER_EXEC_PRELUDE = [
   `cmux_exec_home="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"`,
   `if [ -n "$cmux_exec_home" ] && [ -d "$cmux_exec_home" ] && [ "\${HOME:-}" != "$cmux_exec_home" ]; then`,
@@ -35,8 +60,14 @@ export const WORK_USER_EXEC_PRELUDE = [
   `  if [ -n "$cmux_exec_user" ]; then USER="$cmux_exec_user"; LOGNAME="$cmux_exec_user"; export USER LOGNAME; fi`,
   `fi`,
   `cmux_exec_env="$HOME/.config/cmux/env"`,
-  `if [ -r "$cmux_exec_env" ] && (. "$cmux_exec_env") >/dev/null 2>&1; then . "$cmux_exec_env" >/dev/null 2>&1; fi`,
-  `unset cmux_exec_home cmux_exec_user cmux_exec_env`,
+  // The probe also fails a file that makes one of those names readonly, which
+  // would otherwise end the command at the restore.
+  `if [ -r "$cmux_exec_env" ] && (. "$cmux_exec_env" && unset ${WORK_USER_EXEC_PRESERVED_VARIABLES.join(" ")}) >/dev/null 2>&1; then`,
+  ...savePreserved.map((line) => `  ${line}`),
+  `  . "$cmux_exec_env" >/dev/null 2>&1`,
+  ...restorePreserved.map((line) => `  ${line}`),
+  `fi`,
+  `unset cmux_exec_home cmux_exec_user cmux_exec_env ${preservedScratch}`,
 ].join("\n");
 
 /** The caller's command, unchanged, after the work-user prelude. */

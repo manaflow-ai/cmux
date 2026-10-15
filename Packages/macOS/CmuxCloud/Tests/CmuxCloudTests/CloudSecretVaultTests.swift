@@ -117,6 +117,32 @@ final class CloudSecretTestClock: @unchecked Sendable {
     }
 
     @Test
+    func nameStoredBeforeItBecameReservedIsNeverSentAndADeliveredCopyIsRemoved() async throws {
+        // A vault written by an older build can hold a name that is reserved now
+        // (`ENV`, `IFS`, `LD_AUDIT`): the machine refuses it, so sync must not send it.
+        func entry(_ name: String, _ value: String) -> CloudSecretVaultDocument.Entry {
+            CloudSecretVaultDocument.Entry(
+                record: CloudSecretRecord(
+                    name: name, scope: .all, fingerprint: "0000000\(name.count)",
+                    createdAt: Date(timeIntervalSince1970: 1), updatedAt: Date(timeIntervalSince1970: 1), source: .manual
+                ),
+                value: value
+            )
+        }
+        let document = CloudSecretVaultDocument(
+            secrets: [entry("ENV", "/tmp/rc"), entry("LD_AUDIT", "x.so"), entry("GH_TOKEN", "ghp_x")],
+            ledger: [CloudSecretDelivery(machineID: "m1", delivered: ["ENV": "00000003"])]
+        )
+        let plan = CloudSecretVault.plan(machineID: "m1", document: document)
+        #expect(plan.toSend == [CloudEnvDelivery.Entry(key: "GH_TOKEN", value: "ghp_x")])
+        #expect(plan.toRemove == ["ENV"])
+        #expect(plan.effective.keys.sorted() == ["GH_TOKEN"])
+        // And it stays removable: removal checks the name's shape only.
+        try CloudSecretInput.validateNameSyntax("ENV")
+        #expect(throws: CloudSecretValidationError.invalidName("1ENV")) { try CloudSecretInput.validateNameSyntax("1ENV") }
+    }
+
+    @Test
     func fingerprintIsEightHexKeyedAndStableAcrossReloads() async throws {
         let vault = makeVault()
         try await vault.set([CloudSecretInput(name: "A", value: "same")], scope: .all, source: .manual)

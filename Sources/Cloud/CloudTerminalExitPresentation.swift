@@ -19,9 +19,11 @@ struct CloudTerminalExitPresentation: Equatable {
     let exit: SurfaceTerminalExit
 
     /// How long a failed, tabless run stays listed. The daemon keeps the
-    /// record indefinitely and nothing can close it, so the tree ages it out:
-    /// a failed run is news, not history.
-    static let retention: TimeInterval = 6 * 60 * 60
+    /// record indefinitely and nothing can close it, so it ages out: a failed
+    /// run is news, not history. The provider applies the same window (and a
+    /// per-machine cap) to every publish; the tree re-checks it for rows that
+    /// age out between publishes.
+    static let retention: TimeInterval = SurfaceFailedExitRetention.window
 
     /// Short status for the row's detail column: "exit 1", "signal 9".
     var shortStatus: String {
@@ -82,9 +84,9 @@ struct CloudTerminalExitPresentation: Equatable {
 
     /// Whether a failed tabless run is still recent enough to list.
     static func isListed(_ resource: SurfaceResource, now: Date) -> Bool {
-        guard resource.isFailedExitedTerminal else { return true }
-        guard let exitedAt = resource.exit?.exitedAt else { return true }
-        return now.timeIntervalSince(exitedAt) < retention
+        // A run with no exit time is aged by the provider from when it was first seen.
+        guard resource.exit?.exitedAt != nil else { return true }
+        return SurfaceFailedExitRetention.isWithinWindow(resource, now: now)
     }
 
     /// The last `limit` non-blank-trailing lines of the run's final output.

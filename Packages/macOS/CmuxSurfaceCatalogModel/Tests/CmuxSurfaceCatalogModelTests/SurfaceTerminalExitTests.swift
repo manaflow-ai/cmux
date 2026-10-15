@@ -60,6 +60,22 @@ import Testing
         #expect(!failed.isDetachedTerminal)
     }
 
+    @Test func outOfRangeOrFractionalNumbersParseAsAbsentInsteadOfTrapping() throws {
+        let huge = try #require(SurfaceTerminalExit(receipt: [
+            "outcome": ["kind": "exit", "code": 1e300],
+            "exited_at": Double.greatestFiniteMagnitude,
+        ]))
+        #expect(huge.code == nil)
+        #expect(huge.exitedAtMilliseconds == nil)
+        let infinite = try #require(SurfaceTerminalExit(receipt: ["outcome": ["kind": "signal", "signal": Double.infinity]]))
+        #expect(infinite.signal == nil)
+        let fractional = try #require(SurfaceTerminalExit(receipt: ["outcome": ["kind": "exit", "code": 1.5]]))
+        #expect(fractional.code == nil)
+        let whole = try #require(SurfaceTerminalExit(receipt: ["outcome": ["kind": "exit", "code": 2.0], "exited_at": 1_700_000_000_000.0]))
+        #expect(whole.code == 2)
+        #expect(whole.exitedAt == Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
     @Test func runningTerminalCarriesNoExit() {
         let entry: [String: Any] = ["id": "term_live", "running": true, "lifecycle": "running", "title": "zsh"]
         let resource = CmuxTuiSnapshotParser.terminal(fromSnapshotEntry: entry, machine: Self.machine)

@@ -135,6 +135,9 @@ public enum CloudEnvDelivery {
 
     public enum DeliveryError: Error, LocalizedError, Equatable {
         case invalidKey(String)
+        /// A name the machine's shells or cmux own (``CloudSecretInput/isReservedName(_:)``);
+        /// the machine's `cmux env receive` refuses it too.
+        case reservedKey(String)
         case multilineValue(String)
         case emptyPayload
         case tooLarge(Int)
@@ -148,6 +151,8 @@ public enum CloudEnvDelivery {
             switch self {
             case .invalidKey(let key):
                 return "invalid variable name '\(key)' (keys match [A-Za-z_][A-Za-z0-9_]*)"
+            case .reservedKey(let key):
+                return "'\(key)' is reserved by the machine or by cmux and cannot be set"
             case .multilineValue(let key):
                 return "value of \(key) must be a single line"
             case .emptyPayload:
@@ -206,6 +211,7 @@ public enum CloudEnvDelivery {
         var text = ""
         for entry in entries {
             guard isValidKey(entry.key) else { throw DeliveryError.invalidKey(entry.key) }
+            guard !CloudSecretInput.isReservedName(entry.key) else { throw DeliveryError.reservedKey(entry.key) }
             guard !entry.value.contains("\n"), !entry.value.contains("\r") else {
                 throw DeliveryError.multilineValue(entry.key)
             }

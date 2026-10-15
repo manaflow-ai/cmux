@@ -60,7 +60,7 @@ public struct SurfaceTerminalExit: Hashable, Codable, Sendable {
 
     private static func integer(_ value: Any?) -> Int? {
         if let number = value as? Int { return number }
-        if let number = value as? Double, number.rounded() == number { return Int(number) }
+        if let number = value as? Double { return Int(exactly: number) }
         if let string = value as? String { return Int(string) }
         return nil
     }

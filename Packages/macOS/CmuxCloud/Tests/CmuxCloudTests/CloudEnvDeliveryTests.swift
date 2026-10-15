@@ -186,6 +186,13 @@ import Testing
         #expect(throws: CloudEnvDelivery.DeliveryError.multilineValue("A")) {
             try CloudEnvDelivery.payload([Entry(key: "A", value: "one\ntwo")])
         }
+        // Every exec and login shell on the machine sources the env file: names that
+        // would break them are refused before anything is typed, as the machine does.
+        for key in ["PATH", "HOME", "IFS", "BASH_ENV", "LD_PRELOAD", "CMUX_SOCKET_PATH"] {
+            #expect(throws: CloudEnvDelivery.DeliveryError.reservedKey(key)) {
+                try CloudEnvDelivery.payload([Entry(key: "OK", value: "1"), Entry(key: key, value: "v")])
+            }
+        }
         #expect(throws: CloudEnvDelivery.DeliveryError.emptyPayload) {
             try CloudEnvDelivery.payload([])
         }

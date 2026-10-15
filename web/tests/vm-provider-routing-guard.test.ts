@@ -381,4 +381,36 @@ describe("machine env provider endpoints (cmux env set/rm on new images)", () =>
     await cmux(m, "env", "set", "OTHER=1");
     expect(envLine(m, "OPENAI_BASE_URL")).toBe(`export OPENAI_BASE_URL='${OPENAI}'`);
   });
+
+  test("a user's own endpoint equal to the provider default survives removing the key", async () => {
+    const m = machine();
+    await cmux(m, "env", "set", `OPENAI_BASE_URL=${OPENAI}`, `OPENAI_API_KEY=${USER_KEY}`);
+    await cmux(m, "env", "rm", "OPENAI_API_KEY");
+    expect(envLine(m, "OPENAI_BASE_URL")).toBe(`export OPENAI_BASE_URL='${OPENAI}'`);
+    // Setting it explicitly after the shim added it makes it the user's too.
+    const later = machine();
+    await cmux(later, "env", "set", `OPENAI_API_KEY=${USER_KEY}`);
+    await cmux(later, "env", "set", `OPENAI_BASE_URL=${OPENAI}`);
+    await cmux(later, "env", "rm", "OPENAI_API_KEY");
+    expect(envLine(later, "OPENAI_BASE_URL")).toBe(`export OPENAI_BASE_URL='${OPENAI}'`);
+    // The routes file names endpoints only, never a value.
+    expect(readFileSync(`${later.envFile}.routes`, "utf8")).not.toContain("sk-");
+  });
+
+  test("an empty key is no key: no provider endpoint is added for it", async () => {
+    const m = machine();
+    await cmux(m, "env", "set", "OPENAI_API_KEY=", "ANTHROPIC_API_KEY=");
+    expect(envLine(m, "OPENAI_API_KEY")).toBe("export OPENAI_API_KEY=''");
+    expect(envLine(m, "OPENAI_BASE_URL")).toBeUndefined();
+    expect(envLine(m, "ANTHROPIC_BASE_URL")).toBeUndefined();
+  });
+
+  test("an env file written before the routes file still loses the endpoint its shim added", async () => {
+    const m = machine();
+    writeFileSync(m.envFile, `export OPENAI_API_KEY='${USER_KEY}'\nexport OPENAI_BASE_URL='${OPENAI}'\n`);
+    await cmux(m, "env", "set", "OTHER=1");
+    await cmux(m, "env", "rm", "OPENAI_API_KEY");
+    expect(envLine(m, "OPENAI_BASE_URL")).toBeUndefined();
+    expect(envLine(m, "OTHER")).toBe("export OTHER='1'");
+  });
 });

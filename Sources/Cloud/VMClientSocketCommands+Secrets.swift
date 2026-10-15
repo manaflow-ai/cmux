@@ -107,7 +107,7 @@ enum CloudSecretsSocketParams {
         return inputs
     }
 
-    /// `names: [String]`, each a valid secret name.
+    /// `names: [String]`, each a well-formed variable name (reserved names included, for removal).
     static func names(_ params: [String: Any], method: String) throws -> [String] {
         let names = (params["names"] as? [Any] ?? []).compactMap { string($0) }
         guard !names.isEmpty else {
@@ -118,7 +118,8 @@ enum CloudSecretsSocketParams {
         }
         for name in names {
             do {
-                try CloudSecretInput.validateName(name)
+                // Shape only: a name stored before it became reserved must stay removable.
+                try CloudSecretInput.validateNameSyntax(name)
             } catch let error as CloudSecretValidationError {
                 throw CloudSecretsSocketFailure.invalidParams(error.errorDescription ?? method)
             }

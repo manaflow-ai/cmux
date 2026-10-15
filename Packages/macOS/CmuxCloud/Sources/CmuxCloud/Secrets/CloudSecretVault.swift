@@ -290,13 +290,16 @@ public actor CloudSecretVault {
         )
     }
 
+    /// The secrets that apply to `machineID`, by name. A name stored before it became
+    /// reserved (``CloudSecretInput/isReservedName(_:)``) never applies: the machine
+    /// refuses it, so it is not sent, and a copy delivered earlier is removed.
     static func effectiveEntries(machineID: String, document: CloudSecretVaultDocument) -> [String: CloudSecretVaultDocument.Entry] {
         let projectKeys = ledgerEntry(machineID, in: document)?.projectKeys ?? []
         // Least specific first, so later scopes overwrite; earlier project links win.
         let scopes: [CloudSecretScope] = [.all] + projectKeys.reversed().map { CloudSecretScope.project($0) } + [.machine(machineID)]
         var effective: [String: CloudSecretVaultDocument.Entry] = [:]
         for scope in scopes {
-            for entry in document.secrets where entry.record.scope == scope {
+            for entry in document.secrets where entry.record.scope == scope && !CloudSecretInput.isReservedName(entry.record.name) {
                 effective[entry.record.name] = entry
             }
         }

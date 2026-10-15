@@ -929,6 +929,7 @@
 		7A0CE100000000000000072C /* CloudPortRoutePlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */; };
 		EA1141167D5A710EAD47E9F5 /* CloudPortsDiscoveryDemand.swift in Sources */ = {isa = PBXBuildFile; fileRef = EADDD72438AB63691398EF5A /* CloudPortsDiscoveryDemand.swift */; };
 		5183FCB866E30833CB9E46F2 /* CloudPortShareFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 829B4321138EE236FBEF01EE /* CloudPortShareFlow.swift */; };
+		912262ECE17F222CC91A379A /* CloudPortSharePlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26891A8D685106E1BB4961B7 /* CloudPortSharePlanTests.swift */; };
 		C13234000000000000000001 /* CloudPortsStatusContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13234000000000000000002 /* CloudPortsStatusContent.swift */; };
 		DBF72463931EE07F5759C449 /* CloudPortsVPNAffordanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530E939E21CAEE902D2375CE /* CloudPortsVPNAffordanceTests.swift */; };
 		0C45DC8D9BE54DDEA2397892 /* CloudPrivateRouteSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6077A4B6CC441EB3668651 /* CloudPrivateRouteSelectionTests.swift */; };
@@ -5685,6 +5686,7 @@
 		7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortRoutePlanTests.swift; sourceTree = "<group>"; };
 		EADDD72438AB63691398EF5A /* CloudPortsDiscoveryDemand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortsDiscoveryDemand.swift; sourceTree = "<group>"; };
 		829B4321138EE236FBEF01EE /* CloudPortShareFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortShareFlow.swift; sourceTree = "<group>"; };
+		26891A8D685106E1BB4961B7 /* CloudPortSharePlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPortSharePlanTests.swift"; sourceTree = "<group>"; };
 		C13234000000000000000002 /* CloudPortsStatusContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortsStatusContent.swift; sourceTree = "<group>"; };
 		530E939E21CAEE902D2375CE /* CloudPortsVPNAffordanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPortsVPNAffordanceTests.swift"; sourceTree = "<group>"; };
 		1E6077A4B6CC441EB3668651 /* CloudPrivateRouteSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPrivateRouteSelectionTests.swift; sourceTree = "<group>"; };
@@ -14053,6 +14055,7 @@
 				CF276B380815B5DC52388A48 /* CloudPortPreviewPresentationTests.swift */,
 				1037ED0063D789B1E1CDC7BE /* CloudDebugProbeTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
+				26891A8D685106E1BB4961B7 /* CloudPortSharePlanTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18347,6 +18350,7 @@
 				0CEBC966BA47938189688BD4 /* CloudPortPreviewPresentationTests.swift in Sources */,
 				FDB27ED4B2169D6CD86B13BC /* CloudPortRecoveryTests.swift in Sources */,
 				7A0CE100000000000000072C /* CloudPortRoutePlanTests.swift in Sources */,
+				912262ECE17F222CC91A379A /* CloudPortSharePlanTests.swift in Sources */,
 				DBF72463931EE07F5759C449 /* CloudPortsVPNAffordanceTests.swift in Sources */,
 				0C45DC8D9BE54DDEA2397892 /* CloudPrivateRouteSelectionTests.swift in Sources */,
 				C13151C00000000000000031 /* CloudReadIdentityAuthClient.swift in Sources */,

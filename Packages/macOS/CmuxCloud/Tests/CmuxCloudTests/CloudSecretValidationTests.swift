@@ -18,6 +18,7 @@ import Testing
 
     @Test(arguments: [
         "PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "TERM", "LD_PRELOAD", "LD_LIBRARY_PATH",
+        "IFS", "ENV", "BASH_ENV", "PS4", "PROMPT_COMMAND", "OLDPWD", "LD_AUDIT", "ld_bind_now", "ifs",
         "path", "DYLD_INSERT_LIBRARIES", "dyld_x", "CMUX_SOCKET_PATH", "CMUX_", "cmux_anything"
     ])
     func rejectsReservedNames(name: String) {
@@ -27,7 +28,7 @@ import Testing
         }
     }
 
-    @Test(arguments: ["PATHS", "MY_PATH", "XCMUX_TOKEN", "TERM_PROGRAM_X", "GH_TOKEN"])
+    @Test(arguments: ["PATHS", "MY_PATH", "XCMUX_TOKEN", "TERM_PROGRAM_X", "GH_TOKEN", "ENVIRONMENT", "LDAP_URL", "IFS_X"])
     func nearReservedNamesAreAllowed(name: String) throws {
         #expect(!CloudSecretInput.isReservedName(name))
         try CloudSecretInput(name: name, value: "v").validate()

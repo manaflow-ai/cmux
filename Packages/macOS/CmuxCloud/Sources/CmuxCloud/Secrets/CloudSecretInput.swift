@@ -28,23 +28,36 @@ public struct CloudSecretInput: Hashable, Sendable {
 
     /// Names match `^[A-Za-z_][A-Za-z0-9_]{0,127}$` and are not reserved (see ``isReservedName(_:)``).
     public static func validateName(_ name: String) throws {
-        guard name.range(of: "^[A-Za-z_][A-Za-z0-9_]{0,127}\\z", options: .regularExpression) != nil else {
-            throw CloudSecretValidationError.invalidName(name)
-        }
+        try validateNameSyntax(name)
         if isReservedName(name) { throw CloudSecretValidationError.reservedName(name) }
     }
 
-    /// Names the machine's own shell or cmux owns: overriding them would break login
-    /// shells, inject code (`LD_PRELOAD`, `DYLD_*`), or confuse the cmux shim (`CMUX_*`).
-    /// Compared case-insensitively.
+    /// The name's shape only, reserved or not. Removal uses it, so a name stored
+    /// before it became reserved can still be removed.
+    public static func validateNameSyntax(_ name: String) throws {
+        guard name.range(of: "^[A-Za-z_][A-Za-z0-9_]{0,127}\\z", options: .regularExpression) != nil else {
+            throw CloudSecretValidationError.invalidName(name)
+        }
+    }
+
+    /// Names the machine's own shell or cmux owns: every login shell and every cmux exec
+    /// on the machine sources the machine env, so overriding them would break program
+    /// lookup, the work user's home, word splitting or shell startup (`IFS`, `ENV`,
+    /// `BASH_ENV`, `PS4`, `PROMPT_COMMAND`), inject code (`LD_*`, `DYLD_*`), or confuse
+    /// the cmux shim (`CMUX_*`). Compared case-insensitively. The machine's
+    /// `cmux env set` refuses the same list (`env_key_reserved` in the guest shim,
+    /// web/services/vms/guestCli.ts).
     public static func isReservedName(_ name: String) -> Bool {
         let upper = name.uppercased()
-        return reservedNames.contains(upper) || upper.hasPrefix("DYLD_") || upper.hasPrefix("CMUX_")
+        return reservedNames.contains(upper) || reservedPrefixes.contains { upper.hasPrefix($0) }
     }
 
     static let reservedNames: Set<String> = [
-        "PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "TERM", "LD_PRELOAD", "LD_LIBRARY_PATH"
+        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV", "PS4", "PROMPT_COMMAND",
+        "PWD", "OLDPWD", "TERM",
     ]
+
+    static let reservedPrefixes: [String] = ["LD_", "DYLD_", "CMUX_"]
 }
 
 extension CloudSecretInput: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
