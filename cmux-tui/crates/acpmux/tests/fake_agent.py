@@ -643,7 +643,11 @@ def main():
                       "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]}
             if m == "session/new":
                 sessions += 1
-                send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}})
+                result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}
+                # FAKE_PICKER_MODES=1: the picker harness reports the two session modes too.
+                if os.environ.get("FAKE_PICKER_MODES") == "1":
+                    result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
+                send({"jsonrpc": "2.0", "id": rid, "result": result})
             elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
             elif m == "session/set_model":
@@ -721,6 +725,9 @@ def main():
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
+            # FAKE_PLAN_MODE=1: opencode's modes, "build" and a "plan" that runs bash.
+            if os.environ.get("FAKE_PLAN_MODE") == "1":
+                result["modes"] = {"currentModeId": "build", "availableModes": [{"id": "build", "name": "Build"}, {"id": "plan", "name": "Plan"}]}
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
@@ -761,6 +768,10 @@ def main():
             sessions += 1
             send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
         elif m == "session/set_mode":
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")

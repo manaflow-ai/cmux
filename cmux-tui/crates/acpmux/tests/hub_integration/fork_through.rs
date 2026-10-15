@@ -8,6 +8,9 @@ use super::*;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;
+// Side sessions fork the chat too, and share its Claude helpers.
+#[path = "btw.rs"]
+mod btw;
 // The context window a Claude chat reports, which shares these helpers too.
 #[path = "context_window.rs"]
 mod context_window;

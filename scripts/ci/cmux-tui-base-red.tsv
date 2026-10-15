@@ -1,0 +1,12 @@
+# Base-red skip list for scripts/ci/cmux-tui-rust-check.sh (modes test and all).
+# One test per line, tab-separated: FILTER BEAD EXPIRES OS REASON
+#   FILTER   libtest --skip substring; use the full test path or a unique test name
+#   BEAD     the bead that owns the fix (required)
+#   EXPIRES  YYYY-MM-DD, UTC, the last day the skip applies; after it the step fails
+#   OS       any, macos or linux: where the skip applies
+# Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
+the_bridge_runs_the_codex_path_the_family_configures	cx-fylng	2026-10-18	macos	acpmux tests/codex_bridge_config.rs: codex app-server stopped on macOS fleet; macOS only
+a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_sets_one	cx-fylng	2026-10-18	macos	acpmux tests/codex_bridge_config.rs: codex app-server stopped on macOS fleet; macOS only
+a_prefer_list_still_picks_the_codex_profile	cx-fylng	2026-10-18	macos	acpmux tests/codex_bridge_config.rs: codex app-server stopped on macOS fleet; macOS only
+protocol::tests::protocol_registry_names_every_served_method	cx-js8uc	2026-10-17	any	acpmux --lib: _acpmux/harness/update and _acpmux/sessions/restart_harness not in protocol::registry() (tip red since #20718)
+the_allowlist_is_what_the_page_sends	cx-js8uc	2026-10-17	any	cmux-agent-pane-policy --test typescript: page requests differ from policy.json (tip red since #20718)
