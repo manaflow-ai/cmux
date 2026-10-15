@@ -10,11 +10,17 @@ import CmuxNextSidebar
 /// Every harness's chats are acpmux sessions, so no brand decides anything here.
 @MainActor
 enum SidebarAgentLinks {
-    /// `rows` (the row feed's source, else the mapping itself) with each mapped row's link set.
-    /// The link is read inside the row's mapping, so a lane change maps that row again.
+    /// Whether rows nest under their parents (Debug `sidebar.groupByStatus` and `sidebar.statusElbow`).
+    /// Off, nothing reads a lane: rows map as before and a lane change maps no row (review of #20905).
+    static var nests: Bool { SidebarTunables.groupByStatus.value && SidebarTunables.statusElbow.value }
+
+    /// `rows` (the row feed's source, else the mapping itself) with each mapped row's link set, or
+    /// `rows` as is while rows do not nest. The link is read inside the row's mapping, so a lane
+    /// change maps that row again.
     static func linking(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore = .shared,
-                        turns: AgentTurnStateStore = .shared) -> SidebarMapping.RowSource {
-        { workspace, machine, make in
+                        turns: AgentTurnStateStore = .shared) -> SidebarMapping.RowSource? {
+        guard nests else { return rows }
+        return { workspace, machine, make in
             let linked: SidebarRowFeed.Make = {
                 var row = make()
                 row.agentLink = link(workspace, lanes: lanes, turns: turns)

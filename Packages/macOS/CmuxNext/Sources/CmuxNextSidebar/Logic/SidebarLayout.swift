@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import CoreGraphics
 import Foundation
 
@@ -36,10 +37,14 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     public func row(for key: SidebarRowKey) -> SidebarRow? { index[key].map { rows[$0] } }
 
     /// Replaces a workspace row's content in place, keeping its frame
-    /// (a row update whose height is unchanged, `SidebarListView.patchRows`).
-    mutating func setContent(_ content: WorkspaceRowContent, for key: SidebarRowKey) {
+    /// (a row update whose height is unchanged, `SidebarListView.patchRows`). Group by Status: the
+    /// row keeps its elbow and bucket (a patch moves no row); its marks show the new `activity`.
+    mutating func setContent(_ content: WorkspaceRowContent, activity: StatusIndicatorState, for key: SidebarRowKey) {
         guard let i = index[key] else { return }
+        var content = content
+        content.elbow = rows[i].content?.elbow ?? false
         rows[i].content = content
+        rows[i].statusMarks?.activity = activity
     }
 
     /// Row whose hit area contains `y`, or nil in padding, a section or

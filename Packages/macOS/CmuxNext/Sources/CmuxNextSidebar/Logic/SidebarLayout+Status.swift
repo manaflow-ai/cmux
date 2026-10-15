@@ -65,7 +65,8 @@ nonisolated extension SidebarLayout {
 
 /// Elbow children (`SidebarGrouping.elbowsChildren`): a child agent session's row sits directly
 /// under its parent row, in the parent's bucket whatever its own status, so the tree reads top
-/// to bottom (its own status still shows on the row). A child of a child follows it the same way.
+/// to bottom (its own status still shows on the row); a tree with a row that needs the person
+/// sits under Needs you. A child of a child follows it the same way.
 /// A row whose parent is not listed (filtered out, another list) stays in its own bucket.
 nonisolated extension SidebarLayout {
     struct Member {
@@ -101,10 +102,21 @@ nonisolated extension SidebarLayout {
             buckets[bucket, default: []].append(member)
             for child in children[member.ws.id] ?? [] { place(child, elbow: true, in: bucket) }
         }
-        for root in roots { place(root, elbow: false, in: o.grouping.bucket(root.ws)) }
+        // A tree with a row that waits on the person goes under Needs you whole: Needs you never
+        // folds, so that row never hides inside a folded parent's bucket.
+        func treeNeedsYou(_ member: Member, seen: inout Set<WorkspaceID>) -> Bool {
+            guard seen.insert(member.ws.id).inserted else { return false }
+            if o.grouping.bucket(member.ws) == .needsYou { return true }
+            return (children[member.ws.id] ?? []).contains { treeNeedsYou($0, seen: &seen) }
+        }
+        func bucket(of root: Member) -> SidebarStatusBucket {
+            var seen: Set<WorkspaceID> = []
+            return treeNeedsYou(root, seen: &seen) ? .needsYou : o.grouping.bucket(root.ws)
+        }
+        for root in roots { place(root, elbow: false, in: bucket(of: root)) }
         // Rows whose parents name each other in a loop: the first in list order leads.
         for member in members where !placed.contains(member.ws.id) {
-            place(member, elbow: false, in: o.grouping.bucket(member.ws))
+            place(member, elbow: false, in: bucket(of: member))
         }
         return buckets
     }

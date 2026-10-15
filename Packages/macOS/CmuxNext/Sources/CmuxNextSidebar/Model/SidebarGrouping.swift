@@ -25,9 +25,11 @@ public nonisolated struct SidebarGrouping: Hashable, Sendable {
     public init() {}
 
     /// The `sidebar.*` preferences it follows, with Group by Status's Debug toggles laid over
-    /// them (`SidebarSectionsPreferences.withStatusDebugToggles`).
+    /// them (`SidebarSectionsPreferences.withStatusDebugToggles`). Turning Group by Status off
+    /// forgets its held row and folds, so turning it on again starts fresh.
     public mutating func follow(_ preferences: SidebarSectionsPreferences) {
         (by, byStatus, elbowsChildren) = (preferences.groupBy, preferences.groupsByStatus, preferences.statusElbow)
+        if !byStatus { (held, collapsed) = (nil, []) }
     }
 
     /// Group by Folder: loose rows sit under folder headers.
