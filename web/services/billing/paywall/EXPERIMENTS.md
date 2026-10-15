@@ -131,15 +131,19 @@ queue still lets every idea get tested in turn.
 - **Hypothesis:** paywall copy and layout that state concrete Cloud
   capacity, or the outcome (agents keep working while the Mac sleeps),
   increase paid conversion compared with the current screen.
-- **Arms:** `control` (the app's built-in copy, cards), `focus-pro-yearly`,
+- **Arms:** `control` (the app's built-in copy, cards), `focus-pro`,
   `comparison` and `outcome-copy` start live at 25% each. Queued in this
-  order: `checklist-pro-monthly`, `plantabs-yearly`, `hero-pro`,
+  order: `pro-yearly-first`, `checklist-pro`, `plantabs-pro`, `hero-pro`,
   `speclist-specs-first`, then 7 more so that every layout has an outcome
   angle ("Run coding agents in the cloud, reach them from your iPhone") and
   a compute angle ("More cloud compute"): `cards-compute`,
   `comparison-outcome`, `focus-outcome`, `checklist-outcome`,
   `plantabs-outcome`, `hero-compute` and `speclist-outcome`. The Paywall
   Lab lists every variant, including the queued ones.
+- **Lead with Pro Monthly** (Lawrence, 2026-10-15): control and every seed
+  variant highlight Pro and preselect monthly. The one billing-period
+  challenger is `pro-yearly-first` (control's copy with yearly preselected),
+  first in the queue, so the data decides on yearly.
 - **Billing period:** `defaultBillingPeriod` is the period preselected for
   plans that offer both periods. It is not a global Monthly/Yearly toggle,
   because not every plan has a yearly product.

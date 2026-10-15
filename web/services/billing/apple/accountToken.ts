@@ -2,6 +2,7 @@ import { isAdminUser } from "../../admin/access";
 import { isGoPlanEnabled } from "../goPlanFlag";
 import { resolveIosPaywall, type IosPaywallRequest } from "../paywall/iosPaywall";
 import type { IosPaywallConfig, IosPaywallLayout } from "../paywall/validator";
+import { planFacts, type PlanFacts } from "../paywall/planFacts";
 import {
   resolveProPlanStatus,
   stripeBillingStatusForUser,
@@ -61,6 +62,8 @@ export type AppleAccountTokenResponse = {
   }[];
   /** The server-configured paywall (services/billing/paywall); control outside the experiment. */
   readonly paywall?: IosPaywallConfig;
+  /** Cloud VM limits per offered plan, from facts.ts (Go only when Go is offered). */
+  readonly planFacts?: PlanFacts;
   /** Present and true for cmux staff: the app shows its Paywall Lab. */
   readonly staff?: true;
 };
@@ -191,6 +194,7 @@ export async function appleAccountTokenResponse(
       ...(status.manageUrl ? { manageUrl: status.manageUrl } : {}),
     },
     products,
+    planFacts: planFacts(plans),
     ...(paywall ? { paywall } : {}),
     ...(isAdminUser({ ...user, isAnonymous: false }) ? { staff: true as const } : {}),
   };

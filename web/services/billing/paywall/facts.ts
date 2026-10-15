@@ -105,6 +105,23 @@ export const PLAN_SPECS: Readonly<Record<"pro" | "max", readonly string[]>> = {
   ],
 };
 
+/**
+ * Each plan's Cloud VM limits as numbers: the source of the account-token
+ * `planFacts` the app renders (planFacts.ts adds Go's live VM-hour limit).
+ * Every value here must also be stated by PRODUCT_FACTS above.
+ */
+export const PLAN_LIMITS: Readonly<Record<FactPlan, {
+  readonly machines: number;
+  readonly vcpus: number;
+  readonly memoryGb: number;
+  readonly largestVcpus: number;
+  readonly largestMemoryGb: number;
+}>> = {
+  go: { machines: 1, vcpus: 2, memoryGb: 4, largestVcpus: 2, largestMemoryGb: 4 },
+  pro: { machines: 5, vcpus: 20, memoryGb: 40, largestVcpus: 8, largestMemoryGb: 16 },
+  max: { machines: 5, vcpus: 80, memoryGb: 160, largestVcpus: 32, largestMemoryGb: 64 },
+};
+
 /** `unlimited` is allowed only in these phrases, because the facts say so. */
 export const UNLIMITED_PHRASES: readonly string[] = ["unlimited workspaces"];
 

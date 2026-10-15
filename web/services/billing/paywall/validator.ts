@@ -287,12 +287,23 @@ function layoutErrors(record: Record<string, unknown>): string[] {
   return errors;
 }
 
-function entryPointKeyErrors(headlines: unknown): string[] {
+function entryPointShapeErrors(headlines: unknown): string[] {
   if (headlines === undefined) return [];
-  if (!headlines || typeof headlines !== "object" || Array.isArray(headlines)) return ["entryPointHeadlines: must be an object"];
-  return Object.keys(headlines)
-    .filter((key) => !oneOf(IOS_PAYWALL_ENTRY_POINTS, key))
-    .map((key) => `entryPointHeadlines.${key}: unknown entry point`);
+  return !headlines || typeof headlines !== "object" || Array.isArray(headlines) ? ["entryPointHeadlines: must be an object"] : [];
+}
+
+/**
+ * The entry-point headlines that pass: an unknown entry point or a headline
+ * that fails the copy rules is dropped on its own (the variant still serves
+ * its main headline there), like the app does.
+ */
+function validEntryPointHeadlines(value: unknown, context: CopyContext): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const valid = Object.entries(value).filter(([entryPoint, headline]) =>
+    oneOf(IOS_PAYWALL_ENTRY_POINTS, entryPoint)
+    && typeof headline === "string"
+    && copyErrors(`entryPointHeadlines.${entryPoint}`, headline, { maxLength: 60, required: true }, context).length === 0);
+  return valid.length > 0 ? Object.fromEntries(valid) as Record<string, string> : undefined;
 }
 
 function iosPaywallShapeErrors(record: Record<string, unknown>, experiment: string, variant: string): string[] {
@@ -300,7 +311,7 @@ function iosPaywallShapeErrors(record: Record<string, unknown>, experiment: stri
   if (record.experiment !== undefined && record.experiment !== experiment) errors.push("experiment: does not match the flag");
   if (record.variant !== undefined && record.variant !== variant) errors.push("variant: does not match the flag variant");
   if (!VARIANT_KEY.test(variant)) errors.push("variant: must be a lowercase key");
-  errors.push(...layoutErrors(record), ...entryPointKeyErrors(record.entryPointHeadlines));
+  errors.push(...layoutErrors(record), ...entryPointShapeErrors(record.entryPointHeadlines));
   if (record.highlightedPlanId !== null && !oneOf(IOS_PAYWALL_PLAN_IDS, record.highlightedPlanId)) {
     errors.push("highlightedPlanId: must be pro, max or null");
   }
@@ -346,7 +357,6 @@ export function validateIosPaywallPayload(
     ...(Array.isArray(record.bullets)
       ? record.bullets.flatMap((bullet, index) => copyErrors(`bullets[${index}]`, bullet, { maxLength: 80, required: true }, context))
       : []),
-    ...entryPointHeadlineErrors(record.entryPointHeadlines, context),
   ];
   if (errors.length > 0) return { ok: false, errors };
   return {
@@ -362,14 +372,12 @@ export function validateIosPaywallPayload(
       defaultBillingPeriod: record.defaultBillingPeriod as IosPaywallConfig["defaultBillingPeriod"],
       ctaStyle: record.ctaStyle as IosPaywallConfig["ctaStyle"],
       showYearlySavings: record.showYearlySavings as boolean,
-      ...(record.entryPointHeadlines ? { entryPointHeadlines: { ...(record.entryPointHeadlines as Record<string, string>) } } : {}),
+      ...withEntryPointHeadlines(validEntryPointHeadlines(record.entryPointHeadlines, context)),
       ...(record.fallbackLayout ? { fallbackLayout: record.fallbackLayout as IosPaywallLayout } : {}),
     },
   };
 }
 
-function entryPointHeadlineErrors(value: unknown, context: CopyContext): string[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  return Object.entries(value).flatMap(([entryPoint, headline]) =>
-    copyErrors(`entryPointHeadlines.${entryPoint}`, headline, { maxLength: 60, required: true }, context));
+function withEntryPointHeadlines(headlines: Record<string, string> | undefined): { entryPointHeadlines?: Record<string, string> } {
+  return headlines ? { entryPointHeadlines: headlines } : {};
 }

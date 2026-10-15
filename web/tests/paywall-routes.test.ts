@@ -8,6 +8,7 @@ import * as serverEventsModule from "../services/analytics/serverEvents";
 import { IOS_PAYWALL_CONTROL, IOS_PAYWALL_V1_SEED } from "../services/billing/paywall/iosPaywallV1";
 import { PLAN_SPECS } from "../services/billing/paywall/facts";
 import { copyErrors } from "../services/billing/paywall/validator";
+import { unpublishedPlanLimits } from "../services/billing/paywall/planFacts";
 import type { ServerEventInput } from "../services/analytics/serverEvents";
 
 // The route boundary: GET /api/billing/paywall and POST account-token with
@@ -216,9 +217,9 @@ describe("GET /api/billing/paywall", () => {
 
 describe("POST /api/billing/apple/account-token", () => {
   test("includes the same paywall, and staff only for staff", async () => {
-    flagAnswer = { variant: "focus-pro-yearly", payload: seed("focus-pro-yearly").payload };
+    flagAnswer = { variant: "focus-pro", payload: seed("focus-pro").payload };
     const body = await (await accountTokenRoute.POST(request("/api/billing/apple/account-token", "POST"))).json() as Record<string, unknown>;
-    expect((body.paywall as { variant: string }).variant).toBe("focus-pro-yearly");
+    expect((body.paywall as { variant: string }).variant).toBe("focus-pro");
     expect(body.staff).toBeUndefined();
     currentUser = { ...currentUser!, primaryEmail: "dev@manaflow.ai" };
     const staff = await (await accountTokenRoute.POST(request("/api/billing/apple/account-token", "POST"))).json() as Record<string, unknown>;
@@ -228,9 +229,9 @@ describe("POST /api/billing/apple/account-token", () => {
 
 describe("layouts the app can draw", () => {
   test("an app without the layouts header gets cards for a newer layout; the arm does not change", async () => {
-    flagAnswer = { variant: "checklist-pro-monthly", payload: seed("checklist-pro-monthly").payload };
+    flagAnswer = { variant: "checklist-pro", payload: seed("checklist-pro").payload };
     const old = await paywallFor("com.cmux.app", null);
-    expect(old).toMatchObject({ variant: "checklist-pro-monthly", layout: "cards" });
+    expect(old).toMatchObject({ variant: "checklist-pro", layout: "cards" });
     expect(old.entryPointHeadlines).toEqual({ locked_vm_size: "Bigger VMs come with Pro", limit: "Need more Cloud VMs?" });
     expect((await paywallFor()).layout).toBe("checklist");
     expect(events.map((event) => event.properties?.paywall_layout)).toEqual(["cards", "checklist"]);
@@ -261,11 +262,23 @@ describe("layouts the app can draw", () => {
     expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
   });
 
-  test("entry-point headlines are validated like the headline", async () => {
-    for (const entryPointHeadlines of [{ limit: "Unlimited Cloud VMs" }, { unknown_place: "Need more Cloud VMs?" }, { limit: "x".repeat(61) }]) {
-      assignments.clear();
-      flagAnswer = { variant: "hero-pro", payload: { ...seed("hero-pro").payload, entryPointHeadlines } };
-      expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
-    }
+  test("an entry-point headline that fails the copy rules is dropped on its own", async () => {
+    assignments.clear();
+    flagAnswer = { variant: "hero-pro", payload: { ...seed("hero-pro").payload, entryPointHeadlines: {
+      limit: "Unlimited Cloud VMs", unknown_place: "Need more Cloud VMs?", settings: "x".repeat(61), cloud_banner: "Need more Cloud VMs?",
+    } } };
+    const served = await paywallFor();
+    expect(served.variant).toBe("hero-pro");
+    expect(served.entryPointHeadlines).toEqual({ cloud_banner: "Need more Cloud VMs?" });
+  });
+
+  test("planFacts come from the published facts; Go only when Go is offered", async () => {
+    expect(unpublishedPlanLimits()).toEqual([]);
+    const body = await (await accountTokenRoute.POST(request("/api/billing/apple/account-token", "POST"))).json() as Record<string, unknown>;
+    expect(body.planFacts).toEqual({
+      go: { machines: 1, vcpus: 2, memoryGb: 4, largestVcpus: 2, largestMemoryGb: 4, vmHoursPerMonth: 40 },
+      pro: { machines: 5, vcpus: 20, memoryGb: 40, largestVcpus: 8, largestMemoryGb: 16, vmHoursPerMonth: null },
+      max: { machines: 5, vcpus: 80, memoryGb: 160, largestVcpus: 32, largestMemoryGb: 64, vmHoursPerMonth: null },
+    });
   });
 });
