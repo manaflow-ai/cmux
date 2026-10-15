@@ -46,8 +46,8 @@ extension TabStripView {
     }
 
     /// `growsAdded` (default false): the `added` tabs grow in from zero width (`ui.animations.newTab`
-    /// on, outside a gesture); otherwise they are there at once at full width (nx-cmdt-fix).
-    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false) {
+    /// on, outside a gesture); otherwise they are there at once at full width (nx-cmdt-fix). `keepsSelectedInView`: the strip scrolls to the selected tab.
+    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, keepsSelectedInView: Bool = false) {
         let grows = growsAdded
         result = TabLayoutEngine.layout(
             items: layoutItems(),
@@ -85,6 +85,7 @@ extension TabStripView {
             motion[slot.id] = m
         }
         scroll.target = TabScrollMath.clamp(scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
+        if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) { scroll.target = TabScrollMath.offset(revealing: slot, current: scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth, margin: metrics.scrollFadeWidth) }
         if !animated {
             scroll.snap()
             for id in dying { removeTab(id) }
