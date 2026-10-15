@@ -15,19 +15,28 @@
 //   "Steered" once the agent's next message starts; a second steer in the same step does not mark
 //   the first read.
 //
-// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// - A queued prompt shows two lines until it is opened, in WebKit (the engine cmux NEXT draws
+//   with) too: a live run showed a five-line prompt whole before any click.
+//
+// The stand-in sends what acpmux sends: the attach's `kinds` filter its page and its live events,
+// with acpmux's list of transcript records (cmux-tui/crates/acpmux/src/hub/paging.rs). A live run
+// lost "Steering" and "Sent now" because acpmux never streamed `queue_order` to the pane.
+//
+// Real Chromium and WebKit from Playwright; CI fails the file when either cannot launch
+// (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
+    await (await webkit.launch({ headless: true })).close();
   } catch {
-    console.warn("agent-pane-queue-steer: skipping (run `bunx playwright install chromium`)");
-    describe.skip("queue and steer", () => test("chromium", () => {}));
+    console.warn("agent-pane-queue-steer: skipping (run `bunx playwright install chromium webkit`)");
+    describe.skip("queue and steer", () => test("chromium and webkit", () => {}));
     return;
   }
   const { createServer } = await import("vite");
@@ -78,6 +87,42 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
     ["mux", "queued", { text: LONG, promptId: "q-1", turnId: "turn-2", position: 1 }],
     ["mux", "queued", { text: "also man what happened with the space thing", promptId: "q-2", turnId: "turn-3" }],
   ];
+  /// acpmux's mux records in the `transcript` kind (paging.rs `TRANSCRIPT_MUX_KINDS`).
+  const TRANSCRIPT_MUX_KINDS = new Set([
+    "user_message",
+    "queued",
+    "dequeued",
+    "queue_removed",
+    "prompt_retracted",
+    "turn_started",
+    "turn_result",
+    "permission_request",
+    "permission_auto",
+    "permission_decision",
+    "permission_group",
+    "permission_chat_allowance",
+    "message_superseded",
+    "failover",
+    "forked",
+    "imported",
+    "session_offer",
+    "session_offer_decision",
+    "mode",
+    "model",
+    "stopped",
+    "exited",
+  ]);
+  /// acpmux's `EventFilter::matches`: a category or an exact record kind; none passes everything.
+  let kinds: string[] | undefined;
+  const passes = (rec: { dir: string; kind: string }) =>
+    !kinds ||
+    kinds.some(
+      (kind) =>
+        kind === "all" ||
+        (kind === "transcript" && (rec.dir === "in" || TRANSCRIPT_MUX_KINDS.has(rec.kind))) ||
+        (kind === "mux" && rec.dir === "mux") ||
+        kind === rec.kind,
+    );
   let steering = true;
   let seq = 0;
   let history: Record<string, unknown>[] = [];
@@ -117,7 +162,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       if (step[1] === "queued") queue.push({ promptId: String(step[2].promptId), prompt: String(step[2].text) });
       if (step[1] === "dequeued") queue = queue.filter((q) => q.promptId !== step[2].promptId);
     }
-    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: rec }));
+    if (passes(rec)) socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: rec }));
   };
   /// acpmux's session_changed, which lists the queue as previews.
   const changed = () =>
@@ -129,7 +174,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       }),
     );
 
-  function answer(ws: Socket, method: string): unknown {
+  function answer(ws: Socket, method: string, params: { kinds?: string[] } = {}): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } };
@@ -137,7 +182,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         return { sessions: [summary()] };
       case "_acpmux/attach":
         socket = ws;
-        return { session: summary(), lastSeq: seq, events: history };
+        kinds = params.kinds;
+        return { session: summary(), lastSeq: seq, events: history.filter((rec) => passes(rec as never)) };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: seq };
       default:
@@ -148,6 +194,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  let wkBrowser: Browser | undefined;
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -157,8 +204,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
-          const result = answer(ws, message.method);
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: { kinds?: string[] } };
+          const result = answer(ws, message.method, message.params);
           if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
       },
@@ -170,9 +217,11 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
+    wkBrowser = await webkit.launch({ headless: true });
   });
   afterAll(async () => {
     await browser?.close();
+    await wkBrowser?.close();
     await vite?.close();
     await daemon?.stop(true);
   });
@@ -181,14 +230,16 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
     agentSteers: boolean,
     viewport = { width: 900, height: 760 },
     more: Step[] = [],
+    engine: "chromium" | "webkit" = "chromium",
   ): Promise<Page> {
     steering = agentSteers;
     seq = 0;
     history = [];
     queue = [];
     socket = undefined;
+    kinds = undefined;
     for (const step of [...opening, ...more]) send(step);
-    const page = await browser!.newPage({ viewport });
+    const page = await (engine === "webkit" ? wkBrowser! : browser!).newPage({ viewport });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -217,6 +268,27 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await long.click();
       await expect(long.getAttribute("aria-expanded")).resolves.toBe("true");
       expect(await long.innerText()).toBe(LONG);
+      await page.close();
+    });
+
+    test("in WebKit a queued prompt shows two lines until it is opened, then all of it", async () => {
+      const FIVE = "alpha one\nbravo two\ncharlie three\ndelta four\necho five";
+      const page = await openChat(
+        true,
+        undefined,
+        [["mux", "queued", { text: FIVE, promptId: "q-5", turnId: "turn-5" }]],
+        "webkit",
+      );
+      const text = page.locator(".acpmux-queued-text", { hasText: "alpha one" });
+      await text.waitFor();
+      // Two 18px lines, closed.
+      const closed = (await text.boundingBox())!.height;
+      expect(closed).toBeLessThanOrEqual(2 * 18 + 1);
+      await text.click();
+      await expect(text.getAttribute("aria-expanded")).resolves.toBe("true");
+      // All five lines once opened.
+      const opened = (await text.boundingBox())!.height;
+      expect(opened).toBeGreaterThanOrEqual(5 * 18 - 1);
       await page.close();
     });
 
