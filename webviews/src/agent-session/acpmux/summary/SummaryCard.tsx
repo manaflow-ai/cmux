@@ -141,7 +141,7 @@ export function SummaryCard({
           ) : (
             <span className="acpmux-summary-card__title">{t("summary.title")}</span>
           )}
-          {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
+          {!tab && counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
           <button
             type="button"
             className="acpmux-summary-card__close"
