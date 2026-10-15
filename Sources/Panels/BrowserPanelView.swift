@@ -1945,7 +1945,7 @@ struct BrowserPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
             if let prompt = panel.pageRecoveryPrompt {
-                BrowserPageRecoveryOverlay(prompt: prompt, backgroundColor: browserChromeBackgroundColor) {
+                BrowserPageRecoveryOverlay(prompt: prompt, backgroundColor: browserChromeBackgroundColor, metrics: chromeMetrics) {
                     panel.performPageRecovery(prompt)
                 }
             }
