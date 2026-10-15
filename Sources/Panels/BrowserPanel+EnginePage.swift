@@ -14,6 +14,9 @@ extension BrowserPanel {
         var page: (any BrowserPage)?
         /// The fallback reason to show, once per run; `nil` otherwise.
         var notice: BrowserEngineUnavailableReason?
+        /// Why the panel opened in WebKit although another engine was
+        /// wanted, every time (automation reports it); `nil` otherwise.
+        var fallback: BrowserEngineUnavailableReason?
     }
 
     /// Creates the page for a new panel's engine.
@@ -41,7 +44,11 @@ extension BrowserPanel {
             }
         }
         guard resolved.engine != .webkit else {
-            return EnginePageSetup(page: nil, notice: noticeIfFirst(resolved.fallback, runtime: runtime))
+            return EnginePageSetup(
+                page: nil,
+                notice: noticeIfFirst(resolved.fallback, runtime: runtime),
+                fallback: resolved.fallback
+            )
         }
         do {
             let page = try runtime.registry.makePage(
@@ -54,10 +61,10 @@ extension BrowserPanel {
             )
             return EnginePageSetup(page: page, notice: nil)
         } catch BrowserEngineError.unavailable(_, let reason) {
-            return EnginePageSetup(page: nil, notice: noticeIfFirst(reason, runtime: runtime))
+            return EnginePageSetup(page: nil, notice: noticeIfFirst(reason, runtime: runtime), fallback: reason)
         } catch {
             let reason = BrowserEngineUnavailableReason.startFailed(String(describing: error))
-            return EnginePageSetup(page: nil, notice: noticeIfFirst(reason, runtime: runtime))
+            return EnginePageSetup(page: nil, notice: noticeIfFirst(reason, runtime: runtime), fallback: reason)
         }
     }
 
@@ -84,6 +91,27 @@ extension BrowserPanel {
         return reason
     }
 
+    /// The engine a session snapshot records: `nil` for WebKit, so default
+    /// snapshots stay byte-identical.
+    var sessionSnapshotEngine: BrowserEngineKind? {
+        engineKind == .webkit ? nil : engineKind
+    }
+
+    /// The engine a restored panel opens with: the snapshot's engine (WebKit
+    /// when it has none) inherited, so `CMUX_BROWSER_ENGINE` still wins and
+    /// an unavailable Chromium falls back to WebKit with the notice.
+    static func restoredEngineChoice(
+        _ engine: BrowserEngineKind?,
+        runtime: BrowserEngineRuntime? = nil
+    ) -> BrowserEngineChoice {
+        switch (runtime ?? .shared).resolve(requested: nil, inherited: engine ?? .webkit) {
+        case .open(let choice):
+            return choice
+        case .refuse(_, let reason):
+            return BrowserEngineChoice(engine: .webkit, fallback: reason, source: .inherited)
+        }
+    }
+
     /// The panel's page when it is not WebKit; `nil` for WebKit panels.
     /// Automation uses it to take its Chromium paths.
     var automationEnginePage: (any BrowserPage)? {
@@ -108,7 +136,8 @@ extension BrowserPanel {
         }
     }
 
-    private func handleEnginePageEvent(_ event: BrowserPageEvent) {
+    /// Applies one page event (internal for tests).
+    func handleEnginePageEvent(_ event: BrowserPageEvent) {
         noteEnginePageSafetyEvent(event)
         switch event {
         case .stateChanged(let state):
@@ -121,7 +150,13 @@ extension BrowserPanel {
             webViewDidRequestClose?()
         case .devToolsVisibilityChanged(let open):
             isEngineDevToolsOpen = open
-        case .navigationFailed(let url, _, _):
+        case .navigationFailed(let url, _, _, _):
+            // A Chromium runtime that failed to start reports it as a failed
+            // load: the panel opens the page in WebKit instead of staying blank.
+            if let enginePage, let reason = engineRuntime.availability(for: enginePage.engineKind).unavailableReason {
+                fallBackToWebKit(reason: reason)
+                return
+            }
             applyEnginePageNavigationFailure(url: url)
         default:
             break
@@ -153,3 +188,6 @@ extension BrowserPanel {
         enginePage?.close()
     }
 }
+
+/// Web Inspector stays owned by the panel; ``BrowserPanel/page`` forwards to it.
+extension BrowserPanel: WebKitBrowserPageDevToolsControlling {}
