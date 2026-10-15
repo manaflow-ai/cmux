@@ -18,6 +18,9 @@
 /// the daemon also hosts every Codex session's tool commands, so a process
 /// further down (a cmux-tui server or a `cargo test` started by Codex, and
 /// the shells, wrappers and hooks below it) is not running for the daemon.
+/// A launcher between the daemon and the shell (a sandbox wrapper that
+/// forks, or one that hides the daemon's argv) makes this return false, so
+/// such a hook keeps the old behavior and posts by its inherited route.
 pub fn descends_from_codex_app_server_daemon() -> bool {
     const MAX_ANCESTORS: usize = 2;
     // SAFETY: getppid has no preconditions.
