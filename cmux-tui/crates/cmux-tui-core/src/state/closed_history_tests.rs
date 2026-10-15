@@ -104,6 +104,32 @@ fn a_partial_reopen_restores_the_chosen_members_and_keeps_the_rest() {
     assert_eq!(groups[0]["tab_ids"].as_array().map(Vec::len), Some(3), "{groups}");
 }
 
+/// A saved group that closes reopens still linked to its saved record, and
+/// in its own order.
+#[test]
+fn a_closed_saved_group_reopens_linked_and_in_order() {
+    let mux = Mux::new_for_test("closed-v2-saved", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 4);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    let group =
+        mutate(&mux, "tab_group.create", json!({"tabs": [ids[1], ids[2], ids[3]]}), "group");
+    let saved = mutate(&mux, "saved_tab_group.save", json!({"tab_group": group["id"]}), "save");
+    let saved_id = saved["id"].as_str().expect("the saved group has an id").to_string();
+    mutate(&mux, "tab_group.close", json!({"tab_group": group["id"]}), "group-close");
+    let id = read(&mux, "closed.list", json!({}))[0]["id"].clone();
+
+    // The last tab first, then the rest: the group keeps its strip order.
+    let last = mutate(&mux, "closed.reopen", json!({"closed": id, "members": [2]}), "last");
+    let rest = mutate(&mux, "closed.reopen", json!({"closed": id}), "rest");
+    let order =
+        [rest["tab_ids"][0].clone(), rest["tab_ids"][1].clone(), last["tab_ids"][0].clone()];
+    let groups = read(&mux, "tab_group.list", json!({}));
+    assert_eq!(groups.as_array().map(Vec::len), Some(1), "{groups}");
+    assert_eq!(groups[0]["id"], group["id"]);
+    assert_eq!(groups[0]["saved_tab_group_id"], saved_id.as_str(), "{groups}");
+    assert_eq!(groups[0]["tab_ids"], json!(order), "{groups}");
+}
+
 /// Reopen Closed without an id (Cmd-Shift-T): the newest group of the
 /// caller's window; then a group of a closed window; never a group of
 /// another live window. A retry with the same key replays, it does not
