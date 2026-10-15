@@ -28,16 +28,6 @@ extension TerminalController {
         return (engine, nil)
     }
 
-    /// Whether this app can open Chromium browser panels now.
-    ///
-    /// Chromium is available only once the engine integration registers a
-    /// Chromium provider; this build has none, so it reports the runtime as
-    /// not bundled.
-    @MainActor
-    func v2BrowserChromiumAvailability() -> BrowserEngineAvailability {
-        .unavailable(.notBundled)
-    }
-
     /// Runs one engine-page operation on the main actor and waits for it on
     /// the socket worker, at most `timeout` seconds. Nil when it did not finish
     /// in time (the operation is then cancelled).
@@ -95,11 +85,19 @@ extension TerminalController {
 
     /// The refusal for an explicitly requested engine that cannot open, or
     /// nil when the request can be honored.
+    ///
+    /// The app's engine runtime decides: Chromium is available once its
+    /// provider is registered (the runtime is bundled and started).
     @MainActor
-    func v2BrowserEngineRefusal(_ requested: BrowserEngineKind?) -> V2CallResult? {
-        guard requested == .chromium else { return nil }
-        guard case .unavailable(let reason) = v2BrowserChromiumAvailability() else { return nil }
-        var data: [String: Any] = ["engine": BrowserEngineKind.chromium.rawValue, "reason": reason.code]
+    func v2BrowserEngineRefusal(
+        _ requested: BrowserEngineKind?,
+        runtime: BrowserEngineRuntime = .shared
+    ) -> V2CallResult? {
+        guard let requested,
+              case .refuse(let engine, let reason) = runtime.resolve(requested: requested) else {
+            return nil
+        }
+        var data: [String: Any] = ["engine": engine.rawValue, "reason": reason.code]
         if let detail = reason.detail {
             data["detail"] = detail
         }
@@ -107,9 +105,22 @@ extension TerminalController {
             code: "engine_unavailable",
             message: String(
                 localized: "cli.browser.engine.error.chromiumUnavailable",
-                defaultValue: "Chromium is not available in this build of cmux"
+                defaultValue: "The Chromium browser engine is not available"
             ),
             data: data
+        )
+    }
+
+    /// Dock browsers open with WebKit only; an explicit other engine is
+    /// refused there.
+    nonisolated func v2BrowserEngineUnsupportedInDock(_ engine: BrowserEngineKind) -> V2CallResult {
+        .err(
+            code: "not_supported",
+            message: String(
+                localized: "cli.browser.engine.error.dockUnsupported",
+                defaultValue: "Dock browsers use WebKit; open the page in a workspace pane to use another engine"
+            ),
+            data: ["engine": engine.rawValue]
         )
     }
 }

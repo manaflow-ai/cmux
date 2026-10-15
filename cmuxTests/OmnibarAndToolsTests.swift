@@ -1133,6 +1133,20 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
         XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "chrome://ex", suggestion: first))
     }
 
+    func testNormalAddressRankingIsUnchangedWithoutInternalPageCompletions() {
+        let resolved = BrowserURLResolver(allowsChromiumSchemes: true).navigableURL(from: "example.com")
+        let withDefault = buildOmnibarSuggestions(
+            query: "example.com", engineName: "Google", historyEntries: [], openTabMatches: [],
+            remoteQueries: [], resolvedURL: resolved, limit: 8
+        )
+        let withEmpty = buildOmnibarSuggestions(
+            query: "example.com", engineName: "Google", historyEntries: [], openTabMatches: [],
+            remoteQueries: [], resolvedURL: resolved, internalPageCompletions: [], limit: 8
+        )
+        XCTAssertEqual(withDefault.map(\.completion), withEmpty.map(\.completion))
+        XCTAssertEqual(withEmpty.first?.completion, "https://example.com")
+    }
+
     func testWebKitPanelsGetNoInternalPageCompletions() {
         let results = buildOmnibarSuggestions(
             query: "chrome://ex",

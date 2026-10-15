@@ -84,6 +84,12 @@ extension BrowserPanel {
         return reason
     }
 
+    /// The panel's page when it is not WebKit; `nil` for WebKit panels.
+    /// Automation uses it to take its Chromium paths.
+    var automationEnginePage: (any BrowserPage)? {
+        enginePage
+    }
+
     /// Starts mirroring the non-WebKit page's events into the panel.
     func startEnginePageEvents() {
         guard let enginePage, enginePageEventsTask == nil else { return }
