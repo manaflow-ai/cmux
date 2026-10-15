@@ -34,7 +34,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
-    private var startupObservation: Task<Void, Never>?
+    /// The local daemon's first connection: the connecting screen, or the not-connected notice over a drawn layout.
+    let startup: DaemonStartupPresence
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
     /// workspace's colors when they share the room's light/dark mode, so it
@@ -42,7 +43,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
-    private(set) var connectingView: DaemonConnectingView?
+    var connectingView: DaemonConnectingView? { startup.connectingView }
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
@@ -55,6 +56,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.sidebar = sidebar
         SidebarProfileControl(services: services).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         root = WindowRootView(sidebar: sidebar.container)
+        startup = DaemonStartupPresence(daemon: services.daemon, host: root, anchor: root.contentHost)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
@@ -104,7 +106,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation?.cancel()
         sidebarObservation?.cancel()
         titleObservation?.cancel()
-        startupObservation?.cancel()
+        startup.teardown()
         roomObservation?.cancel()
         content?.teardown()
         content = nil
@@ -180,19 +182,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
-        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
-        if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
-        connectingView = view
-        root.show(view)
+        root.show(startup.showConnecting())
         themeScope.show(nil)
-        guard startupObservation == nil else { return }
-        let daemon = services.daemon
-        startupObservation = Task { [weak self, weak view] in
-            for await startup in ObservationStream({ daemon.startup }) {
-                view?.apply(startup)
-                if self?.content != nil { return }
-            }
-        }
     }
 
     private func isWaiting(for machineID: String) -> Bool {
@@ -224,10 +215,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.themes.contentDidShow(controller)
         themeScope.show(controller.themeScope)
         trimParked()
-        startupObservation?.cancel()
-        startupObservation = nil
-        if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
-        connectingView = nil
+        startup.workspaceDidShow()
         DebugTimings.markLaunch("workspace_content_shown")
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in

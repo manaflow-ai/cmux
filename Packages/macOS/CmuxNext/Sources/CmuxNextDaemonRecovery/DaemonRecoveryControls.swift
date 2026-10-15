@@ -7,6 +7,7 @@ import CmuxNextDesign
 /// Strings of the launch window's connecting and failure screen and the
 /// daemon recovery controls (Resources/Localizable.xcstrings).
 enum DaemonRecoveryStrings {
+    static var notConnected: String { String(localized: "daemon.notConnected", defaultValue: "Not connected to cmux-tui", bundle: .module) }
     static var connecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux-tui…", bundle: .module) }
     static var serviceUnavailable: String {
         String(localized: "daemon.serviceUnavailable", defaultValue: "cmux couldn’t start its background service.", bundle: .module)

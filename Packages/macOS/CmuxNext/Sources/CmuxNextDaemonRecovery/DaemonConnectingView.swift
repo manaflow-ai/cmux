@@ -92,8 +92,12 @@ public final class DaemonConnectingView: NSView {
         }
     }
 
+    /// Entered or left a window (`DaemonStartupPresence`: the not-connected notice shows while this is off screen).
+    var onWindowChange: (() -> Void)?
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        onWindowChange?()
         viewDidChangeEffectiveAppearance()
         if window == nil {
             cancelStagger()
@@ -164,7 +168,7 @@ public final class DaemonConnectingView: NSView {
 
     /// What the user can expect, in plain words, or nil when no advice would be true (another
     /// app serves the socket, a bad launch tag): Copy Details carries the specifics.
-    private static func plainReason(_ error: DaemonError) -> String? {
+    static func plainReason(_ error: DaemonError) -> String? {
         switch error {
         case .binaryNotFound: DaemonRecoveryStrings.reinstall
         case .unsupportedProtocol: RefusalStrings.restartToUpdateDaemon
