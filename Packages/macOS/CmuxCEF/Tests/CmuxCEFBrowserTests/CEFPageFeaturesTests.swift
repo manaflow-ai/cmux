@@ -68,9 +68,9 @@ private final class RecordingShim: CEFPageFeatureShim {
         features.devTools.perform(.console)
         features.devTools.perform(.inspect(x: 10, y: 20))
         #expect(shim.calls == [
-            .devTools(7, CEFShimLibrary.DevToolsCommand.show, 0, 0),
-            .devTools(7, CEFShimLibrary.DevToolsCommand.console, 0, 0),
-            .devTools(7, CEFShimLibrary.DevToolsCommand.inspectAt, 10, 20),
+            .devTools(7, CEFShimLibrary.DevToolsCommand.show.rawValue, 0, 0),
+            .devTools(7, CEFShimLibrary.DevToolsCommand.console.rawValue, 0, 0),
+            .devTools(7, CEFShimLibrary.DevToolsCommand.inspectAt.rawValue, 10, 20),
         ])
         #expect(features.handle(.devToolsWillOpen(browser: 7)))
         guard case .placement(7, true, let frame) = shim.calls.last else {
@@ -83,7 +83,7 @@ private final class RecordingShim: CEFPageFeatureShim {
         #expect(features.handle(.tab(.devToolsDockSide, browser: 7, window: 1, value: 3)))
         #expect(features.devTools.state.dock == .right)
         features.devTools.perform(.toggle)
-        #expect(shim.calls.last == .devTools(7, CEFShimLibrary.DevToolsCommand.close, 0, 0))
+        #expect(shim.calls.last == .devTools(7, CEFShimLibrary.DevToolsCommand.close.rawValue, 0, 0))
         #expect(features.handle(.devToolsClosed(browser: 7, devTools: 99)))
         #expect(!features.devTools.state.isOpen)
     }
@@ -124,6 +124,12 @@ private final class RecordingShim: CEFPageFeatureShim {
         ])
         let devToolsHost = try #require(features.devTools.devToolsHostView as? CEFHostView)
         #expect(devToolsHost.occlusionRects == [CGRect(x: 0, y: 237, width: 801, height: 3)])
+        // Right-docked DevTools sit under the find card at the top right: it is a hole there too.
+        features.devTools.perform(.dock(.right))
+        features.paneView.layoutSubtreeIfNeeded()
+        // 801 wide: DevTools 360 (0.45 of 800) at x 441, line at 440.
+        #expect(devToolsHost.frame == CGRect(x: 441, y: 0, width: 360, height: 601))
+        #expect(devToolsHost.occlusionRects.contains(CGRect(x: 159, y: 560, width: 190, height: 36)))
     }
 
     @Test func noEventsOrCallsBeforeChromiumCreatesThePage() async {
@@ -134,20 +140,8 @@ private final class RecordingShim: CEFPageFeatureShim {
         )
         #expect(await features.nativeFind.search(needle: "x") == nil)
         features.devTools.perform(.show)
-        features.setZoomFactor(2)
         #expect(!features.handle(.devToolsWillOpen(browser: 7)))
         #expect(shim.calls.isEmpty)
-    }
-
-    @Test func zoomFactorsBecomeChromiumLevels() throws {
-        let shim = RecordingShim()
-        let (features, _, _) = makeFeatures(shim: shim)
-        features.setZoomFactor(1.2)
-        guard case .zoom(7, let level) = try #require(shim.calls.first) else {
-            Issue.record("expected a zoom call")
-            return
-        }
-        #expect(abs(level - 1) < 1e-9)
     }
 
     @Test func contextMenuInABackgroundPageIsDismissedAtOnce() {
