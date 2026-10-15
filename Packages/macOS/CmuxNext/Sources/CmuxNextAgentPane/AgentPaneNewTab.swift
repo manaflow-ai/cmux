@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import Foundation
 
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
@@ -57,7 +58,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil, styleSwitch: String? = nil) {
+                template: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -68,7 +69,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.layout = layout
         self.template = template
-        self.styleSwitch = styleSwitch
+        self.styleSwitch = AgentPaneTunables.newTabStyleSwitch.override?.rawValue
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home

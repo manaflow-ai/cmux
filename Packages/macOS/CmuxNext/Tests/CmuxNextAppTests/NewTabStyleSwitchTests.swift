@@ -65,14 +65,14 @@ struct NewTabStyleSwitchTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = TunableStore.shared
         store.activate(file: nil)
-        store.register(NewTabTunables.all)
-        defer { store.reset([NewTabTunables.styleSwitch.key]) }
+        store.register(AgentPaneTunables.all)
+        defer { store.reset([AgentPaneTunables.newTabStyleSwitch.key]) }
 
         #expect(NewTabPage.sparePage(services).styleSwitch == nil)
-        for look in NewTabStyleSwitchChoice.allCases {
-            #expect(store.set(NewTabTunables.styleSwitch.key, .choice(look.rawValue)) != nil)
+        for look in AgentPaneNewTabStyleSwitch.allCases {
+            #expect(store.set(AgentPaneTunables.newTabStyleSwitch.key, .choice(look.rawValue)) != nil)
             #expect(NewTabPage.sparePage(services).styleSwitch == look.rawValue)
         }
-        #expect(Set(NewTabStyleSwitchChoice.allCases.map(\.rawValue)) == ["round", "hint", "dots", "strip", "names"])
+        #expect(Set(AgentPaneNewTabStyleSwitch.allCases.map(\.rawValue)) == ["round", "hint", "dots", "strip", "names"])
     }
 }

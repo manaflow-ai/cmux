@@ -194,8 +194,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
-            template: services.settings?.snapshot.newTabTemplate?.rawValue,
-            styleSwitch: NewTabTunables.styleSwitch.override?.rawValue
+            template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
     }
 
@@ -206,8 +205,7 @@ enum NewTabPage {
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
-            template: services.settings?.snapshot.newTabTemplate?.rawValue,
-            styleSwitch: NewTabTunables.styleSwitch.override?.rawValue
+            template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
     }
 
