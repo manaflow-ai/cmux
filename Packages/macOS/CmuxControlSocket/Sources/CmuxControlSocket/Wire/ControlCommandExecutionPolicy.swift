@@ -350,6 +350,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.geolocation.set", "browser.offline.set",
         // Native input waits for WebKit to process the events.
         "browser.input_mouse", "browser.input_keyboard",
+        // Offline mode compiles a content rule list before replying.
+        "browser.geolocation.set", "browser.offline.set",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so
