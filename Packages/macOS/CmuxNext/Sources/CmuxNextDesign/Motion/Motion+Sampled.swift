@@ -4,7 +4,7 @@ extension MotionTunables {
     /// Default length of a color change before cmux.json applies (`appearance.colorTransition.duration`,
     /// whose own default is the same 200 ms; schemas/settings/source/color-transition.json). The
     /// user's setting replaces it; nothing retunes it at run time.
-    public static let colorTransitionDefaultDuration: TimeInterval = 0.2
+    public nonisolated static let colorTransitionDefaultDuration: TimeInterval = 0.2
 }
 
 extension Motion {
