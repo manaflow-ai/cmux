@@ -1,6 +1,8 @@
 //! Claude's todo list (cx-ncc.80): Claude Code's TodoWrite tool call becomes
 //! an ACP `plan` update with its entries, which clients draw as a checklist
-//! (Codex sends `plan` itself).
+//! (Codex sends `plan` itself). Each entry keeps the todo's present-tense
+//! `activeForm` under `_meta.claude` (cx-ncc.105), which the pane's activity
+//! line shows for the todo in progress.
 
 use super::*;
 
@@ -25,9 +27,12 @@ async fn a_claude_todo_write_becomes_an_acp_plan() {
     assert_eq!(
         plans,
         vec![json!([
-            {"content": "Add retry", "status": "completed", "priority": "medium"},
-            {"content": "Cover it", "status": "in_progress", "priority": "medium"},
-            {"content": "Update docs", "status": "pending", "priority": "medium"},
+            {"content": "Add retry", "status": "completed", "priority": "medium",
+             "_meta": {"claude": {"activeForm": "Adding retry"}}},
+            {"content": "Cover it", "status": "in_progress", "priority": "medium",
+             "_meta": {"claude": {"activeForm": "Covering it"}}},
+            {"content": "Update docs", "status": "pending", "priority": "medium",
+             "_meta": {"claude": {"activeForm": "Updating docs"}}},
         ])]
     );
     hub.shutdown_all().await;

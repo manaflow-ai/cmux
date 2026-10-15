@@ -80,10 +80,32 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     ...todoWrite("todo-live"),
     ["in", "agent_message_chunk", say("Adding retry now.")],
   ];
+  // A running turn between calls, with Labs on: the activity line under the card names the todo in
+  // progress by Claude's present-tense `activeForm` (cx-ncc.105), which acpmux keeps under
+  // `_meta.claude`.
+  const DOING = "0190a000-0000-7000-8000-0000000000a3";
+  const doing = (content: string, status: string, activeForm: string) => ({
+    ...todo(content, status),
+    _meta: { claude: { activeForm } },
+  });
+  const doingSteps: Step[] = [
+    ["mux", "user_message", { text: "Add retry and cover it" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "plan",
+      plan(
+        doing("Add retry to the uploader", "completed", "Adding retry to the uploader"),
+        doing("Cover it with a test", "in_progress", "Covering it with a test"),
+      ),
+    ],
+    ...todoWrite("todo-doing"),
+  ];
   const record = (sessionId: string, list: Step[]) =>
     list.map(([dir, kind, msg], index) => ({ sessionId, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
   const events = record(CHAT, steps);
   const liveEvents = record(LIVE, liveSteps);
+  const doingEvents = record(DOING, doingSteps);
   const entry = (sessionId: string, status: string) => ({
     sessionId,
     cwd: "/home/dev/uploader",
@@ -96,14 +118,20 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
   });
   const session = entry(CHAT, "idle");
   const live = entry(LIVE, "running");
+  const doingChat = entry(DOING, "running");
 
   function answer(method: string, params: Record<string, any> = {}): unknown {
-    const [chat, chatEvents] = params.sessionId === LIVE ? [live, liveEvents] : [session, events];
+    const [chat, chatEvents] =
+      params.sessionId === LIVE
+        ? [live, liveEvents]
+        : params.sessionId === DOING
+          ? [doingChat, doingEvents]
+          : [session, events];
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session, live] };
+        return { sessions: [session, live, doingChat] };
       case "_acpmux/attach":
         return { session: chat, lastSeq: chatEvents.length, events: chatEvents };
       case "_acpmux/events":
@@ -212,6 +240,18 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     const list = await page.locator(".cv-plan").evaluate((node) => node.getBoundingClientRect().top);
     expect(await top("I'll track this.")).toBeLessThan(list);
     expect(list).toBeLessThan(await top("Adding retry now."));
+    await page.close();
+  });
+  test("with Labs on, the activity line names the todo in progress in its present tense", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(DOING));
+    await page.locator(".cv-plan").waitFor();
+    await page.evaluate(() =>
+      (window as { cmuxAcpmuxBridge?: { applyPreview?(on: boolean): void } }).cmuxAcpmuxBridge?.applyPreview?.(true),
+    );
+    const label = page.locator(".cv-activity__label");
+    await label.waitFor();
+    expect(await label.textContent()).toBe("Covering it with a test");
     await page.close();
   });
 });
