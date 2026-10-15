@@ -1,4 +1,4 @@
-// The session side rail (cx-ncc.101, Labs `sessionRail`; Claude Code desktop's right rail): a column
+// The session side rail (cx-ncc.101, Debug Settings `agent.sessionRail`; Claude Code desktop's right rail): a column
 // beside the chat with where the session runs and its folders (Environment), how much of the
 // context window it used (Context) and the files it created or changed (Outputs), each opening its
 // diff. A header button shows and hides it. It reads only acpmux's common snapshot (the summary and
@@ -6,10 +6,10 @@
 // rail. Connectors wait for acpmux to report each session's MCP servers (cx-ncc.105); Remote Control
 // is Claude-only and stays out (Leo, 2026-10-14).
 import { useMemo, useState, type ReactNode } from "react";
-import { useLabsFlag } from "../../../experiments/labs";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Counts } from "../changes/Counts";
 import type { TurnFile } from "../diff";
+import { useHeaderState } from "../header/headerState";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -43,7 +43,7 @@ function saveOpen(open: boolean) {
   }
 }
 
-/// The header button and the rail for the chat's pane, or neither while the Labs flag is off. The
+/// The header button and the rail for the chat's pane, or neither while the Debug Settings toggle is off. The
 /// App puts the button in the header's actions and the rail beside the chat column.
 export function useSessionRail({
   snapshot,
@@ -57,7 +57,7 @@ export function useSessionRail({
   onOpenOutput?: (path: string) => void;
 }): { button?: ReactNode; rail?: ReactNode } {
   const t = useT();
-  const enabled = useLabsFlag("sessionRail");
+  const enabled = useHeaderState().sessionRail;
   const [open, setOpen] = useState(readOpen);
   const [cards, setCards] = useState<Cards>(DEFAULT_CARDS);
   const shown = enabled && open;

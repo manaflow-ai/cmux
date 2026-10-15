@@ -1,4 +1,4 @@
-// The session side rail (cx-ncc.101, Labs `sessionRail`, Claude Code desktop parity): with the flag
+// The session side rail (cx-ncc.101, Debug Settings `agent.sessionRail`, Claude Code desktop parity): with the flag
 // on, a header button opens a rail beside the chat with where the session runs and its folders
 // (Environment), how much of the context window it used (Context) and the files it changed
 // (Outputs), each of which opens its diff. With the flag off the pane has neither the button nor
@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { useSessionRail } from "../src/agent-session/acpmux/summary/SessionRail";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
 
@@ -17,12 +18,13 @@ let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-function installDom(labs: string): HTMLElement {
+function installDom(sessionRail: boolean): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  dom.window.document.documentElement.setAttribute("data-labs", labs);
+  // The App pushes Debug Settings `agent.sessionRail` with the header state.
+  setHeaderState({ sessionRail });
   const replacements: Record<string, unknown> = {
     window: dom.window,
     document: dom.window.document,
@@ -105,7 +107,7 @@ const card = (container: HTMLElement, name: string) =>
 const click = (element: HTMLElement) => act(async () => element.click());
 
 test("the header's toggle opens a rail with the session's environment, context use and outputs", async () => {
-  const container = installDom("sessionRail");
+  const container = installDom(true);
   const opened = await render(container, localChat);
   expect(rail(container)).toBeNull();
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
@@ -151,7 +153,7 @@ test("the header's toggle opens a rail with the session's environment, context u
 });
 
 test("a cloud session names its host; no usage reads a dash; no edits say so", async () => {
-  const container = installDom("sessionRail");
+  const container = installDom(true);
   const base = chat([]);
   await render(container, {
     ...base,
@@ -167,8 +169,8 @@ test("a cloud session names its host; no usage reads a dash; no edits say so", a
   expect(card(container, "Outputs")!.textContent).toContain("No files changed yet");
 });
 
-test("with the flag off there is no toggle and no rail", async () => {
-  const container = installDom("");
+test("with the toggle off there is no toggle button and no rail", async () => {
+  const container = installDom(false);
   await render(container, localChat);
   expect(toggle(container)).toBeNull();
   expect(rail(container)).toBeNull();

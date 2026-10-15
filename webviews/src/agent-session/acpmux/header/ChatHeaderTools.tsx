@@ -150,7 +150,7 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The session side rail's toggle (Labs `sessionRail`, summary/SessionRail.tsx), before the summary.
+  /// The session side rail's toggle (Debug Settings `agent.sessionRail`, summary/SessionRail.tsx), before the summary.
   sessionRail?: ReactNode;
 }) {
   const t = useT();

@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample sessions and files), not shipped UI.
-// The session side rail (Labs `sessionRail`) as the real SessionRail renders it beside a chat: a
+// The session side rail (Debug Settings `agent.sessionRail`) as the real SessionRail renders it beside a chat: a
 // local chat with some context used and three files written, and a Cloud chat before its first
 // usage report and edit. Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";

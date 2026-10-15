@@ -2698,7 +2698,7 @@ function AcpmuxPane() {
     },
     [snapshot.rows, openDiff],
   );
-  // The session side rail (Labs `sessionRail`): its button in the header, the rail beside the chat.
+  // The session side rail (Debug Settings `agent.sessionRail`): its button in the header, the rail beside the chat.
   const sessionRail = useSessionRail({ snapshot, machineName, onOpenOutput: openOutput });
   // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
   // the selected chat. A chat with no turn yet has no changes view to open.
