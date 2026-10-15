@@ -3685,8 +3685,6 @@ mod command_history;
 #[cfg(unix)]
 #[path = "cli/conversation_inbox_state.rs"]
 mod conversation_inbox_state;
-#[path = "cli/home_inbox.rs"]
-mod home_inbox;
 #[cfg(unix)]
 #[path = "cli/conversation_person_credentials.rs"]
 mod conversation_person_credentials;
@@ -3717,6 +3715,8 @@ mod frontend_browser_status;
 mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
+#[path = "cli/home_inbox.rs"]
+mod home_inbox;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]

@@ -40,7 +40,12 @@ fn row(inbox: &Value, id: &str) -> Value {
 }
 
 fn order(inbox: &Value) -> Vec<String> {
-    inbox["rows"].as_array().unwrap().iter().map(|row| row["id"].as_str().unwrap().to_owned()).collect()
+    inbox["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 /// A JSON-lines client of the daemon's Unix socket.
@@ -56,6 +61,27 @@ impl Unix {
         stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
         let writer = stream.try_clone_box().unwrap();
         Self { reader: BufReader::new(stream), writer, next: 1 }
+    }
+
+    /// One `cmux.protocol/2` mutation; its result.
+    fn v2(&mut self, operation: &str, params: Value, key: &str) -> Value {
+        let id = format!("home-inbox-{}", self.next);
+        self.next += 1;
+        let mut params = params.as_object().cloned().unwrap_or_default();
+        params.insert("machine".into(), json!("current"));
+        params.insert("session".into(), json!("current"));
+        let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+                           "operation": operation, "params": params, "idempotency_key": key});
+        writeln!(self.writer, "{frame}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert!(self.reader.read_line(&mut line).unwrap() > 0, "daemon closed the connection");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value["id"] == json!(id) && value["type"] == "response" {
+                assert_eq!(value["ok"], true, "{operation}: {value}");
+                return value["result"].clone();
+            }
+        }
     }
 
     fn request(&mut self, cmd: &str, params: Value) -> Value {
@@ -89,7 +115,8 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
     );
     page.request("subscribe", json!({}));
 
-    let mux = json!({"id": "agent_mux", "kind": "agent", "display_name": "Chief", "agent_class": "mux"});
+    let mux =
+        json!({"id": "agent_mux", "kind": "agent", "display_name": "Chief", "agent_class": "mux"});
     let builder = json!({"id": "agent_builder", "kind": "agent", "display_name": "Builder"});
     let docs = json!({"id": "agent_docs", "kind": "agent", "display_name": "Docs"});
     // Made in this order (created_at ascending).
@@ -99,15 +126,19 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
     let release = create(&mut page, "inbox-release", "release", json!([mux, builder, docs]));
 
     // The person renames the Chief (its registry record): the row follows.
-    let renamed = page.v2("chief.profile.update", json!({"chief": "agent_mux", "display_name": "Release Chief"}));
-    assert_eq!(renamed["ok"], true, "{renamed}");
+    let mut home = Unix::open(&server.socket);
+    home.v2(
+        "chief.profile.update",
+        json!({"chief": "agent_mux", "display_name": "Release Chief"}),
+        "rename-chief",
+    );
 
     // The Chief writes in its direct conversation on its own bound connection.
-    let mut home = Unix::open(&server.socket);
-    let token = home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     let mut agent = Unix::open(&server.socket);
     agent.request("conversation-bind", json!({"participant": "agent_mux", "token": token}));
     agent.request(
@@ -129,11 +160,24 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
     assert_eq!(chief_row["unread"], 1, "{chief_row}");
     assert_eq!(chief_row["preview"], "Release notes are ready for review.", "{chief_row}");
     assert_eq!(chief_row["last_author"], "agent_mux", "{chief_row}");
+    // Of two conversations with the same one participant, the older (by
+    // created_at, then id: both may be made in one millisecond here) is the
+    // direct one and the later titled one is a channel.
+    let list = page.request("conversation-list", json!({}));
+    let made = |id: &str| {
+        let summary =
+            list["conversations"].as_array().unwrap().iter().find(|c| c["id"] == id).unwrap();
+        (summary["created_at"].as_str().unwrap().to_owned(), id.to_owned())
+    };
+    let (direct, room) = if made(&direct) <= made(&room) { (direct, room) } else { (room, direct) };
     assert_eq!(row(&inbox, &direct)["kind"], "direct", "{inbox}");
-    assert_eq!(row(&inbox, &direct)["name"], "Builder", "{inbox}");
     assert!(row(&inbox, &direct).get("chief_state").is_none(), "{inbox}");
-    // A later titled conversation with the same one participant is a channel.
     assert_eq!(row(&inbox, &room)["kind"], "channel", "{inbox}");
+    // A direct row's name is its title.
+    assert!(
+        ["Builder", "builder room"].contains(&row(&inbox, &direct)["name"].as_str().unwrap()),
+        "{inbox}"
+    );
     let release_row = row(&inbox, &release);
     assert_eq!(release_row["kind"], "channel", "{release_row}");
     assert_eq!(release_row["unread"], 0, "{release_row}");
@@ -162,7 +206,11 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
         json!({"conversation": release, "op": {"kind": "inbox.mark_unread", "unread": true}}),
     );
     let pinned = page.request("home-inbox", json!({}));
-    assert_eq!(&order(&pinned)[..4], &[direct.clone(), room.clone(), release.clone(), chief.clone()], "{pinned}");
+    assert_eq!(
+        &order(&pinned)[..4],
+        &[direct.clone(), room.clone(), release.clone(), chief.clone()],
+        "{pinned}"
+    );
     assert_eq!(row(&pinned, &direct)["pinned"], true, "{pinned}");
     assert_eq!(row(&pinned, &direct)["pin_position"], 1, "{pinned}");
     assert_eq!(row(&pinned, &release)["marked_unread"], true, "{pinned}");

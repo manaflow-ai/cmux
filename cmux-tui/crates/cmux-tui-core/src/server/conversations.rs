@@ -73,6 +73,10 @@ pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
 /// does) and never as the owner: it cannot mint, import or use owner-only
 /// commands, and only the owner's own connection mints the credential.
 pub const CONVERSATION_PERSON_CREDENTIALS_CAPABILITY: &str = "conversation-person-credentials-v1";
+/// `home-inbox`: the Home list rows the caller sees, derived by the owner
+/// (kind, display name, unread count, preview, a Chief's live state, the
+/// caller's pins and marks, list order), so every view shows the same list.
+pub const HOME_INBOX_CAPABILITY: &str = "home-inbox-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -301,6 +305,42 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
         })
         .collect::<anyhow::Result<_>>()?;
     Ok(json!({"conversations": conversations}))
+}
+
+/// `home-inbox`: the caller's Home rows over the local conversations
+/// (`cmux_conversation::home_inbox`): the same summaries as
+/// `conversation-list`, with the caller's pins and marks, the Chief
+/// registry's current names and who types now.
+pub(super) fn home_inbox(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let principal = mux.conversation_principal(client);
+    let (conversations, states) =
+        mux.with_conversations(|store| Ok((store.list()?, store.inbox_states(&principal)?)))?;
+    let typing = conversations
+        .iter()
+        .map(|summary| (summary.id.clone(), mux.conversation_typing(&summary.id)))
+        .filter(|(_, ids)| !ids.is_empty())
+        .collect();
+    let input = cmux_conversation::HomeInboxInput {
+        me: &principal,
+        states: states
+            .into_iter()
+            .map(|(id, state)| {
+                (
+                    id,
+                    cmux_conversation::HomeListState {
+                        pinned: state.pinned,
+                        pin_position: state.pin_position,
+                        marked_unread: state.marked_unread,
+                    },
+                )
+            })
+            .collect(),
+        chief_names: super::chief_registry_resource::chief_names(mux),
+        typing,
+    };
+    let rows = cmux_conversation::home_inbox(&conversations, &input);
+    Ok(json!({"me": principal, "rows": rows}))
 }
 
 /// `conversation-inbox-op`: sets the caller's own pin or "marked unread" of
