@@ -24,7 +24,7 @@ import WebKit
         )
     }
 
-    private static func defaultAutoSelection(
+    static func defaultAutoSelection(
         protectionSpace: URLProtectionSpace,
         candidates: [BrowserClientCertificateCredentialCandidate]
     ) -> BrowserClientCertificateCredentialCandidate? {
