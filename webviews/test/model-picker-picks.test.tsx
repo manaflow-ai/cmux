@@ -179,8 +179,7 @@ async function mount(start: {
   return { sent, catalog: BUNDLED_MODEL_CATALOG };
 }
 
-// The model the chip names, in full: its title (the visible name drops the vendor its mark draws).
-const chip = () => host.querySelector('[data-menu="Model"]')?.getAttribute("title") ?? "";
+const chip = () => host.querySelector(".acpmux-model-name")?.textContent ?? "";
 
 async function openOn(harnessName: string) {
   if (!host.querySelector(".acpmux-mp"))
