@@ -113,7 +113,7 @@ export type VariantStats = {
   /** Of those, people with a primary-metric event after their first exposure. */
   readonly conversions: number;
   /**
-   * First exposures since the last allocation change (for the SRM test).
+   * Exposed people assigned since the last allocation change (for the SRM test).
    * Sticky first exposures are left out: an earlier exposure was lost, so the
    * user was assigned under an older split.
    */
@@ -145,7 +145,8 @@ const VIEW_CLOCK_SKEW_SECONDS = 300;
  * saw the paywall is not exposed.
  */
 function exposureSubquery(definition: ExperimentDefinition): string {
-  return `SELECT a.person_id AS person_id, a.variant AS variant, a.first_sticky AS first_sticky, min(v.timestamp) AS first_at
+  return `SELECT a.person_id AS person_id, a.variant AS variant, a.first_sticky AS first_sticky, a.assigned_at AS assigned_at,
+      min(v.timestamp) AS first_at
     FROM (
       SELECT person_id, argMin(properties.paywall_variant, timestamp) AS variant, min(timestamp) AS assigned_at,
         argMin(coalesce(toString(properties.paywall_sticky), ''), timestamp) AS first_sticky
@@ -164,7 +165,7 @@ function exposureSubquery(definition: ExperimentDefinition): string {
         AND (${definition.exposureWhere})
     ) AS v ON a.person_id = v.person_id
     WHERE v.timestamp >= a.assigned_at - toIntervalSecond(${VIEW_CLOCK_SKEW_SECONDS})
-    GROUP BY a.person_id, a.variant, a.first_sticky`;
+    GROUP BY a.person_id, a.variant, a.first_sticky, a.assigned_at`;
 }
 
 /** People whose exposure event named a different arm than the server assigned (an app bug if not 0). */
@@ -172,18 +173,18 @@ export async function clientVariantMismatches(api: PostHogApi, definition: Exper
   const rows = await api.query(`SELECT count(DISTINCT e.person_id)
     FROM (${exposureSubquery(definition)}) AS e
     INNER JOIN (
-      SELECT person_id, properties.paywall_variant AS client_variant FROM events
+      SELECT person_id, coalesce(toString(properties.paywall_variant), '') AS client_variant, timestamp FROM events
       WHERE event = ${hogqlString(definition.exposureEvent)}
         AND properties.paywall_experiment = ${hogqlString(definition.key)}
         AND timestamp >= ${hogqlTimestamp(definition.startDate)}
     ) AS c ON e.person_id = c.person_id
-    WHERE c.client_variant != e.variant`);
+    WHERE c.timestamp >= e.assigned_at - toIntervalSecond(${VIEW_CLOCK_SKEW_SECONDS}) AND c.client_variant != e.variant`);
   return Number(rows[0]?.[0] ?? 0);
 }
 
 function metricQuery(definition: ExperimentDefinition, metric: ExperimentMetric, since: string): string {
   return `SELECT e.variant, count() AS exposed, countIf(m.last_at >= e.first_at) AS converted,
-      countIf(e.first_at >= ${hogqlTimestamp(since)} AND e.first_sticky NOT IN ('true', '1')) AS exposed_since
+      countIf(e.assigned_at >= ${hogqlTimestamp(since)} AND e.first_sticky NOT IN ('true', '1')) AS exposed_since
     FROM (${exposureSubquery(definition)}) AS e
     LEFT JOIN (
       SELECT person_id, max(timestamp) AS last_at FROM events
@@ -688,6 +689,10 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
     if (!found) throw new Error(`Flag ${definition.flagKey} does not exist; create it before a live run`);
     if (!log) throw new Error("A live run needs the experiment log (DATABASE_URL)");
   }
+  // Every read happens before the flag write, so a failed read cannot leave a
+  // written split without its allocation_changed row.
+  const mismatches = await clientVariantMismatches(api, definition);
+  const previous = log ? await log.latestRun(definition.key) : null;
   const writeFailure = !input.dryRun && input.applyAllocation !== false && decision.changed
     ? await writeAllocation(api, found!, decision.target)
     : null;
@@ -701,11 +706,10 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
     dryRun: input.dryRun,
     allocationApplied: !input.dryRun && apply && decision.changed,
     allocationSince,
-    clientVariantMismatches: await clientVariantMismatches(api, definition),
+    clientVariantMismatches: mismatches,
     decision,
     variants,
   };
-  const previous = log ? await log.latestRun(definition.key) : null;
   const wasHalted = previous?.halted === true;
   const logged = apply ? decision : { ...decision, changed: false, retire: [] };
   const changes = changeLog(definition, variants, logged, previous, input.actor)

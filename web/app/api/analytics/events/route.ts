@@ -245,7 +245,9 @@ function forwardedProperties(event: IncomingEvent, authenticated: boolean): Reco
   // the server-assigned arm as paywall_experiment/paywall_variant.
   const experiment = properties.paywall_experiment;
   const variant = properties.paywall_variant;
-  if (typeof experiment === "string" && typeof variant === "string" && EXPERIMENT_KEY.test(experiment) && EXPERIMENT_KEY.test(variant)) {
+  // Stays inside the property cap (+1 for `channel`).
+  const roomLeft = Object.keys(properties).length <= MAX_ANALYTICS_EVENT_PROPERTIES;
+  if (roomLeft && typeof experiment === "string" && typeof variant === "string" && EXPERIMENT_KEY.test(experiment) && EXPERIMENT_KEY.test(variant)) {
     properties[`$feature/${experiment}`] = variant;
   }
   return properties;
