@@ -94,6 +94,12 @@ fn adopt_locked(
     if target.join(RECORD).exists() {
         return Outcome::Done;
     }
+    // Partial clones a crash left (only this adoption makes them, under this lock).
+    for entry in std::fs::read_dir(base).into_iter().flatten().flatten() {
+        if entry.file_name().to_string_lossy().starts_with(&format!(".adopt-partial-{name}-")) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
     steps.step(format!("shared home {} found; NEXT's home {}", source.display(), target.display()));
     let (stamp, at) = super::now_stamps();
     let mut set_aside = None;
@@ -164,7 +170,7 @@ fn clone_home(
     let mut skipped = cloned.skipped;
     let mut raw = cloned.raw;
     let (from_session, to_session) = (session_name(source), session_name(target));
-    if let Some(session_dir) = find_session_dir(&source.join("tui"), &from_session)? {
+    if let Some(session_dir) = find_session_dir(&source.join("tui"), &from_session) {
         let tui = partial.join("tui");
         std::fs::create_dir_all(&tui)?;
         let to = tui.join(storage_component(&to_session));
@@ -181,36 +187,50 @@ fn clone_home(
     let (from, to) = (source.to_string_lossy(), target.to_string_lossy());
     let mut rewritten = Vec::new();
     rewrite_tree(partial, partial, &from, &to, &mut rewritten);
+    // The Chief acpmux's web listener and token are NIGHTLY's: NEXT's daemon makes its own.
+    if drop_websocket(&partial.join("acpmux/config.json")) {
+        steps.step("dropped the shared Chief acpmux's websocket listener and token from the clone");
+    }
     if !rewritten.is_empty() {
         steps.step(format!("{} file(s) named the shared home: now NEXT's", rewritten.len()));
     }
     Ok((skipped, raw, rewritten))
 }
 
+/// Removes `websocket` from an acpmux `config.json`; true when it had one.
+fn drop_websocket(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else { return false };
+    let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&text) else { return false };
+    let dropped = config.as_object_mut().and_then(|c| c.remove("websocket")).is_some();
+    dropped && super::write_record(path, &config).is_ok()
+}
+
 /// The session folder of `session` in a `tui/` state root, else its only
-/// Chief session folder; None without one. More than one candidate is an
-/// error (the adoption waits): never guess which holds the conversations.
-fn find_session_dir(tui: &Path, session: &str) -> std::io::Result<Option<PathBuf>> {
+/// Chief session folder (with several, the one whose conversations changed
+/// last); None without one.
+fn find_session_dir(tui: &Path, session: &str) -> Option<PathBuf> {
     let exact = tui.join(storage_component(session));
     if exact.is_dir() {
-        return Ok(Some(exact));
+        return Some(exact);
     }
-    let Ok(entries) = std::fs::read_dir(tui) else { return Ok(None) };
+    let entries = std::fs::read_dir(tui).ok()?;
     let found: Vec<PathBuf> = entries
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with("cmux-chief-"))
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .map(|e| e.path())
         .collect();
-    match found.as_slice() {
-        [] => Ok(None),
-        [one] => Ok(Some(one.clone())),
-        _ => Err(std::io::Error::other(format!(
-            "{} Chief session folders in {} and none is {session}'s",
-            found.len(),
-            tui.display()
-        ))),
-    }
+    // More than one (another spelling of the root, old test sessions): the one
+    // whose conversations changed last (hq-6d, 2026-10-15).
+    let modified = |dir: &PathBuf| {
+        std::fs::metadata(dir.join("conversations.sqlite3")).and_then(|m| m.modified()).ok()
+    };
+    found
+        .iter()
+        .filter(|d| modified(d).is_some())
+        .max_by_key(|d| modified(d))
+        .cloned()
+        .or_else(|| found.first().cloned())
 }
 
 fn rewrite_tree(dir: &Path, top: &Path, from: &str, to: &str, out: &mut Vec<String>) {

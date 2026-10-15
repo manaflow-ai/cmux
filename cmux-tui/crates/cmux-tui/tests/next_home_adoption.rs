@@ -167,7 +167,9 @@ fn old_chief(home: &Path) -> PathBuf {
     let codex_home = shared.join("optchat/turn-codex");
     fs::write(
         shared.join("acpmux/config.json"),
-        serde_json::json!({"presets": {"optchat-chief-codex": {"env": {"CODEX_HOME": codex_home}}}}).to_string(),
+        serde_json::json!({"presets": {"optchat-chief-codex": {"env": {"CODEX_HOME": codex_home}}},
+            "websocket": {"listen": "127.0.0.1:47999", "token": "nightly-chief-acpmux-token"}})
+        .to_string(),
     )
     .unwrap();
     fs::write(shared.join("acpmux/daemon.pid"), "99999").unwrap();
@@ -340,6 +342,9 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
     if preset.contains(shared.to_str().unwrap()) || !preset.contains(next_chief.to_str().unwrap()) {
         wrong.push(format!("the Chief's acpmux presets still name NIGHTLY's home: {preset}"));
     }
+    if preset.contains("nightly-chief-acpmux-token") || preset.contains("47999") {
+        wrong.push("the Chief's acpmux kept NIGHTLY's websocket listener and token".into());
+    }
     if !next_chief
         .join("acpmux/sessions/01a10000-0000-7000-8000-0000000000c1/session.json")
         .is_file()
@@ -394,9 +399,14 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
 /// step or `cmux acp`.
 #[test]
 fn nightly_and_dev_builds_never_adopt() {
-    for bundle in
-        ["com.cmuxterm.app.nightly", "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.next.adopt"]
-    {
+    for bundle in [
+        "com.cmuxterm.app.nightly",
+        "com.cmuxterm.app.debug",
+        "com.cmuxterm.app.debug.next.adopt",
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.rc",
+        "com.cmuxterm.app.staging",
+    ] {
         let home = temp_home("never");
         let old = old_acpmux(&home);
         let shared = old_chief(&home);
@@ -497,5 +507,129 @@ fn the_cli_never_stops_a_running_daemon_to_adopt() {
         running && untouched && !recorded,
         "the CLI stopped or moved a running home\n{}",
         text(&config)
+    );
+}
+
+/// The app's launch step as it runs in a real cmux NEXT bundle: no
+/// `CMUX_BUNDLE_ID`; the CLI knows its build from the bundle around it.
+#[test]
+fn the_bundled_cli_of_next_adopts_without_any_identity_variable() {
+    let home = temp_home("bundled");
+    old_acpmux(&home);
+    old_chief(&home);
+    let bin_dir = home.join("apps/cmux NEXT.app/Contents/Resources/bin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    fs::copy(bin(), bin_dir.join("cmux")).unwrap();
+    fs::write(
+        home.join("apps/cmux NEXT.app/Contents/Info.plist"),
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>{NEXT}</string>
+<key>LSEnvironment</key><dict><key>CMUX_TAG</key><string>cmux-next</string></dict>
+</dict></plist>"#
+        ),
+    )
+    .unwrap();
+    let mut command = Command::new(bin_dir.join("cmux"));
+    command.arg("__adopt-build-homes").env("LC_ALL", "C").env("HOME", &home);
+    for key in FOREIGN {
+        command.env_remove(key);
+    }
+    let launch = command.stdin(Stdio::null()).output().unwrap();
+    let outcome: Value = serde_json::from_slice(&launch.stdout).unwrap_or(Value::Null);
+    let sessions = home
+        .join(".acpmux/builds")
+        .join(NEXT)
+        .join("sessions/01a10000-0000-7000-8000-00000000000a/session.json")
+        .is_file();
+    let memory = query(
+        &home.join(".cmux/chief").join(NEXT).join("optchat/memory.sqlite3"),
+        "SELECT text FROM memory",
+    );
+    let _ = fs::remove_dir_all(&home);
+    assert!(
+        outcome["acpmux"] == "adopted:rename"
+            && outcome["chief"] == "adopted:clone"
+            && sessions
+            && memory.as_deref() == Some("remember-the-pier"),
+        "the bundled NEXT CLI did not adopt\n{}",
+        text(&launch)
+    );
+}
+
+/// A DEV build that stands for NEXT (`CMUX_NEXT_CHIEF_BUILD_ID`, a DEBUG test
+/// override) never adopts the person's real homes: only with both test
+/// roots set, and then only under them.
+#[test]
+fn a_debug_override_adopts_only_under_test_roots() {
+    let home = temp_home("override");
+    let old = old_acpmux(&home);
+    let shared = old_chief(&home);
+    let before = (snapshot(&old), snapshot(&shared));
+    let dev = "com.cmuxterm.app.debug.adopt.test";
+    let bare = Command::new(bin())
+        .arg("__adopt-build-homes")
+        .env("LC_ALL", "C")
+        .env("HOME", &home)
+        .env("CMUX_BUNDLE_ID", dev)
+        .env("CMUX_NEXT_CHIEF_BUILD_ID", NEXT)
+        .env_remove("CMUX_NEXT_CHIEF_ROOT")
+        .env_remove("CMUX_NEXT_ACPMUX_ROOT")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let untouched = (snapshot(&old), snapshot(&shared)) == before
+        && fs::symlink_metadata(&old).is_ok_and(|m| m.file_type().is_dir());
+    let rooted = Command::new(bin())
+        .arg("__adopt-build-homes")
+        .env("LC_ALL", "C")
+        .env("HOME", "/nonexistent-home-for-adoption-test")
+        .env("CMUX_BUNDLE_ID", dev)
+        .env("CMUX_NEXT_CHIEF_BUILD_ID", NEXT)
+        .env("CMUX_NEXT_CHIEF_ROOT", home.join(".cmux/chief"))
+        .env("CMUX_NEXT_ACPMUX_ROOT", home.join(".acpmux"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let adopted = home.join(".acpmux/builds").join(NEXT).join("adopted.json").is_file()
+        && home.join(".cmux/chief").join(NEXT).join("adopted.json").is_file();
+    let _ = fs::remove_dir_all(&home);
+    assert!(untouched, "the override without test roots adopted\n{}", text(&bare));
+    assert!(adopted, "the override with test roots did not adopt under them\n{}", text(&rooted));
+}
+
+/// A Chief clone that fails puts NEXT's post-update Chief home back and
+/// writes no record: the next launch tries again.
+#[test]
+fn a_failed_chief_clone_puts_the_post_update_home_back() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = temp_home("rollback");
+    let shared = old_chief(&home);
+    let locked = shared.join("optchat/locked");
+    fs::create_dir_all(&locked).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let next_chief = home.join(".cmux/chief").join(NEXT);
+    fs::create_dir_all(next_chief.join("optchat")).unwrap();
+    fs::write(next_chief.join("optchat/person.md"), "post-update-chief\n").unwrap();
+    let launch = cli_as(NEXT, Some("cmux-next"), &home, &["__adopt-build-homes"]);
+    let outcome: Value = serde_json::from_slice(&launch.stdout).unwrap_or(Value::Null);
+    let back = read(&next_chief.join("optchat/person.md")) == "post-update-chief\n";
+    let recorded = next_chief.join("adopted.json").exists();
+    let partials = fs::read_dir(home.join(".cmux/chief"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().starts_with(".adopt-partial-"));
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    let _ = fs::remove_dir_all(&home);
+    assert!(
+        outcome["chief"].as_str().is_some_and(|o| o.starts_with("deferred"))
+            && back
+            && !recorded
+            && !partials,
+        "a failed clone did not roll back\n{}",
+        text(&launch)
     );
 }

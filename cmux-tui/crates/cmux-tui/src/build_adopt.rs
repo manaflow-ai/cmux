@@ -183,6 +183,15 @@ pub(crate) fn random_hex(bytes: usize) -> String {
 pub(crate) fn write_record(path: &Path, value: &serde_json::Value) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("json.tmp-{}", random_hex(4)));
     std::fs::write(&tmp, serde_json::to_vec_pretty(value).unwrap_or_default())?;
+    // A file it replaces keeps its mode (an acpmux config.json is 0600); a new one is 0600.
+    let mode = std::fs::metadata(path).map_or(0o600, |m| {
+        use std::os::unix::fs::PermissionsExt;
+        m.permissions().mode()
+    });
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode & 0o7777))?;
+    }
     std::fs::rename(&tmp, path)
 }
 

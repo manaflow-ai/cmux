@@ -110,7 +110,13 @@ fn adopt_locked(
             return Outcome::Deferred(format!("set aside {}: {error}", home.display()));
         }
         if let Err(error) = std::fs::rename(legacy, home) {
-            let _ = std::fs::rename(&aside, home);
+            // Put the post-update home back; if that fails too, the next run merges the aside.
+            if let Err(back) = std::fs::rename(&aside, home) {
+                steps.step(format!(
+                    "{} stays aside ({back}); the next run merges it",
+                    aside.display()
+                ));
+            }
             return Outcome::Deferred(format!(
                 "rename {} -> {}: {error}",
                 legacy.display(),
@@ -120,14 +126,16 @@ fn adopt_locked(
         steps.step("renamed the old home to the new home; merging the post-update sessions");
         let merged = merge_sessions(&aside, home, steps);
         let kept = home.join(format!("adopted-post-update-{stamp}"));
-        match std::fs::rename(&aside, &kept) {
+        let kept = match std::fs::rename(&aside, &kept) {
             Ok(()) => {
                 steps.step(format!("kept the rest of the post-update home in {}", kept.display()));
+                kept
             }
             Err(error) => {
                 steps.step(format!("post-update home stays at {}: {error}", aside.display()));
+                aside.clone()
             }
-        }
+        };
         record["mode"] = "merge".into();
         record["merged_sessions"] = merged.0.into();
         record["renamed_sessions"] = serde_json::json!(merged.1);
@@ -223,6 +231,14 @@ fn merge_sessions(aside: &Path, home: &Path, steps: &mut Steps) -> (usize, Vec<(
         let id = entry.file_name().to_string_lossy().into_owned();
         let mut target_id = id.clone();
         if std::fs::symlink_metadata(home.join("sessions").join(&id)).is_ok() {
+            // A kept agent host of that id would write into the other session: such a
+            // session stays in the kept post-update folder (both kept, never mixed).
+            if has_host_record(aside, &id) {
+                steps.step(format!(
+                    "session id {id} is in both homes and its post-update agent host may run: it stays in the kept folder"
+                ));
+                continue;
+            }
             target_id = new_session_id();
         }
         let to = home.join("sessions").join(&target_id);
@@ -243,6 +259,14 @@ fn merge_sessions(aside: &Path, home: &Path, steps: &mut Steps) -> (usize, Vec<(
     }
     steps.step(format!("moved {moved} post-update session(s) into the adopted home"));
     (moved, renamed)
+}
+
+/// Whether `hosts/<id>.*` of `home` names an agent host of session `id`.
+fn has_host_record(home: &Path, id: &str) -> bool {
+    let prefix = format!("{id}.");
+    std::fs::read_dir(home.join("hosts")).is_ok_and(|entries| {
+        entries.flatten().any(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+    })
 }
 
 /// `hosts/<id>.*` of a moved session: its agent host still finds it.

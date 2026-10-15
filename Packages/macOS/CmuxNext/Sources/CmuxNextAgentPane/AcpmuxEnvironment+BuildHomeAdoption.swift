@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -22,6 +23,10 @@ nonisolated extension AcpmuxEnvironment {
 nonisolated enum BuildHomeAdoption {
     static let nextBundleID = "com.cmuxterm.app.nightly.cmux-next"
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "build-home-adoption")
+    /// The longest an app start waits for the adoption (a large Chief clone, daemon stops).
+    static let limit: Duration = .seconds(120)
+    /// Ends the wait after ``limit`` (one launch's one deadline).
+    static let deadline = DemandTimer(owner: "build-home-adoption")
 
     // task-owner: the process; one adoption per launch, every caller awaits this one run
     static let run: Task<Void, Never> = Task.detached(priority: .userInitiated) {
@@ -72,15 +77,29 @@ nonisolated enum BuildHomeAdoption {
         process.standardOutput = output
         process.standardError = output
         let started = ContinuousClock.now
-        // No timeout: every wait in the CLI is bounded (adoption lock 30 s, a daemon stop 45 s).
+        // Resumed once: by the CLI's exit, by a failed start, or by the time limit (the app goes
+        // on; the CLI keeps going and holds the moved homes' daemon locks until it ends).
         let status: Int32? = await withCheckedContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            let finish: @Sendable (Int32?) -> Bool = { status in
+                let first = resumed.withLock { done -> Bool in
+                    defer { done = true }
+                    return !done
+                }
+                if first { continuation.resume(returning: status) }
+                return first
+            }
+            process.terminationHandler = { _ = finish($0.terminationStatus) }
             do { try process.run() } catch {
-                process.terminationHandler = nil
                 logger.error("adoption could not start: \(String(describing: error), privacy: .public)")
-                continuation.resume(returning: nil)
+                _ = finish(nil)
+                return
+            }
+            deadline.schedule(after: limit) {
+                if finish(nil) { logger.error("adoption still runs after \(limit, privacy: .public); the app goes on") }
             }
         }
+        deadline.cancel()
         guard let status else { return }
         let text = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
         for line in text.split(separator: "\n") {
