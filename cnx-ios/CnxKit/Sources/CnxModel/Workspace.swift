@@ -41,6 +41,9 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     /// The Mac shows a display name over the workspace's own name (its `title`
     /// field): Clear Workspace Name brings the own name back.
     public var hasCustomTitle: Bool = false
+    /// The Mac's Home workspace (daemon `kind: "home"`): its tabs stay in it, as the Mac
+    /// refuses to promote one ("Home's tabs stay in Home.").
+    public var isHome: Bool = false
 
     public init(
         id: String, macID: String, title: String, directory: String, branch: String? = nil,
@@ -70,7 +73,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
-        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -99,6 +102,7 @@ extension Workspace {
         sidebarIndex = try c.decodeIfPresent(Int.self, forKey: .sidebarIndex)
         resourceID = try c.decodeIfPresent(String.self, forKey: .resourceID)
         hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
+        isHome = try c.decodeIfPresent(Bool.self, forKey: .isHome) ?? false
     }
 }
 

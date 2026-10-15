@@ -18,6 +18,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var swipe = FeedSwipeCoordinator()
     /// Why Clear All Notifications failed, shown once.
     @State private var clearFailure: String?
+    @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
     #if DEBUG
     private let director = DemoDirector.shared
@@ -49,20 +50,18 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     }
                     LazyVStack(spacing: 0) {
                         ForEach(store.visibleItems) { item in
-                            FeedSwipeRow(id: item.id, actions: item.swipeActions(store: store, open: { open(item) }), coordinator: swipe) {
-                                FeedCell(item: item, store: store, open: { open(item) }, expanded: Binding(
-                                    get: { expanded.contains(item.id) },
-                                    set: { if $0 { expanded.insert(item.id) } else { expanded.remove(item.id) } }
-                                ))
-                                .background(Color.cnxBackground)
-                            }
-                            .id(item.id)
+                            FeedRow(item: item, expanded: expanded.contains(item.id), context: rowContext, swipe: swipe)
+                                .equatable()
+                                .id(item.id)
                             .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
                             Divider()
                         }
                     }
                     .scrollTargetLayout()
                 }
+                #if DEBUG
+                .background { if FeedStressRig.shared.config.autoscrollPasses != nil { EnclosingScrollViewProbe { FeedScreenRig.scroller.attach($0) } } }
+                #endif
             }
             .scrollPosition($position)
             // An inline reply's keyboard comes down with a downward drag, as
@@ -70,6 +69,13 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .scrollDismissesKeyboard(.interactively)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting, swipe.openID != nil { swipe.openID = nil }
+                #if DEBUG
+                // G-04: a finger-driven scroll is one frame-interval window (CNX_FRAMELOG=1).
+                if FeedStressRig.shared.config.autoscrollPasses == nil {
+                    if phase == .interacting { FrameIntervalLog.shared.begin("feed-scroll") }
+                    if phase == .idle { FrameIntervalLog.shared.end() }
+                }
+                #endif
             }
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
             .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 60 } action: { _, top in
@@ -89,7 +95,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) { filterMenu }
+                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure) }
             }
             .agentChatDestinations()
             .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
@@ -99,6 +105,13 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
         }
         .onAppear {
+            rowContext.open = { open($0) }
+            rowContext.setExpanded = { id, on in
+                if on { expanded.insert(id) } else { expanded.remove(id) }
+            }
+            #if DEBUG
+            FeedStressRig.shared.start(store: store)
+            #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
                       let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else { return }
@@ -170,41 +183,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .trailingOverflowFade(width: 32)
         .padding(.vertical, 2)
         .sensoryFeedback(.selection, trigger: store.filter)
-    }
-
-    private var filterMenu: some View {
-        Menu {
-            Picker("Show", selection: $store.filter) {
-                ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
-            }
-            .pickerStyle(.inline)
-            if let clear = FeedRouting.shared.clearAllNotifications {
-                // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
-                Section {
-                    Button("Clear All Notifications", systemImage: "clear", role: .destructive) {
-                        Task {
-                            do { try await clear() } catch {
-                                clearFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("feed.clearAllNotifications")
-                }
-            }
-            Section("Workspaces") {
-                ForEach(appStore.workspaces) { workspace in
-                    Toggle(workspace.title, isOn: Binding(
-                        get: { !store.mutedWorkspaces.contains(workspace.id) },
-                        set: { on in
-                            if on { store.mutedWorkspaces.remove(workspace.id) } else { store.mutedWorkspaces.insert(workspace.id) }
-                        }
-                    ))
-                }
-            }
-        } label: {
-            Label("Filter", systemImage: "line.3.horizontal.decrease")
-        }
-        .accessibilityLabel("Filter")
     }
 
     private func refreshErrorRow(_ message: String) -> some View {
@@ -303,6 +281,58 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     }
     #endif
 }
+/// The Filter menu: its own view, so the Mac's workspace list (which changes
+/// with every tree update while an agent works: titles, status) re-renders
+/// this menu only, never the Feed's list and its layout.
+private struct FeedFilterMenu: View {
+    @Bindable var store: FeedStore
+    /// Why Clear All Notifications failed (the screen's alert).
+    @Binding var clearFailure: String?
+    @Environment(AppStore.self) private var appStore
+
+    var body: some View {
+        Menu {
+            Picker("Show", selection: $store.filter) {
+                ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
+            }
+            .pickerStyle(.inline)
+            if let clear = FeedRouting.shared.clearAllNotifications {
+                // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
+                Section {
+                    Button("Clear All Notifications", systemImage: "clear", role: .destructive) {
+                        Task {
+                            do { try await clear() } catch {
+                                clearFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("feed.clearAllNotifications")
+                }
+            }
+            Section("Workspaces") {
+                ForEach(appStore.workspaces) { workspace in
+                    Toggle(workspace.title, isOn: Binding(
+                        get: { !store.mutedWorkspaces.contains(workspace.id) },
+                        set: { on in
+                            if on { store.mutedWorkspaces.remove(workspace.id) } else { store.mutedWorkspaces.insert(workspace.id) }
+                        }
+                    ))
+                }
+            }
+        } label: {
+            Label("Filter", systemImage: "line.3.horizontal.decrease")
+        }
+        .accessibilityLabel("Filter")
+    }
+}
+
+#if DEBUG
+@MainActor
+enum FeedScreenRig {
+    static let scroller = FeedAutoScroller(config: FeedStressRig.shared.config)
+}
+#endif
+
 /// "Marked done" with Undo for a few seconds after a Done swipe (Mail's undo bar).
 private struct DoneUndoBar: View {
     let store: FeedStore

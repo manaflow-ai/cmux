@@ -22,12 +22,27 @@ public struct FeedArchive: Sendable {
         return FeedArchive(url: base.appending(path: "Feed", directoryHint: .isDirectory).appending(path: "\(safe).json"))
     }
 
-    /// Sign-out: the account's Feed (agent names, places, turn text) leaves this phone.
+    /// Every read and write of every archive, in order, off the main thread:
+    /// encoding 200 events and an atomic protected write took milliseconds on
+    /// the main thread at each Feed change, a dropped frame while scrolling.
+    static let io = DispatchQueue(label: "dev.cmux.cnx.feed-archive", qos: .utility)
+
+    /// Sign-out: the account's Feed (agent names, places, turn text) leaves
+    /// this phone. Waits for writes already queued, so none lands after it.
     public func remove() {
-        try? FileManager.default.removeItem(at: url)
+        Self.io.sync { try? FileManager.default.removeItem(at: url) }
+    }
+
+    /// Saves `items` on the archive queue (the caller never waits).
+    public func saveInBackground(_ items: [FeedItem]) {
+        Self.io.async { save(items) }
     }
 
     public func load() -> [FeedItem] {
+        Self.io.sync { read() }
+    }
+
+    private func read() -> [FeedItem] {
         guard let data = try? Data(contentsOf: url),
               let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return [] }
         return entries.compactMap(\.item)

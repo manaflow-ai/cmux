@@ -35,7 +35,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Rename Tab… (⌘R) | `rename-surface` | page and card menu **Rename Tab…** | works (this branch) | Rolls back on refusal. |
 | Duplicate Tab | `new-tab` / browser duplicate / a second tab of the chat | page and card menu **Duplicate Tab** | works (parity2 tabs) | Terminal: a new terminal in the tab's pane (hostd's folder choice). Browser: the same http(s) page. Agent chat: a second tab of the same chat (`new-conversation-tab` with the tab's session), as the Mac's `duplicateAgentTab`; never a copy of the conversation (that is Fork). |
 | Move Tab Left / Right, drag | `move-tab` | drag in the grid | works (parity2 tabs; live) | Within the tab's pane (insertion index as the daemon reads it); a drag onto another pane's tab says to move it on the Mac. A real long press and drag is proven by an XCUITest (`CnxAppUITests/TabReorderUITests`: first card to the third slot, iOS 26.5 simulator, mock data); `pq_tabs.reorder` runs it against the rig Mac. |
-| Move Tab to Workspace… / Move Tab to New Workspace | `move-tab-to-workspace {surface, workspace}`, `move-tab-to-new-workspace {surface, name}` | page menu **Move Tab to Workspace…** (a picker of this Mac's other workspaces), **Move Tab to New Workspace** | works (parity2 tabs; live) | The Mac's More rows, so on the phone they are in the page menu (the card menu has no room). The new workspace is named by the Mac's rule (`NewWorkspaceName`: a last tab keeps its workspace's name; else the tab's name, page title or host, terminal title unless a bare shell, then its folder). The tab keeps its terminal, page or chat; the phone stays in the source workspace (the Mac's own view is its own) and says "Moved <tab> to <workspace>."; leaving it when that was the last tab. |
+| Move Tab to Workspace… / Move Tab to New Workspace | `move-tab-to-workspace {surface, workspace}`, `move-tab-to-new-workspace {surface, name}` | page menu **Move Tab to Workspace…** (a picker of this Mac's other workspaces), **Move Tab to New Workspace** | works (parity2 tabs; live) | The Mac's More rows, so on the phone they are in the page menu (the card menu has no room). The new workspace is named by the Mac's rule (`NewWorkspaceName`: a last tab keeps its workspace's name; else the tab's name, page title or host, terminal title unless a bare shell, then its folder). The tab keeps its terminal, page or chat; the phone stays in the source workspace (the Mac's own view is its own) and says "Moved <tab> to <workspace>."; leaving it when that was the last tab. A tab in Home has no Move Tab to New Workspace ("Home's tabs stay in Home."), as on the Mac. |
 | Move Tab to New Split / Column, Move Tab to Pane Left / Right / Above / Below, Previous / Next Pane | `move-tab-to-split`, `move-tab-to-column`, `move-tab` across panes | — | not applicable (decision) | The phone shows a workspace's tabs as one list and has no panes to aim at; a pane move would change the Mac's layout with nothing on the phone to show it. Left off the phone on purpose; the commands stay allowlisted for a future pane view. |
 | Pin Tab / Unpin Tab | `set-tab-pinned` | page and card menu **Pin Tab** / **Unpin Tab** | works (parity2 tabs; live) | Here at once, rolled back on refusal. A pinned tab's card icon is a pin; the Mac sorts pinned tabs first in their pane. |
 | Split Right / Down, New Column / Row, Zoom Pane | `split`, `new-pane-right`, `new-row`, `zoom-pane` | — | not applicable | The phone shows one tab at a time; panes are a Mac layout. |
@@ -241,9 +241,10 @@ checked on the Mac's own daemon tree (its socket) and recorded in `~/cnx-ios-e2e
 | New Agent Chat, then Fork, Duplicate Tab, Archive (page menu) | Pass: a real turn ("PONG"); Fork made a chat tab with its own session in 0.8 s and its transcript; Duplicate Tab a third tab on the same session; Archive closed a tab on the Mac | `chat-fork-duplicate-archive.mp4` |
 
 Not driven live: the D13 refusal of a fork of a Mac-started Claude chat (unit-tested,
-its text is acpmux's). Gap: the Mac refuses moving a tab out of Home ("Home's tabs stay
-in Home."); the phone still offers Move Tab to New Workspace there and the Mac's answer is
-shown.
+its text is acpmux's). Home: a tab in the Mac's Home workspace (daemon `kind: "home"`) has no Move Tab to New
+Workspace on the phone, and a request is refused with "Home's tabs stay in Home." (the Mac's
+`TabPromotion`); Move Tab to Workspace… stays, as on the Mac. Unit-tested
+(`homeTabsStayInHome`), not driven live.
 
 ## Round 2 (2026-10-15, branch `feat-cnx-ios-parity2`)
 
@@ -282,3 +283,22 @@ Findings fixed in round 2:
    Tests: unit (Linux) and `remote_sandbox` on macOS (the chain reaches its
    loopback proxy port and no other loopback port).
 
+
+### Remaining gaps after round 2 (and why)
+
+- **opencode** from a phone: refused. opencode starts every agent from allow-all and
+  merges the user's own rules last, so acpmux cannot prove it asks before each change.
+- **`cmux` harness** (cmux model router): the phone path works through the sandbox now;
+  the test account's team is not entitled to the hosted router (403), and the
+  mini-cmux11s rig's local router did not answer. Needs an entitled account to see a reply.
+- **Folder trust from the phone**: left on the Mac by decision; the phone gives the steps.
+- **Duplicate Workspace**: the Mac composes it from its tabs' programs and folders; a phone
+  may not choose either.
+- **Workspace groups** (personal order): more resource ops on the lane; not reviewed yet.
+- **Reopen Saved Tab Group**: recreates terminals; same live check as Restart Shell needed.
+- **Open Link in New Tab, Checkpoints, Commit, Push, New Chief…, Memory Inspector, Reset
+  Terminal, Keep Running After Close**: not on the link (or Mac-only by design).
+- **The Mac's last pick** reaching the phone: unit-tested on both sides; not driven live
+  (a hidden rig app has no person to pick on its New Tab page).
+- **A Mac-started Codex chat in Agent mode** is refused for phone prompts by cnx-hostd
+  (unit-tested); not driven live.

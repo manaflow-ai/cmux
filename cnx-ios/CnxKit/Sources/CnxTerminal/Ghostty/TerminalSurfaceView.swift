@@ -1,5 +1,6 @@
 #if os(iOS)
 import CnxDesign
+import CoreImage
 import Foundation
 import GameController
 import GhosttyNextKit
@@ -135,6 +136,7 @@ final class TerminalSurfaceView: UIView {
         let size = CnxPreferences.terminalFontSize()
         guard let surface, size != fontSize else { return }
         fontSize = size
+        viewportEpoch += 1
         let action = "set_font_size:\(size)"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
         ghostty_surface_refresh(surface)
@@ -148,17 +150,57 @@ final class TerminalSurfaceView: UIView {
 
     private var lastPixelSize: (UInt32, UInt32) = (0, 0)
 
+    /// Bumped by everything here that can move Ghostty's viewport (a scroll
+    /// binding, a resize, a font size): a frame after a bump may show
+    /// another viewport, so its placement is read from its pixels again.
+    private(set) var viewportEpoch = 0
+
     private func syncSize() {
         guard let surface, let window else { return }
         let scale = window.screen.scale
         let size = (UInt32(bounds.width * scale), UInt32(bounds.height * scale))
         guard size.0 > 0, size.1 > 0, size != lastPixelSize else { return }
         lastPixelSize = size
+        viewportEpoch += 1
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, size.0, size.1)
         if let pinnedRow { scrollViewport(pinnedRow) }
         drawNow()
     }
+
+    #if DEBUG
+    /// DEBUG (termqa round 8): reads one row by each Ghostty point tag, to
+    /// pin down which numbering each one uses.
+    func debugReadRow(tag: ghostty_point_tag_e, y: Int, rectangle: Bool = false) -> String? {
+        guard let surface else { return nil }
+        let columns = max(1, grid.columns)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(max(0, y))),
+            bottom_right: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_EXACT, x: UInt32(columns - 1), y: UInt32(max(0, y))),
+            rectangle: rectangle
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    /// DEBUG: the whole screen as a rectangle selection (one line per row?).
+    func debugScreenRectangle() -> String? {
+        guard let surface else { return nil }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            rectangle: true
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+    #endif
 
     // MARK: Metrics
 
@@ -191,88 +233,87 @@ final class TerminalSurfaceView: UIView {
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 
-    /// Blank rows at the top of the screen (absolute rows `0...lastRow`):
-    /// the mirror's rows above the remote screen that nothing ever wrote
-    /// (`TerminalRowShift` puts the Mac's screen at the bottom of the taller
-    /// mirror). Ghostty's plain formatter writes one newline per blank row
-    /// before the first row with text, so the count is the number of leading
-    /// newlines; an all-blank range reads as empty (returns `lastRow + 1`).
-    /// Reads at most `lastRow + 1` rows under the surface lock.
-    func leadingBlankRows(through lastRow: Int) -> Int? {
-        guard let surface, lastRow >= 0 else { return nil }
-        let columns = max(1, grid.columns)
-        let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: 0),
-            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
-                                          x: UInt32(columns - 1), y: UInt32(lastRow)),
-            rectangle: false
-        )
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return lastRow + 1 }
-        let bytes = UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len))
-        return TerminalDocumentLayout.leadingNewlines(in: bytes, limit: lastRow + 1)
-    }
-
-    /// Plain text of the active screen's rows `0...lastRow` (the alternate
-    /// screen in a TUI). Takes the surface lock: on demand only.
-    func screenRowsText(through lastRow: Int) -> String? {
-        guard let surface, lastRow >= 0 else { return nil }
-        let columns = max(1, grid.columns)
-        let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: 0),
-            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
-                                          x: UInt32(columns - 1), y: UInt32(lastRow)),
-            rectangle: false
-        )
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return "" }
-        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
-    }
-
-    /// The lowest row with text in `top...bottom` (absolute rows), reading one
-    /// row at a time from the bottom: rows below the cursor that an inline
-    /// TUI draws (hints, status). Nil when all are blank.
-    /// Plain text of one absolute row (0 = oldest scrollback row).
-    func rowText(_ row: Int) -> String? {
-        guard let surface, row >= 0 else { return nil }
-        let columns = max(1, grid.columns)
-        let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row)),
-            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
-                                          x: UInt32(columns - 1), y: UInt32(row)),
-            rectangle: false
-        )
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return "" }
-        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
-    }
-
-    func lastNonBlankRow(from top: Int, through bottom: Int) -> Int? {
-        guard surface != nil, top <= bottom else { return nil }
-        for row in stride(from: bottom, through: top, by: -1) {
-            guard let surface else { return nil }
-            let columns = max(1, grid.columns)
+    /// Every row of the screen, numbered like the scrollbar, with its soft
+    /// wraps (`TerminalScreenRows`): a rectangle read (one line per row) and
+    /// the plain read (wrapped rows joined). Whole-screen reads are not
+    /// clamped to the grid like an exact point's y. Takes the surface lock
+    /// twice: on demand only (a Copy).
+    func screenRows() -> TerminalScreenRows? {
+        guard let surface else { return nil }
+        func read(rectangle: Bool) -> String? {
             let selection = ghostty_selection_s(
-                top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row)),
-                bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
-                                              x: UInt32(columns - 1), y: UInt32(row)),
-                rectangle: false
+                top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+                bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+                rectangle: rectangle
             )
             var text = ghostty_text_s()
-            guard ghostty_surface_read_text(surface, selection, &text) else { continue }
+            guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
             defer { ghostty_surface_free_text(surface, &text) }
-            if let pointer = text.text, text.text_len > 0 {
-                let bytes = UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len))
-                if bytes.contains(where: { $0 != 0x20 && $0 != 0x0A && $0 != 0x0D && $0 != 0x09 }) { return row }
-            }
+            guard let pointer = text.text, text.text_len > 0 else { return "" }
+            return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
         }
-        return nil
+        guard let rectangle = read(rectangle: true), let logical = read(rectangle: false) else { return nil }
+        return TerminalScreenRows(rectangle: rectangle, logical: logical, columns: grid.columns)
+    }
+
+    /// The grid's padding inside the surface (points): where cell (0, 0) starts.
+    var gridPadding: CGPoint {
+        guard let surface else { return .zero }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics) else { return .zero }
+        return CGPoint(x: metrics.padding_left, y: metrics.padding_top)
+    }
+
+    /// Plain text from `start` to `end` in viewport rows (0 = the top row of
+    /// Ghostty's viewport, the surface's first row), inclusive, for a
+    /// selection's Copy. Viewport rows, not screen rows: a screen point's y
+    /// does not count the rows the scrollbar's total does (round 7: screen y
+    /// 109 was absolute row 305). Takes the surface lock: on demand only.
+    func viewportText(from start: TerminalCellPoint, to end: TerminalCellPoint) -> String? {
+        guard let surface else { return nil }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
+                                      x: UInt32(max(0, start.column)), y: UInt32(max(0, start.row))),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
+                                          x: UInt32(max(0, end.column)), y: UInt32(max(0, end.row))),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    /// Plain text of the active area (the bottom `grid.rows` rows; the
+    /// alternate screen in a TUI). Takes the surface lock: on demand only.
+    func activeAreaText() -> String? {
+        guard surface != nil, grid.rows > 0 else { return nil }
+        return readRows(tag: GHOSTTY_POINT_ACTIVE, from: 0, through: grid.rows - 1)
+    }
+
+    /// The rows numbered the way the scrollbar counts them, at this moment
+    /// (`TerminalRowSpace`): the scrollbar's total and the viewport's top.
+    func rowReader(totalRows: Int, viewportTop: Int) -> TerminalRowReader {
+        TerminalRowReader(space: TerminalRowSpace(totalRows: totalRows, gridRows: grid.rows, viewportTop: viewportTop), source: self)
+    }
+
+    /// Rows `first...last` of one Ghostty numbering, in one read. Ghostty
+    /// clamps y to the grid's last row: callers pass only typed rows
+    /// (`TerminalRowSpace`), never an absolute row.
+    private func readRows(tag: ghostty_point_tag_e, from first: Int, through last: Int) -> String? {
+        guard let surface, first >= 0, last >= first else { return nil }
+        let columns = max(1, grid.columns)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(first)),
+            bottom_right: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_EXACT, x: UInt32(columns - 1), y: UInt32(last)),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 
     /// Columns and rows of the local grid.
@@ -356,6 +397,7 @@ final class TerminalSurfaceView: UIView {
     /// reports its scrollbar (used after leaving the alternate screen).
     func scrollToActiveArea() {
         guard let surface else { return }
+        viewportEpoch += 1
         let action = "scroll_to_bottom"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
         ghostty_surface_refresh(surface)
@@ -363,6 +405,7 @@ final class TerminalSurfaceView: UIView {
 
     private func scrollViewport(_ row: Int) {
         guard let surface else { return }
+        viewportEpoch += 1
         let action = "scroll_to_row:\(max(0, row))"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
     }
@@ -384,12 +427,45 @@ final class TerminalSurfaceView: UIView {
     /// Called on the main thread in the transaction that shows a new frame.
     var onPresent: (() -> Void)?
 
+    /// The frame Ghostty presented last, as an image, and where its layer
+    /// sits in this view. `drawHierarchy` leaves the Metal surface black in a
+    /// snapshot taken while the page is live on screen (the active grid card,
+    /// V5-6), so the snapshot draws this instead.
+    func presentedImage(clip: CGRect? = nil) -> (image: CGImage, frame: CGRect)? {
+        guard let sublayer = layer.sublayers?.first, let contents = sublayer.contents else { return nil }
+        let ref = unsafeBitCast(contents as AnyObject, to: IOSurfaceRef.self)
+        guard CFGetTypeID(ref) == IOSurfaceGetTypeID() else { return nil }
+        let ioSurface = unsafeBitCast(ref, to: IOSurface.self)
+        let image = CIImage(ioSurface: ioSurface)
+        guard !image.extent.isEmpty, sublayer.frame.width > 0, sublayer.frame.height > 0 else { return nil }
+        // Only the part `clip` (this view's points) shows: the whole 151-row
+        // surface cost about 370 ms on the main thread (round 8).
+        var frame = sublayer.frame
+        var extent = image.extent
+        if let clip {
+            let visible = frame.intersection(clip)
+            guard !visible.isNull, !visible.isEmpty else { return nil }
+            let sx = image.extent.width / frame.width, sy = image.extent.height / frame.height
+            let top = (visible.minY - frame.minY) * sy
+            // Core Image's origin is at the bottom.
+            extent = CGRect(x: (visible.minX - frame.minX) * sx, y: image.extent.height - top - visible.height * sy,
+                            width: visible.width * sx, height: visible.height * sy).integral.intersection(image.extent)
+            frame = visible
+        }
+        guard let cgImage = Self.snapshotContext.createCGImage(image, from: extent) else { return nil }
+        return (cgImage, frame)
+    }
+
+    private static let snapshotContext = CIContext(options: [.cacheIntermediates: false])
+
     /// One hash per cell row of the frame on screen (`rowHeight` px rows),
     /// sampled from the IOSurface Ghostty presented: two pixel lines through
     /// the glyphs, every third pixel. The screen matches consecutive frames'
     /// rows to learn which viewport a frame shows, whatever order Ghostty's
     /// frames and reports arrive in.
-    func presentedRowSignatures(rowHeight: Int) -> [UInt64]? {
+    /// `band`: only these rows are read; the others are
+    /// `TerminalPresentMatch.unread` (following reads the rows on screen).
+    func presentedRowSignatures(rowHeight: Int, band: Range<Int>? = nil) -> [UInt64]? {
         guard rowHeight > 2, let contents = layer.sublayers?.first?.contents else { return nil }
         let surface = unsafeBitCast(contents as AnyObject, to: IOSurfaceRef.self)
         guard CFGetTypeID(surface) == IOSurfaceGetTypeID() else { return nil }
@@ -402,7 +478,8 @@ final class TerminalSurfaceView: UIView {
         let width = IOSurfaceGetWidth(surface)
         let height = IOSurfaceGetHeight(surface)
         let rows = height / rowHeight
-        var result = [UInt64](repeating: 0, count: rows)
+        var result = [UInt64](repeating: TerminalPresentMatch.unread, count: rows)
+        let read = band.map { $0.clamped(to: 0..<rows) } ?? 0..<rows
         // Pointer walk, no allocation per row: this runs for every presented
         // frame on the main thread. Same samples and hash as before: green
         // channel high nibble, every third pixel, two lines per row.
@@ -418,11 +495,11 @@ final class TerminalSurfaceView: UIView {
             }
         }
         result.withUnsafeMutableBufferPointer { out in
-            for row in 0..<rows {
+            for row in read {
                 var hash: UInt64 = 0xcbf2_9ce4_8422_2325
                 sample(row * rowHeight + rowHeight / 2, into: &hash)
                 sample(row * rowHeight + rowHeight * 3 / 4, into: &hash)
-                out[row] = hash
+                out[row] = hash == TerminalPresentMatch.unread ? 1 : hash
             }
         }
         return result
@@ -614,5 +691,14 @@ final class InputBox {
 private struct Retained: @unchecked Sendable {
     let object: AnyObject
     init(_ object: AnyObject) { self.object = object }
+}
+
+/// One row per read, in the numbering its type names (round 8: an absolute
+/// row given as a screen y read a clamped, unrelated row).
+extension TerminalSurfaceView: TerminalRowTextSource {
+    func text(_ row: TerminalViewportRow) -> String? { readRows(tag: GHOSTTY_POINT_VIEWPORT, from: row.index, through: row.index) }
+    func text(_ row: TerminalActiveRow) -> String? { readRows(tag: GHOSTTY_POINT_ACTIVE, from: row.index, through: row.index) }
+    func text(_ row: TerminalScreenRow) -> String? { readRows(tag: GHOSTTY_POINT_SCREEN, from: row.index, through: row.index) }
+    func text(screenRowsThrough last: TerminalScreenRow) -> String? { readRows(tag: GHOSTTY_POINT_SCREEN, from: 0, through: last.index) }
 }
 #endif

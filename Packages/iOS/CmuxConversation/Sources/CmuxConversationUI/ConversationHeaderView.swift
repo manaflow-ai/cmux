@@ -66,9 +66,9 @@ final class ConversationHeaderView: UIView {
         backButton.accessibilityLabel = String(localized: "conversation.header.back", defaultValue: "Back", bundle: .module)
         backButton.addAction(UIAction { [weak self] _ in self?.onBack?() }, for: .touchUpInside)
         // Dark: a near-white pill (243) under the count; light keeps the inverse.
-        unreadPill.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 243.0 / 255, alpha: 1) : UIColor(white: 0.25, alpha: 1) }
+        unreadPill.backgroundColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 243.0 / 255, alpha: 1) : UIColor(white: 0.25, alpha: 1) }
         unreadLabel.font = .systemFont(ofSize: ConversationHeaderGeometry.unreadFontSize, weight: .medium)
-        unreadLabel.textColor = UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
+        unreadLabel.textColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? .black : .white }
         unreadLabel.textAlignment = .center
         backGlass.contentView.addSubview(unreadPill)
         unreadPill.addSubview(unreadLabel)

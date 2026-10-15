@@ -122,6 +122,25 @@ import Testing
         #expect(hold2.hold(reset, totalRows: 42, cursorRow: 1, screenTopRow: 0).endRow == 2)
     }
 
+    /// Round 8 (simulator, demo `rowprobe`): `clear` without ESC[3J and a
+    /// prompt with a blank line above it (zsh with starship, the mock
+    /// shell): the cursor lands on the screen's third row, not its first, so
+    /// the end stayed held at the screen's bottom: a blank page with the
+    /// prompt 148 rows above it.
+    @Test func aClearedScreenWithATwoLinePromptLetsTheEndMoveUp() {
+        var hold = TerminalEndHold()
+        let full = TerminalDocumentLayout.make(totalRows: 1059, cursorRow: 1058, leadingBlankRows: 0)
+        _ = hold.hold(full, totalRows: 1059, cursorRow: 1058, screenTopRow: 908)
+        let cleared = TerminalDocumentLayout.make(totalRows: 1060, cursorRow: 911, leadingBlankRows: 0)
+        #expect(hold.hold(cleared, totalRows: 1060, cursorRow: 911, screenTopRow: 909).endRow == 912)
+        // A mirror: the Mac's 39-row screen, ^L with a two-line prompt.
+        var mirror = TerminalEndHold()
+        let bottom = TerminalDocumentLayout.make(totalRows: 500, cursorRow: 499, leadingBlankRows: 0)
+        _ = mirror.hold(bottom, totalRows: 500, cursorRow: 499, screenTopRow: 461)
+        let redrawn = TerminalDocumentLayout.make(totalRows: 500, cursorRow: 463, leadingBlankRows: 0)
+        #expect(mirror.hold(redrawn, totalRows: 500, cursorRow: 463, screenTopRow: 461).endRow == 464)
+    }
+
     @Test func aShortSessionStillEndsAtItsCursor() {
         var hold = TerminalEndHold()
         // A new shell: 3 rows of text at the top of a 42-row screen.

@@ -61,7 +61,12 @@ struct FeedSwipeRow<Content: View>: View {
     @State private var offset: CGFloat = 0
     @State private var dragStart: CGFloat?
     @State private var width: CGFloat = 0
-    @State private var armed = false
+    /// A full swipe is armed: the row haptic fires as it arms (UIKit's
+    /// generator, not `.sensoryFeedback`, whose per-row setup ran for every
+    /// row that scrolled in).
+    @State private var armed = false {
+        didSet { if armed, !oldValue { UIImpactFeedbackGenerator(style: .medium).impactOccurred() } }
+    }
 
     static var actionWidth: CGFloat { 76 }
 
@@ -85,7 +90,6 @@ struct FeedSwipeRow<Content: View>: View {
             .clipped()
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .gesture(HorizontalPan(isOpen: isOpen, onChange: dragChanged, onEnd: dragEnded))
-            .sensoryFeedback(.impact(weight: .medium), trigger: armed) { _, new in new }
             .onChange(of: coordinator.openID) { _, open in
                 if open != id, isOpen { withAnimation(.cnxSnappy) { offset = 0 } }
             }

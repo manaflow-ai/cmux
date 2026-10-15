@@ -38,6 +38,12 @@ The tests need no network: they start a fake signaling server on loopback.
 - `cnx-link/tests/loopback.rs` (input lane): over WebRTC and WireGuard an
   input channel rides its own data channel or TCP stream, and with a Mac
   without the lane it rides the main stream and still works.
+- `cnx-link` `send_queue::tests`: on a backed-up signaling socket a signal,
+  the reachability marker and a keystroke datagram queued behind 2000 bulk
+  relay frames leave first, in that order; relay classes stay within their
+  byte bounds and keep their newest frames.
+- `cnx-link/tests/loopback.rs`: the fake backend keeps one socket per
+  device (a reconnect closes the old one with 4000 `replaced`).
 - `cnx-hostd/tests/host.rs`: hostd over all three paths with every service
   (`echo`, `daemon` against a fake cmux-tui socket with allowed and denied
   lines, `file` inside and outside the roots, `acpmux` against a fake

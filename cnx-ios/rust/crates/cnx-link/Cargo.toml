@@ -42,3 +42,4 @@ zeroize.workspace = true
 [dev-dependencies]
 cnx-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true

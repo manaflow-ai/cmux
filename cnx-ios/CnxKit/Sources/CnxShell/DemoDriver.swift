@@ -48,6 +48,7 @@ struct DemoDriver {
             shell.tab = .home
             shell.homePath.append(ChiefRoute())
         case "ws-terminal": await workspaceTerminal()
+        case "ws-terminal-card": await workspaceTerminalCard()
         case "tour-a": await tourHomeAndWorkspaces()
         case "tour-b": await tourFeedChatDiff()
         case "tour-c": await tourSettingsAndSidebar()
@@ -722,6 +723,28 @@ struct DemoDriver {
         mark("exit")
         tabs.post(.exit)
         await pause(1.8)
+        mark("end")
+    }
+
+    /// V5-6: a terminal page longer than its card, then the grid with that
+    /// tab active: the card must show the newest rows (#0000400) and the
+    /// prompt at its bottom edge, not the page's top.
+    private func workspaceTerminalCard() async {
+        let store = shell.store
+        let tabs = WorkspaceDemoDirector.shared
+        store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        shell.tab = .workspaces
+        await pause(1.2)
+        guard let ws = store.workspace(id: "ws-cmux") else { return }
+        shell.workspacesPath = [ws]
+        await pause(3.0)
+        guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+        model.composerText = "stream 400 2"
+        model.send()
+        await pause(3.0)
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(8.0)
         mark("end")
     }
 

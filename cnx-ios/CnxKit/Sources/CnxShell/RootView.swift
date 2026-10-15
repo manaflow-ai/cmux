@@ -520,9 +520,9 @@ struct ShellTabs: View {
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
             }
-            .badge(shell.store.activeWorkspaces.filter(\.needsAttention).count)
+            .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
-                CnxFeed.FeedScreen(path: $shell.feedPath) { SidebarToolbarItem(sidebar: shell.sidebar) }
+                FeedTabContent(shell: shell)
             }
             .badge(FeedStore.shared.needsYouCount)
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
@@ -543,6 +543,18 @@ struct ShellTabs: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .tint(theme.colors.label.color)
         .cnxSensoryFeedback(.selection, trigger: shell.tab)
+    }
+}
+
+/// The Feed tab's content. `ShellTabs` re-renders on every Mac tree update
+/// (its badges read the workspaces); this view's only input is the shell
+/// model, so the Feed screen is not rebuilt with it.
+private struct FeedTabContent: View {
+    let shell: ShellModel
+
+    var body: some View {
+        @Bindable var shell = shell
+        CnxFeed.FeedScreen(path: $shell.feedPath) { SidebarToolbarItem(sidebar: shell.sidebar) }
     }
 }
 

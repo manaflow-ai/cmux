@@ -13,17 +13,23 @@ struct ZoomSpring: Equatable, Sendable {
     // timestamps (cmux-next ios-next/reference/validation/browser-springs-verify.md).
     /// Page to card (tabs button): 0.369 / 0.873, four events agree.
     static let toOverview = ZoomSpring(response: 0.37, damping: 0.875)
-    /// Card to page (Done, a card): the middle and tail fit 0.385–0.40 /
-    /// 0.98–0.99. From rest: simulator Safari's first frame moves 7–11 pt
-    /// and its second about 21 pt (cmux-next tabs-parity-audit 1a).
-    static let toPage = ZoomSpring(response: 0.39, damping: 0.99)
-    /// (+) New Tab: Safari's start page tail fits 0.34 / 0.97 with about
-    /// 10 progress/s at its first sharp frame (cmux-next tabs-parity-audit 2a).
-    static let newTab = ZoomSpring(response: 0.34, damping: 0.97, launch: 10)
-    /// The fresh tab after the last one closed: Safari scales its start page
-    /// from about 0.84 to 1, at rest about 275 ms after its first frame
-    /// (cmux-next tabs-parity-reaudit D2).
-    static let afterLastClose = ZoomSpring(response: 0.245, damping: 1)
+    /// Card to page (Done, a card), from rest: simulator Safari's mean
+    /// crossings are t50 95 ms and t90 227 ms (3 runs, tabs-parity-audit
+    /// 1a), which this spring gives (0.39 / 0.99 was 17–22 ms late,
+    /// cmux-next re-audit 2); its first frame moves about 8 pt (Safari 7–11).
+    static let toPage = ZoomSpring(response: 0.356, damping: 0.99)
+    /// (+) New Tab: Safari's page edge, from where it passes 385 pt (0.7
+    /// scale start), reaches 395 / 398 / 400 / 401.3 pt 48 / 80 / 130 /
+    /// 182 ms later (cmux-next tabs-parity-reaudit-2 D5). With 10 progress/s at the
+    /// start this spring gives 53 / 86 / 125 / 184 ms; 0.34 / 0.97 gave 57 /
+    /// 91 / 131 / 189 and rendered a frame later still.
+    static let newTab = ZoomSpring(response: 0.27, damping: 1.03, launch: 10)
+    /// The fresh start page after the last tab closed: Safari turns the lone
+    /// card into the start page in its own slot (0.665 of the width) and
+    /// zooms it to full screen, at rest about 500 ms later; its page edge
+    /// fits 0.375 / 0.98 from rest within 1.5 pt (`saf-last-page.csv`,
+    /// tabs-parity-reaudit-2 D2).
+    static let afterLastClose = ZoomSpring(response: 0.375, damping: 0.98)
     /// After a reversal Safari follows the destination's spring from about
     /// rest (toward the page 0.308–0.331 / 1.03–1.04, toward the grid
     /// 0.346–0.369 / 0.84–0.875).
@@ -41,10 +47,13 @@ struct NewTabZoom: Equatable, Sendable {
     /// The page starts blurred and sharpens (Safari's (+); the page after
     /// the last tab closed is sharp throughout).
     var blurs = true
+    /// Grow from the lone card's slot in the grid instead of the centred
+    /// `scale` rect (the page after the last tab closed).
+    var fromLoneSlot = false
     /// (+): Safari's start page shows first at about 0.6–0.77 of the screen.
     static let plus = NewTabZoom(scale: 0.7, spring: .newTab)
-    /// The last tab closed: a fresh tab from about 0.84, sharp.
-    static let lastTabClosed = NewTabZoom(scale: 0.84, spring: .afterLastClose, blurs: false)
+    /// The last tab closed: a fresh start page from the lone card's slot, sharp.
+    static let lastTabClosed = NewTabZoom(scale: 2.0 / 3, spring: .afterLastClose, blurs: false, fromLoneSlot: true)
 
     func rect(in full: CGRect) -> CGRect {
         let w = full.width * scale, h = full.height * scale
@@ -90,6 +99,12 @@ struct TabZoomState: Equatable, Sendable {
     private(set) var offsetVelocity: CGVector = .zero
     private(set) var target: Double = 0
     private(set) var spring: ZoomSpring = .toPage
+    /// When set, the transition replays Safari's own curve (from `curveFrom`
+    /// to `target`) instead of integrating `spring`.
+    private(set) var curve: SafariCurve?
+    private var curveFrom: Double = 0
+    private var curveTime: Double = 0
+    private var curveFirstFrame = false
     private(set) var phase: Phase = .page
 
     init(overview: Bool = false) {
@@ -126,21 +141,57 @@ struct TabZoomState: Equatable, Sendable {
         case .interactive:
             animate(to: newTarget, spring: .release, keepVelocity: 1)
         case .page, .overview:
+            // Safari's own zoom out (tabs button) and zoom in (a card, Done).
             let spring: ZoomSpring = toOverview ? .toOverview : .toPage
             animate(to: newTarget, spring: spring, keepVelocity: 0)
-            velocity = toOverview ? spring.launch : -spring.launch
+            play(toOverview ? .zoomOut : .zoomIn)
         }
     }
 
-    /// A just-created tab opens from its grid slot on the `newTab` spring.
+    /// (+) on the settled grid: the new tab's start page grows from its slot
+    /// on the `newTab` spring, at once (it does not wait for the host).
     /// Anywhere else this is an ordinary `go(toOverview: false)`.
     mutating func openNewTab(spring: ZoomSpring = .newTab) {
         guard phase == .overview else { go(toOverview: false); return }
         animate(to: 0, spring: spring, keepVelocity: 0)
         velocity = -spring.launch
+        if spring == .afterLastClose { play(.lastTab) }
+    }
+
+    /// Replays `c` from the current progress to the target (Safari's curve).
+    mutating func play(_ c: SafariCurve, from time: Double = 0) {
+        guard phase == .animating else { return }
+        curve = c
+        curveFrom = time > 0 ? (target == 1 ? 0 : 1) : progress
+        curveTime = time
+        curveFirstFrame = true
+    }
+
+    /// A swipe up on the bar began: the page goes to the grid along Safari's
+    /// swipe-up curve in time (Safari's page moves on its own clock while the
+    /// finger travels; a swipe that turns back down takes over interactively).
+    mutating func startSwipeUp() {
+        guard phase == .page else { return }
+        animate(to: 1, spring: .release, keepVelocity: 0)
+        play(.swipeUp)
+        // Ours shows the swipe's first frame about half a frame sooner than
+        // Safari (measured with the same input).
+        curveTime = -0.5 / 60
+    }
+
+    /// Whether the swipe-up curve is running.
+    var playingSwipeUp: Bool { phase == .animating && curve == .swipeUp }
+
+    /// A swipe up on the bar ended: the grid follows Safari's swipe-up curve
+    /// on from where the finger left the page (its progress on that curve).
+    mutating func releaseOnSwipeUpCurve() {
+        guard phase == .interactive else { return }
+        animate(to: 1, spring: .release, keepVelocity: 0)
+        play(.swipeUp, from: max(1.0 / 600, SafariCurve.swipeUp.time(reaching: progress)))
     }
 
     mutating func animate(to target: Double, spring: ZoomSpring, keepVelocity: Double) {
+        curve = nil
         self.target = target
         self.spring = spring
         velocity *= keepVelocity
@@ -154,6 +205,7 @@ struct TabZoomState: Equatable, Sendable {
     /// Grabs the current presentation (progress, offset) wherever it is,
     /// including mid-spring; tracking continues from there with no jump.
     mutating func beginInteraction() {
+        curve = nil
         phase = .interactive
         velocity = 0
         offsetVelocity = .zero
@@ -227,6 +279,22 @@ struct TabZoomState: Equatable, Sendable {
     @discardableResult
     mutating func step(_ dt: Double) -> Bool {
         guard phase == .animating, dt > 0 else { return false }
+        if let c = curve {
+            // The first frame of a curve advances one 60 Hz frame however long
+            // the frame that started it took (it built the grid).
+            curveTime += curveFirstFrame ? 1.0 / 60 : dt
+            curveFirstFrame = false
+            let p = c.value(at: curveTime)
+            let next = curveFrom + (target - curveFrom) * p
+            velocity = (next - progress) / dt
+            progress = next
+            if curveTime >= c.duration {
+                curve = nil
+                settle()
+                return true
+            }
+            return false
+        }
         let w = 2 * Double.pi / spring.response
         // Semi-implicit Euler in small substeps (stable for any frame time).
         var remaining = min(dt, 0.1)

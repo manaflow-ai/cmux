@@ -484,6 +484,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
+    public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
+        guard let tab = workspaceTab(id), tab.kind == .terminal else { return false }
+        return terminal.showsStaticCard(for: tab)
+    }
+
     // MARK: Toolbar actions
 
     public func goBack(_ id: TabsKitTab.ID) {
@@ -627,6 +632,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func move(_ id: TabsKitTab.ID, to destinationID: String?) async {
         movingTab = nil
         guard let workspace, let creator, let tab = workspaceTab(id) else { return }
+        if workspace.isHome, destinationID == nil { return show("Home's tabs stay in Home.") }
         let destination = destinationID.flatMap { store.workspace(id: $0) }
         if destinationID != nil, destination == nil { return show("That workspace is no longer on \(macName).") }
         do {
@@ -815,6 +821,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     /// Move Tab to Workspace… (another workspace on this Mac) and Move Tab to New Workspace.
+    /// Home's tabs stay in Home: as the Mac (`TabPromotion`), a Home tab's menu leaves out the
+    /// promotion Move Tab to New Workspace, and keeps Move Tab to Workspace….
     private func moveItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
         guard canEditTabs else { return [] }
         var items: [TabsKitMenuItem] = []
@@ -823,6 +831,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 self?.movingTab = tab
             })
         }
+        if workspace?.isHome == true { return items }
         items.append(TabsKitMenuItem(title: "Move Tab to New Workspace", systemImage: "rectangle.portrait.and.arrow.right") { [weak self] in
             Task { await self?.move(tab.id, to: nil) }
         })

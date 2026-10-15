@@ -116,20 +116,25 @@ final class FakeDaemon: @unchecked Sendable {
     private(set) var lastApproval: [String: Any]?
     /// Event lines sent after the next reply (a Mac-side change).
     private var queued: [Data] = []
+    /// When set, queued events wait for a reply to this command (an event
+    /// that reaches the phone after a page that already includes its change).
+    private var queuedUntil: String?
 
     func queue(_ event: [String: Any]) {
         lock.withLock { queued.append(line(event)) }
     }
 
     /// Chief posts `text` on its own (a turn's end), delivered as a
-    /// `conversation-changed` event after the next reply.
-    func queueChiefMessage(_ text: String) {
+    /// `conversation-changed` event after the next reply (with `deliverOn`,
+    /// after the next reply to that command).
+    func queueChiefMessage(_ text: String, deliverOn command: String? = nil) {
         lock.withLock {
             let posted = message(author: "agent_mux", text: text, client: "chief-\(messages.count + 1)")
             messages.append(posted)
             rev += 1
             queued.append(line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev,
                                 "transaction": NSNull(), "change": ["kind": "message", "message": posted]]))
+            queuedUntil = command
         }
     }
 
@@ -151,8 +156,10 @@ final class FakeDaemon: @unchecked Sendable {
 
     func respond(_ request: Data) -> [Data] {
         let replies = respondNow(request)
+        let cmd = (try? JSONSerialization.jsonObject(with: request.dropLast()) as? [String: Any])?["cmd"] as? String
         let events: [Data] = lock.withLock {
-            defer { queued = [] }
+            if let queuedUntil, queuedUntil != cmd { return [] }
+            defer { queued = []; queuedUntil = nil }
             return queued
         }
         return replies + events
@@ -312,6 +319,67 @@ final class FakeDaemon: @unchecked Sendable {
     }
 }
 
+/// The first value `work` produces within `limit`, else nil: a wait that
+/// can fail but never hangs the run.
+func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async -> T?) async -> T? {
+    await withTaskGroup(of: T?.self) { group in
+        group.addTask { await work() }
+        group.addTask { try? await Task.sleep(for: limit); return nil }
+        let first = await group.next() ?? nil
+        group.cancelAll()
+        return first
+    }
+}
+
+/// Waits on the main actor until `condition` holds; past `limit` it records
+/// an issue and throws instead of spinning forever.
+@MainActor func waitUntil(_ what: String, within limit: Duration = .seconds(20),
+                          sourceLocation: SourceLocation = #_sourceLocation,
+                          _ condition: @MainActor () -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: limit)
+    while !condition() {
+        if ContinuousClock.now >= deadline {
+            Issue.record("timed out waiting for \(what)", sourceLocation: sourceLocation)
+            throw CancellationError()
+        }
+        await Task.yield()
+    }
+}
+
+@Suite struct ChiefPageReadTests {
+    /// A page read (a resync's, or any caller's other than the store's) must
+    /// not move the live-event cursor: an event the page's snapshot already
+    /// counted still reaches the store. Before, `history` absorbed the
+    /// snapshot's `rev`, so a `conversation-changed` that landed after the
+    /// reply was dropped as stale and the store never saw the change (the
+    /// cause of `tryAgainSendsTheMessageTheFailedTurnAnswered` hanging when
+    /// CnxChiefTests ran in parallel and the reply won the race).
+    @Test func aPageReadDoesNotSwallowALaterEvent() async throws {
+        let daemon = FakeDaemon()
+        let backend = try await ChiefDaemonBackend.open(link: MockMacLink { _, request in daemon.respond(request) })
+        let events = backend.events()
+        let connected = await within(.seconds(10)) {
+            for await event in events { if case .connected = event { return true } }
+            return nil
+        }
+        try #require(connected == true, "expected connected")
+        // Chief posts; the Mac's snapshot counts it before its event arrives.
+        daemon.queueChiefMessage("Done.", deliverOn: "conversation-typing")
+        let page = try await backend.history(beforeSeq: nil, limit: 50)
+        #expect(page.messages.map(\.text) == ["Done."])
+        // The event lands after the page reply.
+        await backend.setTyping(false)
+        let delivered = await within(.seconds(10)) {
+            for await event in events {
+                if case .message(let message, _) = event, message.text == "Done." { return message.id }
+            }
+            return nil
+        }
+        #expect(delivered == page.messages.first?.id, "the live event was dropped after a page read")
+        backend.close()
+    }
+}
+
 @Suite struct ChiefLiveRulesTests {
     func preferences() -> ChiefPreferences {
         let suite = "cnx.chief.tests.\(UUID().uuidString)"
@@ -402,7 +470,7 @@ final class FakeDaemon: @unchecked Sendable {
         // A relaunch keeps it.
         #expect(ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox).outbox.count == 1)
         session.use(ChiefMockBackend(sleep: { _ in }))
-        while !session.store.messages.contains(where: { $0.text == "run the tests" && $0.seq != nil }) { await Task.yield() }
+        try await waitUntil("the outbox message to go out") { session.store.messages.contains(where: { $0.text == "run the tests" && $0.seq != nil }) }
         #expect(session.outbox.isEmpty)
         #expect(outbox.load().isEmpty)
     }
@@ -469,9 +537,9 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
     @Test func storeSendsAPhotoWithTextToTheMock() async throws {
         let store = await ConversationStore(backend: ChiefMockBackend(sleep: { _ in }))
         await store.start()
-        while await store.meID == nil { await Task.yield() }
+        try await waitUntil("the store to connect") { store.meID != nil }
         await store.send(text: "look", images: [(data: tinyPNG, width: 4, height: 3, mimeType: "image/png")])
-        while await store.messages.contains(where: { $0.seq == nil }) { await Task.yield() }
+        try await waitUntil("the photo to be sent") { !store.messages.contains(where: { $0.seq == nil }) }
         let mine = await store.messages.filter { $0.senderID == ChiefIdentity.standard.meID && !$0.attachments.isEmpty }
         #expect(mine.count == 1)
         #expect(mine.first?.delivery?.isFailed == false)
