@@ -39,7 +39,7 @@ except OSError as e:
 PY
   fi
   if [[ -n "$daemon_pid" ]]; then
-    ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/s.sock" "$acpmux" daemon shutdown >/dev/null 2>&1 || echo "daemon shutdown failed (pid $daemon_pid)" >>"$out/host.txt"
+    ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/s.sock" "$acpmux" daemon shutdown --end-agents >/dev/null 2>&1 || echo "daemon shutdown failed (pid $daemon_pid)" >>"$out/host.txt"
   fi
   if [[ -n "${bundle_id:-}" ]]; then
     security delete-generic-password -s "com.cmuxterm.next.free-tier.app-attest.$bundle_id" -a key >/dev/null 2>&1
@@ -68,7 +68,40 @@ echo "daemon: $ready" >> "$out/host.txt"
 # LaunchServices start in the GUI session (App Attest needs it), pointed at the API.
 open -n --env ACPMUX_HOME="$home" --env ACPMUX_SOCKET="$home/s.sock" \
   --env CMUX_NEXT_FEED_API_URL="$origin" "$app"
-app_pid="$(lsappinfo info -only pid "$(lsappinfo find bundlepath="$app" | head -n 1)" 2>/dev/null | sed -E 's/.*=//')"
+# The app's pid comes from its own control socket (/tmp/cmux-debug-<tag>.sock): a
+# kqueue watch on /tmp wakes when the socket appears (no poll, at most 120 s in all),
+# and LOCAL_PEERPID names the process that answers; it must run from this app bundle.
+app_pid="$(python3 -I - "/tmp/cmux-debug-$tag.sock" "$app" 2>>"$out/host.txt" <<'PY'
+import os, select, socket, subprocess, sys, time
+path, app = sys.argv[1], os.path.realpath(sys.argv[2])
+deadline = time.time() + 120
+kq = select.kqueue()
+fd = os.open(os.path.dirname(path), os.O_RDONLY)
+kq.control([select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE)], 0)
+pid = None
+while pid is None and time.time() < deadline:
+    if os.path.exists(path):
+        c = socket.socket(socket.AF_UNIX)
+        try:
+            c.connect(path)
+            pid = c.getsockopt(0, 2)  # SOL_LOCAL, LOCAL_PEERPID
+        except OSError:
+            pass
+        finally:
+            c.close()
+        if pid is not None:
+            break
+    kq.control(None, 1, max(0.0, deadline - time.time()))  # wakes on the next write in the folder
+if pid is None:
+    print("app socket never appeared", file=sys.stderr)
+    sys.exit(1)
+exe = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="], capture_output=True, text=True).stdout.strip()
+if not os.path.realpath(exe).startswith(app + "/"):
+    print(f"socket peer {pid} is not this app ({exe})", file=sys.stderr)
+    sys.exit(1)
+print(pid)
+PY
+)" || { echo "the app did not come up" >> "$out/host.txt"; exit 1; }
 
 python3 -I - "$home/router/router.sock" "$out/result.json" <<'PY'
 import json, socket, sys, time, http.client

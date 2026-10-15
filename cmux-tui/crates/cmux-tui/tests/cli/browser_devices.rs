@@ -285,6 +285,11 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
     assert_eq!(emulation(&server, &browser).as_ref(), Some(&fixed));
     assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "99999"]).contains("1280"));
     assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "300"]).contains("1280"));
+    // `--fit off` ends the fit.
+    ok(&server, &["tab", &browser, "emulate", "--fit", "16:10"]);
+    assert_eq!(emulation(&server, &browser).unwrap()["fit"]["value"], "16:10");
+    ok(&server, &["tab", &browser, "emulate", "--fit", "off"]);
+    assert_eq!(emulation(&server, &browser), None);
     // A device again replaces the fit.
     ok(&server, &["tab", &browser, "emulate", "--device", "Kiosk"]);
 
@@ -301,12 +306,15 @@ fn browser_profile_commands_create_move_and_open_and_refuse_delete_through_a_rea
     let server = HeadlessServer::start("browser-profiles");
 
     let created = ok(&server, &["browser", "profile", "create", "--name", "Work"]);
-    let profile_id =
-        created["browser_profile"]["id"].as_str().expect("created browser profile id").to_owned();
+    let profile_id = find(&created, "browser_profile")
+        .and_then(|profile| profile["id"].as_str())
+        .expect("created browser profile id")
+        .to_owned();
 
     let listed = ok(&server, &["browser", "profile", "list"]);
-    assert_eq!(listed["browser_profiles"][1]["name"], "Work", "{listed}");
-    assert_eq!(listed["browser_profiles"][1]["id"], profile_id, "{listed}");
+    let profiles = find(&listed, "browser_profiles").cloned().unwrap_or_default();
+    assert_eq!(profiles[1]["name"], "Work", "{listed}");
+    assert_eq!(profiles[1]["id"], profile_id, "{listed}");
 
     let opened = ok(
         &server,
@@ -321,7 +329,7 @@ fn browser_profile_commands_create_move_and_open_and_refuse_delete_through_a_rea
             "Work",
         ],
     );
-    assert!(opened["content_resource_id"].as_str().is_some(), "{opened}");
+    assert!(find(&opened, "browser_id").and_then(|id| id.as_str()).is_some(), "{opened}");
     assert_eq!(frontend_browser_tab(&profile_tree(&server))["browser_profile_id"], profile_id);
 
     let opened_with_flag = ok(
@@ -338,19 +346,22 @@ fn browser_profile_commands_create_move_and_open_and_refuse_delete_through_a_rea
             "Work",
         ],
     );
-    assert!(opened_with_flag["content_resource_id"].as_str().is_some(), "{opened_with_flag}");
+    assert!(
+        find(&opened_with_flag, "browser_id").and_then(|id| id.as_str()).is_some(),
+        "{opened_with_flag}"
+    );
 
     ok(&server, &["browser", "profile", "move", "--profile", "Work", "--index", "0"]);
     let moved = ok(&server, &["browser", "profile", "list"]);
-    assert_eq!(moved["browser_profiles"][0]["name"], "Work", "{moved}");
+    assert_eq!(find(&moved, "browser_profiles").unwrap()[0]["name"], "Work", "{moved}");
 
     // Only a person deletes a browser profile, in the app: the CLI is refused and the profile stays.
     let refusal = refused(&server, &["browser", "profile", "delete", "--profile", "Work"]);
     assert!(refusal.contains("only a person deletes a browser profile"), "{refusal}");
     let after_delete = ok(&server, &["browser", "profile", "list"]);
     assert!(
-        after_delete["browser_profiles"]
-            .as_array()
+        find(&after_delete, "browser_profiles")
+            .and_then(|profiles| profiles.as_array())
             .unwrap()
             .iter()
             .any(|profile| profile["id"] == profile_id),

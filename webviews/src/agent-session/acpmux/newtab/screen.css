@@ -18,6 +18,8 @@
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
 /* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the opaque popup surface every pane popup paints (ui/popupSurface.css; Leo 10-13: the page background is see-through on a wallpaper theme, and the rows under it showed through; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
 .nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,8px);background:var(--surface-popup);color:var(--agent-text);font-family:system-ui;-webkit-font-smoothing:antialiased;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:var(--acpmux-popup-elevation)}
+/* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
+.ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);cursor:default;white-space:nowrap}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
@@ -339,4 +341,46 @@
   .nt-box {
     transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
   }
+}
+/* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
+   opens them before the row's harness icon, and when open the children indented below it. The
+   title keeps clear of the count; the icon and age columns stay where every other row has them. */
+.nt-card-family {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nt-cards[data-variant="list"] .nt-card-family > .nt-card .nt-card-title {
+  margin-right: 34px;
+}
+.nt-card-children-toggle {
+  position: absolute;
+  top: 5px;
+  /* Row padding 10 + age column 3.2em of 11.5px + gap 6 + the harness icon + 8 of air. */
+  right: 78px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-soft);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.nt-card-children-toggle:hover,
+.nt-card-children-toggle[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  color: var(--agent-text);
+}
+.nt-card-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.nt-cards[data-variant="list"] .nt-card-children > .nt-card {
+  padding-left: 30px;
 }
