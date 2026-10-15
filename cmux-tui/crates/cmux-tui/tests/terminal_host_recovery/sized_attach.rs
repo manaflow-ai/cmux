@@ -199,3 +199,44 @@ fn dropped_view_holds_the_grid_until_a_reattach_or_the_grace_ends() {
     close_terminal_surface(&harness.socket, surface, 50);
     wait_for_no_host_records(&harness.host_root());
 }
+
+/// A phone that comes back at a larger size (rotated to landscape, a tablet
+/// in a wider split) gets its own size at once: the hold its departure set is
+/// for the grid it left, and capping the new view to it would resize the PTY a
+/// second time when the hold ends (PR #20809 review, finding 1).
+#[test]
+fn a_phone_back_at_a_larger_size_ends_the_hold() {
+    let mut harness = RecoveryHarness::start_unstarted("sized-attach-hold-return-wider");
+    harness.extra_env.push(("CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS".into(), "20000".into()));
+    harness.restart();
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", "exec /bin/cat"],
+            "new_workspace": true,
+            "name": "hold-return-wider",
+            "cols": 120,
+            "rows": 39,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
+    let (phone_writer, phone_reader, _) = attach_sized(&harness.socket, surface, 53, 42, 3);
+    wait_for_vt_size(&harness.socket, surface, 53, 39);
+    drop(phone_writer);
+    drop(phone_reader);
+
+    // Back in landscape, well inside the hold: 90 columns, not the 53 it left.
+    let (_phone_writer, _phone_reader, phone_state) =
+        attach_sized(&harness.socket, surface, 90, 30, 4);
+    assert_eq!(
+        (phone_state["cols"].as_u64(), phone_state["rows"].as_u64()),
+        (Some(90), Some(30)),
+        "the hold of the departed view capped the returning one"
+    );
+
+    close_terminal_surface(&harness.socket, surface, 50);
+    wait_for_no_host_records(&harness.host_root());
+}
