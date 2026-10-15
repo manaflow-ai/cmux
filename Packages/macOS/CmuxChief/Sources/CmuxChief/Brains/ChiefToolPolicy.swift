@@ -40,6 +40,14 @@ enum ChiefToolPolicy {
     /// The options of every approval card, allow first.
     static let approvalOptions = ["Allow", "Deny"]
 
+    /// A card's options for running the full `command` (nil for other prompts): ``approvalOptions``
+    /// plus the Always Allow rule a card may offer for it (``ChiefAllowRules/alwaysOption(for:)``),
+    /// derived here once from the lexed, untruncated command.
+    static func approvalOptions(command: String?) -> [String] {
+        guard let command, let always = ChiefAllowRules.alwaysOption(for: unwrapShell(command)) else { return approvalOptions }
+        return approvalOptions + [always]
+    }
+
     /// Whether a choice from ``approvalOptions`` grants the call.
     static func isAllow(_ choice: String) -> Bool {
         choice.caseInsensitiveCompare("Allow") == .orderedSame
@@ -106,10 +114,12 @@ enum ChiefToolPolicy {
         "send", "paste", "paste-buffer", "exec", "run", "eval", "repl", "shell", "ssh", "mosh",
         "approve", "addscript", "addinitscript",
         "--force", "--yes", "--command", "--eval", "--layout",
+        // `vm wait --wake` starts a stopped machine, which bills the user; plain `vm wait` only reads.
+        "--wake",
     ]
     /// Prefixes with the same effect (`close-workspace`, `send-key`, `--force=true`).
     static let cmuxApprovalPrefixes = [
-        "close-", "kill-", "clear-", "send-", "delete-", "remove-", "--force", "--yes", "--command", "--eval",
+        "close-", "kill-", "clear-", "send-", "delete-", "remove-", "--force", "--yes", "--command", "--eval", "--wake",
     ]
 
     /// Whether one word of a `cmux` call names a destructive or escalating

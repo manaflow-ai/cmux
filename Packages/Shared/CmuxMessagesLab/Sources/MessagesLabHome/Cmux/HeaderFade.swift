@@ -6,6 +6,12 @@ import AppKit
 /// background image), never MessagesLab's always-on blurred band. The
 /// avatar and the name pill (`PaneHeaderView`) stay as they are, and the
 /// band still drags the window (the backdrop takes no clicks).
+///
+/// cmux-classic: the band also shows, at rest, whenever a row lies under the
+/// header (the transcript is scrolled away from its top): hover-only left the
+/// avatar and pill over bubble text. `setHeaderFade(…, extent:)` makes it cover
+/// the header's controls plus what the host draws under them (Chief's model
+/// line), solid down to `extent - solidFadeLength` and fading below.
 
 /// Reports the pointer entering and leaving the header's top zone.
 final class HeaderZoneTracker: NSResponder {
@@ -16,8 +22,9 @@ final class HeaderZoneTracker: NSResponder {
 
 extension HeaderBackdropView {
     /// Replaces the blur with a top-to-bottom gradient of `color` from
-    /// `maxAlpha` to clear, hidden until `setRevealed(true)`.
-    func useTopFade(color: NSColor, maxAlpha: CGFloat) {
+    /// `maxAlpha` to clear, hidden until `setRevealed(true)`. `solid`: the share of
+    /// the band (0 to 1) that stays at `maxAlpha` before it fades (0: fades all the way).
+    func useTopFade(color: NSColor, maxAlpha: CGFloat, solid: CGFloat = 0) {
         let fade: CAGradientLayer
         if let existing = topFade {
             fade = existing
@@ -34,7 +41,14 @@ extension HeaderBackdropView {
             needsLayout = true
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        fade.colors = [color.withAlphaComponent(maxAlpha).cgColor, color.withAlphaComponent(0).cgColor]
+        if solid > 0 {
+            let top = color.withAlphaComponent(maxAlpha).cgColor
+            fade.colors = [top, top, color.withAlphaComponent(0).cgColor]
+            fade.locations = [0, NSNumber(value: Double(min(1, solid))), 1]
+        } else {
+            fade.colors = [color.withAlphaComponent(maxAlpha).cgColor, color.withAlphaComponent(0).cgColor]
+            fade.locations = nil
+        }
         CATransaction.commit()
     }
 
@@ -74,6 +88,25 @@ extension HostView {
     /// The zone over the header plus a small margin, tracked only once the
     /// top fade is in use.
     static let headerZoneMargin: CGFloat = 16
+    /// The fading part at the bottom of an extended band (`setHeaderFade(…, extent:)`).
+    static let solidFadeLength: CGFloat = 18
+
+    /// The band's height: the extent the host asked for, else the backdrop's own.
+    var headerBandHeight: CGFloat { max(headerBackdrop.totalHeight, headerFadeExtent ?? 0) }
+
+    /// Whether the band shows: the pointer is near the top, or (when the host asked for it)
+    /// rows lie under the header. Pure, for tests.
+    static func headerRevealed(hovered: Bool, revealsWhenScrolled: Bool, distanceToTop: CGFloat) -> Bool {
+        hovered || (revealsWhenScrolled && distanceToTop > 0.5)
+    }
+
+    /// Shows or hides the band for the pointer and the scroll position.
+    func applyHeaderReveal() {
+        guard headerBackdrop.topFade != nil else { return }
+        let distance = demo?.windowGeometry.distanceToTop ?? 0
+        let shown = Self.headerRevealed(hovered: headerHovered, revealsWhenScrolled: headerRevealsWhenScrolled, distanceToTop: distance)
+        headerBackdrop.setRevealed(shown, duration: headerFadeDuration(shown))
+    }
 
     func updateHeaderZone() {
         if let area = headerZoneArea { removeTrackingArea(area); headerZoneArea = nil }
@@ -89,14 +122,27 @@ extension MessagesLabHomeView {
     /// cmux: the header's band becomes a light fade of `color` (at most
     /// `maxAlpha`) shown only while the pointer is near the top;
     /// `duration(shown)` gives each show or hide its length (0: at once).
-    public func setHeaderFade(color: NSColor, maxAlpha: CGFloat, duration: @escaping (Bool) -> TimeInterval) {
+    ///
+    /// cmux-classic: `revealsWhenScrolled` also shows it at rest while a row lies under the
+    /// header; `extent` (points from the top) makes the band reach below the header's own
+    /// height, solid until its last `HostView.solidFadeLength` points.
+    public func setHeaderFade(color: NSColor, maxAlpha: CGFloat, extent: CGFloat? = nil, revealsWhenScrolled: Bool = false,
+                              duration: @escaping (Bool) -> TimeInterval) {
         let host = controller.host
         let first = host.headerBackdrop.topFade == nil
-        host.headerBackdrop.useTopFade(color: color, maxAlpha: maxAlpha)
-        host.headerZone.onChange = { [weak host] shown in
-            host?.headerBackdrop.setRevealed(shown, duration: duration(shown))
+        host.headerFadeExtent = extent
+        let band = host.headerBandHeight
+        let solid = extent == nil || band <= 0 ? 0 : max(0, band - HostView.solidFadeLength) / band
+        host.headerBackdrop.useTopFade(color: color, maxAlpha: maxAlpha, solid: solid)
+        host.headerRevealsWhenScrolled = revealsWhenScrolled
+        host.headerFadeDuration = duration
+        host.headerZone.onChange = { [weak host] hovered in
+            host?.headerHovered = hovered
+            host?.applyHeaderReveal()
         }
         if first { host.updateHeaderZone() }
+        host.needsLayout = true
+        host.applyHeaderReveal()
     }
 
     /// cmux: the name pill's own translucent capsule, always shown.

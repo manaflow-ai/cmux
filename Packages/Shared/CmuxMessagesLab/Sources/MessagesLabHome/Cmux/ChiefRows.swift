@@ -23,6 +23,21 @@ import Foundation
 enum ChiefRows {
     static let toolKind = "cmux.chief.tools"
     static let approvalKind = "cmux.chief.approval"
+    /// A failed turn's system row (ChiefNoticeRows.swift).
+    static let failureKind = "cmux.chief.failure"
+    /// A saved memory note's system row (ChiefNoticeRows.swift).
+    static let memoryKind = "cmux.chief.memory"
+    /// CmuxChief's `ChiefConversationOwner.failureSessionPrefix` and `memorySessionPrefix`: the work
+    /// parts the owner posts for a failed turn and for a saved note (the same ids; change both).
+    static let failurePrefix = "chief.failure:"
+    static let memoryPrefix = "chief.memory:"
+
+    /// A failed turn's work part (its title is the first-person error).
+    static func isFailure(_ work: WorkRef) -> Bool { work.host == nil && work.session.hasPrefix(failurePrefix) }
+    /// A saved note's work part (its title is the note; `.failed` once Undo forgot it).
+    static func isMemory(_ work: WorkRef) -> Bool { work.host == nil && work.session.hasPrefix(memoryPrefix) }
+    /// A system row's work part, not a tool call.
+    static func isNotice(_ work: WorkRef) -> Bool { isFailure(work) || isMemory(work) }
     /// The suffix of a tool row's sender id (`toolSender`).
     static let toolSenderSuffix = "#tools"
 
@@ -58,12 +73,19 @@ enum ChiefRows {
         }
 
         var kind: ToolKind { ToolKind(title: title) }
+
+        /// A plain title for a call whose command says less than its effect ("Started Codex in “#12: fix”"
+        /// for `cmux chief dispatch`), nil to show the command.
+        var humanTitle: String? { ChiefRows.dispatchTitle(title, state: state) }
     }
 
     /// A tool row: one call, or a run of calls (`group` is the run's first message id).
     struct Tools: Codable, Hashable {
         var group: String
         var calls: [ToolCall]
+        /// The run followed an approval the user allowed: one row says both ("Ran … · Allowed").
+        /// Nil (not false) otherwise, so older payloads keep their bytes and versions.
+        var allowed: Bool?
 
         /// Running while any call runs; failed when any failed; else done.
         var state: ToolCall.State {
@@ -81,17 +103,26 @@ enum ChiefRows {
         var decided: String?
         /// The asking agent's name ("Chief"), for the caption.
         var agent: String?
+        /// The rule the owner offers under the chevron ("cmux chief dispatch"), nil when none.
+        var alwaysAllowRule: String?
 
-        init(request: String, prompt: String, options: [String], decided: String? = nil, agent: String? = nil) {
+        init(request: String, prompt: String, options: [String], decided: String? = nil, agent: String? = nil,
+             alwaysAllowRule: String? = nil) {
             self.request = request
             self.prompt = prompt
             self.options = options
             self.decided = decided
             self.agent = agent
+            self.alwaysAllowRule = alwaysAllowRule
         }
 
+        /// The owner's rule rides in the options as `always:<words>` (ChiefAllowRules.cardOptions in
+        /// CmuxChief derives it once, from lexed words); it becomes ``alwaysAllowRule``, never a button.
         init(_ ref: ApprovalRef, agent: String? = nil) {
-            self.init(request: ref.request, prompt: ref.prompt, options: ref.options, decided: ref.decided, agent: agent)
+            let marker = ChiefRows.alwaysOptionPrefix
+            let rule = ref.options.first { $0.hasPrefix(marker) }.map { String($0.dropFirst(marker.count)) }
+            self.init(request: ref.request, prompt: ref.prompt, options: ref.options.filter { !$0.hasPrefix(marker) },
+                      decided: ref.decided, agent: agent, alwaysAllowRule: rule.flatMap { $0.isEmpty ? nil : $0 })
         }
 
         var isPending: Bool { decided == nil }
@@ -109,10 +140,14 @@ enum ChiefRows {
         var command: String? { ChiefRows.command(inPrompt: prompt) }
         /// The "Always Allow" prefix for the command ("cmux tree"), nil when none is offered.
         var alwaysAllowPrefix: String? {
-            guard prominent.map(ChiefRows.grants) == true, let command else { return nil }
-            return ChiefRows.alwaysAllowWords(command).map { $0.joined(separator: " ") }
+            guard prominent.map(ChiefRows.grants) == true else { return nil }
+            return alwaysAllowRule
         }
     }
+
+    /// Marks the option that carries the owner's Always Allow rule (ChiefAllowRules.alwaysOptionPrefix
+    /// in CmuxChief, the same id).
+    static let alwaysOptionPrefix = "always:"
 
     /// The command of a "Run `<command>`?" prompt.
     static func command(inPrompt prompt: String) -> String? {
@@ -122,90 +157,6 @@ enum ChiefRows {
         let command = String(rest[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
         return command.isEmpty ? nil : command
     }
-
-    /// The words an "Always Allow" rule for `command` names: the program and its subcommand
-    /// ("cmux tree", "git push"), only for one plain simple command (no pipes, lists, redirects,
-    /// quotes, globs or expansion), never for a shell, an interpreter, a deleting program, `git
-    /// config`, `npx`, `npm exec|run`, `make`, a `cmux` group that runs commands or answers for
-    /// the user (`vm`, `chief`, `browser`, `send*`), or a `cmux` call with a word that asks.
-    /// The owner derives and honors the same rule (ChiefAllowRules.prefix and
-    /// ChiefToolPolicy.cmuxWordAsks in CmuxChief, the same lists; change both).
-    static func alwaysAllowWords(_ command: String) -> [String]? {
-        let banned = CharacterSet(charactersIn: "|&;<>`$(){}[]\\\"'*?~=#^\n\t")
-        guard command.rangeOfCharacter(from: banned) == nil else { return nil }
-        let words = command.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        guard words.count >= 2 else { return nil }
-        let program = words[0], sub = words[1]
-        guard program.range(of: #"^[a-z][a-z0-9._-]*$"#, options: .regularExpression) != nil,
-              sub.range(of: #"^[a-z][a-z0-9-]*$"#, options: .regularExpression) != nil,
-              !alwaysAllowRefusedPrograms.contains(program) else { return nil }
-        if program == "cmux" {
-            if words.dropFirst().contains(where: cmuxWordAsks) { return nil }
-            // A group's rule names its verb too ("cmux chief dispatch", never all of "cmux chief").
-            if let verbs = alwaysAllowCmuxGroupVerbs[sub] {
-                return words.count >= 3 && verbs.contains(words[2]) ? Array(words.prefix(3)) : nil
-            }
-        }
-        if alwaysAllowRefusedSubcommands[program]?.contains(sub) ?? false { return nil }
-        return [program, sub]
-    }
-
-    /// ChiefAllowRules.cmuxGroupVerbs in CmuxChief (the same table; change both).
-    static let alwaysAllowCmuxGroupVerbs: [String: Set<String>] = ["chief": ["dispatch"]]
-
-    /// ChiefAllowRules.refusedPrograms in CmuxChief (the same list; change both).
-    static let alwaysAllowRefusedPrograms: Set<String> = [
-        "sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh", "nu", "pwsh",
-        "sudo", "su", "doas", "env", "xargs", "eval", "exec", "command", "builtin", "nohup", "time", "timeout",
-        "nice", "watch", "python", "python2", "python3", "node", "deno", "bun", "ruby", "perl", "php", "lua",
-        "osascript", "swift", "awk", "gawk", "sed", "find", "rm", "rmdir", "dd", "mv", "chmod", "chown", "chgrp",
-        "kill", "killall", "pkill", "npx", "bunx", "pnpx", "uvx", "make", "gmake", "cmake", "ninja", "just",
-    ]
-
-    /// ChiefAllowRules.refusedSubcommands in CmuxChief (the same table; change both).
-    static let alwaysAllowRefusedSubcommands: [String: Set<String>] = [
-        "git": ["config", "submodule", "filter-branch"],
-        "npm": ["exec", "run", "run-script", "x", "start", "test"],
-        "pnpm": ["exec", "run", "dlx", "x", "start", "test"],
-        "yarn": ["exec", "run", "dlx", "start", "test"],
-        "uv": ["run", "tool"],
-        "pipx": ["run"],
-        "cargo": ["run"],
-        "go": ["run", "generate"],
-        "docker": ["run", "exec"],
-        "kubectl": ["exec", "run"],
-        "cmux": [
-            "vm", "cloud", "chief", "browser", "sudo", "rpc", "ssh", "mosh", "mosh-tmux", "ssh-tmux", "hooks",
-            "set-hook", "pipe-pane", "respawn-pane", "automation", "auth", "login", "logout", "ai-accounts",
-            "paste", "paste-buffer", "new-workspace", "new-split", "new-pane", "new-surface", "restore-session",
-            "import", "feedback", "sessions", "session", "remotes", "remote", "glaeda", "coderouter", "cr",
-        ],
-    ]
-
-    /// Whether a word of a cmux call asks (ChiefToolPolicy.cmuxWordAsks in CmuxChief, the same
-    /// lists; change both): the part before any `=`, lowercased, is a listed word or starts with a
-    /// listed prefix.
-    static func cmuxWordAsks(_ word: String) -> Bool {
-        let lower = word.lowercased()
-        let key = lower.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? lower
-        return cmuxApprovalWords.contains(key) || cmuxApprovalPrefixes.contains { key.hasPrefix($0) }
-    }
-
-    /// ChiefToolPolicy.cmuxApprovalWords in CmuxChief (the same list; change both).
-    static let cmuxApprovalWords: Set<String> = [
-        "close", "rm", "remove", "delete", "destroy", "kill", "quit", "restart", "relaunch", "reset",
-        "clear", "clear-history", "cleanup", "ssh-session-cleanup", "uninstall", "logout",
-        "sudo", "rpc", "pipe-pane", "respawn-pane", "set-hook",
-        "publish", "access", "grant", "ungrant", "upload", "feedback", "promote-template",
-        "send", "paste", "paste-buffer", "exec", "run", "eval", "repl", "shell", "ssh", "mosh",
-        "approve", "addscript", "addinitscript",
-        "--force", "--yes", "--command", "--eval", "--layout",
-    ]
-
-    /// ChiefToolPolicy.cmuxApprovalPrefixes in CmuxChief (the same list; change both).
-    static let cmuxApprovalPrefixes = [
-        "close-", "kill-", "clear-", "send-", "delete-", "remove-", "--force", "--yes", "--command", "--eval",
-    ]
 
     /// The decided value of an expired card (ChiefConversationOwner.approvalExpired in CmuxChief, the same id).
     static let expiredDecision = "expired"
@@ -301,19 +252,35 @@ enum ChiefRows {
     enum ToolRole: Hashable {
         /// Not a tool message.
         case other
-        /// The first message of a run: the row for every call in it.
-        case head([ToolCall])
+        /// The first message of a run: the row for every call in it. `allowed`: the head is the
+        /// allowed approval the run's first call asked for (its receipt is this row).
+        case head([ToolCall], allowed: Bool)
         /// A later message of a run: no row (its call is in the head's).
         case folded
+        /// A failed turn's row; `retry`: it is the newest message (Try Again resends the last message).
+        case failure(retry: Bool)
     }
 
     /// Tool-only messages: every part is a tool call (`.work` without a `host`), not retracted. A work part
     /// with a host is a flow's own row (a Cloud machine's provisioning or result card): it stays a row of
-    /// its own, never folded into a run.
+    /// its own, never folded into a run. So are the owner's system rows (a failure, a saved note).
     static func isToolOnly(_ item: TranscriptItem) -> Bool {
         !item.isRetracted && !item.parts.isEmpty && item.parts.allSatisfy {
-            if case .work(let w) = $0 { w.host == nil && !ChiefCloudRows.isProvisioning(w) } else { false }
+            if case .work(let w) = $0 { w.host == nil && !ChiefCloudRows.isProvisioning(w) && !isNotice(w) } else { false }
         }
+    }
+
+    /// A failed turn's message: one failure work part.
+    static func isFailureOnly(_ item: TranscriptItem) -> Bool {
+        guard !item.isRetracted, item.parts.count == 1, case .work(let w)? = item.parts.first else { return false }
+        return isFailure(w)
+    }
+
+    /// The prompt of an approval-only message the user allowed (its receipt can fold into the run it started).
+    static func allowedPrompt(_ item: TranscriptItem) -> String? {
+        guard !item.isRetracted, item.parts.count == 1, case .approval(let ref)? = item.parts.first,
+              let decided = ref.decided, grants(decided), command(inPrompt: ref.prompt) != nil else { return nil }
+        return ref.prompt
     }
 
     /// Messages drawn as the tool sender (`toolSender`): tool rows and approval cards, which are not the
@@ -328,24 +295,50 @@ enum ChiefRows {
     }
 
     /// The tool role of each item, by key. A run is consecutive tool-only items of one author
-    /// in one thread (another message between, even a folded draft, ends it).
+    /// in one thread (another message between, even a folded draft, ends it). An allowed approval
+    /// right before a run whose first call it asked for (the call's title is in its prompt) heads
+    /// that run: its receipt and the "Ran" row are one row ("Ran … · Allowed"). A failure row offers
+    /// Try Again only while it is the newest message.
     static func roles(_ items: [TranscriptItem]) -> [IdempotencyKey: ToolRole] {
         var out: [IdempotencyKey: ToolRole] = [:]
         var head: TranscriptItem?
         var calls: [ToolCall] = []
+        var allowed = false
+        var granted: (item: TranscriptItem, prompt: String)?
         func close() {
-            if let head { out[head.key] = .head(calls) }
+            if let head { out[head.key] = .head(calls, allowed: allowed) }
             head = nil
             calls = []
+            allowed = false
         }
+        let newest = items.last?.key
         for item in items {
-            guard isToolOnly(item) else { close(); continue }
+            if isFailureOnly(item) {
+                close()
+                granted = nil
+                out[item.key] = .failure(retry: item.key == newest)
+                continue
+            }
+            if let prompt = allowedPrompt(item) {
+                close()
+                granted = (item, prompt)
+                continue
+            }
+            guard isToolOnly(item) else { close(); granted = nil; continue }
+            let first = item.parts.lazy.compactMap { p -> WorkRef? in if case .work(let w) = p { w } else { nil } }.first
             if let h = head, h.author == item.author, h.threadRoot == item.threadRoot {
+                out[item.key] = .folded
+            } else if let g = granted, g.item.author == item.author, g.item.threadRoot == item.threadRoot,
+                      let title = first?.title, !title.isEmpty, g.prompt.contains(title) {
+                close()
+                head = g.item
+                allowed = true
                 out[item.key] = .folded
             } else {
                 close()
                 head = item
             }
+            granted = nil
             for case .work(let w) in item.parts { calls.append(ToolCall(w)) }
         }
         close()
@@ -353,8 +346,8 @@ enum ChiefRows {
     }
 
     /// The custom part of a tool row.
-    static func toolPart(_ calls: [ToolCall], group: String) -> CustomPart {
-        part(kind: toolKind, Tools(group: group, calls: calls))
+    static func toolPart(_ calls: [ToolCall], group: String, allowed: Bool = false) -> CustomPart {
+        part(kind: toolKind, Tools(group: group, calls: calls, allowed: allowed ? true : nil))
     }
 
     static func approvalPart(_ ref: ApprovalRef, agent: String? = nil) -> CustomPart {
@@ -407,10 +400,98 @@ enum ChiefRows {
         return tools.calls.allSatisfy({ $0.kind == .command }) ? CmuxStrings.ranCommands(n) : CmuxStrings.usedTools(n)
     }
 
-    /// A call's line as text ("Ran cmux tree --all", "Read Sources/App.swift").
+    /// A call's line as text ("Ran cmux tree --all", "Failed cmux tree --all", "Read Sources/App.swift").
     static func lineText(_ call: ToolCall) -> String {
+        if let human = call.humanTitle { return human }
         guard call.kind == .command else { return displayTitle(call.title) }
-        return call.state == .running ? CmuxStrings.toolRunning(call.title) : CmuxStrings.toolRan(call.title)
+        return commandFrame(call.state)(call.title)
+    }
+
+    /// The localized frame around a command for its state: "Running %@", "Ran %@", "Failed %@".
+    static func commandFrame(_ state: ToolCall.State) -> (String) -> String {
+        switch state {
+        case .running: return CmuxStrings.toolRunning
+        case .done: return CmuxStrings.toolRan
+        case .failed: return CmuxStrings.toolFailed
+        }
+    }
+
+    /// The words of a simple shell command, quotes removed (`'…'` and `"…"` stay one word), up to
+    /// a `--` word; nil for a command this cannot read (an unclosed quote).
+    static func words(_ command: String) -> [String]? {
+        var out: [String] = [], word = "", quote: Character?, inWord = false
+        for c in command {
+            if let q = quote {
+                if c == q { quote = nil } else { word.append(c) }
+            } else if c == "'" || c == "\"" {
+                quote = c
+                inWord = true
+            } else if c == " " || c == "\t" {
+                if inWord { out.append(word); word = ""; inWord = false }
+            } else {
+                word.append(c)
+                inWord = true
+            }
+        }
+        guard quote == nil else { return nil }
+        if inWord { out.append(word) }
+        return out
+    }
+
+    /// `cmux chief dispatch --agent codex --name "#12: fix" … -- '<task>'` as the user reads it:
+    /// "Started Codex in “#12: fix”" (running: "Starting …", failed: "Couldn't start …"). Nil for
+    /// other commands; the command stays in the tooltip and Copy.
+    static func dispatchTitle(_ command: String, state: ToolCall.State) -> String? {
+        guard command.hasPrefix("cmux chief dispatch"), let all = words(command), all.count >= 3,
+              Array(all.prefix(3)) == ["cmux", "chief", "dispatch"] else { return nil }
+        let flags = all.dropFirst(3).prefix { $0 != "--" }
+        func value(_ name: String) -> String? {
+            for (i, w) in flags.enumerated() {
+                if w.hasPrefix(name + "=") { return String(w.dropFirst(name.count + 1)) }
+                if w == name { return flags.dropFirst(i + 1).first }
+            }
+            return nil
+        }
+        let agent: String
+        switch value("--agent")?.lowercased() {
+        case "codex"?: agent = "Codex"
+        case "claude"?: agent = "Claude Code"
+        case let other?: agent = other
+        case nil: return nil
+        }
+        let subject = value("--name").flatMap { $0.isEmpty ? nil : CmuxStrings.dispatchSubject(agent: agent, workspace: $0) } ?? agent
+        switch state {
+        case .running: return CmuxStrings.dispatchStarting(subject)
+        case .done: return CmuxStrings.dispatchStarted(subject)
+        case .failed: return CmuxStrings.dispatchFailed(subject)
+        }
+    }
+
+    /// The approval card's command as laid out: lines break only at spaces and after a "/" in a
+    /// path, never at a hyphen inside a flag ("--wait-working"): each "-" is drawn as U+2011
+    /// (non-breaking hyphen) and a zero-width space follows each "/". Layout only: Copy, the
+    /// tooltip and VoiceOver read the command itself.
+    static func wrappable(_ command: String) -> String {
+        var out = ""
+        out.reserveCapacity(command.count + 8)
+        for c in command {
+            switch c {
+            case "-": out.append("\u{2011}")
+            case "/": out.append("/\u{200B}")
+            default: out.append(c)
+            }
+        }
+        return out
+    }
+
+    /// Why a command asks, in one short line under the card's command: what it does when the
+    /// policy asks for that reason ("Starts a coding agent"), else the words the allow list lacks.
+    static func reason(for command: String) -> String? {
+        guard let all = words(command), let program = all.first else { return nil }
+        let sub = all.dropFirst().first
+        if program == "cmux", sub == "chief", all.dropFirst(2).first == "dispatch" { return CmuxStrings.approvalReasonDispatch }
+        if program == "cmux", sub == "vm" || sub == "cloud", all.dropFirst(2).first == "new" { return CmuxStrings.approvalReasonCloud }
+        return CmuxStrings.approvalReasonNotAllowed(([program] + (sub.map { [$0] } ?? [])).joined(separator: " "))
     }
 
     /// Approval prompt runs: (text, isCode) from the prompt's backtick spans ("Run `ls -la`?").
@@ -478,6 +559,8 @@ extension ChiefRows {
         CustomRows.register(QuestionCardRowProvider.shared)
         CustomRows.register(ChiefProvisionRowProvider.shared)
         CustomRows.register(ChiefResultCardProvider.shared)
+        CustomRows.register(ChiefFailureRowProvider.shared)
+        CustomRows.register(ChiefMemoryRowProvider.shared)
     }
     private static var registered = false
 }

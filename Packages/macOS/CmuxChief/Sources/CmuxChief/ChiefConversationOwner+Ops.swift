@@ -81,6 +81,21 @@ extension ChiefConversationOwner {
         let state = try conversationState(id)
         let text = parts.map(\.plainText).joined()
         guard !parts.isEmpty, !text.isEmpty, text.utf8.count <= 65_536 else { throw HomeRejection.invalid("invalid_parts") }
+        var turn = try pendingTurn(parts, threadRoot: threadRoot, in: state)
+        let message = try commitMessage(in: id, author: me.id, parts: parts, key: key, threadRoot: threadRoot)
+        let rev = try self.conversationState(id).summary.rev
+        turn.readSeq = message.seq
+        enqueue(turn, in: id)
+        return HomeOpResult(rev: rev, conversation: id)
+    }
+
+    /// The Chief's turn for a message of the user's: its typed text and file notes, its pictures,
+    /// and its thread's root as context. A send and a failed turn's Try Again
+    /// (``retryLastTurn(conversation:)``) build it the same way.
+    ///
+    /// - Throws: ``HomeRejection/invalid(_:)``: `unknown_attachment` for a blob this home lacks,
+    ///   `unknown_reply_target` for a thread root that is not a top-level message.
+    func pendingTurn(_ parts: [MessagePart], threadRoot: MessageID?, in state: ChiefConversationState) throws -> ChiefPendingTurn {
         var images: [URL] = []
         var notes: [String] = []
         for case .attachment(let ref) in parts {
@@ -98,16 +113,12 @@ extension ChiefConversationOwner {
             }
             replyContext = root.plainText
         }
-        let message = try commitMessage(in: id, author: me.id, parts: parts, key: key, threadRoot: threadRoot)
-        let rev = try self.conversationState(id).summary.rev
         let typed = parts.compactMap { part -> String? in
             if case .text(let value, _) = part { return value }
             return nil
         }
         let userText = (typed + notes).joined(separator: "\n\n")
-        enqueue(ChiefPendingTurn(readSeq: message.seq, text: userText, attachmentPaths: images, replyContext: replyContext,
-                                 threadRoot: threadRoot), in: id)
-        return HomeOpResult(rev: rev, conversation: id)
+        return ChiefPendingTurn(readSeq: nil, text: userText, attachmentPaths: images, replyContext: replyContext, threadRoot: threadRoot)
     }
 
     /// Only the user changes their own message, and a retracted one stays retracted.
@@ -179,7 +190,7 @@ extension ChiefConversationOwner {
 
     /// An approval part's answer through `HomeOp.answerQuestion`: the chosen option is the
     /// `approval` item's first option id. With the `always` item and a granting choice the
-    /// command's allow rule is saved first (``ChiefAllowRules``). The part records the choice
+    /// rule the card's options carry is saved first (``ChiefAllowRules/rule(inOptions:)``). The part records the choice
     /// now and the brain hears it right after (``ChiefBrain/respond(toApproval:choice:conversation:)``).
     func answerApprovalPart(_ ref: ApprovalRef, at slot: ChiefApprovalSlot, in id: ConversationID,
                             answer: AgentQuestionAnswer) throws -> HomeOpResult {
@@ -187,10 +198,11 @@ extension ChiefConversationOwner {
             throw HomeRejection.invalid("invalid_answer")
         }
         let request = try decideApproval(conversation: id, slot: slot, choice: choice)
+        // The rule is the one the card offered (its options carry it), never re-derived from the prompt.
         if answer.selections[Self.approvalAlwaysItem] != nil, ChiefToolPolicy.isAllow(choice),
-           let command = ChiefAllowRules.command(inPrompt: ref.prompt) {
+           let rule = ChiefAllowRules.rule(inOptions: ref.options) {
             ChiefAllowRules.shared.load(home)
-            _ = try? ChiefAllowRules.shared.add(command: command)
+            _ = try? ChiefAllowRules.shared.add(rule: rule)
         }
         let brain = self.brain
         // task-owner: one answer to the brain; ends when the brain took it

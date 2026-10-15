@@ -14,8 +14,9 @@ extension ChatController {
     /// square, so the card's tinted Allow reads as the action, and its help says what it does.
     func updateStopButton() {
         let button = host.fieldChrome.emoji
-        let label = isWorking ? NativeStrings.stop : NativeStrings.emoji
         let quiet = isWorking && isWaitingForApproval
+        // cmux-classic: while a card waits, Stop says what it does ("Deny and Stop").
+        let label = quiet ? CmuxStrings.approvalDenyAndStop : isWorking ? NativeStrings.stop : NativeStrings.emoji
         let config = quiet ? NSImage.SymbolConfiguration(pointSize: 11, weight: .medium) : FieldChrome.glyphConfig
         button.image = isWorking
             ? NSImage(systemSymbolName: "stop.fill", accessibilityDescription: label)?.withSymbolConfiguration(config)
@@ -23,7 +24,7 @@ extension ChatController {
         button.image?.accessibilityDescription = label
         button.setAccessibilityLabel(label)
         button.setAccessibilityHelp(quiet ? CmuxStrings.approvalStopHelp : nil)
-        button.toolTip = quiet ? CmuxStrings.approvalStopHelp : label
+        button.toolTip = label
     }
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

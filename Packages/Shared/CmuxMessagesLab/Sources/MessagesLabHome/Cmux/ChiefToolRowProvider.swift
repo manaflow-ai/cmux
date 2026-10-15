@@ -8,9 +8,14 @@ import AppKit
 ///
 /// The 12 pt glyph on the bubbles' left edge says what kind of call it was
 /// (terminal, document, pencil, magnifying glass, globe), the 11.5 pt text is
-/// secondary-label grey with only the command monospaced (one line, middle
-/// ellipsis), and the trailing glyph is the state: a 10 pt spinner while
-/// running, a tertiary checkmark when done, a red xmark when it failed.
+/// secondary-label grey with only the command monospaced (one line, cut at a
+/// word with a trailing ellipsis), and the trailing glyph is the state: a 10 pt
+/// spinner while running, a tertiary checkmark when done, a red xmark when it
+/// failed ("Failed cmux tree --all ✗"). A call the user allowed on its approval
+/// card says so on its own line ("Ran cmux chief dispatch … · Allowed ✓"; the
+/// card's receipt is this row), and `cmux chief dispatch` reads as what it did
+/// ("Started Codex in “#12: fix login”"). The full command is the tooltip, and
+/// the row's menu copies it.
 /// A run expands in place (Return or a click; Left and Right on the focused row). References (cmux-design-references):
 /// Claude Code web's tool lines (claude/web/web-session-tool-transcript.png),
 /// Codex's "Called 4 tools" collapsed runs (codex/web/tools-running-progress.png)
@@ -125,8 +130,9 @@ final class ChiefToolRowView: NSView {
         self.context = context
         self.provider = provider
         let summary = ChiefRows.summary(tools)
+        let allowed = tools.allowed == true
         setAccessibilityLabel(summary)
-        setAccessibilityValue(Self.stateText(tools.state))
+        setAccessibilityValue(allowed ? Self.stateText(tools.state) + ", " + CmuxStrings.approvalAllowed : Self.stateText(tools.state))
         let run = tools.calls.count > 1
         setAccessibilityRole(run ? .button : .staticText)
         if run {
@@ -135,7 +141,7 @@ final class ChiefToolRowView: NSView {
         }
         setAccessibilityIdentifier("ChiefToolRow")
         // The full list (and each call's detail) in the tooltip; Copy writes the same lines.
-        toolTip = tools.calls.map { call in
+        toolTip = (allowed ? [CmuxStrings.approvalAllowed] : []) + tools.calls.map { call in
             [ChiefRows.displayTitle(call.title), call.detail].compactMap { $0 }.joined(separator: "\n")
         }.joined(separator: "\n\n")
         rebuild()
@@ -160,18 +166,24 @@ final class ChiefToolRowView: NSView {
     private static let code = HomeFonts.monospaced(ofSize: 11)
     private static let listCode = HomeFonts.monospaced(ofSize: 10.5)
 
-    /// One call's line, the command monospaced and middle-truncated to `width`.
-    private func line(_ call: ChiefRows.ToolCall, width: CGFloat, list: Bool) -> NSAttributedString {
+    /// One call's line, the command monospaced and cut at a word to fit `width`; `allowed` adds
+    /// " · Allowed" (the approval the call ran under).
+    private func line(_ call: ChiefRows.ToolCall, width: CGFloat, list: Bool, allowed: Bool = false) -> NSAttributedString {
         let font = list ? Self.listFont : Self.font, mono = list ? Self.listCode : Self.code
         let plainColor = hovering && !list ? Fixture.incomingText : secondary
+        let tag = allowed ? " · " + CmuxStrings.approvalAllowed : ""
+        if let human = call.humanTitle {
+            return Self.fitting(human, width: width) { shown in
+                NSAttributedString(string: shown + tag, attributes: [.font: font, .foregroundColor: plainColor])
+            }
+        }
         let kind = call.kind
         let (plain, code) = kind == .described ? ("", call.title) : kind.split(call.title)
         // "Ran %@": the localized frame around the command (word order is the language's).
         let token = "\u{1}"
-        let frame = kind == .command ? (call.state == .running ? CmuxStrings.toolRunning(token) : CmuxStrings.toolRan(token))
-            : kind.localizedFrame(token) ?? plain + token
+        let frame = kind == .command ? ChiefRows.commandFrame(call.state)(token) : kind.localizedFrame(token) ?? plain + token
         let pieces = frame.components(separatedBy: token)
-        let before = pieces.first ?? "", after = pieces.dropFirst().joined(separator: token)
+        let before = pieces.first ?? "", after = pieces.dropFirst().joined(separator: token) + tag
         func build(_ shown: String) -> NSAttributedString {
             let s = NSMutableAttributedString(string: before, attributes: [.font: font, .foregroundColor: plainColor])
             s.append(NSAttributedString(string: shown, attributes: [.font: kind == .described ? font : mono,
@@ -182,8 +194,8 @@ final class ChiefToolRowView: NSView {
         return Self.fitting(code, width: width, build: build)
     }
 
-    /// `build(code)`, or with the code middle-truncated until the line fits `width` (the program
-    /// and its last argument stay readable).
+    /// `build(code)`, or with the code cut at the end of a word and an ellipsis, as long as the
+    /// line fits `width` (never inside a word: "cmux chief dispatch --agent …", not "code…t").
     static func fitting(_ code: String, width: CGFloat, build: (String) -> NSAttributedString) -> NSAttributedString {
         let full = build(code)
         guard full.size().width > width, !code.isEmpty else { return full }
@@ -191,16 +203,22 @@ final class ChiefToolRowView: NSView {
         var lo = 0, hi = chars.count
         while lo < hi {
             let mid = (lo + hi + 1) / 2
-            if build(middle(chars, keep: mid)).size().width <= width { lo = mid } else { hi = mid - 1 }
+            if build(truncated(chars, keep: mid)).size().width <= width { lo = mid } else { hi = mid - 1 }
         }
-        return build(middle(chars, keep: lo))
+        return build(truncated(chars, keep: lo))
     }
 
-    static func middle(_ chars: [Character], keep: Int) -> String {
+    /// The first `keep` characters cut back to the last whole word, then "…". A first word longer
+    /// than `keep` is cut inside (nothing else would fit).
+    static func truncated(_ chars: [Character], keep: Int) -> String {
         guard keep < chars.count else { return String(chars) }
-        guard keep > 1 else { return "…" }
-        let head = (keep + 1) / 2, tail = keep - head
-        return String(chars.prefix(head)) + "…" + String(chars.suffix(tail))
+        let head = String(chars.prefix(keep))
+        var cut = head
+        if chars.dropFirst(keep).first != " ", let space = head.range(of: " ", options: .backwards) {
+            cut = String(head.prefix(upTo: space.lowerBound))
+        }
+        while cut.last == " " { cut.removeLast() }
+        return (cut.isEmpty ? head : cut) + "…"
     }
 
     private func symbol(_ name: String, size: CGFloat, weight: NSFont.Weight = .regular, color: NSColor) -> NSImage? {
@@ -273,14 +291,16 @@ final class ChiefToolRowView: NSView {
         }
         guard run else {
             guard let call = tools.calls.first else { return [] }
-            var l = Line(kind: call.kind, text: line(call, width: limit - Self.textX - 22, list: false), glyphX: Self.glyphX,
+            var l = Line(kind: call.kind, text: line(call, width: limit - Self.textX - 22, list: false, allowed: tools.allowed == true),
+                         glyphX: Self.glyphX,
                          textX: Self.textX, midY: mid, list: false, state: call.state)
             finish(&l, showsState: true, chevron: false)
             return [l]
         }
         let commands = tools.calls.allSatisfy { $0.kind == .command }
         let plainColor = hovering ? Fixture.incomingText : secondary
-        let summary = NSAttributedString(string: ChiefRows.summary(tools), attributes: [.font: Self.font, .foregroundColor: plainColor])
+        let tag = tools.allowed == true ? " · " + CmuxStrings.approvalAllowed : ""
+        let summary = NSAttributedString(string: ChiefRows.summary(tools) + tag, attributes: [.font: Self.font, .foregroundColor: plainColor])
         var head = Line(kind: commands ? .command : (tools.calls.first?.kind ?? .command), text: summary, glyphX: Self.glyphX,
                         textX: Self.textX, midY: mid, list: false, state: tools.state)
         // The run's own line shows its state only while a call runs or after one failed.
@@ -365,6 +385,23 @@ final class ChiefToolRowView: NSView {
         let p = convert(event.locationInWindow, from: nil)
         guard isRun, p.y <= ChiefToolRowProvider.lineHeight else { return }
         toggle()
+    }
+
+    /// Copy: the commands as run (one per line), never the shortened line.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let tools, !tools.calls.isEmpty else { return nil }
+        let menu = NSMenu()
+        let item = NSMenuItem(title: Strings.menuCopy, action: #selector(copyCommands(_:)), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+        return menu
+    }
+
+    @objc private func copyCommands(_ sender: NSMenuItem) {
+        guard let tools else { return }
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(tools.calls.map(\.title).joined(separator: "\n"), forType: .string)
     }
 
     override func accessibilityPerformPress() -> Bool {

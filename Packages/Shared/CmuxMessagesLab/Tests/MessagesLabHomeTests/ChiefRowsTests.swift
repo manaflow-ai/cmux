@@ -154,7 +154,7 @@ import Testing
         #expect(ChiefRows.ToolKind(title: "Read a.swift").split("Read a.swift") == ("Read ", "a.swift"))
         #expect(ChiefRows.lineText(ChiefRows.ToolCall(id: "1", title: "cmux tree", state: .done)) == "Ran cmux tree")
         #expect(ChiefRows.lineText(ChiefRows.ToolCall(id: "1", title: "cmux tree", state: .running)) == "Running cmux tree")
-        #expect(ChiefToolRowView.middle(Array("abcdefghij"), keep: 4) == "ab…ij")
+        #expect(ChiefToolRowView.truncated(Array("abc defghij"), keep: 6) == "abc…")
     }
 
     @Test func promptsAndRules() {
@@ -162,49 +162,29 @@ import Testing
         #expect(ChiefRows.promptRuns("Run `ls -la`?").map(\.1) == [false, true, false])
         #expect(ChiefRows.promptRuns("a `b").map(\.1) == [false, false])
         #expect(ChiefRows.command(inPrompt: "Allow Edit a.swift?") == nil)
-        #expect(ChiefRows.alwaysAllowWords("cmux tree --all") == ["cmux", "tree"])
-        #expect(ChiefRows.alwaysAllowWords("rm -rf /") == nil)
-        #expect(ChiefRows.alwaysAllowWords("cmux tree | head") == nil)
     }
 
-    /// (command, rule offered): ChiefApprovalCardTests.ruleCases in CmuxChief has the same table; change both.
-    static let alwaysAllowCases: [(String, [String]?)] = [
-        ("cmux tree --all", ["cmux", "tree"]),
-        ("git push origin main", ["git", "push"]),
-        ("cmux workspace rename workspace:2 --title API", ["cmux", "workspace"]),
-        ("cmux chief dispatch --agent codex --name fix", ["cmux", "chief", "dispatch"]),
-        ("cmux close-workspace --workspace workspace:2", nil),
-        ("cmux kill-pane --pane pane:2", nil),
-        ("cmux clear-notifications", nil),
-        ("cmux workspace close workspace:2", nil),
-        ("cmux tree --force", nil),
-        ("cmux tree --force=true", nil),
-        ("cmux workspace create --command id", nil),
-        ("cmux send --workspace workspace:2 hi", nil),
-        ("cmux send-key --workspace workspace:2 enter", nil),
-        ("cmux vm exec brave-otter -- id", nil),
-        ("cmux vm run brave-otter id", nil),
-        ("cmux vm ls", nil),
-        ("cmux vm new --detach", nil),
-        ("cmux chief approve", nil),
-        ("cmux chief send hi", nil),
-        ("cmux chief memory add fact", nil),
-        ("cmux chief", nil),
-        ("cmux browser eval 1", nil),
-        ("cmux new-workspace --name x", nil),
-        ("cmux rpc workspace.close", nil),
-        ("bash -c ls", nil), ("sh script", nil), ("zsh -lc x", nil), ("python script.py", nil), ("python3 -m http", nil),
-        ("node app.js", nil), ("ruby x.rb", nil), ("perl x.pl", nil), ("npx something", nil), ("make all", nil),
-        ("npm exec foo", nil), ("npm run build", nil), ("git config user.email", nil), ("env cmux tree", nil),
-        ("rm -rf build", nil), ("ls", nil),
-        ("cmux tree --all 2>&1 | head -100", nil), ("cmux clo{s,}e-workspace", nil), ("cmux tree *", nil),
-        ("cmux tree ~", nil), ("git diff --output=x", nil),
-    ]
-
-    @Test(arguments: alwaysAllowCases.indices)
-    func alwaysAllowOffers(index: Int) {
-        let (command, rule) = Self.alwaysAllowCases[index]
-        #expect(ChiefRows.alwaysAllowWords(command) == rule, "\(command)")
+    /// The card offers the rule the owner put in its options (ChiefAllowRules.cardOptions in
+    /// CmuxChief, from lexed words), whatever quotes the command has, and never shows it as a button.
+    @Test func alwaysAllowReadsTheOwnersRule() {
+        let dispatch = ##"cmux chief dispatch --agent codex --name "#123: fix login" --cwd /tmp/app --wait-working --json -- 'Fix it.'"##
+        let ref = ApprovalRef(request: "perm-1", prompt: "Run `\(dispatch)`?",
+                              options: ["Allow", "Deny", "always:cmux chief dispatch"])
+        let card = ChiefRows.Approval(ref, agent: "Chief")
+        #expect(card.alwaysAllowPrefix == "cmux chief dispatch")
+        #expect(card.options == ["Allow", "Deny"])
+        #expect(card.buttonOrder == ["Deny", "Allow"])
+        #expect(card.command == dispatch)
+        // The rule survives the part's encoding.
+        let part = ChiefRows.part(kind: ChiefRows.approvalKind, card)
+        #expect(part.decode(ChiefRows.Approval.self)?.alwaysAllowPrefix == "cmux chief dispatch")
+        // No rule option: no menu, even for a plain command.
+        let plain = ChiefRows.Approval(ApprovalRef(request: "perm-2", prompt: "Run `cmux tree --all`?", options: ["Allow", "Deny"]))
+        #expect(plain.alwaysAllowPrefix == nil)
+        // A card with nothing that grants offers no rule.
+        let noGrant = ChiefRows.Approval(ApprovalRef(request: "perm-3", prompt: "Run `cmux tree`?",
+                                                     options: ["Deny", "always:cmux tree"]))
+        #expect(noGrant.alwaysAllowPrefix == nil)
     }
 
     @Test func aHostedWorkPartIsNeverFolded() {

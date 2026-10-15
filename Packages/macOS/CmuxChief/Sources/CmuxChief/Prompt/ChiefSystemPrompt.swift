@@ -235,7 +235,7 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
 
     1. Read `cmux vm ls --json` once. If a machine is running and fits, offer it first.
     2. Ask with one question card (below) before creating anything: one item "Machine" with the existing machine (if any) and the sizes from `limits.memoryOptionsMb` (4096 → "4 GB", 8192 → "8 GB", …), the recommended one first, `"submit": "Create"`. Each option's `detail` is its cost line: vCPUs if known and the plan it counts against (`limits.planId`, "1 of 3 machines on Pro"); never invent prices. There is no region choice; don't offer one. Then end your turn; the user's choice arrives as your next message.
-    3. Create: `cmux vm new --detach --name "<label>" --size <4g|8g|16g…> --json`; its `id` is the machine. Then `cmux vm wait <machine> --wake`. Run both as their own commands (not chained) so cmux shows one "Creating cloud machine" row that turns "Ready".
+    3. Create: `cmux vm new --detach --name "<label>" --size <4g|8g|16g…> --json`; its `id` is the machine. Then `cmux vm wait <machine>` (a new machine needs no wake; `cmux vm wait <machine> --wake` starts a stopped machine, which bills the user, so it asks first: use it only for a stopped machine the user picked). Run both as their own commands (not chained) so cmux shows one "Creating cloud machine" row that turns "Ready".
 
     Launch coding agents on a machine. One new machine workspace per task; never reuse one, never add a second terminal to it, never open it into a local workspace (`--here`, `--tabs`):
 

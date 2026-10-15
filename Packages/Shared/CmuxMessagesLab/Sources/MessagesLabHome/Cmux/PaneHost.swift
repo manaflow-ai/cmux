@@ -175,7 +175,7 @@ final class HostView: NSView {
         scrollView.placeScroller(top: Fixture.headerHeight, bottom: demo.fieldTop - 0.5)
         scrollView.syncFromModel()
         if fieldChrome.frame != bounds { fieldChrome.frame = bounds }
-        let hb = CGRect(x: 0, y: 0, width: bounds.width, height: headerBackdrop.totalHeight)
+        let hb = CGRect(x: 0, y: 0, width: bounds.width, height: headerBandHeight)
         if headerBackdrop.frame != hb { headerBackdrop.frame = hb }
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
@@ -262,6 +262,12 @@ final class HostView: NSView {
     /// cmux: the top zone that shows the header's fade (HeaderFade.swift).
     var headerZoneArea: NSTrackingArea?
     let headerZone = HeaderZoneTracker()
+    /// cmux-classic: the header fade's state (HeaderFade.swift): the pointer is in the top zone, the
+    /// band also shows while rows lie under the header, the band's height, and each show's length.
+    var headerHovered = false
+    var headerRevealsWhenScrolled = false
+    var headerFadeExtent: CGFloat?
+    var headerFadeDuration: (Bool) -> TimeInterval = { _ in 0 }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         updateHeaderZone()
@@ -373,6 +379,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the Chief works: the round button beside the field is Stop,
     /// and Esc and Cmd-. in the field stop it (ChatController+Stop.swift).
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
+    /// cmux-classic: `MessagesWindowView.cmuxTypingOffAtOnce`, kept here until the window view exists.
+    var typingLeavesAtOnce = false { didSet { demo?.cmuxTypingOffAtOnce = typingLeavesAtOnce } }
     /// cmux-classic: an approval card waits; Stop is the quiet way out (it denies the request).
     var isWaitingForApproval = false { didSet { if isWaitingForApproval != oldValue { updateStopButton() } } }
     var clock: Double { CACurrentMediaTime() - start }
@@ -405,6 +413,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         start = CACurrentMediaTime()
         let demo = MessagesWindowView(store: store)
         self.demo = demo
+        demo.cmuxTypingOffAtOnce = typingLeavesAtOnce
         demo.clock = { [weak self] in self?.clock ?? 0 }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
@@ -456,6 +465,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
             self?.intents?.scrolled()
+            // cmux-classic: the header's band shows while rows lie under it (HeaderFade.swift).
+            self?.host.applyHeaderReveal()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()

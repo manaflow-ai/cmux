@@ -32,4 +32,12 @@ extension HomeProjection {
     func openCloudWorkspace(machine: String, workspace: String) {
         onOpenCloudWorkspace(machine, workspace)
     }
+
+    func retryLastTurn(completion: @escaping (Bool) -> Void) {
+        onRetryLastTurn(completion)
+    }
+
+    func undoMemory(fact: String, completion: @escaping (Bool) -> Void) {
+        onUndoMemory(fact, completion)
+    }
 }

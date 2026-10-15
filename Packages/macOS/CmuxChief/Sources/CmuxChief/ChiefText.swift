@@ -13,11 +13,9 @@ enum ChiefText {
     /// The bundle with this package's String Catalog.
     static var bundle: Bundle { .module }
 
-    /// The Chief message a failed turn posts.
+    /// The text of the system row a failed turn posts, in Chief's voice (Home adds Try Again).
     static func turnFailed(_ error: String) -> String {
-        String(localized: "chief.turn.failed",
-               defaultValue: "Chief could not finish this reply: \(error)\nSend your message again to retry.",
-               bundle: .module)
+        String(localized: "chief.turn.failed", defaultValue: "I couldn’t finish: \(error)", bundle: .module)
     }
 
     /// The user's display name when the account has none.
@@ -59,6 +57,13 @@ enum ChiefText {
 
     static var codexNotRunning: String {
         String(localized: "chief.brain.codex.notRunning", defaultValue: "Codex is not running.", bundle: .module)
+    }
+
+    /// A turn failed because `harness` does not know or offer `model` (an id from settings).
+    static func unknownModel(_ model: String, harness: String) -> String {
+        String(localized: "chief.brain.unknownModel",
+               defaultValue: "\(harness) cannot use the model “\(model)”. Pick another model in Chief Settings (click the model name above the conversation).",
+               bundle: .module)
     }
 
     /// Codex ended before it answered the request `method` (a JSON-RPC method name).

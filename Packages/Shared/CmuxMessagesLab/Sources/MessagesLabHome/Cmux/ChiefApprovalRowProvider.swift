@@ -9,7 +9,11 @@ import AppKit
 ///     ┌────────────────────────────────────┐
 ///     │ cmux tree --all 2>&1 | head -100   │          12 pt mono in Markdown's code-block fill
 ///     └────────────────────────────────────┘
+///     Not in your allowed commands: cmux tree         11 pt tertiary reason (commands only)
 ///                          Deny  ( Allow ⏎ ) (⌄)      plain, accent, "Always Allow …" menu
+///
+/// The command breaks only at spaces and after a "/" (`ChiefRows.wrappable`), never inside a
+/// flag; the reason line follows Cursor's "Not in allowlist: node".
 ///
 /// Answered, it collapses to a one-line receipt on the Chief's side, no bubble
 /// (10 pt secondary): "✓ Allowed: cmux tree --all" or "✕ Denied".
@@ -46,6 +50,8 @@ final class ChiefApprovalRowProvider: TranscriptCustomRowProvider {
     static let buttonSpacing: CGFloat = 6
     static let chevronWidth: CGFloat = 26
     static let receiptHeight: CGFloat = 18
+    static let reasonGap: CGFloat = 5
+    static let reasonHeight: CGFloat = 14
 
     static let captionFont = HomeFonts.system(ofSize: 12)
     static let codeFont = HomeFonts.monospaced(ofSize: 12)
@@ -53,6 +59,10 @@ final class ChiefApprovalRowProvider: TranscriptCustomRowProvider {
     static let prominentFont = HomeFonts.system(ofSize: 13, weight: .semibold)
     static let receiptFont = HomeFonts.system(ofSize: 10, weight: .medium)
     static let receiptCode = HomeFonts.monospaced(ofSize: 10)
+    static let reasonFont = HomeFonts.system(ofSize: 11)
+
+    /// The reason line under a command (nil for other prompts).
+    static func reason(_ a: ChiefRows.Approval) -> String? { a.command.flatMap(ChiefRows.reason(for:)) }
 
     // MARK: Text
 
@@ -66,7 +76,7 @@ final class ChiefApprovalRowProvider: TranscriptCustomRowProvider {
             if let color { out[.foregroundColor] = color }
             return out
         }
-        if let command = a.command { return NSAttributedString(string: command, attributes: attrs(codeFont)) }
+        if let command = a.command { return NSAttributedString(string: ChiefRows.wrappable(command), attributes: attrs(codeFont)) }
         let out = NSMutableAttributedString()
         for (text, code) in ChiefRows.promptRuns(ChiefRows.displayPrompt(a.prompt)) {
             out.append(NSAttributedString(string: text, attributes: attrs(code ? HomeFonts.code : Fixture.bodyFont)))
@@ -108,7 +118,8 @@ final class ChiefApprovalRowProvider: TranscriptCustomRowProvider {
         let width = min(inner, max(ceil(caption.size().width), natural.width + bodyInset, buttonsWidth(a), 180))
         let text = textSize(body(a), width: width - bodyInset)
         let bodyHeight = text.height + (boxed ? 2 * blockPadY : 0)
-        let height = padTop + captionHeight + captionGap + bodyHeight + buttonsGap + buttonHeight + padBottom
+        let reasonSpace = reason(a) == nil ? 0 : reasonGap + reasonHeight
+        let height = padTop + captionHeight + captionGap + bodyHeight + reasonSpace + buttonsGap + buttonHeight + padBottom
         return CGSize(width: width + 2 * padX, height: height)
     }
 
@@ -191,6 +202,7 @@ final class ChiefApprovalCardView: NSView {
         self.context = context
         setAccessibilityLabel(a.isPending ? ChiefRows.caption(a) + ": " + (a.command ?? ChiefRows.displayPrompt(a.prompt))
                                           : a.decided.map { ChiefRows.decidedLabel($0, command: a.command) })
+        setAccessibilityHelp(a.isPending ? ChiefApprovalRowProvider.reason(a) : nil)
         setAccessibilityRole(a.isPending ? .group : .staticText)
         toolTip = a.isPending ? nil : ChiefRows.displayPrompt(a.prompt)
         if rebuilt {
@@ -268,6 +280,15 @@ final class ChiefApprovalCardView: NSView {
         }
         body.draw(with: NSRect(x: p.padX + inset, y: top + (boxed ? p.blockPadY : 0), width: inner - 2 * inset, height: size.height),
                   options: [.usesLineFragmentOrigin, .usesFontLeading])
+        if let reason = p.reason(a) {
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byTruncatingTail
+            let line = NSAttributedString(string: reason, attributes: [
+                .font: p.reasonFont, .foregroundColor: Fixture.secondaryText.withAlphaComponent(0.7), .paragraphStyle: style,
+            ])
+            let y = top + size.height + (boxed ? 2 * p.blockPadY : 0) + p.reasonGap
+            line.draw(with: NSRect(x: p.padX, y: y, width: inner, height: p.reasonHeight), options: [.usesLineFragmentOrigin])
+        }
     }
 
     /// "✓ Allowed: cmux tree --all" (green check) or "✕ Denied" (secondary), 10 pt, the tool rows' column.
@@ -355,7 +376,8 @@ final class ChiefApprovalCardView: NSView {
 /// An approval button: the tinted capsule with a return glyph (the granting option),
 /// plain text with a hover capsule (the others), or the small chevron for more options.
 final class ChiefOptionButton: NSButton {
-    enum Style { case prominent, plain, chevron }
+    /// `quiet`: a filled grey capsule with a centred title (a system row's action, "Try Again").
+    enum Style { case prominent, plain, chevron, quiet }
 
     let option: String
     let style: Style
@@ -417,6 +439,9 @@ final class ChiefOptionButton: NSButton {
             ink = Fixture.incomingText
         case .chevron:
             fill = quiet
+            ink = Fixture.incomingText
+        case .quiet:
+            fill = quiet.withAlphaComponent(quiet.alphaComponent * (hovering || isHighlighted ? 1.6 : 1))
             ink = Fixture.incomingText
         }
         let pressed = isHighlighted && style != .plain

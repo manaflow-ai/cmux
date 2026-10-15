@@ -115,7 +115,8 @@ extension ChiefConversationOwner {
                 return
             }
             let work = WorkRef(session: id, title: title, status: .running, preview: detail)
-            if let message = postChief([.work(work)], in: conversation, turn: turn, key: .make(), retype: true) {
+            // No typing dots while a work row runs: its spinner is the live indicator (the post ends typing).
+            if let message = postChief([.work(work)], in: conversation, turn: turn, key: .make(), retype: false) {
                 turn.tools[id] = message.id
             }
             running[conversation] = turn
@@ -126,9 +127,11 @@ extension ChiefConversationOwner {
             if let phase = turn.provisioningCalls.removeValue(forKey: id) {
                 finishProvisioning(messageID, phase: phase, ok: ok, output: preview, turn: &turn, in: conversation)
                 running[conversation] = turn
+                retypeAfterWork(turn, in: conversation)
                 return
             }
             setWorkStatus(messageID, in: conversation, ok ? .done : .failed, preview: preview)
+            retypeAfterWork(turn, in: conversation)
         case .question(let question):
             flushSegment(&turn, in: conversation, retype: false)
             postChief([.question(question)], in: conversation, turn: turn, key: .make(), retype: true)
@@ -180,7 +183,7 @@ extension ChiefConversationOwner {
         }
         let work = WorkRef(session: ChiefCloudProvisioning.sessionPrefix + UUID().uuidString.lowercased(), host: machine,
                            title: ChiefCloudProvisioning.title, status: .running, preview: nil)
-        if let message = postChief([.work(work)], in: conversation, turn: turn, key: .make(), retype: true) {
+        if let message = postChief([.work(work)], in: conversation, turn: turn, key: .make(), retype: false) {
             turn.provisioning = message.id
             turn.tools[id] = message.id
         }
@@ -249,6 +252,13 @@ extension ChiefConversationOwner {
         return message
     }
 
+    /// The Chief types again once no work row of the turn runs and no card waits (between a finished
+    /// tool and its next words): one live indicator at a time.
+    private func retypeAfterWork(_ turn: ChiefRunningTurn, in conversation: ConversationID) {
+        guard turn.tools.isEmpty, turn.approvals.isEmpty else { return }
+        publish(.typing(conversation, turn.chief, on: true))
+    }
+
     private func setWorkStatus(_ messageID: MessageID, in conversation: ConversationID, _ status: WorkRef.Status, preview: String?) {
         _ = try? updateMessage(messageID, in: conversation) { message in
             message.parts = message.parts.map { part in
@@ -274,8 +284,13 @@ extension ChiefConversationOwner {
             setWorkStatus(row, in: conversation, status, preview: nil)
         }
         if let failure {
-            postChief([.text(Self.failureText(failure))], in: conversation, turn: turn, key: .make(), retype: false)
+            // A system row, not a Chief bubble (Home draws it with Try Again): a work part under the failure prefix.
+            let work = WorkRef(session: Self.failureSessionPrefix + UUID().uuidString.lowercased(), title: Self.failureText(failure),
+                               status: .failed, preview: nil)
+            postChief([.work(work)], in: conversation, turn: turn, key: .make(), retype: false)
         }
+        // The notes saved during the turn, after its last message.
+        for note in turn.memoryNotes { postMemoryNote(note.fact, text: note.text, duringTurn: true, in: conversation, author: turn.chief) }
         running[conversation] = nil
         let ended = now()
         lastTurns[conversation] = ChiefTurnStats(
@@ -318,7 +333,10 @@ extension ChiefConversationOwner {
         guard let message = state.message(slot.message), message.parts.indices.contains(slot.part),
               case .approval(let ref) = message.parts[slot.part] else { throw HomeRejection.invalid("unknown_approval") }
         guard ref.decided == nil else { throw HomeRejection.invalid("approval_decided") }
-        guard ref.options.contains(choice) else { throw HomeRejection.invalid("invalid_choice") }
+        // The rule-carrying option is the card's menu, never an answer.
+        guard ref.options.contains(choice), !ChiefAllowRules.isAlwaysOption(choice) else {
+            throw HomeRejection.invalid("invalid_choice")
+        }
         guard var turn = running[conversation], let request = turn.approvals[slot] else {
             // No running turn waits on this card (it is an earlier turn's): nobody can answer it any more.
             setApprovalDecision(slot, in: conversation, Self.approvalExpired)
@@ -422,8 +440,12 @@ extension ChiefConversationOwner {
         lastTurns[conversation]
     }
 
-    /// The text of the Chief message a failed turn posts.
+    /// The text of the system row a failed turn posts.
     static func failureText(_ error: String) -> String {
         ChiefText.turnFailed(error)
     }
+
+    /// The session prefix of a failed turn's work part (Home's `ChiefRows.failurePrefix`, the same id;
+    /// change both). Home draws it as an error row with Try Again, never as a tool call.
+    public static let failureSessionPrefix = "chief.failure:"
 }

@@ -276,7 +276,8 @@ actor CodexConversation {
                 } else {
                     let id = "codex-" + requestID.compactText
                     approvals[id] = (requestID, kind)
-                    continuation?.yield(.approvalRequested(id: id, prompt: prompt, options: ChiefToolPolicy.approvalOptions))
+                    continuation?.yield(.approvalRequested(id: id, prompt: prompt,
+                                                           options: ChiefToolPolicy.approvalOptions(command: command)))
                 }
             case .unsupportedRequest(let requestID, let method):
                 write(CodexAppServerParser.unsupportedResponse(requestID: requestID, method: method))
@@ -349,7 +350,12 @@ actor CodexConversation {
         let open = continuation
         continuation = nil
         token = nil
-        if let event { open?.yield(event) }
+        if case .failed(let message)? = event {
+            // An unknown model reads as one, with a pointer to Chief Settings.
+            open?.yield(.failed(ChiefHarness.codex.failureMessage(message, model: configuration.model)))
+        } else if let event {
+            open?.yield(event)
+        }
         open?.finish()
     }
 }

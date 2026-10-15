@@ -88,7 +88,8 @@ import Testing
         let gate = Gate()
         let fixture = ChiefFixture()
         let brain = FakeBrain { _, continuation in
-            continuation.yield(.approvalRequested(id: "perm-2", prompt: "Run `acme-deploy ship --dry-run`?", options: ["Allow", "Deny"]))
+            continuation.yield(.approvalRequested(id: "perm-2", prompt: "Run `acme-deploy ship --dry-run`?",
+                                                  options: ChiefToolPolicy.approvalOptions(command: "acme-deploy ship --dry-run")))
             await gate.wait()
             continuation.finish()
         }
@@ -96,6 +97,13 @@ import Testing
         try await ChiefFixture.send("ship it", to: owner)
         #expect(await ChiefFixture.eventually { await owner.isWaitingForApproval(conversation) })
         let card = try #require(try await owner.snapshot(of: conversation, tail: 10).messages.last)
+        guard case .approval(let ref)? = card.parts.first else { Issue.record("no approval part"); return }
+        // The card carries the rule it offers; that option is never an answer.
+        #expect(ref.options == ["Allow", "Deny", "always:acme-deploy ship"])
+        await #expect(throws: (any Error).self) {
+            try await owner.submit(HomeIntent(op: .answerQuestion(message: card.id, conversation: conversation, partIndex: 0,
+                                                                  answer: Self.answer("always:acme-deploy ship"))))
+        }
         try await owner.submit(HomeIntent(op: .answerQuestion(message: card.id, conversation: conversation, partIndex: 0,
                                                               answer: Self.answer("Allow", always: true))))
         #expect(ChiefAllowRules.shared.all.contains(["acme-deploy", "ship"]))
@@ -156,7 +164,12 @@ import Testing
         ("rm -rf build", nil), ("ls", nil),
         // syntax the rule cannot see through
         ("cmux tree --all 2>&1 | head -100", nil), ("cmux clo{s,}e-workspace", nil), ("cmux tree *", nil),
-        ("cmux tree ~", nil), ("git diff --output=x", nil),
+        ("cmux tree ~", nil), ("git diff --output=x", nil), ("cmux tree $HOME", nil), ("cmux tree; cmux kill", nil),
+        // quotes are lexed away: the words decide
+        (##"cmux chief dispatch --agent codex --name "#123: fix login" -- 'Fix it, then report.'"##, ["cmux", "chief", "dispatch"]),
+        (#"git commit -m "fix: it's done""#, ["git", "commit"]),
+        (##"cmux workspace rename workspace:2 --title 'API #2'"##, ["cmux", "workspace"]),
+        (#"cmux 'close-workspace'"#, nil),
     ]
 
     @Test(arguments: ruleCases.indices)

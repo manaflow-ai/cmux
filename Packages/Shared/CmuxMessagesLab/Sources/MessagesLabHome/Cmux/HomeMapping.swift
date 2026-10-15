@@ -97,10 +97,13 @@ enum HomeMapping {
             if case .work(let w) = p { return ChiefRows.ToolCall(w) }
             return nil
         }
-        let toolRole: ChiefRows.ToolRole = role ?? (ChiefRows.isToolOnly(item) ? .head(calls) : .other)
+        let toolRole: ChiefRows.ToolRole = role ?? (ChiefRows.isToolOnly(item) ? .head(calls, allowed: false) : .other)
+        var retry = false
         switch toolRole {
         case .folded: return ([], [])
-        case .head(let calls): return ([.custom(ChiefRows.toolPart(calls, group: rowSafe(item.key.rawValue)))], [0])
+        case let .head(calls, allowed):
+            return ([.custom(ChiefRows.toolPart(calls, group: rowSafe(item.key.rawValue), allowed: allowed))], [0])
+        case .failure(let r): retry = r
         case .other: break
         }
         let markdown = isAgent(item.author, summary)
@@ -109,6 +112,12 @@ enum HomeMapping {
             // cmux-classic: the Chief's question card and its Cloud rows (QuestionCardRow, ChiefCloudRows).
             if case .question(let question) = p {
                 parts.append(.custom(QuestionCardRow.part(question)))
+                owners.append(i)
+                continue
+            }
+            // cmux-classic: the owner's system rows (a failed turn, a saved note; ChiefNoticeRows.swift).
+            if case .work(let work) = p, let row = ChiefRows.noticePart(work, retry: retry) {
+                parts.append(.custom(row))
                 owners.append(i)
                 continue
             }
@@ -221,7 +230,8 @@ enum HomeMapping {
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
         case .work(let work):
-            // cmux-classic: a tool call in a message with other parts: its own tool row.
+            // cmux-classic: a system row (ChiefNoticeRows.swift), or a tool call in a message with other parts: its own tool row.
+            if let row = ChiefRows.noticePart(work, retry: false) { return .custom(row) }
             return .custom(ChiefRows.toolPart([ChiefRows.ToolCall(work)], group: rowSafe(work.session)))
         case .approval(let ref):
             // cmux-classic: the approval card (ChiefApprovalRowProvider).

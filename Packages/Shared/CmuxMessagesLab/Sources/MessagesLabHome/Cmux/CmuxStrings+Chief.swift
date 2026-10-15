@@ -32,6 +32,24 @@ extension CmuxStrings {
     static func toolRan(_ command: String) -> String {
         String(localized: "home.tool.ran", defaultValue: "Ran \(command)", table: "CmuxHome", bundle: .module)
     }
+    /// A command that failed: "Failed cmux tree --all".
+    static func toolFailed(_ command: String) -> String {
+        String(localized: "home.tool.failed", defaultValue: "Failed \(command)", table: "CmuxHome", bundle: .module)
+    }
+    /// `cmux chief dispatch`'s subject: "Codex in “#12: fix login”" (the agent and its workspace).
+    static func dispatchSubject(agent: String, workspace: String) -> String {
+        String(localized: "home.tool.dispatch.subject", defaultValue: "\(agent) in “\(workspace)”", table: "CmuxHome", bundle: .module)
+    }
+    /// `cmux chief dispatch` while it runs, done and failed (the subject above, or the agent alone).
+    static func dispatchStarting(_ subject: String) -> String {
+        String(localized: "home.tool.dispatch.starting", defaultValue: "Starting \(subject)", table: "CmuxHome", bundle: .module)
+    }
+    static func dispatchStarted(_ subject: String) -> String {
+        String(localized: "home.tool.dispatch.started", defaultValue: "Started \(subject)", table: "CmuxHome", bundle: .module)
+    }
+    static func dispatchFailed(_ subject: String) -> String {
+        String(localized: "home.tool.dispatch.failed", defaultValue: "Couldn’t start \(subject)", table: "CmuxHome", bundle: .module)
+    }
     /// A run of shell commands (2 or more).
     static func ranCommands(_ count: Int) -> String {
         String(localized: "home.tool.ranCommands", defaultValue: "Ran \(count) commands", table: "CmuxHome", bundle: .module)
@@ -90,6 +108,18 @@ extension CmuxStrings {
     static func approvalAllowedCommand(_ command: String) -> String {
         String(localized: "home.approval.allowedCommand", defaultValue: "Allowed: \(command)", table: "CmuxHome", bundle: .module)
     }
+    /// The pending card's reason line under its command.
+    static var approvalReasonDispatch: String {
+        String(localized: "home.approval.reason.dispatch", defaultValue: "Starts a coding agent", table: "CmuxHome", bundle: .module)
+    }
+    static var approvalReasonCloud: String {
+        String(localized: "home.approval.reason.cloud", defaultValue: "Creates a cloud machine", table: "CmuxHome", bundle: .module)
+    }
+    /// The words no allow rule covers yet ("cmux close-workspace").
+    static func approvalReasonNotAllowed(_ words: String) -> String {
+        String(localized: "home.approval.reason.notAllowed", defaultValue: "Not in your allowed commands: \(words)",
+               table: "CmuxHome", bundle: .module)
+    }
     /// The pending card's caption over its command.
     static func approvalWantsToRun(_ agent: String) -> String {
         String(localized: "home.approval.wantsToRun", defaultValue: "\(agent) wants to run", table: "CmuxHome", bundle: .module)
@@ -133,8 +163,39 @@ extension CmuxStrings {
     static var approvalStopHelp: String {
         String(localized: "home.approval.stopHelp", defaultValue: "Stop (denies the request)", table: "CmuxHome", bundle: .module)
     }
+    /// The compose bar's Stop while an approval card waits: its label and tooltip.
+    static var approvalDenyAndStop: String {
+        String(localized: "home.approval.denyAndStop", defaultValue: "Deny and Stop", table: "CmuxHome", bundle: .module)
+    }
     /// The card's accessibility role description.
     static var approvalRole: String {
         String(localized: "home.approval.role", defaultValue: "approval request", table: "CmuxHome", bundle: .module)
+    }
+
+    /// A failed turn's row: its button resends the last message, and its accessibility role.
+    static var failureTryAgain: String {
+        String(localized: "home.failure.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: .module)
+    }
+    static var failureTryAgainHelp: String {
+        String(localized: "home.failure.tryAgainHelp", defaultValue: "Send your last message again", table: "CmuxHome", bundle: .module)
+    }
+    static var failureRole: String {
+        String(localized: "home.failure.role", defaultValue: "error", table: "CmuxHome", bundle: .module)
+    }
+    /// A saved memory note's row: during a turn, outside one, and after Undo.
+    static func memoryWillRemember(_ note: String) -> String {
+        String(localized: "home.memory.willRemember", defaultValue: "Chief will remember: \(note)", table: "CmuxHome", bundle: .module)
+    }
+    static func memorySaved(_ note: String) -> String {
+        String(localized: "home.memory.saved", defaultValue: "Saved to memory: \(note)", table: "CmuxHome", bundle: .module)
+    }
+    static func memoryForgotten(_ note: String) -> String {
+        String(localized: "home.memory.forgotten", defaultValue: "Removed from memory: \(note)", table: "CmuxHome", bundle: .module)
+    }
+    static var memoryUndo: String {
+        String(localized: "home.memory.undo", defaultValue: "Undo", table: "CmuxHome", bundle: .module)
+    }
+    static var memoryUndoHelp: String {
+        String(localized: "home.memory.undoHelp", defaultValue: "Forget this note", table: "CmuxHome", bundle: .module)
     }
 }

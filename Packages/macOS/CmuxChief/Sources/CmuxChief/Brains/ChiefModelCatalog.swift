@@ -59,7 +59,11 @@ public struct ChiefEffortOption: Sendable, Equatable, Identifiable, Hashable {
 ///
 /// The ids and effort sets follow acpmux's bundled catalog
 /// (`cmux-tui/crates/acpmux/catalog/models-v1.json` on `feat-cmux-next`),
-/// trimmed to current releases. Defaults: Claude Opus 5.5 and GPT-6.1 Sol.
+/// trimmed to current releases. Defaults: Claude Opus 5.5 and GPT-6.1 Sol. Each model offers
+/// exactly the `efforts` its catalog row lists (snapshot 2026-10-13: every Claude 5.x model,
+/// Haiku 5.5 and Fable 5.1 included, takes all five `--effort` levels `claude --help` names;
+/// GPT-5.5 stops at Extra High). `ChiefModelCatalogTests` pins the rows; update both when
+/// acpmux's catalog changes.
 ///
 /// ```swift
 /// let models = ChiefHarness.claude.models
@@ -109,6 +113,31 @@ extension ChiefHarness {
     /// list (a custom id still runs; the CLI decides).
     public func model(_ id: String) -> ChiefModelOption? {
         models.first { $0.id == id }
+    }
+
+    /// A failed turn's message for the user: a failure that says the CLI does not know or
+    /// offer `model` (a typo, a retired id, a plan without it) becomes one that names the
+    /// model and points at Chief Settings; any other message is kept.
+    ///
+    /// - Parameters:
+    ///   - message: The CLI's failure text.
+    ///   - model: The model id the turn ran with.
+    public func failureMessage(_ message: String, model: String) -> String {
+        Self.isUnknownModelFailure(message, model: model) ? ChiefText.unknownModel(model, harness: displayName) : message
+    }
+
+    /// Whether `message` says the CLI rejected `model`: Claude Code's "issue with the selected
+    /// model" and `unrecognized_model`, the API's `not_found_error` "model: <id>", Codex's
+    /// "model … does not exist", "is not supported" and `model_not_found`.
+    static func isUnknownModelFailure(_ message: String, model: String) -> Bool {
+        let text = message.lowercased()
+        let generic = ["issue with the selected model", "unrecognized_model", "model_not_found", "unknown model",
+                       "invalid model", "model not found", "model is not supported", "model is not available"]
+        if generic.contains(where: text.contains) { return true }
+        let id = model.lowercased()
+        guard !id.isEmpty, text.contains(id) else { return false }
+        return ["model: \(id)", "does not exist", "not supported", "not_found_error", "not found", "do not have access"]
+            .contains(where: text.contains)
     }
 
     /// The effort levels offered for `model` of this harness; every level

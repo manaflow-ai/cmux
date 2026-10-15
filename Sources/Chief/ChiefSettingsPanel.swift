@@ -234,7 +234,7 @@ final class ChiefSettingsPanel: NSView {
 
     func apply(_ theme: ChiefTheme) {
         layer?.backgroundColor = theme.panelFill.cgColor
-        appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        appearance = theme.appearance
         titleLabel.textColor = theme.textPrimary
         for card in cards { card.apply(theme) }
         memorySection.apply(theme)

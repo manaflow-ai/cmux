@@ -26,8 +26,12 @@ final class ChiefTranscriptView: NSView {
     private let settingsPanel = ChiefSettingsPanel()
     /// "Opus 5.5 · Medium" under the name pill, and the pill's tooltip (``ChiefSettingsBrainHint``).
     private let brainHint = ChiefSettingsBrainHint()
-    /// Chief memory: the "Chief will remember … · Undo" row above the field.
-    private lazy var memoryNotice = ChiefMemoryNoticeView(conversation: conversation)
+    /// Chief memory: reports saved notes to the owner, whose "Chief will remember … · Undo"
+    /// row is a transcript row (``ChiefMemoryNoticeRelay``).
+    private lazy var memoryNotice = ChiefMemoryNoticeRelay(conversation: conversation) { [weak self] in
+        guard let self else { return false }
+        return self.window != nil && self.isActive && !self.isHiddenOrHasHiddenAncestor
+    }
     private var notice: String?
     private var settingsOpen = false
     /// The first page is not in yet: the first-run panel waits so a
@@ -94,11 +98,8 @@ final class ChiefTranscriptView: NSView {
         brainHint.label.isHidden = true
         if transcript != nil { addSubview(brainHint.label) }
         addSubview(settingsPanel)
-        // Chief memory: the remember row (ChiefMemoryNoticeView).
-        if transcript != nil {
-            addSubview(memoryNotice, positioned: .below, relativeTo: settingsPanel)
-            memoryNotice.onChange = { [weak self] in self?.needsLayout = true }
-        }
+        // Chief memory: saved notes become transcript rows (ChiefMemoryNoticeRelay).
+        if transcript != nil { _ = memoryNotice }
         connectTranscript()
         connectFirstRun()
         connectSettings()
@@ -214,6 +215,17 @@ final class ChiefTranscriptView: NSView {
         transcript.onCancelSend = { [weak binding] key in binding?.cancelSend(key) ?? false }
         transcript.onRefusal = { [weak self] _, rejection in self?.showNotice(ChiefStrings.rejection(rejection)) }
         transcript.onOpenCloudWorkspace = { [weak self] machine, workspace in self?.openCloudWorkspace(machine, workspace) }
+        // A turn's end, a failure or an approval card drops the typing dots at once (no fading ghost).
+        transcript.typingLeavesAtOnce = true
+        let id = conversation
+        transcript.onRetryLastTurn = { completion in
+            // task-owner: one retry; ends with the owner's answer
+            Task { @MainActor in completion(await ChiefService.shared.retryLastTurn(id)) }
+        }
+        transcript.onUndoMemory = { fact, completion in
+            // task-owner: one undo; ends when the note is forgotten and its row updated
+            Task { @MainActor in completion(await ChiefService.shared.undoMemory(fact, in: id)) }
+        }
         binding.onRefusal = { [weak self] _, rejection in self?.showNotice(ChiefStrings.rejection(rejection)) }
         binding.onSendNotDelivered = { [weak self] _, rejection in self?.showNotice(ChiefStrings.rejection(rejection)) }
         binding.onAttachmentRefusal = { [weak self] _, refusal in self?.showNotice(ChiefStrings.attachmentRefusal(refusal)) }
@@ -351,6 +363,12 @@ final class ChiefTranscriptView: NSView {
 
     // MARK: Theme
 
+    /// The header band's strongest alpha: 15 pt text under it falls below 3:1 against the band.
+    static let headerBandAlpha: CGFloat = 0.94
+    /// How far the header band reaches: solid past the model line under the pill (its 16 pt line),
+    /// then an 18 pt fade (MessagesLab's `HostView.solidFadeLength`).
+    static var headerBandExtent: CGFloat { ChiefSettingsBrainHint.top + 16 + 18 }
+
     private func applyTheme() {
         let theme = ChiefTheme.current()
         self.theme = theme
@@ -362,7 +380,11 @@ final class ChiefTranscriptView: NSView {
             let palettes = theme.palettes()
             transcript.applyTheme(active: palettes.active, inactive: palettes.inactive, measuredAccent: true)
             transcript.setHeaderPillBacking(theme.opaqueBackground.withAlphaComponent(0.72))
-            transcript.setHeaderFade(color: theme.opaqueBackground, maxAlpha: 0.85) { shown in
+            // The header's band: shown whenever a row lies under the avatar, pill and model line (not only
+            // on hover), nearly opaque so bubble text under it stays out of the way, and reaching below the
+            // model line (ChiefSettingsBrainHint).
+            transcript.setHeaderFade(color: theme.opaqueBackground, maxAlpha: Self.headerBandAlpha, extent: Self.headerBandExtent,
+                                     revealsWhenScrolled: true) { shown in
                 NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.15 : (shown ? 0.2 : 0.3)
             }
         }
@@ -370,7 +392,6 @@ final class ChiefTranscriptView: NSView {
         firstRun.apply(theme)
         settingsPanel.apply(theme)
         brainHint.apply(theme)
-        memoryNotice.apply(theme)
         noticeLabel.textColor = theme.textSecondary
         workingStatus.apply(theme)
         unavailableLabel.textColor = theme.textSecondary
@@ -569,7 +590,6 @@ final class ChiefTranscriptView: NSView {
     }
 
     private func layoutNotice() {
-        defer { layoutMemoryNotice() }
         guard notice != nil, let transcript else { return }
         let width = max(0, transcript.frame.width - 32)
         noticeLabel.preferredMaxLayoutWidth = width
@@ -577,16 +597,6 @@ final class ChiefTranscriptView: NSView {
         // Above the working line while it shows.
         let bottom = workingStatus.isShown ? workingStatus.frame.minY - 2 : transcript.fieldTop - 8
         noticeLabel.frame = CGRect(x: 16, y: bottom - height, width: width, height: height)
-    }
-
-    /// Chief memory: the remember row, centered above the field (above the notice when both show).
-    private func layoutMemoryNotice() {
-        guard let transcript, !memoryNotice.isHidden else { return }
-        let size = memoryNotice.preferredSize(maxWidth: max(0, transcript.frame.width - 32))
-        let bottom = notice == nil ? transcript.fieldTop - 8 : noticeLabel.frame.minY - 6
-        memoryNotice.frame = CGRect(x: (transcript.frame.width - size.width) / 2,
-                                    y: bottom - size.height,
-                                    width: size.width, height: size.height)
     }
 
     /// Shows (or with nil clears) the notice above the field; VoiceOver hears it.

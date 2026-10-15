@@ -291,7 +291,8 @@ actor ClaudeConversation {
                 case .ask:
                     approvals[id] = input
                     continuation?.yield(.approvalRequested(id: id, prompt: ChiefToolPolicy.claudePrompt(tool, input: input),
-                                                           options: ChiefToolPolicy.approvalOptions))
+                                                           options: ChiefToolPolicy.approvalOptions(
+                                                               command: tool == "Bash" ? input["command"]?.string : nil)))
                 }
             case .stalePermission(let id, let input):
                 // Asked by a stopped turn: never run it, never show it in the next turn.
@@ -396,7 +397,12 @@ actor ClaudeConversation {
         continuation = nil
         token = nil
         current = nil
-        if let event { open?.yield(event) }
+        if case .failed(let message)? = event {
+            // An unknown model reads as one, with a pointer to Chief Settings.
+            open?.yield(.failed(ChiefHarness.claude.failureMessage(message, model: configuration.model)))
+        } else if let event {
+            open?.yield(event)
+        }
         open?.finish()
     }
 }

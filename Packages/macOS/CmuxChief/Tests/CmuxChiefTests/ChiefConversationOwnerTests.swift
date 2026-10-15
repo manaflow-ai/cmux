@@ -229,7 +229,7 @@ import Testing
         let result = try await owner.submit(HomeIntent(op: .createChief(name: "Research")))
         let id = try #require(result.conversation)
         let inbox = await owner.inbox()
-        let summary = try #require(inbox.conversations.first { $0.id == id })
+        let summary = try #require(inbox.conversations.first(where: { $0.id == id }))
         let researcher = try #require(summary.participants.first(where: \.isChief))
         #expect(researcher.displayName == "Research")
         #expect(researcher.id != ChiefConversationOwner.chiefID)

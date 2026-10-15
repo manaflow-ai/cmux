@@ -115,7 +115,9 @@ and render-server field animation, blurred header and native scrolling.
   `ChiefApprovalRowProvider` (the Chief's tool calls as full-width rows that fold a run of
   calls into one "Ran 3 commands" disclosure, and its approval cards as incoming bubbles that
   collapse to a receipt; hosted rows through the vendored CustomRows seam, answered with
-  `HomeOp.answerQuestion` on the approval part, `HomeProjection+Approval.swift`).
+  `HomeOp.answerQuestion` on the approval part, `HomeProjection+Approval.swift`; an allowed
+  card's receipt folds into the "Ran" row it started, "Ran … · Allowed"), and `ChiefNoticeRows`
+  (the owner's system rows: a failed turn with Try Again, a saved memory note with Undo).
 
 ## Blocker patches
 
@@ -137,7 +139,8 @@ and render-server field animation, blurred header and native scrolling.
 | GlassKeyFix | the over-blend images are built by appending, not by index subscripts (crash ratchet: no new index_subscript hit in MessagesLabHome) |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Compose | cmux-classic: `cmuxPlaceholder`, the host's placeholder over the field's own (an approval card waits: "Allow or deny above to continue") |
-| RowDrawing | cmux-classic: ask 9's status line (`.setNotice`, the transcript's last row) draws in `HomeStatusLine`'s 10 pt medium font and attention ink (system orange, as the sidebar's "Needs you"); Home sets it to "Waiting for you" while an approval card waits (`HomeProjection.applyApprovalWait`) |
+| RowDrawing | cmux-classic: ask 9's status line (`.setNotice`, the transcript's last row) draws in `HomeStatusLine`'s 10 pt medium font and attention ink (system orange, as the sidebar's "Needs you"), at the incoming bubbles' left edge (`Fixture.labelLeft`, under the card it speaks for) instead of centred; Home sets it to "Waiting for you" while an approval card waits (`HomeProjection.applyApprovalWait`) |
+| WindowView | cmux-classic: `cmuxTypingOffAtOnce` (`MessagesLabHomeView.typingLeavesAtOnce`): a typing indicator that goes away gets no fade-out, so no faint ghost lingers under an approval card or the last reply when the Chief's turn ends, fails or waits |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |

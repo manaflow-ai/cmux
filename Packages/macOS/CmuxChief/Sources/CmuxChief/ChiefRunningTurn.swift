@@ -49,6 +49,9 @@ struct ChiefRunningTurn {
     var engine: ChiefTurnEngine?
     var toolCalls = 0
     var failedToolCalls = 0
+    /// Memory notes saved during the turn (``ChiefConversationOwner/noteMemorySaved(conversation:fact:text:)``):
+    /// their rows post after the turn's last message.
+    var memoryNotes: [(fact: String, text: String)] = []
     var usage: ChiefTurnUsage?
 
     /// The request id a card of this turn stores for the brain's `id`. Brains

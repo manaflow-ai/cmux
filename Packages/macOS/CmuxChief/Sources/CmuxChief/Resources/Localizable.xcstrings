@@ -532,6 +532,65 @@
         }
       }
     },
+    "chief.brain.unknownModel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ cannot use the model “%2$@”. Pick another model in Chief Settings (click the model name above the conversation)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kann das Modell „%2$@“ nicht verwenden. Wähle in den Chief-Einstellungen ein anderes Modell (klicke auf den Modellnamen über der Unterhaltung)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ne peut pas utiliser le modèle « %2$@ ». Choisissez un autre modèle dans les réglages de Chief (cliquez sur le nom du modèle au-dessus de la conversation)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ no puede usar el modelo «%2$@». Elige otro modelo en los ajustes de Chief (haz clic en el nombre del modelo sobre la conversación)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لـ %1$@ استخدام النموذج \"%2$@\". اختر نموذجًا آخر في إعدادات Chief (انقر على اسم النموذج أعلى المحادثة)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ はモデル「%2$@」を使用できません。Chief の設定で別のモデルを選んでください（会話の上にあるモデル名をクリック）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에서 “%2$@” 모델을 사용할 수 없습니다. Chief 설정에서 다른 모델을 선택하세요(대화 위의 모델 이름 클릭)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 无法使用模型“%2$@”。请在 Chief 设置中选择其他模型（点击对话上方的模型名称）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 無法使用模型「%2$@」。請在 Chief 設定中選擇其他模型（按一下對話上方的模型名稱）。"
+          }
+        }
+      }
+    },
     "chief.participant.you": {
       "extractionState": "manual",
       "localizations": {
@@ -597,55 +656,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief could not finish this reply: %@\nSend your message again to retry."
+            "value": "I couldn’t finish: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief konnte diese Antwort nicht abschließen: %@\nSende deine Nachricht erneut, um es noch einmal zu versuchen."
+            "value": "Ich konnte das nicht abschließen: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief n’a pas pu terminer cette réponse : %@\nEnvoyez à nouveau votre message pour réessayer."
+            "value": "Je n’ai pas pu terminer : %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر على Chief إكمال هذا الرد: %@\nأرسل رسالتك مرة أخرى لإعادة المحاولة."
+            "value": "تعذّر عليّ الإكمال: %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief no pudo terminar esta respuesta: %@\nEnvía tu mensaje de nuevo para reintentarlo."
+            "value": "No pude terminar: %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 無法完成此回覆：%@\n請再次傳送你的訊息以重試。"
+            "value": "我無法完成：%@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 无法完成此回复：%@\n请再次发送你的消息以重试。"
+            "value": "我无法完成：%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief가 이 답장을 완료하지 못했습니다: %@\n다시 시도하려면 메시지를 다시 보내세요."
+            "value": "끝내지 못했습니다: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief はこの返信を完了できませんでした: %@\n再試行するには、メッセージをもう一度送信してください。"
+            "value": "完了できませんでした: %@"
           }
         }
       }

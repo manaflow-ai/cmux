@@ -42,6 +42,26 @@ import Testing
         #expect(!rules.allows(["cmux", "chief", "send", "hi"]))
     }
 
+    /// The card offers Always Allow for the real recipe (quotes, `#`, a long task): the policy
+    /// derives the rule once from the lexed, untruncated command and carries it in the options.
+    @Test func theRecipesCardOffersAlwaysAllowForDispatch() throws {
+        let options = ChiefToolPolicy.approvalOptions(command: ChiefSystemPrompt.dispatchExample)
+        #expect(options == ["Allow", "Deny", "always:cmux chief dispatch"])
+        #expect(ChiefAllowRules.rule(inOptions: options) == ["cmux", "chief", "dispatch"])
+        // A task longer than the prompt's 300 characters still gets the rule (the prompt is cut).
+        let long = "cmux chief dispatch --agent claude --name \"#9: docs\" --cwd /tmp/app -- '" + String(repeating: "Fix it. ", count: 60) + "'"
+        #expect(ChiefToolPolicy.claudePrompt("Bash", input: ["command": .string(long)]).hasSuffix("…`?"))
+        #expect(ChiefToolPolicy.approvalOptions(command: long).last == "always:cmux chief dispatch")
+        // Wrapped by Codex, the same rule.
+        #expect(ChiefToolPolicy.approvalOptions(command: "/bin/zsh -lc \"cmux chief dispatch --name x -- 'y'\"").last
+            == "always:cmux chief dispatch")
+        // No rule for a command none may cover, nor a forged or ineligible option.
+        #expect(ChiefToolPolicy.approvalOptions(command: "cmux chief approve") == ["Allow", "Deny"])
+        #expect(ChiefToolPolicy.approvalOptions(command: nil) == ["Allow", "Deny"])
+        #expect(ChiefAllowRules.rule(inOptions: ["Allow", "always:bash -c"]) == nil)
+        #expect(ChiefAllowRules.rule(inOptions: ["Allow", "always:cmux chief"]) == nil)
+    }
+
     @Test func aTaskWithAnApostropheStaysOneWord() throws {
         let command = #"cmux chief dispatch --agent claude --name docs --cwd /tmp/app -- 'Fix the README'\''s install steps.'"#
         let stages = try #require(ChiefShellLexer.stages(of: command))

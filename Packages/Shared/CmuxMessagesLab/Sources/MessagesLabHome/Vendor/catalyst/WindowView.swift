@@ -85,6 +85,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// Ask for `settle(at:)` at an engine time (event-driven cleanup).
     var requestWake: (Double) -> Void = { _ in }
     var onScrollPosition: () -> Void = {}
+    /// cmux-classic: a typing indicator that goes away leaves at once, with no fade (the Chief's turn ended,
+    /// failed or waits on an approval card: the faded ghost lingered under the card and the last bubble).
+    var cmuxTypingOffAtOnce = false
     /// The host's hooks (HostHooks.swift); all off by default. A new hook set reports changes from the selection now.
     var hostHooks = HostHooks() { didSet { hostSelectionReported = hostSelection } }
     /// HostHooks.swift: the focused message (ask 10) and the selection last reported to the host.
@@ -1350,6 +1353,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if r.ghost, r.removedAt == t {
                 // A received message replaces the typing bubble: Messages fades it out with the same
                 // curve as a received text's fade-in (ANIMATIONS.md section 3).
+                // cmux-classic: the host's typing indicator leaves at once (no ghost shows).
+                if key == "typing", cmuxTypingOffAtOnce { continue }
                 let out: SpringElement
                 if key != "typing" { out = Springs.ghostOut }
                 else if case .receive = action { out = Springs.typingOutOnReceive }

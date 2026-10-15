@@ -87,6 +87,14 @@ public final class MessagesLabHomeView: NSView {
         set { controller.isWorking = newValue }
     }
 
+    /// cmux-classic: a typing indicator that goes away leaves at once, with no fade-out ghost
+    /// (MessagesLab fades it as Messages does; the Chief's ended turns and approval waits must not
+    /// leave a faint bubble under the card or the last reply).
+    public var typingLeavesAtOnce: Bool {
+        get { controller.typingLeavesAtOnce }
+        set { controller.typingLeavesAtOnce = newValue }
+    }
+
     /// The host's shared stop action.
     public var onStop: (() -> Void)? {
         get { controller.onStop }
@@ -204,6 +212,20 @@ public final class MessagesLabHomeView: NSView {
     public var onOpenCloudWorkspace: (_ machine: String, _ workspace: String) -> Void {
         get { projection.onOpenCloudWorkspace }
         set { projection.onOpenCloudWorkspace = newValue }
+    }
+
+    /// cmux-classic: a failed turn's Try Again: run the last message again, then call the
+    /// completion with whether that started (ChiefNoticeRows.swift).
+    public var onRetryLastTurn: (_ completion: @escaping (Bool) -> Void) -> Void {
+        get { projection.onRetryLastTurn }
+        set { projection.onRetryLastTurn = newValue }
+    }
+
+    /// cmux-classic: a saved note's Undo: forget the note `fact`, then call the completion with
+    /// whether it was forgotten (ChiefNoticeRows.swift).
+    public var onUndoMemory: (_ fact: String, _ completion: @escaping (Bool) -> Void) -> Void {
+        get { projection.onUndoMemory }
+        set { projection.onUndoMemory = newValue }
     }
 
     // MARK: Attachments (lane 16)
@@ -328,6 +350,8 @@ public final class MessagesLabHomeView: NSView {
         var rows: [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] = []
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec else { continue }
+            // A row that already left (a ghost fading out, or cut at once) is not on screen.
+            if let ip = demo.collection.indexPath(for: cell), demo.model.rows[checked: ip.item]?.ghost == true { continue } // checked
             let content = cell.contentView.layer
             let kind: String, outgoing: Bool, rect: CGRect, drawn: CGRect
             switch spec.kind {

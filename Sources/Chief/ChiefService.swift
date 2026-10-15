@@ -163,6 +163,27 @@ final class ChiefService {
         return await owner.stopTurn(conversation: conversation)
     }
 
+    /// A failed turn's Try Again: runs the user's last message of `conversation` again.
+    /// Returns whether a turn started (false while one runs, or with nothing to resend).
+    @discardableResult
+    func retryLastTurn(_ conversation: ConversationID) async -> Bool {
+        guard let owner else { return false }
+        return await owner.retryLastTurn(conversation: conversation)
+    }
+
+    /// A memory note was saved while `conversation` shows or works: its transcript row.
+    func noteMemorySaved(_ fact: ChiefMemoryFact, in conversation: ConversationID) async {
+        guard let owner else { return }
+        await owner.noteMemorySaved(conversation: conversation, fact: fact.id, text: fact.text)
+    }
+
+    /// A memory row's Undo: forgets the note, then its row says so. Returns whether it was forgotten.
+    func undoMemory(_ fact: String, in conversation: ConversationID) async -> Bool {
+        guard ChiefMemoryStore.shared.forget(fact) else { return false }
+        if let owner { await owner.noteMemoryForgotten(conversation: conversation, fact: fact) }
+        return true
+    }
+
     /// Starts a new conversation with a new Chief and returns its id.
     ///
     /// - Throws: ``HomeRejection`` when the owner refuses.

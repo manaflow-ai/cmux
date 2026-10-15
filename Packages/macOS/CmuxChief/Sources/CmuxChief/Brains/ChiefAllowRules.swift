@@ -14,8 +14,8 @@ import Foundation
 /// interpreter, a deleting program, `git config`, `npx`, `npm exec|run`,
 /// `make`, or the `cmux` groups that run commands or answer for the user
 /// (`vm`, `cloud`, `chief`, `browser`, `send*`; ``isEligible(program:subcommand:)``).
-/// Home's card offers the same rule (`ChiefRows.alwaysAllowWords` in
-/// MessagesLabHome: change both).
+/// The brains put a card's rule in its options (``ChiefToolPolicy/approvalOptions(command:)``);
+/// Home's card offers exactly that rule and never derives one itself.
 public final class ChiefAllowRules: @unchecked Sendable {
     /// The process's rules (the brains' policy checks are static).
     public static let shared = ChiefAllowRules()
@@ -62,6 +62,15 @@ public final class ChiefAllowRules: @unchecked Sendable {
     @discardableResult
     public func add(command: String) throws -> [String]? {
         guard let words = Self.prefix(for: command) else { return nil }
+        return try add(rule: words)
+    }
+
+    /// Saves an eligible rule (``ruleWords(_:)`` gives it back unchanged) and returns it; nil otherwise.
+    ///
+    /// - Throws: A file error when the rules cannot be written (the rule still holds for this session).
+    @discardableResult
+    public func add(rule words: [String]) throws -> [String]? {
+        guard Self.ruleWords(words) == words else { return nil }
         lock.lock()
         if !rules.contains(words) { rules.append(words) }
         let snapshot = rules
@@ -75,13 +84,40 @@ public final class ChiefAllowRules: @unchecked Sendable {
         return words
     }
 
-    /// The rule words for `command`: its program and subcommand, only for one plain simple
-    /// command (no pipes, lists, redirects, quotes, globs or expansion) whose rule is
-    /// eligible (``isEligible(program:subcommand:)``) and, for `cmux`, with no word that asks.
+    /// The rule words for `command`: its program and subcommand, only for one simple command
+    /// (no pipes, lists, file redirects, globs or `$` expansion; ``ChiefShellLexer``) whose
+    /// rule is eligible (``isEligible(program:subcommand:)``), with no `--flag=value` word and,
+    /// for `cmux`, no word that asks. Quotes are lexed away, so `cmux chief dispatch --name
+    /// "#1: x" -- '<task>'` gets `cmux chief dispatch`.
     public static func prefix(for command: String) -> [String]? {
-        let banned = CharacterSet(charactersIn: "|&;<>`$(){}[]\\\"'*?~=#^\n\t")
-        guard command.rangeOfCharacter(from: banned) == nil else { return nil }
-        return ruleWords(command.split(separator: " ", omittingEmptySubsequences: true).map(String.init))
+        guard let stages = ChiefShellLexer.stages(of: command), stages.count == 1,
+              !stages[0].contains(where: \.expands) else { return nil }
+        let words = stages[0].map(\.text)
+        // `git diff --output=x` writes a file: no rule is offered from a flag with a value.
+        guard !words.contains(where: { $0.hasPrefix("-") && $0.contains("=") }) else { return nil }
+        return ruleWords(words)
+    }
+
+    /// Marks the approval option that carries a card's Always Allow rule ("always:cmux chief
+    /// dispatch"). Home's card reads the rule from it and never shows it as a button
+    /// (`ChiefRows.Approval` in MessagesLabHome, the same id); it is never a valid choice.
+    public static let alwaysOptionPrefix = "always:"
+
+    /// Whether `option` is the rule-carrying option (``alwaysOptionPrefix``).
+    public static func isAlwaysOption(_ option: String) -> Bool { option.hasPrefix(alwaysOptionPrefix) }
+
+    /// The rule-carrying option for the full `command` a card asks to run, nil when no rule may cover
+    /// it (``prefix(for:)``). The brains derive it once from the untruncated command (the card's
+    /// prompt cuts it at 300 characters), so the card and the saved rule never re-parse a prompt.
+    static func alwaysOption(for command: String) -> String? {
+        prefix(for: command).map { alwaysOptionPrefix + $0.joined(separator: " ") }
+    }
+
+    /// The rule a card's options carry (``alwaysOption(for:)``), nil when none or not eligible.
+    public static func rule(inOptions options: [String]) -> [String]? {
+        guard let option = options.first(where: isAlwaysOption) else { return nil }
+        let words = option.dropFirst(alwaysOptionPrefix.count).split(separator: " ").map(String.init)
+        return ruleWords(words) == words ? words : nil
     }
 
     /// The rule a simple command (quotes removed) falls under: its program and subcommand, or

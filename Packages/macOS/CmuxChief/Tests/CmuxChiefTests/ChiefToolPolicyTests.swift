@@ -35,7 +35,8 @@ import Testing
         "cmux cloud ls --json",
         "cmux vm terminal read brave-otter term_1",
         "cmux vm terminal wait brave-otter term_1 --pattern Working --timeout 60",
-        "cmux vm wait brave-otter --wake",
+        "cmux vm wait brave-otter",
+        "cmux vm wait brave-otter --timeout 300",
         "cmux chief status --json",
         "cmux chief read --limit 5",
         "cmux chief conversations",
@@ -130,6 +131,11 @@ import Testing
         "cmux new-workspace --name Build",
         // machine creation costs money; dispatch is one meaningful card
         "cmux vm new --detach",
+        // `--wake` starts a stopped machine, which bills the user
+        "cmux vm wait brave-otter --wake",
+        "cmux vm wait brave-otter --timeout 300 --wake",
+        "cmux cloud wait brave-otter --WAKE",
+        "cmux vm wait brave-otter --wake=true",
         "cmux cloud new --size 8g",
         "cmux vm fork brave-otter",
         "cmux chief dispatch --agent codex --name fix 'fix the bug'",
@@ -350,7 +356,7 @@ import Testing
 
     @Test func cmuxWordCheckCoversPrefixesAndValues() {
         for word in ["close", "CLOSE-WORKSPACE", "kill-pane", "send", "send-key", "--force=true", "--Force", "--yes=1",
-                     "--command=id", "exec", "run", "eval", "approve", "clear-log", "delete-thing"] {
+                     "--command=id", "exec", "run", "eval", "approve", "clear-log", "delete-thing", "--wake", "--wake=1"] {
             #expect(ChiefToolPolicy.cmuxWordAsks(word), "\(word)")
         }
         for word in ["tree", "--all", "list-workspaces", "workspace:2", "--json", "read-screen"] {
