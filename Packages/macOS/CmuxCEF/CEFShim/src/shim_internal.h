@@ -7,6 +7,7 @@
 #include <string>
 
 #include <set>
+#include "include/cef_jsdialog_handler.h"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
@@ -261,6 +262,15 @@ void ForgetDownloads();
 CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
+
+// JavaScript dialogs (shim_js_dialogs.mm, UI thread): alert, confirm, prompt
+// and beforeunload wait for the host's answer (JS_DIALOG,
+// cmux_shim_js_dialog_reply).
+CefRefPtr<CefJSDialogHandler> JSDialogHandler();
+// Releases every waiting dialog callback (before CefShutdown).
+void ForgetJSDialogs();
+// Releases the waiting dialogs of a browser that closed.
+void ForgetJSDialogs(int browser_id);
 
 // A Proceed the host asked for on a certificate warning
 // (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the
