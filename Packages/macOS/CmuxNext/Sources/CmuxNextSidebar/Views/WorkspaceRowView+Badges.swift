@@ -19,7 +19,7 @@ extension WorkspaceRowView {
         // The kind icon, the cleared unread badge and the idle activity are set in `configure`.
         if timeText == nil, let time = shown.badgeTime {
             timeText = time
-            timeLabel.stringValue = time
+            timeLabel.setString(time)
         }
         let corner = style == .corner
         rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked, look: corner ? .corner : .stack)

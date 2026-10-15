@@ -56,9 +56,15 @@ class SidebarRowView: NSView {
         return true
     }
 
+    /// A view that comes back to its own row keeps its configured content, so the
+    /// row's next `configure` with equal content changes nothing and its text
+    /// layers keep their drawing (scroll back over parked rows, perf round 4).
+    /// Rows whose configure sets state that this reset clears (a tooltip) say no.
+    class var keepsContentOnReturn: Bool { false }
+
     /// Resets transient state before a recycled view shows another row.
     func prepareForReuse(key: SidebarRowKey) {
-        configuredContent = nil
+        if !(key == self.key && Self.keepsContentOnReturn) { configuredContent = nil }
         self.key = key
         isHovered = false
         isSelected = false
@@ -72,6 +78,9 @@ class SidebarRowView: NSView {
         alphaValue = 1
         setTitleHidden(false)
         themedToolTip = nil
+        // A view that kept its content skips configure: it still paints once more, for a theme that
+        // changed while it was out of the window (a lift). Labels redraw only on a changed value.
+        needsDisplay = true
     }
 
     /// Buttons that receive clicks directly.
@@ -120,6 +129,9 @@ class SidebarRowView: NSView {
     /// earlier open's completion, run early when a later update reopens the
     /// row, leaves the later open's clip alone (cx-ai79).
     var opens = 0
+    /// The frame a row that left the list closes its slot to, until its close recycles it
+    /// (`RowMotion`): a viewport re-anchor mid-close shifts it with the rows (cx-y2uf5).
+    var closingEnd: NSRect?
 
     /// The frame as drawn now: the presentation mid-animation (debug).
     var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
@@ -171,8 +183,8 @@ final class EmptySectionRowView: SidebarRowView {
     }
 
     func configure(pinned: Bool) {
-        label.stringValue = pinned ? Strings.pinnedEmpty : Strings.sectionEmpty
-        label.font = SidebarStyle.subtitleFont
+        label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
+        label.setFont(SidebarStyle.subtitleFont)
         needsLayout = true
     }
 
@@ -186,6 +198,6 @@ final class EmptySectionRowView: SidebarRowView {
     }
 
     override func updateLayer() {
-        performWithTheme { label.textColor = Palette.textTertiary }
+        performWithTheme { label.setColor(Palette.textTertiary) }
     }
 }
