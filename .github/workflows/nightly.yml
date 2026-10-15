@@ -468,14 +468,6 @@ jobs:
   # can Run workflow with the SHA (no debounce). The commit counts only through
   # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
   # "cmux-next Release compile (Xcode 26)" job passed.
-  #
-  # Requests serialize per commit, not across commits: GitHub keeps one waiting
-  # job per concurrency group and cancels it when another arrives, so a shared
-  # group let a late request for an older commit (its compile or tree finished
-  # later) cancel the waiting request for a newer one, and nightly-next stopped
-  # at the older commit. Requests for different commits may now run together;
-  # GitHub refuses a non-forced ref update that is not a fast-forward, so the
-  # branch still only moves forward and the losing older request no-ops.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     environment: release
@@ -485,7 +477,7 @@ jobs:
       contents: read
       actions: read
     concurrency:
-      group: nightly-next-promote-${{ inputs.promote_nightly_next_sha }}
+      group: nightly-next-promote
       cancel-in-progress: false
     steps:
       - name: Mint release App token
@@ -568,63 +560,39 @@ jobs:
 
             const sourceHead = (await github.rest.git.getRef({ owner, repo, ref: `heads/${source}` })).data.object.sha;
             const writer = getOctokit(process.env.APP_TOKEN);
-            // Another commit's request can move the branch while this one runs
-            // (requests for different commits do not wait for each other), so a
-            // write the branch has moved under is re-checked from a fresh read.
-            const readTarget = async () => {
-              try {
-                return (await github.rest.git.getRef({ owner, repo, ref: `heads/${target}` })).data.object.sha;
-              } catch (error) {
-                if (error.status !== 404) throw error;
-                return null;
-              }
-            };
-            const writeAttempts = 3;
-            for (let attempt = 1; attempt <= writeAttempts; attempt += 1) {
-              const current = await readTarget();
-              if (current === sha) {
-                core.notice(`${target} is already at ${sha}.`);
-                return;
-              }
-              try {
-                if (!current) {
-                  await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${target}`, sha });
-                } else {
-                  const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}` });
-                  let force = false;
-                  if (data.status === 'diverged') {
-                    // A hand-made baseline build (a feat-cmux-next commit plus
-                    // patches) may be replaced when the point where it left
-                    // feat-cmux-next is on feat-cmux-next; `sha` descends from it,
-                    // so the branch never moves to older history.
-                    const base = data.merge_base_commit?.sha;
-                    if (base) {
-                      const { data: onSource } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${sourceHead}` });
-                      force = onSource.status === 'ahead' || onSource.status === 'identical';
-                    }
-                  }
-                  if (data.status !== 'ahead' && !force) {
-                    core.notice(`${sha} does not move ${target} forward from ${current} (compare status ${data.status}); nothing promoted.`);
-                    return;
-                  }
-                  // A forced write is not fast-forward checked, so it must still
-                  // replace the baseline it was compared against.
-                  if (force && (await readTarget()) !== current) {
-                    throw Object.assign(new Error(`${target} moved from ${current} during promotion`), { status: 409 });
-                  }
-                  await writer.rest.git.updateRef({ owner, repo, ref: `heads/${target}`, sha, force });
-                }
-              } catch (error) {
-                // 422: not a fast-forward, or the branch was just created; 409: moved.
-                if ((error.status === 422 || error.status === 409) && attempt < writeAttempts) {
-                  core.notice(`${target} moved while promoting ${sha}; re-checking (${attempt}/${writeAttempts - 1}).`);
-                  continue;
-                }
-                throw error;
-              }
-              core.notice(`Promoted ${target} to ${sha}; its push run publishes it.`);
+            let current = null;
+            try {
+              current = (await github.rest.git.getRef({ owner, repo, ref: `heads/${target}` })).data.object.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            if (current === sha) {
+              core.notice(`${target} is already at ${sha}.`);
               return;
             }
+            if (!current) {
+              await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${target}`, sha });
+            } else {
+              const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}` });
+              let force = false;
+              if (data.status === 'diverged') {
+                // A hand-made baseline build (a feat-cmux-next commit plus
+                // patches) may be replaced when the point where it left
+                // feat-cmux-next is on feat-cmux-next; `sha` descends from it,
+                // so the branch never moves to older history.
+                const base = data.merge_base_commit?.sha;
+                if (base) {
+                  const { data: onSource } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${sourceHead}` });
+                  force = onSource.status === 'ahead' || onSource.status === 'identical';
+                }
+              }
+              if (data.status !== 'ahead' && !force) {
+                core.notice(`${sha} does not move ${target} forward from ${current} (compare status ${data.status}); nothing promoted.`);
+                return;
+              }
+              await writer.rest.git.updateRef({ owner, repo, ref: `heads/${target}`, sha, force });
+            }
+            core.notice(`Promoted ${target} to ${sha}; its push run publishes it.`);
 
   probe-nightly-tag-permission:
     permissions:

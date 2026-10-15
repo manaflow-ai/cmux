@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Regression coverage for queued nightly-next promotion requests.
 
-Main's promote-nightly-next job is dispatched once per request, and requests
-for different feat-cmux-next commits can arrive out of order (an older
-commit's Release compile or tree publication can finish after a newer one's).
-GitHub keeps at most one waiting job per concurrency group and cancels the
-waiting one when another arrives, so a shared group let a late request for an
-older commit replace the waiting request for a newer one: nightly-next then
-stopped at the older commit and the newer promotion was silently dropped.
+Main's promote-nightly-next job is dispatched once per request and serializes
+on one concurrency group, so only one job ever writes nightly-next. Requests
+for different feat-cmux-next commits arrive out of order (an older commit's
+Release compile or tree publication can finish after a newer one's), and
+GitHub keeps at most one waiting job per group, cancelling it when another
+arrives. A late request for an older commit therefore cancelled the waiting
+request for a newer one, and nightly-next stopped at the older commit.
 
-The test evaluates the job's real concurrency group for each request, applies
-GitHub's one-running/one-waiting rule, then runs the real promotion script for
-every request that survives against a mocked branch that only fast-forwards.
+The test evaluates the job's real concurrency group and the workflow's real
+run-name for each request, applies GitHub's one-running/one-waiting rule, then
+runs the real promotion script for each surviving request in order against a
+mocked Actions API whose cancelled dispatch runs carry the evaluated titles.
 """
 
 from __future__ import annotations
@@ -29,8 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 
 # Linear feat-cmux-next history, oldest first. nightly-next starts at BASE.
-BASE, RUNNING, OLDER, NEWER = ("1" * 40, "2" * 40, "3" * 40, "4" * 40)
-HISTORY = [BASE, RUNNING, OLDER, NEWER]
+BASE, RUNNING, OLDER, NEWER, UNGREEN = ("1" * 40, "2" * 40, "3" * 40, "4" * 40, "5" * 40)
+HISTORY = [BASE, RUNNING, OLDER, NEWER, UNGREEN]
 
 
 HARNESS = r"""
@@ -41,18 +42,33 @@ const position = (sha) => {
   if (index < 0) throw new Error(`unknown commit ${sha}`);
   return index;
 };
-const state = { target: scenario.target, staleReads: scenario.staleReads || 0 };
+const state = { target: scenario.target };
 const failed = [];
 const notices = [];
 const writes = [];
-const actions = {
-  listWorkflowRuns: Symbol('listWorkflowRuns'),
-  listJobsForWorkflowRun: Symbol('listJobsForWorkflowRun'),
+const listJobs = (params) => {
+  const sha = history[params.run_id - 1000];
+  const green = !scenario.notGreen.includes(sha);
+  return [{ name: 'cmux-next Release compile (Xcode 26)', status: 'completed', conclusion: green ? 'success' : 'failure' }];
 };
-const compareStatus = (base, head) => {
-  const a = position(base);
-  const b = position(head);
-  return a === b ? 'identical' : a < b ? 'ahead' : 'behind';
+const runsFor = (params) => {
+  if (params.workflow_id === 'nightly.yml') {
+    if (params.event !== 'workflow_dispatch' || params.branch !== 'main') {
+      throw new Error(`unexpected nightly.yml lookup ${JSON.stringify(params)}`);
+    }
+    // Promotion requests on main, newest first.
+    return scenario.dispatchRuns
+      .filter((run) => !params.status || run.conclusion === params.status)
+      .slice().reverse();
+  }
+  if (params.workflow_id !== 'cmux-next.yml' || params.event !== 'push' || params.branch !== 'feat-cmux-next') {
+    throw new Error(`unexpected run lookup ${JSON.stringify(params)}`);
+  }
+  return [{ id: position(params.head_sha) + 1000, head_sha: params.head_sha, head_branch: 'feat-cmux-next', event: 'push' }];
+};
+const actions = {
+  listWorkflowRuns: async (params) => ({ data: { workflow_runs: runsFor(params), total_count: runsFor(params).length } }),
+  listJobsForWorkflowRun: async (params) => ({ data: { jobs: listJobs(params) } }),
 };
 const github = {
   rest: {
@@ -61,43 +77,29 @@ const github = {
       getRef: async ({ ref }) => {
         if (ref === 'heads/feat-cmux-next') return { data: { object: { sha: history[history.length - 1] } } };
         if (ref !== 'heads/nightly-next') throw new Error(`unexpected ref ${ref}`);
-        // A stale read models another promotion moving the branch between
-        // this run's read and its write.
-        if (state.staleReads > 0) {
-          state.staleReads -= 1;
-          return { data: { object: { sha: scenario.staleTarget } } };
-        }
         return { data: { object: { sha: state.target } } };
       },
     },
     repos: {
       compareCommitsWithBasehead: async ({ basehead }) => {
         const [base, head] = basehead.split('...');
-        return { data: { status: compareStatus(base, head) } };
+        const a = position(base);
+        const b = position(head);
+        return { data: { status: a === b ? 'identical' : a < b ? 'ahead' : 'behind' } };
       },
     },
   },
   paginate: async (method, params) => {
-    if (method === actions.listWorkflowRuns) {
-      return [{ id: 1, head_sha: params.head_sha, head_branch: 'feat-cmux-next', event: 'push' }];
-    }
-    if (method === actions.listJobsForWorkflowRun) {
-      return [{ name: 'cmux-next Release compile (Xcode 26)', status: 'completed', conclusion: 'success' }];
-    }
-    throw new Error('unexpected pagination');
+    if (method === actions.listWorkflowRuns) return runsFor(params);
+    if (method === actions.listJobsForWorkflowRun) return listJobs(params);
+    throw new Error(`unexpected pagination for ${JSON.stringify(params)}`);
   },
 };
 const writer = {
   rest: {
     git: {
-      // GitHub refuses a non-forced update that is not a fast-forward.
-      updateRef: async ({ ref, sha, force }) => {
+      updateRef: async ({ ref, sha }) => {
         if (ref !== 'heads/nightly-next') throw new Error(`unexpected write to ${ref}`);
-        if (!force && position(sha) < position(state.target)) {
-          const error = new Error('Update is not a fast forward');
-          error.status = 422;
-          throw error;
-        }
         writes.push(sha);
         state.target = sha;
       },
@@ -109,7 +111,7 @@ const core = {
   setFailed: (message) => failed.push(message),
   notice: (message) => notices.push(message),
 };
-const context = { repo: { owner: 'manaflow-ai', repo: 'cmux' } };
+const context = { repo: { owner: 'manaflow-ai', repo: 'cmux' }, runId: 1 };
 const originalSetTimeout = global.setTimeout;
 global.setTimeout = (callback) => { callback(); return 0; };
 (async () => {
@@ -132,9 +134,12 @@ global.setTimeout = (callback) => { callback(); return 0; };
 """
 
 
+def workflow() -> dict:
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
 def promote_job() -> dict:
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    return workflow["jobs"]["promote-nightly-next"]
+    return workflow()["jobs"]["promote-nightly-next"]
 
 
 def promotion_script() -> str:
@@ -142,47 +147,75 @@ def promotion_script() -> str:
     return next(step["with"]["script"] for step in steps if step.get("name") == "Move nightly-next")
 
 
+def substitute(text: str, sha: str) -> str:
+    """Evaluate the expressions this test understands for a promotion request."""
+    text = re.sub(
+        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*!=\s*''\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*\|\|\s*''\s*\}\}",
+        lambda match: match.group(1).replace("{0}", sha),
+        text,
+    )
+    text = re.sub(r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*\}\}", sha, text)
+    assert "${{" not in text, f"unsupported expression: {text}"
+    return text
+
+
 def concurrency_group(sha: str) -> str:
-    """Evaluate the job's concurrency group for a request of `sha`."""
-    concurrency = promote_job().get("concurrency")
-    if concurrency is None:
-        return f"<no group {sha}>"
+    concurrency = promote_job()["concurrency"]
     group = concurrency["group"] if isinstance(concurrency, dict) else concurrency
-    group = re.sub(r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*\}\}", sha, group)
-    group = re.sub(r"\$\{\{\s*github\.event\.inputs\.promote_nightly_next_sha\s*\}\}", sha, group)
-    assert "${{" not in group, f"unsupported expression in the promote job's concurrency group: {group}"
-    return group
+    return substitute(group, sha)
 
 
-def surviving_requests(running: str, arrivals: list[str]) -> list[str]:
-    """Apply GitHub's concurrency rule to requests arriving while `running` runs.
+def run_title(sha: str) -> str:
+    """The display title GitHub gives the dispatch run requesting `sha`."""
+    data = workflow()
+    run_name = data.get("run-name")
+    return substitute(run_name, sha).strip() if run_name else data["name"]
 
-    A group holds one running job and at most one waiting job; a new arrival
-    replaces (cancels) the waiting one. A request in an idle group starts at
-    once. Returns the requests that run, in start order.
+
+def queue(running: str, arrivals: list[str]) -> tuple[list[str], list[dict]]:
+    """Apply GitHub's one-running/one-waiting rule to requests arriving while `running` runs.
+
+    Returns the requests that run, in order, and every dispatch run with its
+    title and conclusion (a replaced waiting request is cancelled).
     """
-    running_groups = {concurrency_group(running): running}
+    group = concurrency_group(running)
+    runs = [{"id": 1, "sha": running, "conclusion": "success"}]
     started = [running]
-    waiting: dict[str, str] = {}
-    for sha in arrivals:
-        group = concurrency_group(sha)
-        if group in running_groups:
-            waiting[group] = sha
-        else:
-            running_groups[group] = sha
-            started.append(sha)
-    return started + list(waiting.values())
+    waiting: dict | None = None
+    for index, sha in enumerate(arrivals, start=2):
+        run = {"id": index, "sha": sha, "conclusion": "success"}
+        runs.append(run)
+        if concurrency_group(sha) != group:
+            started.append(sha)  # another group: it would run at once, as a second writer
+            continue
+        if waiting is not None:
+            waiting["conclusion"] = "cancelled"
+        waiting = run
+    if waiting is not None:
+        started.append(waiting["sha"])
+    dispatch_runs = [
+        {
+            "id": run["id"],
+            "display_title": run_title(run["sha"]),
+            "event": "workflow_dispatch",
+            "head_branch": "main",
+            "status": "completed",
+            "conclusion": run["conclusion"],
+        }
+        for run in runs
+    ]
+    return started, dispatch_runs
 
 
-def run_promotions(requests: list[str], *, target: str = BASE,
-                   stale_reads: int = 0, stale_target: str | None = None) -> dict:
+def run_promotions(requests: list[str], dispatch_runs: list[dict], *,
+                   target: str = BASE, not_green: list[str] | None = None) -> dict:
     scenario = {
         "script": promotion_script(),
         "history": HISTORY,
         "target": target,
         "requests": requests,
-        "staleReads": stale_reads,
-        "staleTarget": stale_target,
+        "dispatchRuns": dispatch_runs,
+        "notGreen": not_green or [],
     }
     result = subprocess.run(
         ["node", "-e", HARNESS],
@@ -197,37 +230,39 @@ def run_promotions(requests: list[str], *, target: str = BASE,
     return json.loads(result.stdout)
 
 
-def test_a_late_older_request_does_not_drop_a_waiting_newer_one() -> None:
-    """NEWER arrives while a promotion runs, then OLDER arrives: NEWER must still land."""
-    requests = surviving_requests(RUNNING, [NEWER, OLDER])
-    assert NEWER in requests, (
-        "the request for the newer commit was cancelled by a later request for an older one "
-        f"(requests that run: {requests})"
+def short(sha: str) -> str:
+    return {BASE: "BASE", RUNNING: "RUNNING", OLDER: "OLDER", NEWER: "NEWER", UNGREEN: "UNGREEN"}[sha]
+
+
+def test_one_writer_for_every_request() -> None:
+    """Every request shares one group, so nightly-next never has two writers."""
+    assert concurrency_group(OLDER) == concurrency_group(NEWER) == concurrency_group(RUNNING)
+
+
+def test_a_late_older_request_does_not_drop_a_cancelled_newer_one() -> None:
+    """NEWER waits behind a running promotion and OLDER replaces it: NEWER must still land."""
+    requests, dispatch_runs = queue(RUNNING, [NEWER, OLDER])
+    result = run_promotions(requests, dispatch_runs)
+    assert result["failed"] == [], result["failed"]
+    assert result["target"] == NEWER, (
+        f"nightly-next stopped at {short(result['target'])}; the cancelled request for NEWER was "
+        f"dropped (requests that ran: {[short(sha) for sha in requests]})"
     )
-    result = run_promotions(requests)
+
+
+def test_a_cancelled_request_without_a_green_compile_is_not_promoted() -> None:
+    """Recovered requests pass the same Release compile admission as the input."""
+    requests, dispatch_runs = queue(RUNNING, [UNGREEN, OLDER])
+    result = run_promotions(requests, dispatch_runs, not_green=[UNGREEN])
     assert result["failed"] == [], result["failed"]
-    assert result["target"] == NEWER, f"nightly-next stopped at {result['target']}, not {NEWER}"
-
-
-def test_duplicate_requests_for_one_commit_still_share_a_group() -> None:
-    """Requests for the same commit keep serializing, so a burst runs once at a time."""
-    assert concurrency_group(NEWER) == concurrency_group(NEWER)
-    assert concurrency_group(NEWER) != concurrency_group(OLDER)
-
-
-def test_an_older_promotion_racing_a_newer_one_leaves_the_newer_one() -> None:
-    """OLDER read nightly-next before NEWER moved it; its write must not fail the run."""
-    result = run_promotions([OLDER], target=NEWER, stale_reads=1, stale_target=RUNNING)
-    assert result["failed"] == [], result["failed"]
-    assert result["target"] == NEWER
-    assert result["writes"] == []
-    assert any("nothing promoted" in notice for notice in result["notices"]), result["notices"]
+    assert result["target"] == OLDER, short(result["target"])
+    assert UNGREEN not in result["writes"]
 
 
 def main() -> None:
-    test_a_late_older_request_does_not_drop_a_waiting_newer_one()
-    test_duplicate_requests_for_one_commit_still_share_a_group()
-    test_an_older_promotion_racing_a_newer_one_leaves_the_newer_one()
+    test_one_writer_for_every_request()
+    test_a_late_older_request_does_not_drop_a_cancelled_newer_one()
+    test_a_cancelled_request_without_a_green_compile_is_not_promoted()
     print("PASS: nightly-next promotion queue")
 
 
