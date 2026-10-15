@@ -16,7 +16,9 @@ import Testing
 @Suite(.serialized)
 struct AgentPageLabsFollowTests {
     @Test func labsReachAnAgentPageWhenTheActionsWereBoundBeforeSettings() async throws {
-        // A page source without the bundle (Debug dev server origin), and no acpmux.
+        // A page source without the bundle (Debug dev server origin), and no acpmux; put back after.
+        let saved = [AgentPaneSource.devURLVariable, "CMUX_NEXT_AGENT_PANE_MOCK"].map { ($0, getenv($0).map { String(cString: $0) }) }
+        defer { for (name, value) in saved { if let value { setenv(name, value, 1) } else { unsetenv(name) } } }
         setenv(AgentPaneSource.devURLVariable, "http://127.0.0.1:9", 1)
         setenv("CMUX_NEXT_AGENT_PANE_MOCK", "1", 1)
         _ = NSApplication.shared
@@ -32,6 +34,8 @@ struct AgentPageLabsFollowTests {
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         #expect(settings.snapshot.previewFeatures)
+        // The case under test: the bindings already made the agent tabs.
+        #expect(services.madeAgentTabs != nil)
         services.settings = settings
 
         try #require(services.agentTabs.canHostChat, "no agent page source")
