@@ -509,7 +509,9 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 case let .path(local, remote): self?.onPath?(local == "relay" || remote == "relay" ? "Relay" : "Direct")
                 case .closed:
                     opened.fire(RFBError.connectionClosed)
-                    self?.onState?("The connection closed.")
+                    // Before open, connect() reports the failure (it throws); reporting it here
+                    // too would count one failed attempt as two drops.
+                    if self?.lock.withLock({ self?.isOpen }) == true { self?.onState?("The connection closed.") }
                 }
             }
         }
