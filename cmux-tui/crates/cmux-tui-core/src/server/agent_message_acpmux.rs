@@ -136,10 +136,22 @@ impl crate::mux::Mux {
                     Ok(info) if info.get("sessionId").and_then(Value::as_str) == Some(session) => {
                         Ok(Withdrawn::NotFound)
                     }
-                    Ok(_) | Err(LinkError::Rpc(..)) => Ok(Withdrawn::NoSession),
-                    Err(LinkError::Closed | LinkError::Timeout | LinkError::Busy) => {
-                        Err(WithdrawError::Unavailable)
+                    // acpmux names another session, or its own lookup
+                    // (`Hub::resolve`) knows none here or on a peer.
+                    Ok(_) => Ok(Withdrawn::NoSession),
+                    Err(LinkError::Rpc(message, _))
+                        if message.starts_with("no session matches") =>
+                    {
+                        Ok(Withdrawn::NoSession)
                     }
+                    // A forward to a peer that failed, or no answer: the
+                    // peer may hold the prompt.
+                    Err(
+                        LinkError::Rpc(..)
+                        | LinkError::Closed
+                        | LinkError::Timeout
+                        | LinkError::Busy,
+                    ) => Err(WithdrawError::Unavailable),
                 }
             }
             other => other,
