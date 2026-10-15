@@ -122,8 +122,8 @@ public final class SidebarModel {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal.
     public var expanded = false
-    /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
-    public var groupsByFolder = false
+    /// `sidebar.groupBy` and Group by Status's folds and held row (`SidebarModel+Grouping`).
+    public var grouping = SidebarGrouping()
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
@@ -182,8 +182,8 @@ public final class SidebarModel {
     public var isFiltering: Bool { filterMatches != nil }
 
     /// Drag and keyboard reorder are off while the drawn order is not the
-    /// model's: filtering, or grouping by folder.
-    public var locksReorder: Bool { isFiltering || groupsByFolder }
+    /// model's: filtering, or grouping by folder or status.
+    public var locksReorder: Bool { isFiltering || grouping.isGrouped }
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
@@ -286,7 +286,7 @@ public final class SidebarModel {
             row.rowState = old.rowState
             row.machineID = old.machineID
             guard row != old else { continue }
-            guard !Self.movesRows(from: old, to: row, groupsByFolder: groupsByFolder, listsTabs: showWorkspaceTabs) else { return false }
+            guard !movesRows(from: old, to: row) else { return false }
             for path in paths {
                 // Each listed copy keeps its own row state (a saved stale row beside the live one).
                 var copy = row
@@ -298,12 +298,6 @@ public final class SidebarModel {
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
         if !patched.isEmpty { onRowsPatched?(patched) }
         return true
-    }
-
-    /// A content change that changes which rows the list draws.
-    private static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, listsTabs: Bool) -> Bool {
-        if groupsByFolder && old.folder != new.folder { return true }
-        return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
     }
 
     /// Clears closed workspaces from the selection and picks a new active one.
@@ -387,7 +381,7 @@ public final class SidebarModel {
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         hidesWorkspaces = !preferences.showProjects
-        groupsByFolder = preferences.groupBy == .folder
+        grouping.follow(preferences)
         groupsByComputer = preferences.groupsByComputer
     }
 
@@ -415,7 +409,7 @@ public final class SidebarModel {
         }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
-        o.groupsByFolder = groupsByFolder
+        o.grouping = settledGrouping()
         return o
     }
 

@@ -132,6 +132,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?
+    /// The acpmux sessions of the workspace's agent chats and the coordinator that started one
+    /// (the App maps it); `parentWorkspace` is resolved from it (`SidebarAgentLink.linking`).
+    public var agentLink: SidebarAgentLink?
+    /// The workspace whose agent session started this one's (its `mux.parent`): Group by Status
+    /// with elbows lists this row under it. Nil for a row no listed agent started.
+    public var parentWorkspace: WorkspaceID?
 
     public init(
         id: WorkspaceID,

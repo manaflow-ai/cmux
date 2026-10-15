@@ -6,6 +6,7 @@ extension SidebarSectionsPreferences {
     func changesList(from previous: SidebarSectionsPreferences?) -> Bool {
         previous?.showWorkspaceTabs != showWorkspaceTabs || previous?.workspaceRow != workspaceRow
             || previous?.showProjects != showProjects || previous?.groupBy != groupBy
+            || previous?.groupsByStatus != groupsByStatus || previous?.statusElbow != statusElbow
             || previous?.groupsByComputer != groupsByComputer || previous?.minimal != minimal || previous?.density != density
     }
 }

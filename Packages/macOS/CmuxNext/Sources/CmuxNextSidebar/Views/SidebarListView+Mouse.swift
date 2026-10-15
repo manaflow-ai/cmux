@@ -56,7 +56,7 @@ extension SidebarListView {
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-        case .section, .emptySection, .folder:
+        case .section, .emptySection, .folder, .status:
             break
         }
         self.press = press
@@ -87,8 +87,6 @@ extension SidebarListView {
         switch press.key {
         case .workspace:
             if let id = press.deferredClick { model.click(id) }
-        case .tab:
-            break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
@@ -102,7 +100,9 @@ extension SidebarListView {
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
-        case .emptySection, .folder:
+        case let .status(bucket):
+            model.toggleStatusBucket(bucket)
+        case .tab, .emptySection, .folder:
             break
         }
         reload(animated: true)
