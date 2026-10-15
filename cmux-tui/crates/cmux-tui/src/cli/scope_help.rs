@@ -66,6 +66,8 @@ USAGE
   cmux status clear [KEY] [--target <ws_…>|current] [--all]
   cmux status list [--target <ws_…>|current]
   cmux status run [--label <text>] [--target <ws_…>|current] [--badge-ttl 8s] -- CMD …
+  cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>]
+    [--timeout <500ms|30s|5m>]
 
 Loading indicators for scripts and agents, shown on the workspace's sidebar
 row. A shorthand for `cmux workspace [<ws>] status …`: the target is the
@@ -81,6 +83,12 @@ run marks the entry busy and owned by this process (a killed CLI leaves no
 spinner), runs CMD with the terminal's input and output, then shows success or
 error with the exit code and duration for --badge-ttl, and exits with CMD's
 status (128 + signal when a signal ended it).
+
+wait blocks until the entry KEY holds --until, following the session's events
+(no polling), and prints it. settled, the default, returns when the entry is
+gone (cleared, its owner ended or its TTL passed) or shows success (exit 0),
+or shows error (exit 1); cleared waits for the entry to go; state=<s> for that
+state. A passed --timeout exits 124.
 ";
 
 pub(super) const ROOM_HELP: &str = "\
