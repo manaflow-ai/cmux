@@ -36,6 +36,13 @@ import Testing
         #expect(ChiefSettingsStrings.runsOnThisMac(temporary: true) != ChiefSettingsStrings.runsOnThisMac(temporary: false))
     }
 
+    @Test func unknownChiefModelsDoNotCarryAStaleEffortFlag() {
+        let settings = ChiefEngineSettings(harness: "claude", model: "claude-future-6", effort: "max")
+        #expect(settings.normalized.effort.isEmpty)
+        #expect(ChiefEngineSettings(harness: "codex", model: "gpt-5.5", effort: "max").normalized.effort.isEmpty)
+        #expect(ChiefEngineSettings(harness: "codex", model: "gpt-5.5", effort: "xhigh").normalized.effort == "xhigh")
+    }
+
     @Test func memorySourcesTellChiefFromTheCommandLine() {
         #expect(ChiefMemoryStrings.source("chief") != ChiefMemoryStrings.source("cli"))
         #expect(ChiefMemoryStrings.source("cli") != "cli")

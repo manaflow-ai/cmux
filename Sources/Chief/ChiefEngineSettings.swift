@@ -28,6 +28,14 @@ struct ChiefEngineSettings: Equatable, Sendable {
         if CmuxChief.ChiefHarness(rawValue: copy.harness) == nil { copy.harness = "" }
         copy.model = copy.model.trimmingCharacters(in: .whitespacesAndNewlines)
         copy.effort = copy.effort.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The catalog is the only safe source for explicit effort flags. A
+        // custom or newly introduced model has an unknown capability set, so
+        // keep it on the model's own default rather than carrying a stale
+        // value from the previously selected model into the next turn.
+        let offered = copy.resolvedHarness.efforts(for: copy.resolvedModel)
+        if !copy.effort.isEmpty, !offered.contains(where: { $0.id == copy.effort }) {
+            copy.effort = ""
+        }
         return copy
     }
 }
