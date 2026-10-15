@@ -134,13 +134,12 @@ public final class ThemeScope {
     /// inherit these.
     public private(set) var ownTokens: ThemeTokens
     /// The colors the views and windows this scope roots draw in: those of
-    /// the scope it shows (`show(_:)`) when they are as light or dark as its
-    /// own, else its own. A light workspace in a dark room never turns the
-    /// window's chrome light.
+    /// the scope it shows (`show(_:)`), else its own. At any brightness: a
+    /// light workspace in a dark room turns the window's chrome light, with
+    /// the color transition (Lawrence 2026-10-15, cx-3rf4z; this replaces the
+    /// earlier rule that kept the room's light/dark).
     public var tokens: ThemeTokens {
-        guard let shown else { return ownTokens.emphasized(emphasis) }
-        let candidate = shown.tokens
-        return (candidate.isDark == ownTokens.isDark ? candidate : ownTokens).emphasized(emphasis)
+        (shown?.tokens ?? ownTokens).emphasized(emphasis)
     }
     /// How strongly this scope's own views draw (a pane's tab strip in an
     /// unfocused pane: `ChromeEmphasis`). Children keep the plain colors.
