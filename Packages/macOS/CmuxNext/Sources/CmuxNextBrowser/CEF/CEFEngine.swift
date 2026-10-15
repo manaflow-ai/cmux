@@ -128,6 +128,13 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.openURLWithoutWindow = newValue }
     }
 
+    /// cmux.json `browser.builtInAdBlocker`: the bundled full uBlock Origin
+    /// loads when Chromium starts (read once, at start).
+    public var builtInAdBlocker: Bool {
+        get { CEFRuntime.shared.builtInExtensions.adBlockerEnabled }
+        set { CEFRuntime.shared.builtInExtensions.adBlockerEnabled = newValue }
+    }
+
     /// What modified link clicks do (cmux.json `browser.links.*`;
     /// process-wide, read on each request).
     public var linkClicks: BrowserLinkClickMapping {
