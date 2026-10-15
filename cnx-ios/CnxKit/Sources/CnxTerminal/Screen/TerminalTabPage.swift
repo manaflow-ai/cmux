@@ -15,8 +15,26 @@ public final class TerminalTabHost {
     }
 
     /// The tab grid is about to show this tab's card.
+    /// Puts the page's views in (or out of) accessibility and hit-testing.
+    /// SwiftUI's bridge reads a hosted view's `accessibilityElements`, so an
+    /// empty list is set as well as the hidden flag.
+    static func expose(_ view: UIView, _ exposed: Bool) {
+        if view.accessibilityElementsHidden == exposed { view.accessibilityElementsHidden = !exposed }
+        if exposed {
+            if view.accessibilityElements != nil { view.accessibilityElements = nil }
+        } else if (view.accessibilityElements?.isEmpty ?? false) == false {
+            view.accessibilityElements = []
+        }
+        if view.isUserInteractionEnabled != exposed { view.isUserInteractionEnabled = exposed }
+    }
+
     public func prepareCard() {
         model.captureSnapshot()
+        // The grid opens: the page becomes a picture in its card. TabsKit
+        // does not lay the page out again until it zooms back in, so it is
+        // taken out of accessibility and hit-testing here; the page's next
+        // interactive update puts it back (V3-4, T-TABS-14).
+        controller.viewIfLoaded.map { Self.expose($0, false) }
     }
 }
 
@@ -109,17 +127,25 @@ public struct TerminalTabCard: View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
-                if model.connectionState.cardShowsConnecting(sessionStarted: model.controller?.started == true) {
+                let started = model.controller?.started == true
+                switch TerminalCardContent.choose(sessionStarted: started,
+                                                  connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                                  hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText) {
+                case .connecting:
                     TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot,
                                            showsLabel: !isReattaching)
-                } else if let image = model.snapshot {
+                case .screenText:
+                    TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
+                case .snapshot:
+                    if let image = model.snapshot {
                     Image(uiImage: image)
                         .resizable()
                         .interpolation(.medium)
                         .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
-                } else {
+                    }
+                case .placeholder:
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(model.programName) — \(model.title)")
                             .foregroundStyle(Color.white.opacity(0.45))
@@ -137,6 +163,36 @@ public struct TerminalTabCard: View {
             }
         }
         .environment(\.colorScheme, .dark)
+    }
+}
+
+/// The Mac's screen as text in a grid card: the page's monospaced rows at the
+/// page's column count, so it reads like the terminal it stands for.
+struct TerminalCardScreenText: View {
+    let text: String
+    let topInset: CGFloat
+    let width: CGFloat
+
+    var body: some View {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        // Trailing blank rows are the empty screen below the prompt.
+        let shown = lines.lastIndex(where: { $0.contains(where: { !$0.isWhitespace }) }).map { Array(lines[...$0]) } ?? []
+        let columns = max(40, shown.map(\.count).max() ?? 40)
+        // A Menlo cell is about 0.6 em wide.
+        let size = min(13, max(5, (width - 12) / (CGFloat(columns) * 0.6)))
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, line in
+                Text(String(line).isEmpty ? " " : String(line))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .font(.system(size: size, design: .monospaced))
+        .foregroundStyle(Color.white.opacity(0.88))
+        .padding(.horizontal, 6)
+        .padding(.top, topInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
     }
 }
 
@@ -159,6 +215,11 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: TerminalViewController, context: Context) {
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
+        // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
+        // `accessibilityHidden` does not reach a representable's UIKit views,
+        // so its composer, Return and Scroll to bottom stayed exposed and took
+        // taps and VoiceOver focus inside the card (V3-4, T-TABS-14).
+        TerminalTabHost.expose(controller.view, isInteractive)
         // A zoom to the grid, a swipe or the page menu takes the page: the
         // keyboard goes, as in Safari.
         if !isInteractive, host.model.keyboardVisible {

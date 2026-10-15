@@ -62,6 +62,7 @@ final class TerminalSurfaceView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     isolated deinit {
+        if let commitObserver { CFRunLoopObserverInvalidate(commitObserver) }
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         guard let surface else { return }
         let ref = SurfaceRef(surface)
@@ -441,9 +442,34 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.presents += 1
+                self.presentPending = true
+                self.observeCommits()
+            }
+        }
+    }
+
+    /// Ghostty can set `contents` more than once in one Core Animation
+    /// transaction; only the last is ever displayed. The screen handles the
+    /// present once, just before the transaction commits (a run loop
+    /// observer ordered before Core Animation's commit), so the surface moves
+    /// in the same transaction and the pixels it reads are the frame shown.
+    /// (termqa D7: two presents 1 ms apart read a frame never displayed and
+    /// then matched nothing; it also halves the reads in a busy stream.)
+    private var presentPending = false
+    private var commitObserver: CFRunLoopObserver?
+
+    private func observeCommits() {
+        guard commitObserver == nil else { return }
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
+                                                          true, 1_999_000) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self, self.presentPending else { return }
+                self.presentPending = false
                 self.onPresent?()
             }
         }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        commitObserver = observer
     }
 
     func requestRedraw() { setNeedsTerminalDraw() }

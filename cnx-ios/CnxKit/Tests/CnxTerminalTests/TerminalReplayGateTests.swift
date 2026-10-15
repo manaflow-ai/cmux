@@ -27,4 +27,33 @@ import Testing
         gate.expire()
         #expect(!gate.isReplaying)
     }
+
+    /// Verifier V3-2: after a drop while reading mid-stream the page froze (its
+    /// document never grew again) until another drop. The gate's only deadline
+    /// was the held frame's timer, which a reset during a scroll, or a second
+    /// reset while a frame was held, never armed. The gate keeps its own.
+    @Test func aReplayNeverFullyParsedStopsGatingAtItsOwnDeadline() {
+        var gate = TerminalReplayGate()
+        gate.received(2, isReset: true, at: 10)
+        gate.received(50_000, isReset: false, at: 10)
+        _ = gate.parsed(10_000)
+        var expired = gate.expireIfOverdue(at: 10.5)
+        #expect(!expired)
+        #expect(gate.isReplaying)
+        expired = gate.expireIfOverdue(at: 10 + TerminalReplayGate.deadline)
+        #expect(expired)
+        #expect(!gate.isReplaying)
+    }
+
+    @Test func aLaterResetMovesTheDeadline() {
+        var gate = TerminalReplayGate()
+        gate.received(2, isReset: true, at: 10)
+        gate.received(2, isReset: true, at: 11)
+        // The first reset's timer fires: not overdue for the second.
+        var expired = gate.expireIfOverdue(at: 10 + TerminalReplayGate.deadline)
+        #expect(!expired)
+        #expect(gate.isReplaying)
+        expired = gate.expireIfOverdue(at: 11 + TerminalReplayGate.deadline)
+        #expect(expired)
+    }
 }
