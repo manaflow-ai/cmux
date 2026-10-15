@@ -30,9 +30,6 @@ nonisolated enum AcpmuxPaneMethods {
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
         // readBookmarks, setBookmark): a seq and a flag, kept in acpmux's session meta.
         "_acpmux/bookmark_get", "_acpmux/bookmark_set",
-        // A side question about a chat in the pane's scope (direct.ts ask, `/btw`): acpmux answers
-        // it in a throwaway fork under deny-all, so it runs an agent turn like a prompt (cx-ef2m).
-        "_acpmux/ask",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",
@@ -207,7 +204,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/offer_respond",
     ]
@@ -269,8 +266,6 @@ nonisolated enum AcpmuxPaneMethods {
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
-        // A side question runs an agent turn too (in a throwaway fork of the chat).
-        "_acpmux/ask": .always,
         // A side session's question is its first prompt.
         "_acpmux/btw": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
