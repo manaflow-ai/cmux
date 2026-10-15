@@ -1,5 +1,7 @@
-import { Context, Schema, type Stream } from "effect"
+import { Context, type Effect, Schema, type Stream } from "effect"
 import type { Credits } from "../credits.ts"
+import type { Minted } from "../hand-api.ts"
+import type { HandsError, HandSummary, Profile, StoredEvent } from "../hand-wire.ts"
 
 /**
  * The Brain contract: what any Chief brain implementation produces for one wake, and the live frames
@@ -204,10 +206,18 @@ export interface ModelGatewayShape {
 export class ModelGateway extends Context.Service<ModelGateway, ModelGatewayShape>()("cmux/chief/ModelGateway") {}
 
 /**
- * Placeholder for worker H (HandDO): typed requests to one installed hand. H fills the request and
- * reply unions (agent.*, fs.*, exec) and the policy; until then a call fails with `hand_unavailable`.
+ * The Chief's hands (hand-do.ts, chief-brain/brain-hands.ts): typed requests to the owner's installed
+ * hands (agent.*, fs.*, exec; hand-wire.ts HAND_ACTIONS). HandDO checks the caller's grant; each hand
+ * checks its own local policy. Live: `handsLayer(env, caller)` in brain-hands.ts.
  */
 export interface HandsShape {
-  readonly call: (hand: string, request: { readonly type: string } & Record<string, unknown>) => Promise<{ readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string }>
+  readonly list: () => Effect.Effect<ReadonlyArray<HandSummary>, HandsError>
+  /** A single-use pairing code (10 min) and the install line for a new machine. */
+  readonly pairCode: (name: string, profile: Profile) => Effect.Effect<Minted, HandsError>
+  /** A hand id, or the name of one of the owner's hands. */
+  readonly resolve: (hand: string) => Effect.Effect<string, HandsError>
+  readonly call: (hand: string, action: string, params: unknown, timeoutMs?: number) => Effect.Effect<unknown, HandsError>
+  /** Events of an agent session after `afterSeq`; waits up to `waitMs` for the first new one. */
+  readonly events: (hand: string, session: string, afterSeq: number, waitMs: number) => Effect.Effect<{ events: ReadonlyArray<StoredEvent>; last_seq: number; head_seq: number }, HandsError>
 }
 export class Hands extends Context.Service<Hands, HandsShape>()("cmux/chief/Hands") {}
