@@ -42,6 +42,7 @@ parser.add_argument("--floors", default="plain",
                     help="--clean: host floor variants (scripts/cmux-next/sidebar-scroll-floor.swift), comma list of plain, vib"
                          " (behind-window sidebar material), vibfade (material + edge-fade mask), fade (edge-fade mask), optout"
                          " (scrollWheel override: no responsive scrolling), optoutfade; empty = none")
+parser.add_argument("--modes", default="noticks,ticks", help="--clean: the modes each cmux run records")
 parser.add_argument("--round-offset", type=int, default=0,
                     help="--clean: the first round's number (an odd offset starts with the reversed order, for a second job)")
 parser.add_argument("--variants", default="",
@@ -674,7 +675,7 @@ def cmux_runs(app, i, first):
     WHEEL.clear()
     WHEEL.update({"hid": True})
     out = {}
-    if first:
+    if first and "ticks" in opts.modes.split(","):
         cpu0, t0 = cpu_ns(Target.pid), time.monotonic()
         ticks = start_ticks(app["terms"], 10)
         time.sleep(11)  # harness: the measured tick window (no input)
@@ -682,7 +683,8 @@ def cmux_runs(app, i, first):
         app["tick_window"] = {"ticks": ticks, "app_cpu_us_per_tick": round((cpu1 - cpu0) / 1000 / ticks, 1)
                               if cpu0 and cpu1 and ticks else None}
         print(f"{app['label']} tick window: {app['tick_window']}", flush=True)
-    for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
+    modes = [m for m in opts.modes.split(",") if m]
+    for mode in (modes if i % 2 == 0 else modes[::-1]):
         quiet = wait_quiet(Target.pid)
         print(f"{app['label']} {mode} {i}: quiet {quiet}", flush=True)
         out[mode] = record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i - opts.round_offset < opts.profile_runs)
