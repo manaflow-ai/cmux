@@ -26,6 +26,8 @@ in Chromium panes (BrowserAgentURLPolicy), so the test ends processes directly.
 Usage: CMUX_SOCKET_PATH=<tagged socket> python3 tests_v2/test_browser_crash_injection.py
 """
 
+from __future__ import annotations
+
 import functools
 import http.server
 import os
