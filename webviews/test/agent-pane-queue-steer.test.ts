@@ -174,6 +174,16 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       }),
     );
 
+  /// acpmux's `_acpmux/queue_edit` (queue_edit.rs `send_queued_now`): to an agent that cannot
+  /// steer, a prompt sent now goes first (`queue_order` with `next`) and the running turn is
+  /// cancelled; it runs once that turn ends. The test ends the turn itself.
+  const onQueueEdit = (edit: { promptId?: string; op?: string }): unknown => {
+    if (edit.op !== "send_now" || steering) return { ok: false };
+    const id = String(edit.promptId);
+    const order = [id, ...queue.map((q) => q.promptId).filter((q) => q !== id)];
+    setTimeout(() => send(["mux", "queue_order", { promptId: id, order, next: true }]), 0);
+    return { ok: true, outcome: "interrupt" };
+  };
   function answer(ws: Socket, method: string, params: { kinds?: string[] } = {}): unknown {
     switch (method) {
       case "initialize":
@@ -186,6 +196,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         return { session: summary(), lastSeq: seq, events: history.filter((rec) => passes(rec as never)) };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: seq };
+      case "_acpmux/queue_edit":
+        return onQueueEdit(params as never);
       default:
         return null;
     }
@@ -367,6 +379,29 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await bubbleMark(page, "fix the space thing first")
         .getByText("Sent now · stopped the turn")
         .waitFor({ timeout: 10_000 });
+      await page.close();
+    });
+
+    test("Send now on a queued prompt keeps its row, reading Steering, until it runs (live run, 2026-10-14)", async () => {
+      // A live run: after Send now the row went at once and nothing showed until the stopped turn
+      // ended, because the queue hid the row as if it were leaving.
+      const page = await openChat(false);
+      const row = page.locator(".acpmux-queued", { hasText: "space thing" });
+      await row.hover();
+      await row.locator(".acpmux-queued-action").first().click();
+      await row.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
+      // The stopped turn has not ended yet: the row still shows.
+      await page.waitForTimeout(500);
+      expect(await row.isVisible()).toBe(true);
+      send(["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }]);
+      send(["mux", "dequeued", { promptId: "q-2" }]);
+      send([
+        "mux",
+        "user_message",
+        { text: "also man what happened with the space thing", promptId: "q-2", turnId: "turn-3" },
+      ]);
+      await bubbleMark(page, "space thing").getByText("Sent now · stopped the turn").waitFor({ timeout: 10_000 });
+      await row.waitFor({ state: "detached", timeout: 10_000 });
       await page.close();
     });
 
