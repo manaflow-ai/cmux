@@ -12,6 +12,10 @@ final class WindowColorFade {
     private static var associationKey: UInt8 = 0
     private var overlays: [CALayer] = []
     private var generation = 0
+    /// The frame captured in this run loop turn: one change can fade twice (a workspace's roots,
+    /// then its room's whole window); the second call must use the frame from before either, not
+    /// a capture that may already show the first call's overlays.
+    private var turnCapture: CGImage?
 
     static func forWindow(_ window: NSWindow) -> WindowColorFade {
         if let fade = objc_getAssociatedObject(window, &associationKey) as? WindowColorFade { return fade }
@@ -26,7 +30,11 @@ final class WindowColorFade {
     func fade(_ window: NSWindow, regions: [NSView]?, transition: ColorTransition) {
         guard !transition.isInstant, window.isVisible, window.occlusionState.contains(.visible),
               let host = window.contentView, let hostLayer = host.layer,
-              let image = window.compositedSnapshot(includeChild: { _ in false }) else { return }
+              let image = turnCapture ?? window.compositedSnapshot(includeChild: { _ in false }) else { return }
+        if turnCapture == nil {
+            turnCapture = image
+            RunLoop.main.perform { [weak self] in self?.turnCapture = nil }
+        }
         let frame = window.frame
         guard frame.width > 0, frame.height > 0 else { return }
         let scale = CGFloat(image.width) / frame.width

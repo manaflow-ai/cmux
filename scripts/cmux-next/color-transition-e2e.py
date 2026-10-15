@@ -322,7 +322,7 @@ try:
         steps = [distance(a, b) for a, b in zip(pixels, pixels[1:])]
         total = max(distance(pixels[0], p) for p in pixels)
         check(total > 0.1, f"series pixels: the window recolored on screen (moved {total:.3f})")
-        check(max(steps) < 0.4 * total, f"series pixels: no frame jumps (largest frame step {max(steps):.3f} of {total:.3f})")
+        check(max(steps) < 0.25 * total, f"series pixels: no frame jumps (largest frame step {max(steps):.3f} of {total:.3f})")
     else:
         check(False, f"series pixels: frames recorded ({len(pixels)})")
 
