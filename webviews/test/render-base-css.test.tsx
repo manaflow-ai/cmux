@@ -158,8 +158,29 @@ test("a page's own styles win over the base stylesheet", async () => {
   const { page } = framePage(await frameMessage(LIGHT, PAGE));
   const base = page.document.head.querySelector("style")!.sheet!;
   const selectors = [...base.cssRules].map((rule) => (rule as unknown as { selectorText: string }).selectorText);
-  expect(selectors[0]).toBe(":root");
-  for (const selector of selectors.slice(1)) expect(selector).toMatch(/^:where\([^]*\)$/);
+  // The variables too, so a page's `html{--cmux-text:…}` or `html{color-scheme:…}` wins over `:root`.
+  expect(selectors[0]).toBe(":where(:root)");
+  for (const selector of selectors) expect(selector).toMatch(/^:where\([^]*\)$/);
+  const ownRoot = "<style>html{--cmux-text:rgb(5, 5, 5);color-scheme:light}</style>" + PAGE;
+  const { root: vars, style: ownStyle } = framePage(await frameMessage(DARK, ownRoot));
+  expect(vars.getPropertyValue("--cmux-text").trim()).toBe("rgb(5, 5, 5)");
+  expect(vars.getPropertyValue("color-scheme").trim()).toBe("light");
+  expect(ownStyle("body").color).toBe("rgb(5, 5, 5)");
+});
+
+test("a full-bleed page fills the frame: the base adds no body margin or padding", async () => {
+  // A three.js scene sizes its canvas to innerWidth x innerHeight under `body{margin:0}`.
+  const scene = "<style>body{margin:0}canvas{display:block}</style><canvas></canvas>";
+  const { page, style } = framePage(await frameMessage(LIGHT, scene));
+  const body = style("body");
+  const box = page.innerWidth - parseFloat(body.paddingLeft) - parseFloat(body.paddingRight);
+  expect(box).toBe(page.innerWidth);
+  expect(body.paddingTop).toBe("0px");
+  expect(body.paddingBottom).toBe("0px");
+  expect(body.marginTop).toBe("0px");
+  // A page with no CSS at all gets no inset either.
+  const plain = framePage(await frameMessage(LIGHT, PAGE)).style("body");
+  expect([plain.margin, plain.paddingLeft, plain.paddingTop]).toEqual(["0px", "0px", "0px"]);
 });
 
 test("a dark theme changes the variables a page sees", async () => {
