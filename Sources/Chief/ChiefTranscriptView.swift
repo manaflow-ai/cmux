@@ -354,6 +354,10 @@ final class ChiefTranscriptView: NSView {
     private func applyTheme() {
         let theme = ChiefTheme.current()
         self.theme = theme
+        // The whole surface (header pill, buttons, chips, panels) resolves in the
+        // terminal theme's light or dark, not the app's (ChiefTheme.appearance).
+        // Compared by name: setting it re-enters through viewDidChangeEffectiveAppearance.
+        if appearance?.name != theme.appearance?.name { appearance = theme.appearance }
         if let transcript {
             let palettes = theme.palettes()
             transcript.applyTheme(active: palettes.active, inactive: palettes.inactive, measuredAccent: true)
@@ -494,6 +498,32 @@ final class ChiefTranscriptView: NSView {
             }
         })
     }
+
+    #if DEBUG
+    /// `chief.debug open-settings` / `close-settings`: the name pill's slide,
+    /// only when it would change something. Returns whether the panel is open.
+    func debugSetSettings(open: Bool) -> Bool {
+        if open != settingsOpen { toggleSettings() }
+        return settingsOpen
+    }
+
+    /// `chief.debug expand-tools`: presses the newest collapsed "Ran N
+    /// commands" run on screen, as a click does. Returns whether one expanded.
+    func debugExpandNewestToolRun() -> Bool {
+        var runs: [NSView] = []
+        func collect(_ view: NSView) {
+            if view.accessibilityIdentifier() == "ChiefToolRow", view.accessibilityRole() == .button,
+               !view.isAccessibilityExpanded(), !view.isHiddenOrHasHiddenAncestor {
+                runs.append(view)
+            }
+            view.subviews.forEach(collect)
+        }
+        collect(self)
+        // The newest is the lowest on screen (window coordinates grow upward).
+        let newest = runs.min { $0.convert($0.bounds, to: nil).minY < $1.convert($1.bounds, to: nil).minY }
+        return newest?.accessibilityPerformPress() ?? false
+    }
+    #endif
 
     private func panelFrame(open: Bool) -> CGRect {
         let width = ChiefSettingsPanel.width

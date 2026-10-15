@@ -44,6 +44,24 @@ struct ChiefAgentGlance: Equatable {
         workspaces.prefix(limit).map { ChiefAgentGlance(workspaceId: $0.id, title: $0.title, status: .idle, hasAgent: false) }
     }
 
+    /// The name a workspace row shows: the custom title, else the sidebar's
+    /// title, except when that title is only a shell's path ("~", "~/src",
+    /// "/tmp"): then the folder's name, or "Home folder" for the home
+    /// directory, so the default workspace never reads as a bare "~".
+    static func displayTitle(customTitle: String?, title: String, currentDirectory: String,
+                             home: String = NSHomeDirectory()) -> String {
+        if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty { return custom }
+        let shown = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard shown.isEmpty || shown == "~" || shown.hasPrefix("~/") || shown.hasPrefix("/") else { return shown }
+        let path = shown.isEmpty ? currentDirectory : (shown as NSString).expandingTildeInPath
+        let standardized = (path as NSString).standardizingPath
+        if standardized.isEmpty || standardized == (home as NSString).standardizingPath {
+            return String(localized: "chief.firstRun.workspace.homeFolder", defaultValue: "Home folder")
+        }
+        let name = (standardized as NSString).lastPathComponent
+        return name.isEmpty || name == "/" ? standardized : name
+    }
+
     /// One workspace's status from its panels' agent lifecycles; nil when no
     /// built-in agent reports in it.
     static func status(lifecycles: [UUID: [String: AgentHibernationLifecycleState]], unread: Bool) -> Status? {
@@ -77,10 +95,15 @@ enum ChiefAgentGlanceSource {
             let unread = notifications.unreadCount(forTabId: workspace.id) > 0
             guard let status = ChiefAgentGlance.status(lifecycles: workspace.agentLifecycleStatesByPanelId,
                                                        unread: unread) else { return nil }
-            return ChiefAgentGlance(workspaceId: workspace.id, title: workspace.customTitle ?? workspace.title, status: status)
+            return ChiefAgentGlance(workspaceId: workspace.id, title: title(of: workspace), status: status)
         }
         guard agents.isEmpty else { return agents }
-        return ChiefAgentGlance.plainWorkspaces(tabManager.tabs.map { (id: $0.id, title: $0.customTitle ?? $0.title) })
+        return ChiefAgentGlance.plainWorkspaces(tabManager.tabs.map { (id: $0.id, title: title(of: $0)) })
+    }
+
+    private static func title(of workspace: Workspace) -> String {
+        ChiefAgentGlance.displayTitle(customTitle: workspace.customTitle, title: workspace.title,
+                                      currentDirectory: workspace.currentDirectory)
     }
 
     /// Shows the workspace, leaving Home even when it is already the selected one.

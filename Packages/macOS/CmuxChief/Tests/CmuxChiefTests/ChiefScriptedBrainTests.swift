@@ -89,6 +89,57 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
         #expect(last[0] != last[1])
     }
 
+    /// An approval turn between two plain turns does not make them repeat
+    /// (the rotation counts answered turns, not every turn).
+    @Test func followUpsAfterAnApprovalStillDiffer() async throws {
+        let brain = ChiefScriptedBrain(clock: RecordingImmediateClock())
+        var answers: [String] = []
+        for text in ["What's up?", "approve it", "Anything else?", "And now?"] {
+            var events: [ChiefTurnEvent] = []
+            for try await event in brain.run(request(text)) {
+                events.append(event)
+                if case .approvalRequested(let id, _, _) = event {
+                    await brain.respond(toApproval: id, choice: "Deny", conversation: conversation)
+                }
+            }
+            if !text.contains("approve") { answers.append(summarize(events).dropLast().last ?? "") }
+        }
+        #expect(answers == (1...3).map { "text: \(expectedAnswer(turn: $0))" })
+        #expect(Set(answers).count == 3)
+    }
+
+    @Test func twoToolsTurnRunsBothCallsBackToBack() async throws {
+        let brain = ChiefScriptedBrain(clock: RecordingImmediateClock())
+        var events: [ChiefTurnEvent] = []
+        for try await event in brain.run(request("Use TWO TOOLS please")) { events.append(event) }
+        #expect(summarize(events) == [
+            "text: On it. Let me look at what's running.",
+            "tool: \(ChiefScriptedBrain.treeCommand)",
+            "tool done: 3 workspaces, 4 panes, 2 agents",
+            "tool: \(ChiefScriptedBrain.sidebarCommand)",
+            "tool done: 4 workspaces, 1 unread",
+            "text: \(expectedAnswer(turn: 1))",
+            "finished",
+        ])
+        // Distinct call ids, so the owner posts two work messages that the transcript folds.
+        let ids = events.compactMap { event -> String? in
+            if case .toolStarted(let id, _, _) = event { return id }
+            return nil
+        }
+        #expect(ids.count == 2 && Set(ids).count == 2)
+    }
+
+    @Test func twoToolsErrorFailsTheLastCall() async throws {
+        let brain = ChiefScriptedBrain(clock: RecordingImmediateClock())
+        var events: [ChiefTurnEvent] = []
+        for try await event in brain.run(request("two tools then an error")) { events.append(event) }
+        #expect(summarize(events).suffix(3) == [
+            "tool: \(ChiefScriptedBrain.sidebarCommand)",
+            "tool failed: The control socket closed",
+            "failed: The cmux control socket closed before the tree came back.",
+        ])
+    }
+
     @Test(arguments: zip(["Allow", "Deny"], [true, false]))
     func approveTurnWaitsForTheAnswer(choice: String, allowed: Bool) async throws {
         let brain = ChiefScriptedBrain(clock: RecordingImmediateClock())
@@ -171,10 +222,7 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
     }
 
     func expectedAnswer(turn: Int) -> String {
-        turn % 2 == 1
-            ? "Here's the picture: Build has Claude Code finishing a test run, Docs has Codex waiting on your review, "
-                + "and Scratch is idle. Want me to nudge the one that's waiting?"
-            : "Noted. Nothing else needs you right now, and I'll ping you when Docs finishes its review."
+        ChiefScriptedBrain.answers[(turn - 1) % ChiefScriptedBrain.answers.count]
     }
 }
 #endif

@@ -55,7 +55,7 @@ final class ChiefMemoryEditor: NSObject, NSTableViewDataSource, NSTableViewDeleg
     private var selection: ChiefMemorySheetItem = .aboutYou
     private var editing = false
     private var theme = ChiefTheme.current()
-    private var observer: (any NSObjectProtocol)?
+    private var observers: [any NSObjectProtocol] = []
 
     private init(selecting item: ChiefMemorySheetItem) {
         sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
@@ -64,15 +64,38 @@ final class ChiefMemoryEditor: NSObject, NSTableViewDataSource, NSTableViewDeleg
         selection = item
         sheet.title = ChiefMemoryStrings.sheetTitle
         sheet.minSize = NSSize(width: 560, height: 360)
-        sheet.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        sheet.appearance = theme.appearance
         build()
-        observer = NotificationCenter.default.addObserver(forName: ChiefMemoryStore.didChange, object: nil,
-                                                          queue: .main) { [weak self] _ in
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: ChiefMemoryStore.didChange, object: nil,
+                                            queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.showSelection() } // main-proof: observer on queue: .main
+        })
+        // The sheet follows the terminal theme, as the transcript under it does (ChiefTheme.appearance).
+        for name in [Notification.Name.ghosttyConfigDidReload, .ghosttyDefaultBackgroundDidChange] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            })
         }
     }
 
+    private func applyTheme() {
+        let next = ChiefTheme.current()
+        guard next != theme else { return }
+        theme = next
+        sheet.appearance = next.appearance
+        showSelection()
+    }
+
     // MARK: Presenting
+
+    /// Whether the sheet is open (`chief.debug open-memory` and `close-memory`).
+    static var isShown: Bool { shown != nil }
+
+    /// Closes the open sheet, saving an edit in progress as Done would.
+    static func dismiss() {
+        shown?.closeSheet()
+    }
 
     /// Opens the memory sheet on `window` (a window of its own without one),
     /// or selects `item` in the one already open.
@@ -375,8 +398,8 @@ final class ChiefMemoryEditor: NSObject, NSTableViewDataSource, NSTableViewDeleg
 
     @objc private func closeSheet() {
         guard commitEdit() else { return }
-        if let observer { NotificationCenter.default.removeObserver(observer) }
-        observer = nil
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers = []
         if let parent = sheet.sheetParent {
             parent.endSheet(sheet)
         } else {

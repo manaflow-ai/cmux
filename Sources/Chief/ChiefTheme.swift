@@ -30,6 +30,17 @@ struct ChiefTheme: Equatable {
         return 0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent < 0.5
     }
 
+    /// The AppKit appearance for everything Chief draws in the content area
+    /// (transcript, header pill, buttons, chips, settings panel, memory sheet),
+    /// so system controls and dynamic colors resolve in the same light or dark
+    /// as the Ghostty-derived palette rather than in the app's appearance.
+    ///
+    /// Convention: content-area surfaces follow the terminal theme, as the
+    /// Markdown panel (`MarkdownWebTheme`) and in-app dialogs
+    /// (`GhosttyDialogTheme`) do; the left sidebar, Chief's conversation list
+    /// included, follows the sidebar's appearance like the workspace rows.
+    var appearance: NSAppearance? { NSAppearance(named: isDark ? .darkAqua : .aqua) }
+
     /// `fraction` of the foreground over the opaque background.
     func mix(_ fraction: CGFloat) -> NSColor {
         opaqueBackground.blended(withFraction: fraction, of: foreground) ?? opaqueBackground

@@ -164,9 +164,24 @@ extension TerminalController {
     /// `conversation`; never changes focus or window order.
     private nonisolated func chiefDebug(_ action: ChiefControlDebugAction, conversation: String?) async throws -> V2CallResult {
         let outcome: JSONValue? = try await v2MainAsync { () -> JSONValue? in
-            guard let view = ChiefService.shared.controlVisibleTranscript(conversation: conversation) else { return nil }
+            guard let host = ChiefService.shared.controlVisibleHost(conversation: conversation),
+                  let view = ChiefService.shared.controlVisibleTranscript(conversation: conversation) else { return nil }
             let payload: [String: Any]
             switch action {
+            case .openSettings:
+                payload = ["ok": true, "open": host.debugSetSettings(open: true)]
+            case .closeSettings:
+                payload = ["ok": true, "open": host.debugSetSettings(open: false)]
+            case .openMemory:
+                // As Settings' Show All: a sheet on the transcript's window. Only when none is
+                // open: presenting again would order the open sheet front.
+                if !ChiefMemoryEditor.isShown { ChiefMemoryEditor.present(selecting: .notes, in: host.window) }
+                payload = ["ok": ChiefMemoryEditor.isShown, "open": ChiefMemoryEditor.isShown]
+            case .closeMemory:
+                ChiefMemoryEditor.dismiss()
+                payload = ["ok": !ChiefMemoryEditor.isShown, "open": ChiefMemoryEditor.isShown]
+            case .expandTools:
+                payload = ["ok": host.debugExpandNewestToolRun()]
             case .tapback(let mine):
                 payload = ["ok": view.debugTapbackNewestIncoming(mine: mine)]
             case .geometry:

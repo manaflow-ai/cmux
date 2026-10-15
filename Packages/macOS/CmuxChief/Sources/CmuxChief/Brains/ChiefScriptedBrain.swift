@@ -13,9 +13,13 @@ import Foundation
 /// - contains `approve`: after the first segment the turn asks for approval
 ///   and waits for ``respond(toApproval:choice:conversation:)``; `Allow` runs
 ///   the command, anything else declines.
-/// - contains `error`: the tool call fails and the turn fails.
-/// - otherwise: the answer, which alternates between turns so each turn's
-///   last bubble has text no earlier turn had.
+/// - contains `two tools`: two tool calls back to back (``treeCommand``, then
+///   ``sidebarCommand``), so the transcript folds them into one
+///   "Ran 2 commands" run.
+/// - contains `error`: the (last) tool call fails and the turn fails.
+/// - otherwise: the answer, one of ``answers`` in turn, counting only the
+///   turns that are not approval turns, so consecutive answers never repeat
+///   even with an approval turn between them.
 ///
 /// Pacing goes through the injected clock: a real clock gives the timing a
 /// person sees, a test clock runs the script at once.
@@ -34,6 +38,8 @@ public final class ChiefScriptedBrain: ChiefBrain {
     public static let approvalOptions = ["Allow", "Deny"]
     /// The command the scripted tool call shows.
     public static let treeCommand = "cmux tree --all --json"
+    /// The second command of a `two tools` turn.
+    public static let sidebarCommand = "cmux sidebar-state --json"
     /// The command the approval asks to run: the dispatch verb the system prompt teaches.
     public static let approvalCommand = "cmux chief dispatch --agent codex --name Scratch --wait-working -- 'Run the test suite and report what fails.'"
 
@@ -77,35 +83,49 @@ public final class ChiefScriptedBrain: ChiefBrain {
             return steps
         }
         steps += stream("On it. Let me look at what's running.")
-        steps += [
-            .pause(.milliseconds(300)),
-            .event(.toolStarted(id: tool, title: treeCommand, detail: "Reading every window, workspace and pane")),
-            .pause(.milliseconds(1600)),
+        steps.append(.pause(.milliseconds(300)))
+        var calls: [(id: String, title: String, detail: String, preview: String)] = [
+            (tool, treeCommand, "Reading every window, workspace and pane", "3 workspaces, 4 panes, 2 agents"),
         ]
-        if text.contains("error") {
-            steps += [
-                .event(.toolFinished(id: tool, ok: false, preview: "The control socket closed")),
-                .pause(.milliseconds(300)),
-                .event(.failed("The cmux control socket closed before the tree came back.")),
-            ]
-            return steps
+        if text.contains("two tools") {
+            calls.append(("\(tool)-sidebar", sidebarCommand, "Reading the sidebar's rows", "4 workspaces, 1 unread"))
         }
-        steps += [
-            .event(.toolFinished(id: tool, ok: true, preview: "3 workspaces, 4 panes, 2 agents")),
-            .pause(.milliseconds(500)),
-        ]
-        steps += stream(answer(turn: turn))
+        for (index, call) in calls.enumerated() {
+            steps += [
+                .event(.toolStarted(id: call.id, title: call.title, detail: call.detail)),
+                .pause(.milliseconds(1600)),
+            ]
+            if text.contains("error"), index == calls.count - 1 {
+                steps += [
+                    .event(.toolFinished(id: call.id, ok: false, preview: "The control socket closed")),
+                    .pause(.milliseconds(300)),
+                    .event(.failed("The cmux control socket closed before the tree came back.")),
+                ]
+                return steps
+            }
+            steps += [
+                .event(.toolFinished(id: call.id, ok: true, preview: call.preview)),
+                .pause(.milliseconds(index == calls.count - 1 ? 500 : 200)),
+            ]
+        }
+        // Approval turns take no answer, so they do not advance the rotation.
+        steps += stream(answer(turn: turn - approval))
         steps.append(.event(.finished))
         return steps
     }
 
-    /// The last segment's text; odd and even turns differ.
-    static func answer(turn: Int) -> String {
-        if turn % 2 == 1 {
-            return "Here's the picture: Build has Claude Code finishing a test run, Docs has Codex waiting on your review, "
-                + "and Scratch is idle. Want me to nudge the one that's waiting?"
-        }
-        return "Noted. Nothing else needs you right now, and I'll ping you when Docs finishes its review."
+    /// The answers a plain turn ends with, in rotation.
+    public static let answers = [
+        "Here's the picture: Build has Claude Code finishing a test run, Docs has Codex waiting on your review, "
+            + "and Scratch is idle. Want me to nudge the one that's waiting?",
+        "Noted. Nothing else needs you right now, and I'll ping you when Docs finishes its review.",
+        "Build's test run just finished green. Docs is still waiting on your review; Scratch hasn't moved.",
+        "All quiet: no agent is waiting on you. I'll keep an eye on Docs and tell you when it changes.",
+    ]
+
+    /// The last segment's text for the `number`th answered turn, from 1.
+    public static func answer(turn number: Int) -> String {
+        answers[(max(1, number) - 1) % answers.count]
     }
 
     /// One text segment streamed a word at a time.

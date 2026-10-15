@@ -184,6 +184,12 @@ extension ChiefService {
     /// The ``MessagesLabHomeView`` that shows `conversation` in a visible
     /// window: the key window first, then the main window, then any other.
     func controlVisibleTranscript(conversation raw: String?) -> MessagesLabHomeView? {
+        controlVisibleHost(conversation: raw).flatMap(Self.transcript(of:))
+    }
+
+    /// The ``ChiefTranscriptView`` that shows `conversation` with its
+    /// transcript in a visible window, in the same window order.
+    func controlVisibleHost(conversation raw: String?) -> ChiefTranscriptView? {
         let conversation = controlConversationID(raw)
         var windows: [NSWindow] = []
         for window in [NSApp.keyWindow, NSApp.mainWindow].compactMap({ $0 }) + NSApp.orderedWindows
@@ -192,22 +198,25 @@ extension ChiefService {
         }
         for window in windows {
             guard let root = window.contentView else { continue }
-            if let found = Self.findTranscript(in: root, conversation: conversation) { return found }
+            if let found = Self.findHost(in: root, conversation: conversation) { return found }
         }
         return nil
     }
 
-    private static func findTranscript(in view: NSView, conversation: ConversationID) -> MessagesLabHomeView? {
+    private static func findHost(in view: NSView, conversation: ConversationID) -> ChiefTranscriptView? {
         if view.isHidden { return nil }
         if let host = view as? ChiefTranscriptView {
-            guard host.conversation == conversation else { return nil }
-            for case let transcript as MessagesLabHomeView in host.subviews where !transcript.isHidden {
-                return transcript
-            }
-            return nil
+            return host.conversation == conversation && transcript(of: host) != nil ? host : nil
         }
         for subview in view.subviews {
-            if let found = findTranscript(in: subview, conversation: conversation) { return found }
+            if let found = findHost(in: subview, conversation: conversation) { return found }
+        }
+        return nil
+    }
+
+    private static func transcript(of host: ChiefTranscriptView) -> MessagesLabHomeView? {
+        for case let transcript as MessagesLabHomeView in host.subviews where !transcript.isHidden {
+            return transcript
         }
         return nil
     }

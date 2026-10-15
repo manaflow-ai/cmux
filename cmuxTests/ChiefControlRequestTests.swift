@@ -96,6 +96,12 @@ import Testing
         #expect(parse("chief.debug", ["action": "set_draft", "text": ""]) == .success(.debug(.setDraft(""), conversation: nil)))
         #expect(parse("chief.debug", ["action": "send_draft"]) == .success(.debug(.sendDraft, conversation: nil)))
         #expect(parse("chief.debug", ["action": "theme"]) == .success(.debug(.theme, conversation: nil)))
+        #expect(parse("chief.debug", ["action": "open-settings"]) == .success(.debug(.openSettings, conversation: nil)))
+        #expect(parse("chief.debug", ["action": "close_settings"]) == .success(.debug(.closeSettings, conversation: nil)))
+        #expect(parse("chief.debug", ["action": "open-memory"]) == .success(.debug(.openMemory, conversation: nil)))
+        #expect(parse("chief.debug", ["action": "close-memory"]) == .success(.debug(.closeMemory, conversation: nil)))
+        #expect(parse("chief.debug", ["action": "expand-tools", "conversation": "conv_c"])
+            == .success(.debug(.expandTools, conversation: "conv_c")))
     }
 
     @Test func unknownMethodIsNotAParamError() {

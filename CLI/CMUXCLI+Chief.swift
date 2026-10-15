@@ -413,7 +413,7 @@ extension CMUXCLI {
         case "debug":
             // DEBUG builds only; hidden from help. Always prints JSON.
             guard let action = args.positionals.first else {
-                throw CLIError(message: "Usage: cmux chief debug <tapback|geometry|rows|messages|scroll|set-draft|send-draft|theme> [--conversation <id>] [--mine] [--dy <points>] [--limit <n>] [--text <text>|<text>]")
+                throw CLIError(message: "Usage: cmux chief debug <tapback|geometry|rows|messages|scroll|set-draft|send-draft|theme|open-settings|close-settings|open-memory|close-memory|expand-tools> [--conversation <id>] [--mine] [--dy <points>] [--limit <n>] [--text <text>|<text>]")
             }
             params["action"] = action
             if args.mine { params["mine"] = true }

@@ -115,6 +115,11 @@ enum ChiefControlRequest: Equatable, Sendable {
                 action = .setDraft(text)
             case "send_draft", "send-draft": action = .sendDraft
             case "theme": action = .theme
+            case "open_settings", "open-settings": action = .openSettings
+            case "close_settings", "close-settings": action = .closeSettings
+            case "open_memory", "open-memory": action = .openMemory
+            case "close_memory", "close-memory": action = .closeMemory
+            case "expand_tools", "expand-tools": action = .expandTools
             default: throw ChiefControlParamError.invalid("action")
             }
             return .debug(action, conversation: try conversation(params))
@@ -192,6 +197,16 @@ enum ChiefControlDebugAction: Equatable, Sendable {
     case sendDraft
     /// The Chief theme the transcript draws with.
     case theme
+    /// Slides the Chief Settings panel in, as the header's name pill does.
+    case openSettings
+    /// Slides the Chief Settings panel out.
+    case closeSettings
+    /// Opens the memory sheet on the transcript's window (Settings' Show All).
+    case openMemory
+    /// Closes the memory sheet, saving an edit as Done does.
+    case closeMemory
+    /// Expands the newest collapsed "Ran N commands" run on screen.
+    case expandTools
 }
 
 /// Why a `chief.*` request was refused before it ran.
