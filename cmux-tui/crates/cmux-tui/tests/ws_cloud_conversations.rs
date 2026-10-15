@@ -573,3 +573,80 @@ fn the_persons_page_pins_a_cloud_conversation_through_the_daemon() {
 /// Cloud conversations' attachments through the daemon (`cloud-attachments-v1`).
 #[path = "ws_cloud_conversations/attachments.rs"]
 mod attachments;
+
+#[test]
+fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
+    let fixture = Fixture::start("home");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    let (addr, file_token) = fixture.credential();
+
+    // Before a lease: no Cloud rows, and the result says why.
+    let mut page = Page::open(&addr, &page_credential(&mut app));
+    let identity = page.rpc(json!({"cmd":"identify"}));
+    assert!(
+        identity["data"]["capabilities"].as_array().unwrap().iter().any(|v| v == "home-inbox-v1"),
+        "{identity}"
+    );
+    let before = page.rpc(json!({"cmd":"home-inbox"}));
+    assert_eq!(before["ok"], true, "{before}");
+    assert_eq!(before["data"]["cloud"], "signed_out", "{before}");
+    assert!(
+        before["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"),
+        "{before}"
+    );
+
+    // The app leases the person's session: the page's rows include the Cloud inbox.
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let inbox = page.rpc(json!({"cmd":"home-inbox"}));
+    assert_eq!(inbox["ok"], true, "{inbox}");
+    assert_eq!(inbox["data"]["cloud"], "included", "{inbox}");
+    let row = inbox["data"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == CONV)
+        .unwrap_or_else(|| panic!("no Cloud row: {inbox}"))
+        .clone();
+    assert_eq!(row["owner"], "cloud", "{row}");
+    assert_eq!(row["kind"], "channel", "{row}");
+    assert_eq!(row["name"], "Cloud team", "{row}");
+    assert_eq!(row["unread"], 1, "{row}");
+    assert_eq!(row["preview"], "hi", "{row}");
+    assert_eq!(row["activity_at"], "2026-10-13T00:00:00Z", "{row}");
+    assert_eq!(row["pinned"], false, "{row}");
+    assert_eq!(row["muted"], false, "{row}");
+    assert!(row.get("chief_state").is_none(), "{row}");
+    assert!(
+        cloud
+            .requests()
+            .iter()
+            .any(|(_, bearer, body)| body["op"] == "inbox.list"
+                && *bearer == format!("Bearer {token}")),
+        "{:?}",
+        cloud.requests()
+    );
+
+    // A view that asks this daemon for its local rows only gets no Cloud rows.
+    let local = page.rpc(json!({"cmd":"home-inbox","owners":["local"]}));
+    assert_eq!(local["data"]["cloud"], "not_asked", "{local}");
+    assert!(
+        local["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] == "local"),
+        "{local}"
+    );
+    let cloud_only = page.rpc(json!({"cmd":"home-inbox","owners":["cloud"]}));
+    assert_eq!(cloud_only["data"]["rows"].as_array().unwrap().len(), 1, "{cloud_only}");
+    let refused = page.rpc(json!({"cmd":"home-inbox","owners":["elsewhere"]}));
+    assert_eq!(refused["ok"], false, "{refused}");
+
+    // The file token is any same-user process's: it never gets the person's Cloud rows.
+    let mut agent = Page::open(&addr, &file_token);
+    let other = agent.rpc(json!({"cmd":"home-inbox"}));
+    assert_eq!(other["ok"], true, "{other}");
+    assert_eq!(other["data"]["cloud"], "signed_out", "{other}");
+    assert!(
+        other["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"),
+        "{other}"
+    );
+}

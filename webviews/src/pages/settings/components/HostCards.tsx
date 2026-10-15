@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
+import { Icon } from "../icons";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
@@ -103,44 +104,60 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     }
     endPreview();
   };
-  // `video`: a moving wallpaper, marked over its first frame.
-  const tile = (id: string, title: string, attribution: string, choice?: { video?: boolean }) => (
-    <button
-      type="button"
-      key={id}
-      className="backdrop-tile"
-      aria-pressed={current === id}
-      aria-label={title}
-      ref={focus === BACKGROUND_KEY && current === id && state.readable && workspaceRead ? revealTile : undefined}
-      onClick={() => void choose(id)}
-      onPointerEnter={() => preview(id, PREVIEW_DWELL_MS)}
-      onPointerLeave={endPreview}
-      onFocus={(event) => event.currentTarget.matches(":focus-visible") && preview(id, 0)}
-      onBlur={endPreview}
-    >
-      {id === "none" || id === FOLLOW_ID ? (
-        <span className="backdrop-thumb backdrop-none" />
-      ) : id === DAILY_ID ? (
-        <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
-          ↻
-        </span>
-      ) : (
-        // Encoded twice: the app decodes the URL path before splitting it on "/", then decodes the
-        // one segment, so a system: or file: id with slashes stays one segment.
-        <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
-      )}
-      {choice?.video && (
-        <span className="backdrop-badge" aria-hidden="true">
-          ▶
-        </span>
-      )}
-      <span className="backdrop-title">{title}</span>
-      <span className="row-help">{attribution}</span>
-    </button>
-  );
+  // `attribution` null: the name alone (an Apple wallpaper). `video`: a moving wallpaper, marked
+  // over its first frame. `pending`: a macOS wallpaper macOS has not downloaded, dimmed with a
+  // cloud; a click opens the Wallpaper pane, which downloads it.
+  const tile = (
+    id: string,
+    title: string,
+    attribution: string | null,
+    choice?: { video?: boolean; pending?: boolean },
+  ) => {
+    const pending = choice?.pending === true;
+    return (
+      <button
+        type="button"
+        key={id}
+        className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
+        aria-pressed={current === id}
+        aria-label={title}
+        /* tooltip-allow: what a click on a cloud tile does, shown nowhere else */ title={
+          pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : undefined
+        }
+        ref={focus === BACKGROUND_KEY && current === id && state.readable && workspaceRead ? revealTile : undefined}
+        onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
+        onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
+        onPointerLeave={pending ? undefined : endPreview}
+        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, 0)}
+        onBlur={pending ? undefined : endPreview}
+      >
+        {id === "none" || id === FOLLOW_ID ? (
+          <span className="backdrop-thumb backdrop-none" />
+        ) : id === DAILY_ID ? (
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            ↻
+          </span>
+        ) : (
+          <span className="backdrop-frame">
+            {/* Encoded twice: the app decodes the URL path before splitting it on "/", then decodes
+              the one segment, so a system: or file: id with slashes stays one segment. */}
+            <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            {pending && <Icon name="icloud.and.arrow.down" className="backdrop-download" />}
+          </span>
+        )}
+        {choice?.video && (
+          <span className="backdrop-badge" aria-hidden="true">
+            ▶
+          </span>
+        )}
+        <span className="backdrop-title">{title}</span>
+        {attribution !== null && <span className="row-help">{attribution}</span>}
+      </button>
+    );
+  };
   // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
-  // title, then the person's own images ("Your images"); the desktop picture and system
-  // wallpapers follow in one untitled group.
+  // title, then the person's own images ("Your images"), the desktop picture in an untitled
+  // group, and every macOS wallpaper ("Apple Wallpapers").
   const groups: Array<{ key: string; title: string | null; choices: typeof backdrops }> = [];
   for (const choice of backdrops) {
     const key = choice.collection ?? "";
@@ -213,7 +230,11 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
           {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
           <div className="backdrop-grid">
-            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution, choice))}
+            {group.choices.map((choice) =>
+              choice.collection === "apple"
+                ? tile(choice.id, choice.title, null, { pending: choice.downloaded === false })
+                : tile(choice.id, choice.title, choice.attribution, choice),
+            )}
           </div>
         </div>
       ))}

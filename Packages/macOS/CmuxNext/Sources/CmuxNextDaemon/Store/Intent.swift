@@ -37,8 +37,9 @@ public enum Intent: Sendable, Hashable {
     /// so neither can name a daemon tab.
     case createTab(pane: PaneID, provisional: TabSnapshot)
     /// `bind-conversation-tab-session`: agent chat tab `surface` shows acpmux `session` (the
-    /// compare-and-swap's new value) until the daemon's record has it or refuses it.
-    case bindAgentSession(surface: SurfaceID, session: String)
+    /// compare-and-swap's new value) and `harness` (when given) until the daemon's record has
+    /// them or refuses them.
+    case bindAgentSession(surface: SurfaceID, session: String, harness: String? = nil)
     /// `split` / `new-pane` with client-minted ids (`split-client-keys-v1`): the new pane shows
     /// beside `pane` in the input's frame, under the ids the daemon will use, until the daemon's
     /// pane with the same public id replaces it or the split is refused

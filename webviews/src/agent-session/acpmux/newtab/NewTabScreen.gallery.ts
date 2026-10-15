@@ -3,7 +3,7 @@
 // the `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
+import { CATALOG, CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
@@ -95,6 +95,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
+    "agent-session/acpmux/newtab/ChatFilterMenu.tsx#ChatFilterMenu",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
@@ -137,6 +138,17 @@ export default agentPaneEntry({
         if (!options[options.length - 1]?.classList.contains("acpmux-mp-add-harness"))
           throw new Error("the model picker's list does not end on Add harness…");
       },
+    },
+    // Reasoning is its own chip beside the model chip, with its own menu (P0 #8): acpmux starts
+    // Claude Code on Medium, so the chip names it before any chat exists.
+    "reasoning-chip": {
+      note: "Before any chat: the Reasoning chip names the level acpmux starts Claude Code on (Medium) and opens the reasoning menu on its own, apart from the model chip.",
+      ready: newTab(),
+      snapshot: noChat([], {
+        catalog: CATALOG.map((entry) =>
+          entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
+        ),
+      }),
     },
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
@@ -213,6 +225,17 @@ export default agentPaneEntry({
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);
         page.cmuxAcpmuxBridge?.command?.("showHarnesses");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harnesses") !== null);
+      },
+    },
+    "chats-filter-open": {
+      note: "Threads template with the All chats Filter open (cx-htpk0): All, Working, Needs input, Done, in the pane's own menu style, over the list.",
+      ready: newTab({ template: "threads" }),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Filter" });
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll('.nt-chats-filter-list [role="menuitemradio"]').length === 4,
+        );
       },
     },
     "many-chats": {

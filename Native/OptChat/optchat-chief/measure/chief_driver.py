@@ -167,7 +167,7 @@ def stop_acpmux():
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "ACPMUX_HOME": ACPMUX_HOME,
            "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
     try:
-        subprocess.run([os.path.join(BINS, "acpmux"), "daemon", "shutdown"], env=env, timeout=30, capture_output=True)
+        subprocess.run([os.path.join(BINS, "acpmux"), "daemon", "shutdown", "--end-agents"], env=env, timeout=30, capture_output=True)
     except (OSError, subprocess.TimeoutExpired):
         pass
     router = os.path.join(ACPMUX_HOME, "router", "router.sock")
