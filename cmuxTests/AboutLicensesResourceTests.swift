@@ -58,4 +58,38 @@ struct AboutLicensesResourceTests {
 
         #expect(url.absoluteString == "https://github.com/manaflow-ai/cmux/tree/abcdef123")
     }
+
+    /// A temporary app bundle, with the embedded Chromium engine's LICENSE.txt when `cefLicense` is given.
+    private func makeBundle(cefLicense: String?) throws -> (Bundle, URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("about-cef-\(UUID().uuidString)")
+        let app = root.appendingPathComponent("T.app")
+        let contents = app.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let plist: [String: Any] = ["CFBundleIdentifier": "test.about.cef", "CFBundlePackageType": "APPL"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: contents.appendingPathComponent("Info.plist"))
+        if let cefLicense {
+            let resources = contents.appendingPathComponent("Frameworks/Chromium Embedded Framework.framework/Resources")
+            try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+            try cefLicense.write(to: resources.appendingPathComponent("LICENSE.txt"), atomically: true, encoding: .utf8)
+        }
+        return (try #require(Bundle(url: app)), root)
+    }
+
+    @Test("A build with the Chromium engine shows CEF's license and where Chromium's credits are")
+    func chromiumNoticesWhenEmbedded() throws {
+        let (bundle, root) = try makeBundle(cefLicense: "Copyright (c) Marshall A. Greenblatt. BSD license text.")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let notices = try #require(AboutLicenseContent(bundle: bundle).chromiumNotices())
+        #expect(notices.contains("Marshall A. Greenblatt"))
+        #expect(notices.contains("chrome://credits"))
+        #expect(AboutLicenseContent(bundle: bundle).load().contains("Marshall A. Greenblatt"))
+    }
+
+    @Test("A build without the Chromium engine adds no Chromium section")
+    func noChromiumNoticesWithoutEngine() throws {
+        let (bundle, root) = try makeBundle(cefLicense: nil)
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(AboutLicenseContent(bundle: bundle).chromiumNotices() == nil)
+    }
 }
