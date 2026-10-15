@@ -832,13 +832,16 @@
   font-weight: 500;
   cursor: default;
 }
-.lg-button:hover {
+.lg-button:not(.primary):hover {
   background: var(--page-hover);
 }
 .lg-button.primary {
   border-color: transparent;
   background: var(--page-text);
   color: var(--lg-solid);
+}
+.lg-button.primary:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--page-text) 28%, transparent);
 }
 
 /* ---------- Palette ---------- */
