@@ -38,7 +38,7 @@ impl Translator {
 
     /// One message from the hub.
     pub fn from_client(&self, msg: &Value) -> Vec<Out> {
-        if let Some(out) = self.background().from_client(msg) {
+        if let Some(out) = self.background().request(msg) {
             return out;
         }
         self.inner.from_client(msg)

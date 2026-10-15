@@ -72,7 +72,7 @@ fn update(exec: &Exec, state: &str, extra: Value) -> Out {
 impl Background {
     /// A hub request the bridge sends itself: a terminate, under an id of
     /// its own. None for any other message.
-    pub(super) fn from_client(&mut self, msg: &Value) -> Option<Vec<Out>> {
+    pub(super) fn request(&mut self, msg: &Value) -> Option<Vec<Out>> {
         if msg.get("method").and_then(Value::as_str) != Some(TERMINATE) {
             return None;
         }
