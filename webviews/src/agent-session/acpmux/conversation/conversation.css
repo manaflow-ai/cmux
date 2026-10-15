@@ -760,7 +760,7 @@ pre.cv-math-source {
   margin: 0;
   padding-block: 3px;
   padding-inline: 8px 4px;
-  border: 0.5px solid var(--cv-card-ring);
+  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring);
   border-radius: 8px;
   background: var(--cv-card-fill);
   box-shadow: none;
@@ -769,6 +769,8 @@ pre.cv-math-source {
   font-size: var(--text-control);
   line-height: 20px;
 }
+/* Like the composer card, its rim clears under appearance.borders = none (composer-edges.test.ts). */
+:root[data-borders="none"] .acpmux-ask { border-color: transparent; }
 .acpmux-ask-row {
   display: flex;
   align-items: center;
