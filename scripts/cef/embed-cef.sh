@@ -150,6 +150,7 @@ if (( ${#shim_archs[@]} == 2 )); then
   universal_key="$(printf '%s %s' "$(cat "$arm_shim/.build-key")" "$(cat "$x86_shim/.build-key")" | shasum -a 256 | awk '{print $1}')"
   shim_out="$cache_root/shim/universal-${universal_key:0:16}"
   if [[ ! -f "$shim_out/.build-key" ]]; then
+    mkdir -p "$cache_root/shim"
     shim_tmp="$(mktemp -d "$cache_root/shim/.universal.XXXXXX")"
     lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
     lipo -create "$arm_shim/cmux-cef-helper" "$x86_shim/cmux-cef-helper" -output "$shim_tmp/cmux-cef-helper"

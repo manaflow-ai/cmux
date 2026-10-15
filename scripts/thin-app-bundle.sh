@@ -32,6 +32,13 @@ fi
 LIPO_TOOL="${CMUX_LIPO_TOOL:-lipo}"
 FILE_TOOL="${CMUX_FILE_TOOL:-file}"
 
+# An embedded Chromium engine (scripts/cef/embed-cef.sh, opt-in builds only)
+# without a slice for $ARCH is removed rather than failing the thinning: that
+# variant reports the Chromium engine as not bundled. No-op without CEF.
+if [ -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cef/drop-cef-without-arch.sh" "$APP_PATH" "$ARCH"
+fi
+
 thinned=0
 kept=0
 while IFS= read -r -d '' path; do
