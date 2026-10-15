@@ -21,6 +21,7 @@ const {
   canonicalizeEmailForMatching,
   findBillingUserByEmail,
   findUserIdByEmail,
+  founderPurchaseRowIds,
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
   latestStripeSubscriptionForSession,
@@ -37,6 +38,10 @@ const upsertUpdates: Array<{ table: unknown; values: Record<string, unknown> }> 
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
 let tombstoneSelectResults: unknown[][] = [];
+// Answers for the admin-revocation guard read, kept apart from the ordered
+// selectResults queue so existing fixtures do not shift.
+let adminRevocationSelectResults: unknown[][] = [];
+const upsertOptions: Array<{ table: unknown; options: Record<string, unknown> | undefined }> = [];
 let accountMutationOperationId: string | null = null;
 
 function fakeDb() {
@@ -51,6 +56,7 @@ function fakeDb() {
         return {
           onConflictDoUpdate: (options?: { set?: Record<string, unknown> }) => {
             upsertUpdates.push({ table, values: options?.set ?? {} });
+            upsertOptions.push({ table, options: options as Record<string, unknown> | undefined });
             const error = insertErrorsByTable.get(table);
             if (error) return Promise.reject(error);
             return Promise.resolve();
@@ -59,9 +65,14 @@ function fakeDb() {
         };
       },
     }),
-    select: () => ({
+    select: (fields?: Record<string, unknown>) => ({
       from: (table: unknown) => ({
         where: () => {
+          if (table === stripeSubscriptions && fields && "adminRevocation" in fields) {
+            return {
+              limit: () => Promise.resolve(adminRevocationSelectResults.shift() ?? []),
+            };
+          }
           if (table === accountDeletionTombstones) {
             return tombstoneSelectableResult();
           }
@@ -478,10 +489,151 @@ describe("recordFoundersCheckoutCompletion", () => {
     inserts.length = 0;
     updates.length = 0;
     upsertUpdates.length = 0;
+    upsertOptions.length = 0;
+    adminRevocationSelectResults = [];
     insertErrorsByTable.clear();
     selectResults = [];
     tombstoneSelectResults = [];
     accountMutationOperationId = null;
+  });
+
+  function founderReplayInput(subscriptionId = "sub_revoked") {
+    return {
+      session: {
+        id: "cs_revoked",
+        customer: "cus_revoked",
+        customer_details: { email: "founder@example.com", name: "Sample Buyer" },
+        metadata: { founders_edition: "true" },
+        subscription: subscriptionId,
+        payment_status: "paid",
+      } as never,
+      subscription: {
+        id: subscriptionId,
+        customer: "cus_revoked",
+        // The provider duplicate is canceled; the recorder normalizes a
+        // paid Founder purchase to active, which is what a replay would
+        // write back without the guard.
+        status: "canceled",
+        metadata: { founders_edition: "true" },
+        cancel_at_period_end: false,
+        items: { data: [] },
+      } as never,
+      customer: { id: "cus_revoked", deleted: false, email: "founder@example.com" } as never,
+    };
+  }
+
+  test("a replay of an admin-revoked Founder purchase does not resurrect it", async () => {
+    const update = mock(async () => undefined);
+    const enroll = mock(async () => undefined);
+    const user = {
+      id: "founder_revoked",
+      primaryEmail: "founder@example.com",
+      primaryEmailVerified: true,
+      primaryEmailAuthEnabled: true,
+      isAnonymous: false,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    // Existing customer row maps to this account.
+    selectResults = [[{ stackUserId: "founder_revoked", stackTeamId: null }], ...Array.from({ length: 20 }, () => [])];
+    adminRevocationSelectResults = [[{
+      id: "sub_revoked",
+      adminRevocation: { byUserId: "admin-1", byEmail: null, at: "2026-10-14T12:00:00.000Z" },
+    }]];
+
+    const result = await recordFoundersCheckoutCompletion(founderReplayInput(), {
+      db: fakeDb() as never,
+      stackApp: {
+        getUser: async () => user,
+        listUsers: async () => [user],
+        createUser: async () => {
+          throw new Error("must not create");
+        },
+        sendMagicLinkEmail: async () => undefined,
+      } as never,
+      testflight: { enrollTester: enroll },
+    });
+
+    expect(result).toEqual({
+      skipped: "admin_revoked",
+      stackUserId: "founder_revoked",
+      subscriptionId: "sub_revoked",
+    });
+    expect(inserts.some((entry) => entry.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((entry) => entry.table === stripeSubscriptions)).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+    expect(enroll).not.toHaveBeenCalled();
+  });
+
+  test("the revocation guard covers every id the same purchase can be keyed under", () => {
+    // A payment-mode session can be recorded under its payment_intent, a
+    // provider subscription, or the synthetic founders_<session> id.
+    expect(founderPurchaseRowIds(
+      { id: "cs_1", subscription: "sub_session", payment_intent: "pi_1" } as never,
+      "sub_selected",
+    ).sort()).toEqual(["founders_cs_1", "pi_1", "sub_selected", "sub_session"]);
+    expect(founderPurchaseRowIds(
+      { id: "cs_2", subscription: { id: "sub_expanded" }, payment_intent: null } as never,
+      "sub_expanded",
+    ).sort()).toEqual(["founders_cs_2", "sub_expanded"]);
+  });
+
+  test("a revoke that commits during the write is detected after the upsert", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "founder_race",
+      primaryEmail: "founder@example.com",
+      primaryEmailVerified: true,
+      primaryEmailAuthEnabled: true,
+      isAnonymous: false,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    selectResults = [[{ stackUserId: "founder_race", stackTeamId: null }], ...Array.from({ length: 20 }, () => [])];
+    // Not revoked before the write, revoked when re-read after it.
+    adminRevocationSelectResults = [[], [{
+      id: "sub_race",
+      adminRevocation: { byUserId: "admin-1", byEmail: null, at: "2026-10-14T12:00:00.000Z" },
+    }]];
+
+    const result = await recordFoundersCheckoutCompletion(founderReplayInput("sub_race"), {
+      db: fakeDb() as never,
+      stackApp: {
+        getUser: async () => user,
+        listUsers: async () => [user],
+        sendMagicLinkEmail: async () => undefined,
+      } as never,
+      testflight: { enrollTester: mock(async () => undefined) },
+    });
+
+    expect(result).toMatchObject({ skipped: "admin_revoked", subscriptionId: "sub_race" });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("the subscription upsert refuses to overwrite a revoked row", async () => {
+    const user = {
+      id: "founder_ok",
+      primaryEmail: "founder@example.com",
+      primaryEmailVerified: true,
+      primaryEmailAuthEnabled: true,
+      isAnonymous: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "founder_ok", stackTeamId: null }], ...Array.from({ length: 20 }, () => [])];
+
+    await recordFoundersCheckoutCompletion(founderReplayInput("sub_fresh"), {
+      db: fakeDb() as never,
+      stackApp: {
+        getUser: async () => user,
+        listUsers: async () => [user],
+        sendMagicLinkEmail: async () => undefined,
+      } as never,
+      testflight: { enrollTester: mock(async () => undefined) },
+    });
+
+    const subscriptionUpsert = upsertOptions.find((entry) => entry.table === stripeSubscriptions);
+    expect(subscriptionUpsert?.options?.setWhere).toBeDefined();
   });
 
   test("finds and parks a Founder buyer until mailbox verification", async () => {

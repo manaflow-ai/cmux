@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { accountMutationLeases, adminPlanGrants, stripeSubscriptions } from "../db/schema";
+import { accountMutationLeases, adminAuditLog, adminPlanGrants, stripeSubscriptions } from "../db/schema";
 import { withAccountMutationLeaseSupport } from "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
@@ -114,6 +114,8 @@ let grantsTableMissing = false;
 let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionListRows: Array<Record<string, unknown>> = [];
 let subscriptionUpdates: Array<Record<string, unknown>> = [];
+let auditInserts: Array<Record<string, unknown>> = [];
+const ACTIVE_STATUSES = ["active", "trialing", "past_due"];
 const stripeSubscriptionUpdate = mock(async (id: unknown, params: unknown) => ({
   id,
   cancel_at_period_end: (params as { cancel_at_period_end?: boolean }).cancel_at_period_end,
@@ -137,20 +139,26 @@ function adminDbMock() {
           }),
           where: () => ({
             then: (resolve: (rows: unknown[]) => unknown) => Promise.resolve([]).then(resolve),
-            limit: async () => (table === stripeSubscriptions ? [] : []),
+            // The Founder purchase store reads active personal rows here.
+            limit: async () =>
+              table === stripeSubscriptions
+                ? subscriptionRows.filter((row) => ACTIVE_STATUSES.includes(row.status as string))
+                : [],
               orderBy: () => ({
               limit: async () =>
                 table === adminPlanGrants
                   ? pendingGrantRows.filter((row) => !row.appliedAt && !row.revokedAt)
                   : table === stripeSubscriptions
-                    ? subscriptionRows.filter((row) => row.status !== "revoked")
+                    ? subscriptionRows.filter((row) => row.status === undefined || ACTIVE_STATUSES.includes(row.status as string))
                     : [],
             }),
           }),
         }),
       }),
       insert: (table: unknown) => ({
-        values: (values: Record<string, unknown>) => ({
+        values: (values: Record<string, unknown>) => {
+          if (table === adminAuditLog) auditInserts.push(values);
+          return {
           returning: async () => {
             if (table !== adminPlanGrants) return [];
             const row = {
@@ -164,7 +172,8 @@ function adminDbMock() {
             pendingGrantRows.push(row);
             return [row];
           },
-        }),
+          };
+        },
       }),
       update: (table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
@@ -180,10 +189,15 @@ function adminDbMock() {
               }
               if (table === stripeSubscriptions) {
                 subscriptionUpdates.push(values);
-                if (values.status === "revoked") {
-                  for (const row of subscriptionRows) {
-                    if (typeof row.id === "string" && values.status === "revoked") row.status = "revoked";
-                  }
+                // The Founder store writes one row per update; apply it to
+                // the next active, unrevoked row so later reads see it.
+                const row = subscriptionRows.find((candidate) =>
+                  candidate.status === "active" &&
+                  (candidate.raw as Record<string, unknown> | undefined)?.cmux_admin_revocation == null
+                );
+                if (row && typeof values.status === "string" && values.raw) {
+                  row.status = values.status;
+                  row.raw = values.raw;
                 }
               }
               return [];
@@ -515,6 +529,7 @@ describe("admin subscriptions route", () => {
     currentUser = adminUser();
     subscriptionRows = [{ id: "sub_1" }];
     subscriptionUpdates = [];
+    auditInserts = [];
     stripeSubscriptionUpdate.mockClear();
   });
 
@@ -564,8 +579,51 @@ describe("admin subscriptions route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(subscriptionUpdates[0]).toMatchObject({ status: "revoked" });
+    expect(await response.json()).toEqual({ ok: true, action: "revoke-founder" });
+    expect(subscriptionUpdates).toHaveLength(1);
+    expect(subscriptionUpdates[0]).toMatchObject({ status: "canceled", cancelAtPeriodEnd: false });
+    expect((subscriptionUpdates[0]?.raw as Record<string, unknown>).cmux_admin_revocation).toMatchObject({
+      byUserId: "admin-1",
+      byEmail: "admin@manaflow.ai",
+      previousStatus: "active",
+    });
     expect(directory[0]?.clientReadOnlyMetadata).toEqual({});
+    expect(auditInserts.map((row) => row.action)).toEqual(["founders_revoke", "founder_access_revoke"]);
+    expect(auditInserts[0]).toMatchObject({
+      targetKind: "user",
+      targetId: "u1",
+      outcome: "ok",
+      details: { subscriptionIds: ["founders_cs_1"] },
+    });
+  });
+
+  test("revoke-founder answers 404 when no active Founder entitlement remains", async () => {
+    directory = [stackUser({ id: "u1", clientReadOnlyMetadata: { cmuxPlan: "pro" } })];
+    subscriptionRows = [{
+      id: "founders_cs_1",
+      stackUserId: "u1",
+      scope: "user",
+      plan: "pro",
+      status: "canceled",
+      raw: { metadata: { founders_edition: "true" } },
+    }];
+    const response = await POST_SUBSCRIPTIONS(
+      postRequest({ scope: "user", ownerId: "u1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
+    );
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "no_founder_entitlement" });
+    expect(subscriptionUpdates).toEqual([]);
+  });
+
+  test("revoke-founder is user-only and admin-only", async () => {
+    expect((await POST_SUBSCRIPTIONS(
+      postRequest({ scope: "team", ownerId: "t1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
+    )).status).toBe(400);
+    currentUser = stackUser({ id: "user", primaryEmail: "pat@example.com" });
+    expect((await POST_SUBSCRIPTIONS(
+      postRequest({ scope: "user", ownerId: "u1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
+    )).status).toBe(403);
+    expect(subscriptionUpdates).toEqual([]);
   });
 });
 
