@@ -271,6 +271,43 @@ final class CloudPlacementCoordinator {
         }
     }
 
+    /// Moves an exact remote browser tab for a Cloud sidebar action through the
+    /// same per-machine lane used by local projection moves.
+    @discardableResult
+    func moveRemoteTab(
+        resource: SurfaceResourceID,
+        tabID: String,
+        intoRemoteWorkspace remoteWorkspaceID: String,
+        catalog: SurfaceCatalog,
+        provider: any SurfaceProvider,
+        onFailure: @escaping @MainActor (Error) -> Void
+    ) -> Task<Void, Never> {
+        guard resource.kind == .browser,
+              let placementProvider = provider as? any SurfacePlacementSyncing else {
+            onFailure(SurfaceCatalogError.noProvider(resource.machine))
+            return Task {}
+        }
+        return enqueue(resource: resource, catalog: catalog, onFailure: { error, _ in
+            onFailure(error)
+        }) {
+            let placement = try await placementProvider.moveRemoteTab(
+                id: tabID,
+                intoRemoteWorkspace: remoteWorkspaceID
+            )
+            self.movedTabs[resource.machine, default: [:]][placement.tabID] = placement.workspaceID
+            self.confirmPlacement(placement, on: resource.machine)
+            var replacements: [SurfaceProjection: SurfaceProjection] = [:]
+            for projection in catalog.projections where projection.resource == resource {
+                var updated = projection
+                updated.remoteWorkspaceID = placement.workspaceID
+                updated.remoteTabID = placement.tabID
+                replacements[projection] = updated
+            }
+            catalog.reconcileRemotePlacements(replacements)
+            return true
+        }
+    }
+
     /// Repairs an attachment in the same lane as user edits, so a late reconnect
     /// cannot overwrite a newer move. A viewer may use daemon focus; a mirrored
     /// pane must supply its binding. Conflicting bindings cannot be guessed.

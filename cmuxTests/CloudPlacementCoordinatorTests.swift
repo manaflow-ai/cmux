@@ -27,6 +27,15 @@ struct CloudPlacementCoordinatorTests {
         )
     }
 
+    private static func browser(_ key: String, view: SurfaceRemoteView) -> SurfaceResource {
+        SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: key),
+            title: key, detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: view.workspace, remoteViews: [view], port: nil,
+            url: "https://example.com/\(key)"
+        )
+    }
+
     /// Installs the daemon graph before exercising reconciliation. The catalog deliberately
     /// ignores a remote observation that was never accepted as its current cloud state.
     private static func install(
@@ -104,6 +113,40 @@ struct CloudPlacementCoordinatorTests {
         let projection = catalog.projection(forPanel: panel)
         #expect(projection?.workspaceID == bound)
         #expect(projection?.remoteWorkspaceID == "ws_api" && projection?.remoteTabID == "tab_1")
+    }
+
+    @Test func aCloudBrowserSidebarMoveUpdatesEveryViewerProjection() async {
+        let (catalog, provider) = Self.harness(bound: UUID())
+        let browser = Self.browser(
+            "docs",
+            view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main)
+        )
+        catalog.replaceResources([browser], on: Self.machine)
+        let first = UUID(), second = UUID()
+        for workspaceID in [first, second] {
+            catalog.record(SurfaceProjection(
+                resource: browser.id,
+                workspaceID: workspaceID,
+                panelID: UUID(),
+                remoteWorkspaceID: Self.main.id,
+                remoteTabID: "tab_docs"
+            ))
+        }
+
+        let task = catalog.cloudPlacementCoordinator.moveRemoteTab(
+            resource: browser.id,
+            tabID: "tab_docs",
+            intoRemoteWorkspace: Self.api.id,
+            catalog: catalog,
+            provider: provider,
+            onFailure: { error in Issue.record("browser move failed: \(error)") }
+        )
+        await task.value
+
+        #expect(provider.moved.map { "\($0.tab)->\($0.workspace)" } == ["tab_docs->ws_api"])
+        #expect(catalog.projections.filter { $0.resource == browser.id }.allSatisfy {
+            $0.remoteWorkspaceID == Self.api.id && $0.remoteTabID == "tab_docs"
+        })
     }
 
     @Test func aViewlessTerminalMovedIntoTheMirroredWorkspaceIsProjectedThere() async {

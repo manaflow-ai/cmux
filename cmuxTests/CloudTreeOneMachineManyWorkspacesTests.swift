@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxSurfaceCatalogModel
+import AppKit
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -419,6 +420,39 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             kind: .browser(CloudTreeBrowserRow(resource: localResource, isOpen: true, workspaceTitle: "Local"))
         )
         #expect(!localNode.isDragSource, "local browser sessions stay out of Cloud sidebar projection drags")
+    }
+
+    @Test("A Cloud browser drag onto a sibling workspace requests a remote tab move")
+    func browserDragTargetsSiblingWorkspace() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let side = workspace("ws_side", "side", index: 1)
+        let resource = browser("docs", in: main)
+        let roots = CloudTreeNodeBuilder.nodes(
+            machines: [fleetRow()],
+            snapshot: SurfaceCatalogSnapshot(
+                machines: [info(workspaces: [main, side])], resources: [resource], projections: []
+            ),
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let flattened = CloudTreeNodeBuilder.flattened(roots)
+        let source = try #require(flattened.first { $0.id.contains("/ws/ws_main/") && $0.structureTag == "browser" })
+        let target = try #require(flattened.first { $0.id == "machine:brave-otter/ws/ws_side" })
+        let drop = try #require(CloudSidebarOrganizationDrop(
+            sourceID: source.id,
+            nodes: roots,
+            state: CloudSidebarOrganizationState(),
+            proposedItem: target,
+            proposedChildIndex: NSOutlineViewDropOnItemIndex,
+            dropAfterItem: false
+        ))
+        guard case .browser(let resourceID, let tabID, let targetWorkspaceID) = drop.operation else {
+            Issue.record("expected a browser workspace move operation")
+            return
+        }
+        #expect(resourceID == resource.id.rawValue)
+        #expect(tabID == "tab_docs")
+        #expect(targetWorkspaceID == side.id)
     }
 
     @Test("A pane with several tabs exposes flat sibling terminal rows")

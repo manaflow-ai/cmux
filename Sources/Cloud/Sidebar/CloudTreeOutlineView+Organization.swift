@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 import AppKit
 
 extension CloudTreeOutlineView.Coordinator {
@@ -79,6 +80,17 @@ extension CloudTreeOutlineView.Coordinator {
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         switch drop.operation {
+        case .browser(let resourceRawValue, let tabID, let remoteWorkspaceID):
+            guard let resource = SurfaceResourceID(rawValue: resourceRawValue),
+                  let source = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == drop.sourceID }),
+                  case .browser(let row) = source.kind,
+                  row.remoteView?.tabID == tabID,
+                  let view = row.remoteView else { return false }
+            let move = { [weak self] in
+                self?.nodeActions.moveCloudBrowser(resource, view, remoteWorkspaceID)
+                return true
+            }
+            return isMachineLiftActive(outlineView, info: info) ? finishMachineLift(commit: move) : move()
         case .organization(let action):
             guard isMachineLiftActive(outlineView, info: info) else {
                 return organize(action, nodeID: drop.sourceID)

@@ -108,6 +108,8 @@ struct CloudTreeNodeActions {
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
+    /// Moves an exact Cloud browser tab into another workspace on the same machine.
+    var moveCloudBrowser: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView, _ remoteWorkspaceID: String) -> Void = { _, _, _ in }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
@@ -646,6 +648,25 @@ struct CloudTreeNodeActions {
             })
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
+        actions.moveCloudBrowser = { resource, view, remoteWorkspaceID in
+            let label = openingLabel(resource.machine)
+            onWillMutate(label)
+            Task { @MainActor in
+                defer { onDidMutate() }
+                guard let catalogProvider = catalog().provider(for: resource.machine) else {
+                    onFailure(label)
+                    return
+                }
+                _ = catalog().cloudPlacementCoordinator.moveRemoteTab(
+                    resource: resource,
+                    tabID: view.tabID,
+                    intoRemoteWorkspace: remoteWorkspaceID,
+                    catalog: catalog(),
+                    provider: catalogProvider,
+                    onFailure: { error in onFailure(String(describing: error)) }
+                )
+            }
+        }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
         actions.discoverDisplays = { machine, completion in catalog().beginDisplayDiscovery(on: machine, completion: completion) }

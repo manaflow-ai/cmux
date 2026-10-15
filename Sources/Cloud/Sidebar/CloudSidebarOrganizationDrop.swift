@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 import AppKit
 
 /// Converts AppKit's hierarchy-relative proposal into a move among displayed
@@ -40,6 +41,14 @@ struct CloudSidebarOrganizationDrop {
             children = scope.siblings
             childIndex = drop.childIndex
             operation = .machine(drop.machineID, drop.move)
+            return
+        }
+        if let move = Self.browserMove(sourceID: sourceID, nodes: nodes, proposedItem: proposedItem) {
+            self.sourceID = sourceID
+            parent = move.target
+            children = move.target.children
+            childIndex = NSOutlineViewDropOnItemIndex
+            operation = .browser(move.resource.rawValue, move.tabID, move.targetWorkspaceID)
             return
         }
         guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: sourceID) else { return nil }
@@ -88,5 +97,31 @@ struct CloudSidebarOrganizationDrop {
         children = parent.children
         self.childIndex = index
         operation = .organization(action)
+    }
+
+    private static func browserMove(
+        sourceID: String,
+        nodes: [CloudTreeNode],
+        proposedItem: CloudTreeNode?
+    ) -> (resource: SurfaceResourceID, tabID: String, target: CloudTreeNode, targetWorkspaceID: String)? {
+        guard let source = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == sourceID }),
+              case .browser(let browser) = source.kind,
+              !browser.resource.machine.isLocal,
+              let view = browser.remoteView,
+              let sourceWorkspaceNode = CloudSidebarOrganizationTree(nodes: nodes).parent(of: sourceID),
+              case .workspace(let sourceMachine, let sourceWorkspace, _, _, _) = sourceWorkspaceNode.kind,
+              sourceMachine == browser.resource.machine,
+              view.workspace.id == sourceWorkspace.id,
+              let proposedItem else { return nil }
+
+        var target: CloudTreeNode? = proposedItem
+        while let candidate = target {
+            if case .workspace(let machine, let workspace, _, _, _) = candidate.kind {
+                guard machine == sourceMachine, workspace.id != sourceWorkspace.id else { return nil }
+                return (browser.resource.id, view.tabID, candidate, workspace.id)
+            }
+            target = CloudSidebarOrganizationTree(nodes: nodes).parent(of: candidate.id)
+        }
+        return nil
     }
 }
