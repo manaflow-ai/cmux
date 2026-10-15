@@ -47,6 +47,7 @@ extension SSHService {
                 let answer = held?.stdout.split(separator: "\n").lazy
                     .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
                     .first { ($0["id"] as? Int) == 2 }
+                if Task.isCancelled { return .failed("cancelled") }
                 // No answer at all: the call itself failed; ask again once.
                 guard let answer else { if attempt == 2 { return .failed(held.map { Self.lastLine($0.stderr) ?? "" } ?? "ssh failed") }; continue }
                 let result = answer["result"] as? [String: Any]
@@ -107,6 +108,12 @@ extension SSHService {
         if object["running"] as? Bool == false { return true }
         guard object["agentHosts"] as? Bool == true else {
             logger.info("agent daemon on \(session.host.destination.description, privacy: .public) left as it is after the install: no agent hosts")
+            return false
+        }
+        // A session proxied from a peer acpmux would end with this run: leave it (the restart notice
+        // asks the person when a chat needs this app's key).
+        guard object["remoteSessions"] as? Int == 0 else {
+            logger.info("agent daemon on \(session.host.destination.description, privacy: .public) left as it is after the install: peer sessions")
             return false
         }
         let handed = await RemoteApprovalPreparations.shared.run(machine: session.machineID, keepBusy: false) { [self] in
