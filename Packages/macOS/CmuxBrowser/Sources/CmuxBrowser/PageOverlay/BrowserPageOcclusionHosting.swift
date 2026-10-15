@@ -14,7 +14,8 @@ public import CoreGraphics
 /// (`BrowserOcclusionHosting`) and `CEF/CEFHostView.swift`.
 @MainActor
 public protocol BrowserPageOcclusionHosting: AnyObject {
-    /// Rects in the page content view's coordinates where native UI covers
-    /// the page. Setting an equal array must cost nothing.
+    /// Rects in the page content view's own coordinate system (flipped or
+    /// not, as the view is) where native UI covers the page. Setting an
+    /// equal array must cost nothing.
     var pageOcclusionRects: [CGRect] { get set }
 }

@@ -42,6 +42,9 @@ extension BrowserPanel {
             pageOverlays.attach(contentView: contentView, target: nil)
             return
         }
+        // Its page window can take the keyboard from now on: shortcut routing
+        // must recognize it (`NSWindow.chromiumActingWindow`).
+        NSWindow.noteChromiumRuntimeLoaded()
         pageOverlays.attach(contentView: contentView, target: target)
     }
 

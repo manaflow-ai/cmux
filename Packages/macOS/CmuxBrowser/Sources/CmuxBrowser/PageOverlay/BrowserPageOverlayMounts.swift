@@ -14,6 +14,10 @@ extension View {
 /// engine notice). Over a Chromium page it draws in a non-activating child
 /// panel above the page, sized and placed where it would lay out here; over
 /// a WebKit page it renders in place.
+///
+/// In a panel the content gets its own hosting view: it takes the window's
+/// appearance, not this view's SwiftUI environment, so pass anything it
+/// reads (colors, fonts, models) explicitly.
 public struct BrowserPageFloatingOverlay<Content: View>: View {
     @ObservedObject private var coordinator: BrowserPageOverlayCoordinator
     private let id: String
