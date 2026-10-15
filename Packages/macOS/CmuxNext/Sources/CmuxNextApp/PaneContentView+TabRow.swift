@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 public import CmuxNextAgentPane
 public import CmuxNextDesign
 
