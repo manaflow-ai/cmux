@@ -10,6 +10,7 @@ use super::AttachWorkerCommit;
 use super::DetachClientTarget;
 use super::DetachNotice;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
+use super::INITIAL_HOSTED_RESIZE_TIMEOUT;
 use super::MarkedClientAttach;
 use super::MessageWriter;
 use super::RenderClientState;
@@ -444,6 +445,15 @@ pub(super) fn attach_surface(
     }
     let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
         mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
+    if initial_size.is_some() {
+        // A hosted PTY applies the attach's resize when its host answers. Build
+        // the replay after that, so this view gets one replay at the grid it
+        // will show, not one at the old grid followed by a `resized` replay
+        // (cnx-ios termqa D4). A host that keeps another size times out here
+        // and the replay is built at the current grid.
+        surface
+            .wait_for_hosted_viewer_size(std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT);
+    }
     lifecycle.set_resumes_pending_sequence(
         mux.control_clients.supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
     );
