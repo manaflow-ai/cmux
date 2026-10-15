@@ -1551,6 +1551,12 @@
       "title" : "Relay Only",
       "type" : "boolean"
     },
+    "macScreen.systemShortcuts" : {
+      "default" : false,
+      "description" : "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility.",
+      "title" : "Send System Shortcuts to the Remote Mac",
+      "type" : "boolean"
+    },
     "ManagedTeam" : {
       "description" : "Team id (team_...) that manages this device.",
       "title" : "ManagedTeam",

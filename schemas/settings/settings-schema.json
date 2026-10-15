@@ -759,6 +759,16 @@
               "key" : "settings.group.palette",
               "text" : "Command Palette"
             }
+          },
+          {
+            "key" : "settings.group.macScreenKeyboard",
+            "rows" : [
+              "macScreen.systemShortcuts"
+            ],
+            "title" : {
+              "key" : "settings.group.macScreenKeyboard",
+              "text" : "Mac Screen"
+            }
           }
         ],
         "id" : "keyboard",
@@ -21962,6 +21972,60 @@
       "default" : false,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.macScreenKeyboard",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.systemShortcuts.help",
+        "text" : "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.systemShortcuts",
+      "keywords" : [
+        "mac screen",
+        "remote",
+        "system shortcuts",
+        "command tab",
+        "spotlight",
+        "mission control",
+        "keyboard",
+        "accessibility"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "systemShortcuts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "summary" : {
+        "key" : "settings.macScreen.systemShortcuts.summary",
+        "text" : "System shortcuts go to the remote Mac"
+      },
+      "title" : {
+        "key" : "settings.macScreen.systemShortcuts",
+        "text" : "Send System Shortcuts to the Remote Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.macScreen",
         "text" : "Mac Screen"
       },
@@ -22795,7 +22859,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6a1e93bb2050352076faed5aaa51cc65e07fcfbf22cebb2775395eaa82eaf529",
+  "schema_hash" : "4532d284331bdc20886d25a3731fb46368a88bb3d3f926a47da82966c7ea3205",
   "sections" : [
     {
       "id" : "general",
