@@ -907,6 +907,8 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.sidebarStatusGrouping",
+              "labs.sidebarStatusElbow",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -13944,7 +13946,8 @@
     {
       "accepts" : [
         "none",
-        "folder"
+        "folder",
+        "status"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -13962,6 +13965,13 @@
             "text" : "Folder"
           },
           "value" : "folder"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupByStatus",
+            "text" : "Status"
+          },
+          "value" : "status"
         }
       ],
       "consumers" : [
@@ -13982,7 +13992,9 @@
         "group",
         "folder",
         "directory",
-        "cwd"
+        "cwd",
+        "status",
+        "agents"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -22154,6 +22166,109 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.sidebarStatusGrouping.help",
+        "text" : "The sidebar groups workspaces by agent status: Needs you, Working, Done."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.sidebarStatusGrouping",
+      "keywords" : [
+        "labs",
+        "sidebar",
+        "group",
+        "status",
+        "agents",
+        "needs you",
+        "working",
+        "done"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "sidebarStatusGrouping"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.sidebarStatusGrouping",
+        "text" : "Group Sidebar by Status"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.sidebarStatusElbow.help",
+        "text" : "Child agent sessions hang off their parent row with the ⎿ connector; only with status grouping."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.sidebarStatusElbow",
+      "keywords" : [
+        "labs",
+        "sidebar",
+        "agents",
+        "sessions",
+        "child",
+        "parent",
+        "nest",
+        "subagents",
+        "tree"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "sidebarStatusElbow"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.sidebarStatusElbow",
+        "text" : "Nest Child Agent Sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23552,7 +23667,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9ff5d40a2ccf65edc5d7a6882883672ab897ec6b9a4de0e4f34156e20931da60",
+  "schema_hash" : "c979e76e64f5fb8ee1b60eccae01f621bc82efa8d1bc3e0bd3889e443f41b99f",
   "sections" : [
     {
       "id" : "general",
