@@ -65,7 +65,35 @@ def install(app):
     v8.ev("install", app=app, bundle=bundle)
 
 
-if __name__ == "__main__" and sys.argv[1] == "install":
+def transport(name, relay):
+    """Settings > Transport: NAME (WebRTC|WireGuard), Relay only on|off; back in e2e-t2 when linked."""
+    import reg
+    sim, mac, j = tq.ctx()
+    if sim.find(label="Tabs", kind="Button"):
+        j.back_to_list()
+    j.open_transport_page()
+    kind = {"WebRTC": "webrtc", "WireGuard": "wireguard"}[name]
+    sim.tap_el(sim.find(ident=f"settings.transport.{kind}")[0]); _time.sleep(1)
+    box = sim.find(ident="settings.transport.relayOnly")[0]
+    if (box.value == "1") != (relay == "on"):
+        sim.tap_el(box); _time.sleep(1)
+    j.close_transport_page()
+    j.tab("Workspaces")
+    t = _time.time(); lab = ""
+    while _time.time() - t < 40:
+        lab = j.link_status()
+        if "Connected" in lab and name.lower() in lab.lower():
+            break
+        _time.sleep(0.5)
+    j.open_seed_workspace()
+    reg.open_tab(sim, "e2e-t2")
+    v8.ev("transport", name=name, relay=relay, label=lab, hostd=v8.hostd_events(t - 1))
+    return lab
+
+
+if __name__ == "__main__" and sys.argv[1] == "transport":
+    print(transport(sys.argv[2], sys.argv[3]))
+elif __name__ == "__main__" and sys.argv[1] == "install":
     install(sys.argv[2])
 elif __name__ == "__main__":
     mod = importlib.import_module(sys.argv[1])

@@ -12,7 +12,7 @@ U = json.load(open(os.path.expanduser("~/cnx-ios-e2e/termqa-state.json")))["udid
 
 
 def rows(t0, t1):
-    d = subprocess.run(["xcrun", "simctl", "get_app_container", U, "dev.cmux.cnx", "data"], capture_output=True, text=True).stdout.strip()
+    d = subprocess.run(["xcrun", "simctl", "get_app_container", U, os.environ.get("TQ_BUNDLE", "dev.cmux.cnx"), "data"], capture_output=True, text=True).stdout.strip()
     out = []
     with open(os.path.join(d, "Documents", "frame-log.ndjson")) as f:
         for line in f:
