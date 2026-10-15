@@ -78,6 +78,21 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
         #endif
     }
 
+    /// Asks for notification permission the first time the user writes to
+    /// Chief, if the system has not asked yet: Chief's replies arrive as
+    /// alerts. Setup asks only on builds that can receive pushes from the
+    /// Macs, so on other builds this is where Chief's alerts get permission.
+    public func requestPermissionIfUndetermined() {
+        guard Self.canNotify, !askedThisSession else { return }
+        askedThisSession = true
+        Task {
+            let center = UNUserNotificationCenter.current()
+            guard await center.notificationSettings().authorizationStatus == .notDetermined else { return }
+            _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+        }
+    }
+    private var askedThisSession = false
+
     /// The notification center exists only for an app bundle (not a test runner).
     static var canNotify: Bool { Bundle.main.bundleURL.pathExtension == "app" }
 

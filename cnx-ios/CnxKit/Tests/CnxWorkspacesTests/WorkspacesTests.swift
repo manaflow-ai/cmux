@@ -1,5 +1,6 @@
 import CnxModel
 import Foundation
+import Observation
 import Testing
 @testable import CnxWorkspaces
 
@@ -172,6 +173,64 @@ import SwiftUI
         // A new terminal tab raises the keyboard on its composer.
         let id = await created.createTab(try #require(created.newTabOptions.first { $0.id == "terminal" }))
         #expect(content.focused == [try #require(id)])
+    }
+
+    /// verify/e2e-matrix.md #4: the navigation destination builds a
+    /// `WorkspaceScreen` on every update it re-runs; building one (and its
+    /// source) must not write the store, or the update re-invalidates
+    /// itself forever. The writes happen once, when the screen appears.
+    @Test func buildingAWorkspaceScreenWritesNothing() throws {
+        let content = RecordingTerminalContent()
+        let store = AppStore.mock(tabMemory: .inMemory(["ws-cmux": "gone"]))
+        store.requestFocusOnOpen("ws-cmux")
+        let notified = ObservedChanges()
+        withObservationTracking { Self.readAll(store) } onChange: { notified.count += 1 }
+        var source: WorkspaceTabsSource?
+        for _ in 0..<5 {
+            _ = WorkspaceScreen(store: store, workspaceID: "ws-cmux", terminal: content)
+            source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
+        }
+        #expect(notified.count == 0)
+        let opened = try #require(source)
+        #expect(opened.activeTabID == "t-claude")
+        // Appearing remembers the tab and consumes the focus request, once.
+        opened.opened()
+        #expect(notified.count == 1)
+        #expect(store.lastTabByWorkspace["ws-cmux"] == "t-claude")
+        #expect(!store.wantsFocusOnOpen("ws-cmux"))
+        opened.pageAppeared("t-claude")
+        #expect(opened.surface("t-claude").composerFocused)
+    }
+
+    /// Runs like a SwiftUI destination update: again while an observation
+    /// installed before the run saw a change.
+    @Test func aDestinationUpdateSettles() {
+        let content = RecordingTerminalContent()
+        let store = AppStore.mock(tabMemory: .inMemory())
+        var runs = 0
+        let dirty = ObservedChanges()
+        dirty.count = 1
+        while dirty.count > 0, runs < 20 {
+            dirty.count = 0
+            runs += 1
+            withObservationTracking { Self.readAll(store) } onChange: { dirty.count += 1 }
+            _ = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content).activeTabID
+        }
+        #expect(runs == 1)
+    }
+
+    final class ObservedChanges: @unchecked Sendable {
+        var count = 0
+    }
+
+    static func readAll(_ store: AppStore) {
+        _ = store.workspaces
+        _ = store.lastTabByWorkspace
+        _ = store.focusOnOpenWorkspaceIDs
+        _ = store.workspaceAliases
+        _ = store.pendingWorkspaceIDs
+        _ = store.teams
+        _ = store.seenAt
     }
 
     @Test func gridOpeningPreparesTheActiveTerminalCard() {

@@ -48,7 +48,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private var input: [Data] = []
     private var inputDraining = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
-    private var detector = AlternateScreenDetector()
+    /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
+    private lazy var lineParser = DaemonTerminalEventParser(surface: surface)
+    private var inbox: DaemonTerminalInbox?
+    private var outputPaused = false
     private var eventTask: Task<Void, Never>?
     /// Resizes go out one at a time, in order, on the attach channel.
     private var outbox: [Outgoing] = []
@@ -119,6 +122,9 @@ public final class DaemonTerminalSession: TerminalSession {
     public func stop() {
         eventTask?.cancel()
         eventTask = nil
+        inbox?.close()
+        inbox = nil
+        outputPaused = false
         handler = nil
         client = nil
         dropInputLane()
@@ -146,18 +152,32 @@ public final class DaemonTerminalSession: TerminalSession {
             await client.start()
             let events = client.events
             eventTask?.cancel()
-            eventTask = Task { [weak self] in
-                for await line in events {
-                    guard let self else { return }
-                    self.handle(line)
+            inbox?.close()
+            // Event lines are decoded off the main actor and reach it in
+            // batches, one main-queue hop per batch (DaemonTerminalInbox).
+            let inbox = DaemonTerminalInbox { [weak self] batch in
+                MainActor.assumeIsolated {
+                    guard let self, self.client === client else { return }
+                    for event in batch { self.apply(event) }
                 }
-                self?.channelEnded(client)
+            }
+            inbox.setPaused(outputPaused)
+            self.inbox = inbox
+            let surface = surface
+            eventTask = Task.detached { [weak self] in
+                var parser = DaemonTerminalEventParser(surface: surface)
+                for await line in events {
+                    await inbox.push(parser.parse(line))
+                }
+                // After the batches already queued (the main queue is FIFO).
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated { self?.channelEnded(client) }
+                }
             }
             _ = try? await client.request("identify")
             // The replay that follows rebuilds the screen and scrollback. The
             // reset also tells the screen where the Mac's screen starts in its
             // taller mirror (TerminalRowShift).
-            detector = AlternateScreenDetector()
             setAlternate(false)
             handler?(.output(Data("\u{1B}c".utf8)))
             let reply = try await client.request("attach-surface", params: ["surface": surface])
@@ -195,41 +215,33 @@ public final class DaemonTerminalSession: TerminalSession {
         log.info("surface \(self.surface): link dropped, waiting to reattach")
     }
 
-    /// One event line from the daemon channel (attach stream events for this surface).
+    /// One event line from the daemon channel, decoded on the main actor
+    /// (tests; the attach stream decodes off the main actor).
     func handle(_ line: Data) {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              let event = object["event"] as? String else { return }
-        if let id = object["surface"] as? Int, id != surface { return }
+        for event in lineParser.parse(line) { apply(event) }
+    }
+
+    private func apply(_ event: DaemonTerminalInbound) {
         switch event {
-        case "vt-state":
-            if let rows = object["rows"] as? Int, rows > 0 { reportedRows = rows }
-            emit(base64: object["data"] as? String)
-            emit(base64: object["pending"] as? String)
-        case "output":
-            emit(base64: object["data"] as? String)
-        case "resized":
-            if let rows = object["rows"] as? Int, rows > 0 { reportedRows = rows }
-            // The authoritative mirror changed size: start over from the replay.
-            detector = AlternateScreenDetector()
+        case .output(let data):
+            handler?(.output(data))
+        case .alternateScreen(let on):
+            setAlternate(on)
+        case .rows(let rows):
+            reportedRows = rows
+        case .resetMirror:
             setAlternate(false)
             handler?(.output(Data("\u{1B}c".utf8)))
-            emit(base64: (object["replay"] as? String) ?? (object["data"] as? String))
-            emit(base64: object["pending"] as? String)
-        case "detached":
-            ended(reason: object["reason"] as? String)
-        default:
-            break
+        case .detached(let reason):
+            ended(reason: reason)
         }
     }
 
-    private func emit(base64: String?) {
-        guard let base64, let data = Data(base64Encoded: base64), !data.isEmpty else { return }
-        if let alternate = detector.scan(data) {
-            handler?(.output(data))
-            setAlternate(alternate)
-        } else {
-            handler?(.output(data))
-        }
+    /// The screen is behind: stop reading output from the Mac until it
+    /// catches up (the link's own flow control then holds the Mac back).
+    public func setOutputPaused(_ paused: Bool) {
+        outputPaused = paused
+        inbox?.setPaused(paused)
     }
 
     private func emitText(_ text: String) {

@@ -47,7 +47,7 @@ public struct CnxHostState: Sendable, Equatable {
         case .removed:
             phase = .removed
             phones = []
-        case .needToken, .needAcpmux, .needBrowser, .browserStop:
+        case .needToken, .needAcpmux, .pairRequest, .unpaired, .needBrowser, .browserStop:
             break
         case .phoneUp(var link):
             link.since = now

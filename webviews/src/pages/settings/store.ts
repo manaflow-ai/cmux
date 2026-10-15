@@ -347,6 +347,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
+  async answerPair(id: string, allow: boolean): Promise<void> {
+    await this.request("cmux.settings.mobile.answer_pair", { id, allow });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: this Mac was removed; allow iPhone connections again, then re-read the host lists. */
   async allowPhonesAgain(): Promise<void> {
     await this.request("cmux.settings.mobile.allow_again", {});

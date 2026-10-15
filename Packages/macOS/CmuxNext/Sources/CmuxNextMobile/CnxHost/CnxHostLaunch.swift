@@ -34,6 +34,10 @@ public struct CnxHostLaunch: Sendable, Equatable {
     /// isolated launch. The app's wiring sets it with
     /// `ChiefHome.resolve(tag:).session` (cnx-ios/verify/relay-security.md).
     public var chiefSession: String?
+    /// This build streams the phone's browser tabs (a bundled remote browser host):
+    /// hostd serves `browser` and says `browser-stream-v1` (`CNX_BROWSER_HOSTS=1`).
+    /// Off, phones hide New Browser Tab for this Mac.
+    public var browserHosts = false
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
@@ -84,6 +88,7 @@ public struct CnxHostLaunch: Sendable, Equatable {
         ]) { $1 }
         if let agentTabHost, !agentTabHost.isEmpty { environment["CNX_AGENT_TAB_HOST"] = agentTabHost }
         if let chiefSession { environment["CNX_CHIEF_SESSION"] = chiefSession }
+        if browserHosts { environment["CNX_BROWSER_HOSTS"] = "1" }
         return environment
     }
 
@@ -95,6 +100,25 @@ public struct CnxHostLaunch: Sendable, Equatable {
     /// The control line that tells hostd where the app's acpmux listens.
     public static func acpmuxLine(url: URL, token: String) -> Data {
         line(["type": "acpmux", "url": url.absoluteString, "token": token])
+    }
+
+    /// The control line that tells hostd which phones this Mac approved, and
+    /// which identity keys the user refused (`pairing.rs`).
+    public static func devicesLine(_ devices: CnxPairedDevices) -> Data {
+        anyLine([
+            "type": "devices",
+            "devices": devices.devices.map {
+                ["id": $0.id, "identity_key": $0.identityKey, "approval_key": $0.approvalKey]
+            },
+            "denied": devices.denied.map { ["id": $0.id, "identity_key": $0.identityKey] },
+        ])
+    }
+
+    /// This Mac's identity key for hostd (`mac_identity`, cnx-ios PROTOCOL.md
+    /// "Mac identity"). Carries the private key: stdin only, never logged.
+    public static func macIdentityLine(_ identity: CnxMacIdentity) -> Data {
+        line(["type": "mac_identity", "private_key": CnxMacIdentity.hex(identity.privateKey),
+              "public_key": CnxMacIdentity.hex(identity.publicKey)])
     }
 
     /// The control line that ends a removed phone's live links.

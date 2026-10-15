@@ -42,6 +42,10 @@ public struct CnxMetrics: Sendable {
     public var composerSideMargin: CGFloat = 12
     public var smallCircle: CGFloat = 36
     public var ctaLargeHeight: CGFloat = 52
+    /// The welcome's sign-in rows: their minimum height (they grow with
+    /// Dynamic Type) and the gap between them.
+    public var ctaWelcomeHeight: CGFloat = 50
+    public var ctaWelcomeGap: CGFloat = 8
     public var ctaInlineHeight: CGFloat = 40
     public var ctaInlinePadding: CGFloat = 20
     public var sidebarCapsuleHeight: CGFloat = 48

@@ -20,6 +20,10 @@ use super::{
 use crate::conversation_store::LOCAL_USER;
 use crate::resource_router::ParsedResourceRequest;
 
+/// `chief.engine.set {avatar}` and the `chief-profile-changed` event a set
+/// with an avatar emits to the owner's subscribe clients.
+pub(super) const PROFILE_EVENTS_CAPABILITY: &str = "chief-profile-events-v1";
+
 #[cfg(unix)]
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// The brain's answers are small; a larger line is refused.
@@ -61,15 +65,15 @@ pub(super) fn handle_with(
         return send_resource_response(writer, id, operation, Err(error));
     }
     let line = tool_line(operation, &request.fields);
+    let sets_avatar = line.get("avatar").is_some();
     let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
     let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
         let answer = ask(operation, &line, socket.as_deref());
-        send_resource_response(
-            &thread_writer,
-            reply_id,
-            operation,
-            result(&mux, operation, answer),
-        );
+        let result = result(&mux, operation, answer);
+        if sets_avatar && let Ok(value) = &result {
+            mux.emit(profile_event(value));
+        }
+        send_resource_response(&thread_writer, reply_id, operation, result);
     });
     spawned.is_ok()
         || send_resource_response(
@@ -107,7 +111,7 @@ pub(super) fn tool_line(
         ResourceOperation::ChiefEngineGet => json!({"tool": "engine", "action": "show"}),
         ResourceOperation::ChiefEngineSet => {
             let mut line = json!({"tool": "engine", "action": "set"});
-            for key in ["harness", "model", "effort", "speed", "compactor_speed"] {
+            for key in ["harness", "model", "effort", "speed", "compactor_speed", "avatar"] {
                 if let Some(value) = fields.get(key) {
                     line[key] = value.clone();
                 }
@@ -122,6 +126,13 @@ pub(super) fn tool_line(
             line
         }
     }
+}
+
+/// `chief-profile-changed` after a set that wrote the avatar: the brain's
+/// answer names the text now in profile.json (null: none, or a picture).
+pub(super) fn profile_event(result: &Value) -> crate::MuxEvent {
+    let avatar = result["value"]["avatar"].as_str().map(str::to_owned);
+    crate::MuxEvent::ChiefProfileChanged { avatar }
 }
 
 /// The v2 result of the brain's `answer`.

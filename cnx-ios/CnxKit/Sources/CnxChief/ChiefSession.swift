@@ -50,6 +50,13 @@ public final class ChiefSession {
     /// The Mac Chief runs on, for the settings page.
     public var macName: String?
     public let preferences: ChiefPreferences
+    /// Chief's avatar text (``ChiefIdentity/avatar``): the Mac's, once its
+    /// `chief.engine.get` reply carries one, else "C".
+    public private(set) var avatar: String
+    /// The Mac Chief's newest engine report (``ChiefControl/engine()``).
+    public private(set) var engineReport: ChiefEngineReport?
+    /// The newest message the user has seen with the conversation open.
+    private var seenMessageID: String?
     /// Messages waiting for Chief to connect (``ChiefOutbox``).
     public private(set) var outbox: [ConversationComposeMessage] = []
     private let outboxStore: ChiefOutbox
@@ -59,6 +66,7 @@ public final class ChiefSession {
     public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
                 preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil) {
         self.identity = identity
+        avatar = identity.avatar
         self.preferences = preferences
         outboxStore = outbox ?? .standard
         self.outbox = outboxStore.load()
@@ -75,8 +83,50 @@ public final class ChiefSession {
         self.backend = backend
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
+        engineReport = nil
         alertedSeq = nil
         attach()
+    }
+
+    /// Keeps what the Mac Chief's engine report says about Chief (its
+    /// avatar) for every place Chief is drawn; the details page calls it
+    /// with each report it reads or writes.
+    public func adopt(_ report: ChiefEngineReport) {
+        engineReport = report
+        let text = report.avatar ?? identity.avatar
+        if avatar != text { avatar = text }
+    }
+
+    /// Reads the engine report once Chief is reachable over the Mac link.
+    private func loadEngine() {
+        guard let control else { return }
+        let store = store
+        Task { @MainActor [weak self] in
+            guard let report = try? await control.engine(), let self, self.store === store else { return }
+            self.adopt(report)
+        }
+    }
+
+    /// The conversation is on screen: what it shows now has been seen.
+    public func markSeen() {
+        seenMessageID = lastMessage?.id
+    }
+
+    /// Chief is waiting on the user: a message is still in the outbox, or
+    /// Chief's newest message asks a question the user has not opened the
+    /// chat to see. Home's pin keeps its preview bubble up for it.
+    public var isWaitingOnYou: Bool {
+        if !outbox.isEmpty { return true }
+        guard let message = lastMessage, message.senderID == identity.chiefID, !message.isUnsent else { return false }
+        return message.text.contains("?") && message.id != seenMessageID
+    }
+
+    /// Home's Needs You filter: something waits in the outbox, or Chief is
+    /// idle with its newest message unread.
+    public var needsYou: Bool {
+        if !outbox.isEmpty { return true }
+        guard !isTyping, let message = lastMessage else { return false }
+        return message.senderID == identity.chiefID && unreadCount > 0
     }
 
     /// The conversation the store shows, once connected.
@@ -114,11 +164,13 @@ public final class ChiefSession {
         }
         store.start()
         refresh()
+        loadEngine()
     }
 
     private func refresh() {
         let newest = store.messages.last { $0.seq != nil && !$0.isScheduled }
         if newest != lastMessage { lastMessage = newest }
+        if ChiefAlerts.shared.conversationVisible, seenMessageID != newest?.id { seenMessageID = newest?.id }
         if unreadCount != store.unreadCount { unreadCount = store.unreadCount }
         let typing = store.typingParticipantIDs.contains(identity.chiefID)
         if isTyping != typing { isTyping = typing }
@@ -136,6 +188,7 @@ public final class ChiefSession {
     /// outbox, which goes out when it connects (never dropped silently).
     public func send(_ message: ConversationComposeMessage) {
         guard !message.isEmpty else { return }
+        ChiefAlerts.shared.requestPermissionIfUndetermined()
         if store.meID != nil, store.connection == .connected {
             store.sendWhenConnected(message)
             return

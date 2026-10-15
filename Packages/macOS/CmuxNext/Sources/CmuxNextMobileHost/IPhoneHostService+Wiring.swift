@@ -29,8 +29,11 @@ extension IPhoneHostService {
     ///   - bundleID: The app's bundle id: hostd's state folder is per bundle.
     ///   - computerName: How phones list this Mac.
     ///   - processEnvironment: Read for the Debug-only overrides.
+    ///   - acpmuxEnvironment: The app's acpmux, for the phones' approval keys (nil: none).
+    ///   - agentTabHost: This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
+                     acpmuxEnvironment: AcpmuxEnvironment? = nil,
                      agentTabHost: @escaping @MainActor () -> String? = { nil },
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
@@ -50,13 +53,10 @@ extension IPhoneHostService {
         let state = DaemonLauncher.applicationSupportDirectory()
             .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
             .appendingPathComponent("cnx-host", isDirectory: true)
-        #if DEBUG
-        // The phone's browser tabs stream from this build's own remote browser host.
+        // The phone's browser tabs stream from this build's own remote browser host
+        // (Contents/Helpers, every configuration on arm64).
         let browserHosts: (any CnxBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
-        #else
-        let browserHosts: (any CnxBrowserHosting)? = nil
-        #endif
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         dependencies = Dependencies(
@@ -85,7 +85,9 @@ extension IPhoneHostService {
             },
             agentTabHost: agentTabHost,
             computerName: computerName,
-            browserHosts: browserHosts
+            acpmuxEnvironment: acpmuxEnvironment,
+            browserHosts: browserHosts,
+            pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment)
         )
     }
 

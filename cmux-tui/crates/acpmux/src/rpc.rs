@@ -219,6 +219,9 @@ pub mod method {
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
+    /// The person's phones that may sign an allow (`hub/approvers.rs`).
+    pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
+    pub const MUX_APPROVERS: &str = "_acpmux/approvers";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";

@@ -25,31 +25,41 @@ struct EmailSignInSheet: View {
     var body: some View {
         NavigationStack(path: $path) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Continue with email")
-                    .font(theme.type.sheetTitle)
-                    .foregroundStyle(theme.colors.label)
-                Text("We'll send you a 6-digit code.")
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-                    .padding(.top, 6)
-                TextField("Email", text: $email, prompt: Text(verbatim: "name@example.com").foregroundStyle(theme.colors.label3))
-                    .textContentType(.emailAddress)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.continue)
-                    .focused($emailFocused)
-                    .font(theme.type.body)
-                    .cnxInputField()
-                    .padding(.top, 20)
-                    .onSubmit(send)
-                if let error {
-                    Text(error).font(theme.type.meta).foregroundStyle(theme.colors.danger).padding(.top, 10)
+                // Scrolls at large text sizes; the CTA stays above the keyboard.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("What's your email?")
+                            .font(theme.type.sheetTitle)
+                            .foregroundStyle(theme.colors.label)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("We'll send you a code to sign in.")
+                            .font(theme.type.rowSubtitle)
+                            .foregroundStyle(theme.colors.label2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 6)
+                        TextField("Email", text: $email, prompt: Text(verbatim: "name@example.com").foregroundStyle(theme.colors.label3))
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .submitLabel(.continue)
+                            .focused($emailFocused)
+                            .font(theme.type.body)
+                            .cnxInputField()
+                            .padding(.top, 20)
+                            .onSubmit(send)
+                        if let error {
+                            Text(error).font(theme.type.meta).foregroundStyle(theme.colors.dangerText).padding(.top, 10)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Spacer(minLength: 0)
-                PrimaryCapsule("Send code", isLoading: isSending, action: send)
+                .scrollBounceBehavior(.basedOnSize)
+                // The next screen says a code was sent.
+                PrimaryCapsule("Continue", isLoading: isSending, action: send)
                     .disabled(!isValidEmail)
-                    .padding(.bottom, 8)
+                    .padding(.top, 12)
+                    .padding(.bottom, 12)
             }
             .padding(.horizontal, theme.metrics.sideMargin)
             .padding(.top, 8)
@@ -130,12 +140,14 @@ struct EmailCodeStep: View {
             CodeBoxes(text: $code)
                 .modifier(ShakeEffect(trigger: shakes))
                 .animation(.linear(duration: theme.motion.shakeDuration), value: shakes)
+                .disabled(isVerifying)
+                // Verifying: the boxes dim and the spinner sits on them.
+                .opacity(isVerifying ? 0.4 : 1)
+                .overlay { if isVerifying { ProgressView() } }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 24)
-                .disabled(isVerifying)
-                .overlay { if isVerifying { ProgressView().offset(y: 52) } }
             if let error {
-                Text(error).font(theme.type.meta).foregroundStyle(theme.colors.danger)
+                Text(error).font(theme.type.meta).foregroundStyle(theme.colors.dangerText)
                     .frame(maxWidth: .infinity).padding(.top, 14)
             }
             TimelineView(.periodic(from: .now, by: 1)) { context in

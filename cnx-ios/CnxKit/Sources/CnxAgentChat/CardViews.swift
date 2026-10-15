@@ -146,9 +146,14 @@ public struct PermissionActionBar: View {
             ForEach(request.options) { option in
                 Button { respond(option) } label: {
                     // Long options ("Always allow cargo test in this workspace")
-                    // wrap instead of truncating.
-                    Text(option.name).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                    // wrap instead of truncating. An allow is signed after Face ID
+                    // (verify/phone-approvals.md), and says so.
+                    HStack(spacing: 6) {
+                        if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
+                        Text(option.name).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                    }
                 }
+                    .accessibilityHint(option.isAllow ? "Approve with Face ID" : "")
                     .buttonStyle(CnxCapsuleButtonStyle(style(option), size: .bar))
                     .sensoryFeedback(.impact(weight: .light), trigger: false)
             }

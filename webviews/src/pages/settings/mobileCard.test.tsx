@@ -154,3 +154,53 @@ test("a removed Mac says so and Allow Again sends cmux.settings.mobile.allow_aga
   expect(card(page.container)!.querySelector("[data-allow-again]")).toBeNull();
   page.unmount();
 });
+
+test("a waiting pairing request has Allow and Don't Allow, and the blocked count shows quietly", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  const asking: IPhoneHostState = {
+    ...state,
+    pending_title: "Connection Requests",
+    pending: [
+      {
+        id: "n1",
+        title: "“New iPhone” wants to connect to this Mac",
+        subtitle: "Signed in as me@example.com · Registered today",
+      },
+      { id: "n2", title: "“Other iPhone” wants to connect to this Mac", subtitle: "Signed in as me@example.com" },
+    ],
+    pair_allow_title: "Allow",
+    pair_deny_title: "Don't Allow",
+    blocked: null,
+    blocked_help: "Ignored for 10 minutes",
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: asking }));
+  await settle();
+  const element = card(page.container)!;
+  expect(element.querySelectorAll("[data-pair-request]").length).toBe(2);
+  expect(element.textContent).toContain("Registered today");
+  expect(element.textContent).not.toContain("Blocked requests");
+  await act(async () => element.querySelector<HTMLButtonElement>('[data-pair-allow="n1"]')!.click());
+  await settle();
+  await act(async () => card(page.container)!.querySelector<HTMLButtonElement>('[data-pair-deny="n2"]')!.click());
+  await settle();
+  const sent = page.provider.log.filter((entry) => entry.op === "cmux.settings.mobile.answer_pair");
+  expect(sent.map((entry) => entry.params)).toEqual([
+    { id: "n1", allow: true },
+    { id: "n2", allow: false },
+  ]);
+  expect(card(page.container)!.querySelector("[data-mobile-pending]")).toBeNull();
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      iphone: { ...asking, pending: [], blocked: "Blocked requests: 3" },
+    }),
+  );
+  await settle();
+  expect(card(page.container)!.textContent).toContain("Blocked requests: 3");
+  await act(async () =>
+    page.provider.setHost({ ...page.provider.host, iphone: { ...asking, allowed: false, phase: "off" } }),
+  );
+  await settle();
+  expect(card(page.container)!.querySelector("[data-pair-request]")).toBeNull();
+  page.unmount();
+});

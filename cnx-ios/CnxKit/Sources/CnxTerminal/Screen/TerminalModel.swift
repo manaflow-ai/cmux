@@ -53,7 +53,8 @@ public final class TerminalModel {
     var artifactPath: [TerminalArtifact] = []
     /// Previews of HTML and Markdown show their source.
     var previewShowsSource = false
-    private var extractor = ArtifactExtractor()
+    /// Scans output for files and links off the main thread.
+    @ObservationIgnored private var collector: TerminalArtifactCollector!
     private var reconcilePending = false
 
     let joystickEngine = JoystickEngine()
@@ -71,16 +72,16 @@ public final class TerminalModel {
         self.programName = session.programName
         self.connectionState = session.connectionState
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
+        collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
     }
 
     func ingest(_ event: TerminalSessionEvent) {
         let connection = connectionState.applying(event)
         if connection != connectionState { connectionState = connection }
         switch event {
-        case .output(let data):
-            let found = extractor.scan(data)
-            if !found.isEmpty { artifacts.append(contentsOf: found) }
-            if showArtifacts { scheduleReconcile() }
+        case .output:
+            // The bytes are scanned once per display frame (`scanOutput`).
+            break
         case .alternateScreen(let on):
             isTUI = on
             programName = session.programName
@@ -94,6 +95,12 @@ public final class TerminalModel {
         }
     }
 
+    /// Files and links in a batch of output (the screen's per-frame batch).
+    func scanOutput(_ data: Data) {
+        collector.scan(data)
+        if showArtifacts { scheduleReconcile() }
+    }
+
     /// The stream scan sees a path the sender broke at the right margin as
     /// two references. The surface's screen text has logical lines (soft
     /// wraps joined, full-width rows continued), so the list is rescanned
@@ -101,20 +108,28 @@ public final class TerminalModel {
     func reconcileArtifactsWithScreen() {
         guard let surface = controller?.surface, let text = surface.screenText() else { return }
         let columns = surface.grid.columns
-        artifacts = extractor.reconcile(artifacts, screenText: text, columns: columns > 0 ? columns : nil)
+        collector.reconcile(screenText: text, columns: columns > 0 ? columns : nil)
     }
 
-    /// Output arrives in bursts and the surface parses it off the main queue:
-    /// one rescan per main-queue turn, after the burst.
+    /// While Files and Links is open, the list is reconciled with the
+    /// screen at most every `reconcileInterval` (reading the screen's text
+    /// takes the surface lock and walks the scrollback; per output frame it
+    /// would cost the main thread under a flood).
     private func scheduleReconcile() {
         guard !reconcilePending else { return }
         reconcilePending = true
+        let wait = max(0, Self.reconcileInterval - (CACurrentMediaTime() - lastReconcile))
         Task { @MainActor [weak self] in
+            if wait > 0 { try? await ContinuousClock().sleep(for: .seconds(wait)) }
             guard let self else { return }
             reconcilePending = false
+            lastReconcile = CACurrentMediaTime()
             if showArtifacts { reconcileArtifactsWithScreen() }
         }
     }
+
+    static let reconcileInterval: CFTimeInterval = 0.5
+    @ObservationIgnored private var lastReconcile: CFTimeInterval = 0
 
     var composerPlaceholder: String {
         directTyping ? "Typing into terminal" : "Send to \(programName)"

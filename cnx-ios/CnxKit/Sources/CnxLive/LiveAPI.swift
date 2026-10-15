@@ -55,23 +55,27 @@ public struct LiveAPI: Sendable {
         public var kind: String
         public var name: String
         public var teamId: String
+        /// When the account first registered the device (ISO 8601).
+        public var createdAt: String?
         public var lastSeenAt: String?
         /// Live presence for a Mac; nil for a phone.
         public var online: Bool?
         /// Whether a phone has an APNs token registered.
         public var push: Bool?
 
-        public init(deviceId: String, kind: String, name: String, teamId: String, lastSeenAt: String? = nil, online: Bool? = nil, push: Bool? = nil) {
+        public init(deviceId: String, kind: String, name: String, teamId: String, createdAt: String? = nil, lastSeenAt: String? = nil, online: Bool? = nil, push: Bool? = nil) {
             self.deviceId = deviceId
             self.kind = kind
             self.name = name
             self.teamId = teamId
+            self.createdAt = createdAt
             self.lastSeenAt = lastSeenAt
             self.online = online
             self.push = push
         }
 
         public var lastSeenDate: Date? { lastSeenAt.flatMap(LiveAPI.parseDate) }
+        public var createdDate: Date? { createdAt.flatMap(LiveAPI.parseDate) }
     }
 
     /// `GET /v1/ice`, for diagnostics: whether a TURN relay was included.

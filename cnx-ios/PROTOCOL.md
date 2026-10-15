@@ -282,11 +282,66 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   until the person allows iPhone connections again on the Mac, so the
   phone's removal copy can say so. Absent (older hosts): the Mac may add
   itself back.
+  `browser-stream-v1`: the host streams browser tabs (`browser`); the Mac
+  build bundles a browser host (Release builds ship none yet). A host that
+  says `removal-v1` without it refuses `browser` with `no_browser_host`, and
+  the phone hides New Browser Tab for that Mac.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
 `unavailable`. When the link itself drops, local channels see
 `link_closed`.
+
+## Pairing (`auth` service and the Mac app's control lines)
+
+The `auth` handshake is in `verify/phone-approvals.md` ("Pairing on every
+link"). The limits and close codes the phone sees:
+
+| close code | meaning |
+| --- | --- |
+| `busy` | an `auth` is already running on this link (one at a time), or 32 channels already wait behind it |
+| `rate_limited` | the Mac asked about this iPhone recently: 10 minutes after the person refused one of its keys, or after 3 new identity keys from that device id (6 from all phones) in 10 minutes; the reason names the wait |
+| `unavailable` | the Mac app has not sent its approved list within 10 s (hostd never asks before it has it) |
+| `timeout` | nobody answered the Mac's prompt within 120 s; opening `auth` again on the same link asks again |
+| `denied` / `unpaired` | the person refused this key / the signature or pairing failed |
+
+hostd → app, one JSON line on stdout (supervised mode, `control.rs`):
+
+```json
+{"type":"pair_request","phone_device_id":"<uuid>","name":"<phone>",
+ "identity_key":"04…","approval_key":"04…","registered_at_ms":1791961929681}
+```
+
+`registered_at_ms` (integer, epoch milliseconds; added 2026-10-14) is when
+that phone device id first registered with the service (`createdAt` of `GET
+/v1/me/devices`), so the Mac's dialog can show how new the device is. It is
+absent when the lookup failed or took over 3 s; the dialog then says the
+date is unknown.
+
+### Mac identity (trust on first use)
+
+`auth` args may carry `macNonce` (16 to 128 letters or digits, the phone's
+own). The Mac app keeps a long-lived P-256 identity key in its Keychain and
+sends it to hostd once, on stdin:
+
+```json
+{"type":"mac_identity","private_key":"<32-byte scalar hex>","public_key":"04…"}
+```
+
+With both, the challenge frame adds `macKey` (the X9.63 point, hex) and
+`macSignature` (raw `r || s`, hex) over
+`cnx-mac-identity-v1 \0 mac \0 phone \0 macNonce \0 challenge`. The phone
+pins `macKey` per Mac device id when pairing first passes, and from then on
+refuses (`mac_identity_changed`, before it signs) a Mac that proves another key
+or none. Removing the Mac forgets the pin.
+
+### Chief question answers
+
+On the `chief` channel, a supervised hostd forwards `conversation-op` with
+`op.kind` `question.answer` only with
+`approval: {approver, nonce, expiresAt, signature}` (see
+`verify/phone-approvals.md`, "Chief question answers"); hostd strips it before
+the Chief owner. `approval` on any other op is refused.
 
 ## Connection setup (phone)
 

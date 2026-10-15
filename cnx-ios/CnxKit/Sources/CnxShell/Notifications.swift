@@ -105,7 +105,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
         var out: [SettingsDevice] = []
         for device in all where device.kind == "mac" {
             out.append(SettingsDevice(ids: [device.deviceId], kind: .mac, name: device.name, online: device.online ?? false,
-                                      lastSeenAt: device.lastSeenDate, isThisDevice: false, receivesNotifications: false))
+                                      lastSeenAt: device.lastSeenDate, addedAt: device.createdDate, isThisDevice: false, receivesNotifications: false))
         }
         let phones = all.filter { $0.kind == "phone" }
         let presence = phones.filter { $0.name.hasSuffix(Self.presenceSuffix) }
@@ -118,9 +118,10 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
             let sameName = phones.filter { $0.name == phone.name && $0.teamId == phone.teamId }.count
             let ids = [phone.deviceId] + (partners.count == 1 && (mine || sameName == 1) ? [partners[0].deviceId] : [])
             out.append(SettingsDevice(ids: ids, kind: .phone, name: phone.name, online: nil, lastSeenAt: phone.lastSeenDate,
-                                      isThisDevice: mine, receivesNotifications: phone.push ?? false))
+                                      addedAt: phone.createdDate, isThisDevice: mine, receivesNotifications: phone.push ?? false))
         }
-        return out.sorted { ($0.kind == .mac ? 0 : 1, $0.isThisDevice ? 0 : 1, $0.name) < ($1.kind == .mac ? 0 : 1, $1.isThisDevice ? 0 : 1, $1.name) }
+        // The id last: Macs that share a name keep one order across loads.
+        return out.sorted { ($0.kind == .mac ? 0 : 1, $0.isThisDevice ? 0 : 1, $0.name, $0.id) < ($1.kind == .mac ? 0 : 1, $1.isThisDevice ? 0 : 1, $1.name, $1.id) }
     }
 
     func remove(_ device: SettingsDevice) async throws {

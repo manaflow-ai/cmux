@@ -100,11 +100,25 @@ public struct CnxColors: Sendable {
         dark: CnxRGBA(hex: "#EBEBF5", alpha: 0.3), light: CnxRGBA(hex: "#3C3C43", alpha: 0.3),
         darkHighContrast: CnxRGBA(hex: "#EBEBF5", alpha: 0.42), lightHighContrast: CnxRGBA(hex: "#3C3C43", alpha: 0.45)
     )
+    /// Small print that must still read (the welcome's legal line): `label2`
+    /// in dark (6.4:1 on black); darker in light, where `label2` is 3.5:1 on
+    /// white and fails WCAG AA. 5.6:1 on white.
+    public var legal = CnxColorToken(
+        dark: CnxRGBA(hex: "#EBEBF5", alpha: 0.6), light: CnxRGBA(hex: "#3C3C43", alpha: 0.78),
+        darkHighContrast: CnxRGBA(hex: "#EBEBF5", alpha: 0.7), lightHighContrast: CnxRGBA(hex: "#3C3C43", alpha: 0.85)
+    )
     public var accent = token("#FFFFFF", "#000000")
     public var onAccent = token("#000000", "#FFFFFF")
     public var success = token("#30D158", "#34C759")
     public var danger = token("#FF453A", "#FF3B30")
+    /// Small error text: `danger` is 3.55:1 on white, so light mode uses the
+    /// high-contrast system red (#D70015, 5.38:1). Dark #FF453A is 6.2:1 on black.
+    public var dangerText = token("#FF453A", "#D70015")
     public var warning = token("#FFD60A", "#FFCC00")
+    /// A mark with no text that must read on its own (Home's "needs you"
+    /// gutter dot): at least 3:1 on the background. #C93400 is 4.9:1 on
+    /// white (system orange is 2.2:1); #FF9F0A is 8.6:1 on black.
+    public var needsYou = token("#FF9F0A", "#C93400")
     public var offline = token("#48484A", "#C7C7CC")
     public var diffAddText = token("#3FB950", "#1A7F37")
     public var diffDelText = token("#F85149", "#CF222E")

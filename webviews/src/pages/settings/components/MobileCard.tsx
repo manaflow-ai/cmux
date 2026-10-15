@@ -35,6 +35,41 @@ export function MobileCard() {
           {null}
         </ActionRow>
       </div>
+      {state.allowed && (state.pending?.length ?? 0) > 0 && (
+        <>
+          <h3 className="group-title">{state.pending_title}</h3>
+          <div className="rows" data-mobile-pending="">
+            {state.pending?.map((request) => (
+              <div className="row" key={request.id} data-pair-request={request.id}>
+                <div className="row-main">
+                  <div className="row-label">
+                    <div className="row-title">{request.title}</div>
+                    <div className="row-help">{request.subtitle}</div>
+                  </div>
+                  <div className="row-control action-row-control">
+                    <button
+                      type="button"
+                      className="button"
+                      data-pair-deny={request.id}
+                      onClick={() => void store.answerPair(request.id, false)}
+                    >
+                      {state.pair_deny_title}
+                    </button>
+                    <button
+                      type="button"
+                      className="button"
+                      data-pair-allow={request.id}
+                      onClick={() => void store.answerPair(request.id, true)}
+                    >
+                      {state.pair_allow_title}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       {state.allowed && (
         <>
           <h3 className="group-title">{state.phones_title}</h3>
@@ -75,6 +110,11 @@ export function MobileCard() {
                   </div>
                 </div>
               ))
+            )}
+            {state.blocked && (
+              <ActionRow title={state.blocked} help={state.blocked_help ?? ""}>
+                {null}
+              </ActionRow>
             )}
             {state.phones_error && (
               <div className="row">

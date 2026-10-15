@@ -17,6 +17,7 @@ public final class Events {
     public static final EventMetadata BELL = new EventMetadata("bell", 5, null, List.of("subscribe"), true);
     public static final EventMetadata BOOKMARKS_CHANGED = new EventMetadata("bookmarks-changed", 12, "bookmarks-v1", List.of("subscribe"), true);
     public static final EventMetadata BROWSER_STATE = new EventMetadata("browser-state", 6, null, List.of("attach-browser"), true);
+    public static final EventMetadata CHIEF_PROFILE_CHANGED = new EventMetadata("chief-profile-changed", 12, "chief-profile-events-v1", List.of("subscribe"), true);
     public static final EventMetadata CLIENT_ATTACHED = new EventMetadata("client-attached", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_CHANGED = new EventMetadata("client-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_DETACHED = new EventMetadata("client-detached", 6, null, List.of("subscribe"), true);
@@ -97,6 +98,7 @@ public final class Events {
         values.put("bell", BELL);
         values.put("bookmarks-changed", BOOKMARKS_CHANGED);
         values.put("browser-state", BROWSER_STATE);
+        values.put("chief-profile-changed", CHIEF_PROFILE_CHANGED);
         values.put("client-attached", CLIENT_ATTACHED);
         values.put("client-changed", CLIENT_CHANGED);
         values.put("client-detached", CLIENT_DETACHED);

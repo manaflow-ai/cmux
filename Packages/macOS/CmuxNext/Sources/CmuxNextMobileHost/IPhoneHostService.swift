@@ -1,3 +1,5 @@
+public import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 public import CmuxNextMobile
 public import Foundation
@@ -50,8 +52,12 @@ public final class IPhoneHostService {
         /// This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
         var agentTabHost: @MainActor () -> String? = { nil }
         var computerName: @Sendable () async -> String
+        /// The app's acpmux, for the phones' approval keys; nil without agents.
+        var acpmuxEnvironment: AcpmuxEnvironment?
         /// The app's browser hosts for the phone's streamed browser tabs; nil when this build has none.
         var browserHosts: (any CnxBrowserHosting)? = nil
+        /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
+        var pairingSeed: IPhonePairingSeed? = nil
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
@@ -62,6 +68,9 @@ public final class IPhoneHostService {
     private(set) var knownPhones: [CnxKnownPhone] = []
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
+    /// The phones the signed-in user allowed on this Mac (cnx-ios verify/phone-approvals.md).
+    /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
+    internal(set) var paired: CnxPairedDevices?
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -69,7 +78,21 @@ public final class IPhoneHostService {
     @ObservationIgnored private var signedOutSinceRemoval = false
     @ObservationIgnored var dependencies: Dependencies?
     @ObservationIgnored private var listing: Task<Void, Never>?
-    @ObservationIgnored private let supervisor = CnxHostSupervisor()
+    @ObservationIgnored let supervisor = CnxHostSupervisor()
+    /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
+    internal(set) var prompts = CnxPairPrompts()
+    /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
+    @ObservationIgnored var pairDialog: (id: Int, request: CnxPairRequest)?
+    /// The banner and Dock bounce that tell the person about a request while cmux is not in front.
+    @ObservationIgnored public var pairNotices: IPhonePairNotices?
+    /// The Dock bounce of the waiting requests, cancelled once they are answered.
+    @ObservationIgnored var attentionRequest: Int?
+    /// The frontmost cmux main window, which the pairing prompt attaches to as a sheet.
+    @ObservationIgnored public var pairWindow: (@MainActor () -> NSWindow?)?
+    /// Observers that show a waiting prompt once a cmux window is on screen.
+    @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
+    @ObservationIgnored var approverSync: CnxApproverSync?
+    @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
     @ObservationIgnored private var watching: Task<Void, Never>?
@@ -93,6 +116,13 @@ public final class IPhoneHostService {
                 if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
                     self.refreshPhones()
                 }
+            }
+        }
+        let pairing = supervisor.pairing
+        // task-owner: lives as long as the app; answers hostd's pairing requests in order
+        pairingWatch = Task { [weak self] in
+            for await event in pairing {
+                self?.pairingEvent(event)
             }
         }
     }
@@ -128,6 +158,8 @@ public final class IPhoneHostService {
         do {
             try await CnxDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
             await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
+            // Its pairing goes too: its links and Face ID approvals stop at once.
+            for deviceID in phone.deviceIDs { revokePhone(id: deviceID) }
             knownPhones.removeAll { $0.id == id }
             phonesError = nil
         } catch {
@@ -140,6 +172,7 @@ public final class IPhoneHostService {
     /// The account changed (sign-in, sign-out, team switch).
     public func accountChanged(_ account: Account?) {
         guard account != self.account else { return }
+        let signedOut = account == nil && self.account != nil
         // Signing out after a removal and signing in again allows connections again. (A
         // relaunch restores the session without a sign-out, so the removal holds.)
         if removed, account == nil { signedOutSinceRemoval = true }
@@ -148,6 +181,7 @@ public final class IPhoneHostService {
             clearRemoval()
         }
         self.account = account
+        loadPaired(signedOut: signedOut)
         reconcile()
         refreshPhones()
     }
@@ -205,6 +239,8 @@ public final class IPhoneHostService {
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
         self.allowed = allowed
+        // Turning connections off withdraws the waiting pairing requests and their prompt.
+        if !allowed { resetPrompts() }
         reconcile()
         refreshPhones()
     }
@@ -215,6 +251,9 @@ public final class IPhoneHostService {
         following?.cancel()
         followingAccount?.cancel()
         applying?.cancel()
+        pairingWatch?.cancel()
+        approverSync?.stop()
+        quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
         Task { await supervisor.stop() }
@@ -250,17 +289,25 @@ public final class IPhoneHostService {
             do {
                 let socket = try await dependencies.daemonSocket()
                 let deviceID = try CnxDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
+                // The key phones pin for this Mac (Keychain; created on first use), read off the
+                // main actor: a Keychain call must never hold launch (a re-signed rig app's access
+                // prompt did, and the watchdog killed it).
+                let store = CnxMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
+                                                stateDirectory: dependencies.stateDirectory)
+                // task-owner: one Keychain read per hostd start; awaited here
+                let identity = try await Task.detached { try store.loadOrCreate() }.value
                 let name = await dependencies.computerName()
                 guard !Task.isCancelled, self?.running == key else { return }
-                let launch = CnxHostLaunch(
+                var launch = CnxHostLaunch(
                     executable: executable, baseURL: dependencies.baseURL, teamID: want.teamID, userID: want.userID,
                     deviceID: deviceID, deviceName: name, daemonSocket: socket,
                     stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
                     stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
+                launch.browserHosts = dependencies.browserHosts != nil
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false),
-                    browserHosts: dependencies.browserHosts))
+                    browserHosts: dependencies.browserHosts, macIdentity: identity))
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))

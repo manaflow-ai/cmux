@@ -46,7 +46,7 @@ pub const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
     ("conversation-history", &["conversation", "before_seq", "limit"]),
     ("conversation-thread", &["conversation", "root", "after_seq", "limit"]),
     ("conversation-search", &["query", "limit"]),
-    ("conversation-op", &["conversation", "idempotency_key", "transaction", "op"]),
+    ("conversation-op", &["conversation", "idempotency_key", "transaction", "op", "approval"]),
     ("conversation-typing", &["conversation", "on"]),
     (
         "conversation-attachment-upload",
@@ -106,13 +106,20 @@ const REPLY_TO_FIELDS: &[&str] = &["message_id", "part_index"];
 /// answers them only on the owner's trusted connection, which this is.
 const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
     ("chief.engine.get", &["machine", "session"]),
-    ("chief.engine.set", &["machine", "session", "harness", "model", "effort", "speed", "compactor_speed"]),
+    (
+        "chief.engine.set",
+        &["machine", "session", "harness", "model", "effort", "speed", "compactor_speed", "avatar"],
+    ),
     ("chief.stop", &["machine", "session", "name"]),
 ];
 const RESOURCE_FIELDS: &[&str] = &["protocol", "type", "id", "operation", "params", "idempotency_key"];
 
 /// Events a phone receives, for conversations in scope only.
 const FORWARDED_EVENTS: &[&str] = &["conversation-changed", "conversation-typing"];
+
+/// The Chief's avatar text after a `chief.engine.set {avatar}` (the phone's
+/// chat header). It names no conversation and carries only that text.
+const CHIEF_PROFILE_EVENT: &str = "chief-profile-changed";
 
 /// Requests a phone may have waiting for a reply at once.
 pub const MAXIMUM_IN_FLIGHT: usize = 256;
@@ -141,6 +148,9 @@ struct Scope {
 #[derive(Debug, Clone, Default)]
 pub struct ChiefPolicy {
     scope: Arc<Mutex<Scope>>,
+    /// Supervised: a `question.answer` counts only with this phone's signed
+    /// approval (`chief_answers.rs`). None (unsupervised): no keys to check.
+    answers: Option<crate::chief_answers::AnswerCheck>,
 }
 
 /// True for a conversation between the owner and agents only.
@@ -162,6 +172,11 @@ pub fn in_scope(summary: &Value) -> bool {
 impl ChiefPolicy {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A paired link's policy: its `question.answer`s need the phone's signature.
+    pub fn signed(answers: crate::chief_answers::AnswerCheck) -> Self {
+        Self { answers: Some(answers), ..Self::default() }
     }
 
     fn with_scope<T>(&self, f: impl FnOnce(&mut Scope) -> T) -> T {
@@ -227,10 +242,31 @@ impl ChiefPolicy {
         {
             return refuse(format!("{command}: root is not a plain id"));
         }
+        let mut rewrite = None;
         match object.get("op").filter(|_| command == "conversation-op") {
             Some(op) => {
                 if let Err(why) = check_op(op) {
                     return refuse(format!("{command}: {why}"));
+                }
+                let answers = op.get("kind").and_then(Value::as_str) == Some("question.answer");
+                if !answers && object.contains_key("approval") {
+                    return refuse(format!("{command}: approval is only for question.answer"));
+                }
+                if answers {
+                    // A question's answer may grant something: it counts with the
+                    // iPhone's Face ID signature only (chief_answers.rs).
+                    if let Some(check) = &self.answers {
+                        let conversation =
+                            object.get("conversation").and_then(Value::as_str).unwrap_or_default();
+                        if let Err(why) = check.verify(conversation, op, object.get("approval")) {
+                            return refuse(format!("{command}: {why}"));
+                        }
+                    }
+                    if object.contains_key("approval") {
+                        let mut stripped = object.clone();
+                        stripped.remove("approval");
+                        rewrite = serde_json::to_vec(&Value::Object(stripped)).ok();
+                    }
                 }
             }
             None if command == "conversation-op" => return refuse("conversation-op: missing op".into()),
@@ -247,7 +283,10 @@ impl ChiefPolicy {
             _ => None,
         };
         self.with_scope(|scope| scope.in_flight.insert(key, pending));
-        Verdict::Forward
+        match rewrite {
+            Some(line) => Verdict::Rewrite(line),
+            None => Verdict::Forward,
+        }
     }
 
     /// Filter one newline-stripped line from the daemon: `None` drops it,
@@ -317,6 +356,10 @@ impl ChiefPolicy {
         // Missed events: the phone refetches. It carries no conversation data.
         if event == "overflow" {
             return true;
+        }
+        if event == CHIEF_PROFILE_EVENT {
+            return object.keys().all(|k| k == "event" || k == "avatar")
+                && object.get("avatar").is_some_and(|a| a.is_null() || a.is_string());
         }
         if !FORWARDED_EVENTS.contains(&event) {
             return false;
@@ -507,6 +550,48 @@ mod tests {
         assert!(matches!(policy.evaluate(&line(value.clone())), Verdict::Refuse(_)), "forwarded {value}");
     }
 
+    /// Supervised, a question answer needs the phone's signed approval
+    /// (chief_answers.rs has the signature cases); approval rides only on one.
+    #[test]
+    fn a_paired_links_question_answer_needs_its_approval() {
+        let trust = crate::pairing::DeviceTrust::default();
+        let signed = ChiefPolicy::signed(crate::chief_answers::AnswerCheck {
+            mac: "mac".into(),
+            phone: "phone".into(),
+            trust: tokio::sync::watch::channel(Some(trust)).1,
+            spent: Arc::default(),
+        });
+        let listed_signed = {
+            let unsigned = listed();
+            signed.with_scope(|scope| scope.allowed = unsigned.with_scope(|s| s.allowed.clone()));
+            signed
+        };
+        let answer = serde_json::json!({"cmd": "conversation-op", "id": "q1", "conversation": CHIEF,
+            "idempotency_key": "k", "op": {"kind": "question.answer", "message_id": "msg_01Q", "part_index": 0,
+            "answer": {"selections": {}}}});
+        refused(&listed_signed, answer.clone());
+        let mut forged = answer.clone();
+        forged["id"] = serde_json::json!("q2");
+        forged["approval"] = serde_json::json!({"approver": "phone", "nonce": "0123456789abcdef",
+            "expiresAt": 1, "signature": "00"});
+        refused(&listed_signed, forged);
+        let send = serde_json::json!({"cmd": "conversation-op", "id": "q3", "conversation": CHIEF,
+            "idempotency_key": "k", "approval": {}, "op": {"kind": "message.send", "client_msg_id": "c",
+            "parts": [{"type": "text", "text": "hi"}]}});
+        refused(&listed_signed, send);
+        // Unsupervised (no keys), an answer passes as before, its approval stripped.
+        let plain = listed();
+        let mut with_approval = answer;
+        with_approval["approval"] = serde_json::json!({});
+        match plain.evaluate(&line(with_approval)) {
+            Verdict::Rewrite(bytes) => {
+                let sent: Value = serde_json::from_slice(&bytes).unwrap();
+                assert!(sent.get("approval").is_none());
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn the_ios_chief_session_passes() {
         let policy = listed();
@@ -541,7 +626,7 @@ mod tests {
             serde_json::json!({"protocol": "cmux.protocol/2", "type": "request", "id": "m17", "operation": "chief.engine.get",
                 "params": {"machine": "current", "session": "current"}}),
             serde_json::json!({"protocol": "cmux.protocol/2", "type": "request", "id": "m18", "operation": "chief.engine.set",
-                "params": {"machine": "current", "session": "current", "model": "opus", "effort": "high"},
+                "params": {"machine": "current", "session": "current", "model": "opus", "effort": "high", "avatar": "AB"},
                 "idempotency_key": "cnx-ios-chief-engine-1"}),
             serde_json::json!({"protocol": "cmux.protocol/2", "type": "request", "id": "m19", "operation": "chief.stop",
                 "params": {"machine": "current", "session": "current"}, "idempotency_key": "cnx-ios-chief-stop-1"}),
@@ -696,6 +781,13 @@ mod tests {
             serde_json::json!({"cmd": "conversation-snapshot", "id": 8, "conversation": CHIEF, "tail": 1}),
         );
         assert!(policy.filter_reply(br#"{"event":"overflow"}"#).is_some());
+        // The Chief's avatar reaches the phone; anything more on it does not.
+        assert!(policy.filter_reply(br#"{"event":"chief-profile-changed","avatar":"AB"}"#).is_some());
+        assert!(policy.filter_reply(br#"{"event":"chief-profile-changed","avatar":null}"#).is_some());
+        assert!(
+            policy.filter_reply(br#"{"event":"chief-profile-changed","avatar":"x","path":"/etc"}"#).is_none()
+        );
+        assert!(policy.filter_reply(br#"{"event":"chief-profile-changed","avatar":{"x":1}}"#).is_none());
     }
 
     #[test]

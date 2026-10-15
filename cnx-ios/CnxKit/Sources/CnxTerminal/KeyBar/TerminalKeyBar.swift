@@ -64,6 +64,9 @@ enum KeyBarKey: Hashable, Sendable {
 /// and the joystick plus hide-keyboard at the trailing end, in one glass capsule.
 struct TerminalKeyBar: View {
     let model: TerminalModel
+    /// Middle-row keys clipped under the pinned keys or the joystick
+    /// (`KeyBarClipping`): hidden from accessibility, offered as row actions.
+    @State private var clipped: Set<KeyBarKey> = []
 
     var body: some View {
         HStack(spacing: 6) {
@@ -73,12 +76,27 @@ struct TerminalKeyBar: View {
             Divider().frame(height: 22)
             ScrollView(.horizontal) {
                 HStack(spacing: 6) {
-                    ForEach(KeyBarKey.middle, id: \.self) { KeyCap(key: $0, model: model) }
+                    ForEach(KeyBarKey.middle, id: \.self) { key in
+                        KeyCap(key: key, model: model)
+                            .onGeometryChange(for: Bool.self) { proxy in
+                                KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
+                            } action: { visible in
+                                if visible { clipped.remove(key) } else { clipped.insert(key) }
+                            }
+                            .accessibilityHidden(clipped.contains(key))
+                    }
                 }
                 .padding(.horizontal, 2)
             }
             .scrollIndicators(.hidden)
             .scrollClipDisabled(false)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("More keys")
+            .accessibilityActions {
+                ForEach(KeyBarKey.middle.filter { clipped.contains($0) }, id: \.self) { key in
+                    Button(key.accessibilityLabel) { model.keyBar(key) }
+                }
+            }
             Divider().frame(height: 22)
             Joystick(engine: model.joystickEngine)
             Button {

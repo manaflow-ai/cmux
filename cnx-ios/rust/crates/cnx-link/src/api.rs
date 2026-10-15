@@ -142,6 +142,24 @@ impl ApiClient {
         Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
     }
 
+    /// `GET /v1/me/devices`: every device the caller registered.
+    pub async fn my_devices(&self) -> Result<Vec<MyDevice>, ApiError> {
+        #[derive(Deserialize)]
+        struct Devices {
+            devices: Vec<MyDevice>,
+        }
+        let response = self
+            .http
+            .get(format!("{}/v1/me/devices", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        let devices: Devices =
+            Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))?;
+        Ok(devices.devices)
+    }
+
     /// `GET /v1/teams/:teamId/macs`.
     pub async fn macs(&self, team_id: &str) -> Result<Vec<crate::signaling::MacPresence>, ApiError> {
         #[derive(Deserialize)]
@@ -159,6 +177,18 @@ impl ApiClient {
             Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))?;
         Ok(macs.macs)
     }
+}
+
+/// One row of `GET /v1/me/devices` (the fields hostd reads).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MyDevice {
+    pub device_id: String,
+    #[serde(default)]
+    pub kind: String,
+    /// When the device first registered (ISO 8601).
+    #[serde(default)]
+    pub created_at: Option<String>,
 }
 
 /// `GET /v1/ice` results kept while their credentials have plenty of life

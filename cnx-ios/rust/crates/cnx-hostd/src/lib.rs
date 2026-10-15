@@ -9,10 +9,12 @@
 
 pub mod auth;
 pub mod browser;
+pub mod chief_answers;
 pub mod chief_policy;
 pub mod config;
 pub mod control;
 pub mod host;
 pub mod notify;
+pub mod pairing;
 pub mod policy;
 pub mod services;

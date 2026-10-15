@@ -32,7 +32,7 @@ fn serve(listener: UnixListener) {
                             {"harness": "codex", "kind": "acp", "models": [
                                 {"id": "gpt-6-sol", "name": "GPT-6 Sol"},
                             ]},
-                            {"harness": "claude-sr", "kind": "claude-stdio", "models": [
+                            {"harness": "claude-sr", "kind": "claude-stdio", "catalog": {"defaultModel": "opus"}, "models": [
                                 {"id": "default", "name": "Default (Claude Code's choice)"},
                                 {"id": "opus", "name": "Opus"},
                                 {"id": "claude-fable-5-1", "name": "Fable 5.1"},
@@ -88,6 +88,17 @@ fn the_engine_answer_offers_the_harness_models_acpmux_has() {
     });
     let answer = answer.recv_timeout(common::WAIT).unwrap();
 
+    // The default names what it runs: no turn yet, so the catalog's default.
+    assert_eq!(answer["engine"]["model"], "opus", "{answer:#}");
+    assert_eq!(answer["engine"]["model_is_default"], true);
+    assert_eq!(
+        answer["offered"]["default_model"],
+        json!({"id": "opus", "name": "Opus"})
+    );
+    assert_eq!(answer["offered"]["models"][0]["name"], "Default (Opus)");
+    assert_eq!(answer["offered"]["models"][0]["resolves_to"], "opus");
+    assert_eq!(answer["avatar"], Value::Null);
+
     assert_eq!(answer["engine"]["harness"], "claude-sr", "{answer:#}");
     let models: Vec<&str> = answer["offered"]["models"]
         .as_array()
@@ -101,4 +112,57 @@ fn the_engine_answer_offers_the_harness_models_acpmux_has() {
         answer["offered"]["efforts"],
         json!(["minimal", "low", "medium", "high", "xhigh", "max"])
     );
+}
+
+/// chief.engine.set {avatar} writes profile.json beside engine.json (other
+/// keys kept), the answer carries it, "" clears it, and a picture's file name
+/// is refused (pictures are the Mac's); a picture already set reads as null.
+#[test]
+fn the_engine_sets_and_reports_the_avatar_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    serve(UnixListener::bind(&socket).unwrap());
+    let acpmux = Acpmux::new(socket, None, Vec::new());
+    let settings = Settings {
+        engine_file: Some(dir.path().join("optchat/engine.json")),
+        ..common::settings(dir.path())
+    };
+    let (tx, _rx) = channel();
+    let mut brain = Brain::new(
+        common::open_chat(&dir.path().join("chat")),
+        acpmux,
+        settings,
+        StateFile::new(&dir.path().join("host.json")),
+        tx,
+        Arc::new(|_: &str| {}),
+    );
+    let profile = dir.path().join("optchat/profile.json");
+    std::fs::create_dir_all(profile.parent().unwrap()).unwrap();
+    std::fs::write(&profile, r#"{"avatar": "cat.png", "keep": true}"#).unwrap();
+    let mut ask = |avatar: Option<&str>| {
+        let (reply, answer) = channel();
+        brain.step(Input::Engine {
+            request: match avatar {
+                None => EngineRequest::Show,
+                Some(a) => EngineRequest::Set {
+                    harness: None,
+                    model: None,
+                    effort: None,
+                    speed: None,
+                    compactor_speed: None,
+                    avatar: Some(a.to_owned()),
+                },
+            },
+            reply,
+        });
+        answer.recv_timeout(common::WAIT).unwrap()
+    };
+    assert_eq!(ask(None)["avatar"], Value::Null, "a picture is not text");
+    assert_eq!(ask(Some("🦊"))["avatar"], "🦊");
+    let saved: Value = serde_json::from_slice(&std::fs::read(&profile).unwrap()).unwrap();
+    assert_eq!(saved, json!({"avatar": "🦊", "keep": true}));
+    assert_eq!(ask(Some("dog.jpg"))["error"]["code"], "invalid_avatar");
+    assert_eq!(ask(Some(""))["avatar"], Value::Null);
+    let saved: Value = serde_json::from_slice(&std::fs::read(&profile).unwrap()).unwrap();
+    assert_eq!(saved, json!({"keep": true}));
 }

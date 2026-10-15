@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409";
+inline constexpr std::string_view kProtocolIrSha256 = "e3818e4d91fbf0e9efe4b2fa31fcca6dfda15682357aba8bf8bc4e81963f2a3f";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -513,6 +513,7 @@ struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
+struct ChiefProfileChangedEvent;
 struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
@@ -1120,6 +1121,11 @@ struct ChiefInspectResult {
     Field<std::string> error{};
     std::uint64_t status{};
     friend bool operator==(const ChiefInspectResult&, const ChiefInspectResult&) = default;
+};
+
+struct ChiefProfileChangedEvent {
+    std::optional<std::string> avatar{};
+    friend bool operator==(const ChiefProfileChangedEvent&, const ChiefProfileChangedEvent&) = default;
 };
 
 enum class TerminalKey {
@@ -8333,6 +8339,12 @@ template <>
 struct Codec<BrowserStateEvent> {
     static Result<Json> encode(const BrowserStateEvent& value);
     static Result<BrowserStateEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefProfileChangedEvent> {
+    static Result<Json> encode(const ChiefProfileChangedEvent& value);
+    static Result<ChiefProfileChangedEvent> decode(const Json& value);
 };
 
 template <>

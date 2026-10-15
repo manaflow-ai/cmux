@@ -62,14 +62,24 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
     /// The newest turn ends, newest first.
     public var recent: [Turn]
     public var offered: Offered
+    /// Chief's avatar text from the Mac's `optchat/profile.json`, when the
+    /// Mac's reply carries an `avatar` key (`avatarSupported`); nil or empty
+    /// is the default, "C". A picture's file name is not avatar text.
+    public var avatar: String?
+    /// Whether this Mac reads and sets the avatar (`chief.engine.get` has an
+    /// `avatar` key, `chief.engine.set` takes one). Older Macs do not.
+    public var avatarSupported: Bool
 
-    enum CodingKeys: String, CodingKey { case engine, choice, recent, offered }
+    enum CodingKeys: String, CodingKey { case engine, choice, recent, offered, avatar }
 
-    public init(engine: Engine, choice: Engine = Engine(), recent: [Turn] = [], offered: Offered = Offered()) {
+    public init(engine: Engine, choice: Engine = Engine(), recent: [Turn] = [], offered: Offered = Offered(),
+                avatar: String? = nil, avatarSupported: Bool = false) {
         self.engine = engine
         self.choice = choice
         self.recent = recent
         self.offered = offered
+        self.avatar = avatar
+        self.avatarSupported = avatarSupported
     }
 
     public init(from decoder: any Decoder) throws {
@@ -78,6 +88,31 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         choice = try c.decodeIfPresent(Engine.self, forKey: .choice) ?? Engine()
         recent = try c.decodeIfPresent([Turn].self, forKey: .recent) ?? []
         offered = try c.decodeIfPresent(Offered.self, forKey: .offered) ?? Offered()
+        avatarSupported = c.contains(.avatar)
+        avatar = try c.decodeIfPresent(String.self, forKey: .avatar).flatMap(Self.avatarText)
+    }
+
+    /// Avatar text as Chief is drawn: trimmed, at most two characters, and
+    /// never a picture's file name (`cat.png`); nil when there is none.
+    public static func avatarText(_ raw: String) -> String? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let pictureExtensions = ["png", "jpg", "jpeg", "heic"]
+        if !text.contains("/"), pictureExtensions.contains((text as NSString).pathExtension.lowercased()) { return nil }
+        return String(text.prefix(2))
+    }
+
+    /// acpmux's own "default" model entry, which names what it resolves to
+    /// ("Default (GPT-6.1 Sol)"); the pickers list it first, as on the Mac.
+    public var defaultModel: Model? { offered.models.first { $0.id == "default" } }
+
+    /// The models to pick, without acpmux's "default" entry.
+    public var pickableModels: [Model] { offered.models.filter { $0.id != "default" } }
+
+    /// A model id's display name, from what the Mac offers.
+    public func modelName(_ id: String?) -> String? {
+        guard let id, id != "default" else { return nil }
+        return offered.models.first { $0.id == id }?.name
     }
 
     /// The harnesses the Mac's picker offers (HomeChiefSidebar): Claude and
@@ -121,11 +156,14 @@ public struct ChiefControl: Sendable {
     }
 
     /// Absent fields stay; "default" clears one (as on the Mac).
-    public func setEngine(harness: String? = nil, model: String? = nil, effort: String? = nil) async throws -> ChiefEngineReport {
+    /// `avatar` is sent only to a Mac whose report has `avatarSupported`.
+    public func setEngine(harness: String? = nil, model: String? = nil, effort: String? = nil,
+                          avatar: String? = nil) async throws -> ChiefEngineReport {
         var params: [String: Any] = [:]
         if let harness { params["harness"] = harness }
         if let model { params["model"] = model }
         if let effort { params["effort"] = effort }
+        if let avatar { params["avatar"] = avatar }
         return try await request("chief.engine.set", params: params, mutation: true,
                                  key: "cnx-ios-chief-engine-" + UUID().uuidString.lowercased())
     }
