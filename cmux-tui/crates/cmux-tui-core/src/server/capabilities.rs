@@ -85,6 +85,29 @@ fn test_hidden_capabilities() -> &'static [String] {
     })
 }
 
+/// cx-3r9mt: the daemon capabilities this build serves on any machine, for
+/// the remote update rule (`cmux_remote::update_need`, `remote-probe`'s
+/// `daemon_capabilities`). The static set without the ones a host decides
+/// (apps, file ops, browser runtime, image paste, the clear-history fallback,
+/// and every capability `identify` adds at runtime), so the same source gives
+/// the same set on a Mac, a Linux machine and Windows.
+pub fn build_capabilities() -> Vec<&'static str> {
+    let host_dependent = [
+        crate::apps::CAPABILITY,
+        crate::apps::CANCEL_REQUEST_CAPABILITY,
+        BROWSER_RUNTIME_CAPABILITY,
+    ];
+    let mut capabilities = advertised_capabilities(false);
+    capabilities.retain(|capability| !host_dependent.contains(capability));
+    #[cfg(unix)]
+    capabilities.retain(|capability| *capability != crate::fs_ops::FS_CAPABILITY);
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    capabilities.retain(|capability| *capability != crate::image_paste::CAPABILITY);
+    capabilities.sort_unstable();
+    capabilities.dedup();
+    capabilities
+}
+
 pub(super) fn advertised_capabilities(
     bounded_clear_history_fallback_writes: bool,
 ) -> Vec<&'static str> {

@@ -125,6 +125,10 @@ cmux-tui remote connect 'ws://[fd7a::10]:1337/v1/link' --wireguard-hub ~/.cmuxte
 
 The hub owns the tunnel and serves SOCKS5 CONNECT with no authentication on an owner-only Unix socket (parent directory `0700`, socket `0600`, peer uid checked). It dials literal IP targets inside the tunnel's `AllowedIPs` only: other addresses get reply `0x02` (not allowed by ruleset), names get `0x08` (address type not supported). It prints one JSON line `{"event":"hub-ready","socket":"<path>","routes":[...]}` when listening, exits non-zero with a clear error otherwise, and removes the socket on SIGTERM or SIGINT. `remote-probe --json` lists `wireguard-hub` in `capabilities` when a client supports both halves.
 
+## Keep a machine's cmux current
+
+`cmux remote-probe --json` names the build: `build_identity` (its source commit), `build_time` (unix seconds of that commit, 0 when unknown) and `daemon_capabilities` (the daemon capabilities the build serves on any machine; host-dependent ones such as apps, file ops, the browser runtime and image paste are left out). `cmux remote update-need --probe-json <FILE|->` reads another machine's probe and prints `{"need":"older|none|newer","reason":"same_commit|capabilities|build_time|incomparable|unknown","remote":{...},"local":{...}}`, with a `warning` when the two builds are incomparable. The rule: the same commit needs nothing; a remote whose capability set is a strict subset of this build's is older, a strict superset newer, neither a subset of the other needs nothing; with equal sets the build time decides (a remote time of 0 is older, the same time with another commit needs nothing, and this build's own unknown time needs nothing); a probe without `daemon_capabilities` predates the rule and is older. The exit status is 0 for every answer. The cmux app installs its bundled build on an SSH machine only when the answer is `older`, then hands the running session daemon and agent daemon over to it, keeping terminals and hosted agents.
+
 ## Client option reference
 
 `connect`, `ssh`, `forward`, and `rpc` share these connection options:
