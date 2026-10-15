@@ -24,7 +24,13 @@ use std::time::{Duration, Instant};
 const PURPOSE: &str = "cmux.free-tier.v1";
 
 fn scratch(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("amxf-{tag}-{}", std::process::id()));
+    // The pid alone is not unique: rbx lanes share TMPDIR but each has its own PID namespace,
+    // so two lanes' test processes can have the same pid, and one test's relay drop then
+    // shuts down the other's relay. The start time keeps two runs apart.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let dir = std::env::temp_dir().join(format!("amxf-{tag}-{}-{nanos:x}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -157,7 +163,7 @@ fn start_relay(dir: &Path, test_origin: &str) -> Relay {
 }
 
 fn admin(dir: &Path, request: Value) -> std::io::Result<Value> {
-    let mut stream = UnixStream::connect(dir.join("router").join("router.sock"))?;
+    let mut stream = UnixStream::connect(cmux_coderouter::admin_socket_path(dir.as_ref()))?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.write_all(format!("{request}\n").as_bytes())?;
     let mut line = String::new();
@@ -230,7 +236,7 @@ fn provider_full(
     fail_store: bool,
     std_b64: bool,
 ) -> UnixStream {
-    let stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
+    let stream = UnixStream::connect(cmux_coderouter::admin_socket_path(dir.as_ref())).unwrap();
     let mut write = stream.try_clone().unwrap();
     let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true, "managed": false, "has_key": has_key, "signed_in": signed_in});
     write.write_all(format!("{register}\n").as_bytes()).unwrap();
@@ -440,7 +446,8 @@ fn free_tier_a_provider_for_an_unknown_origin_is_refused() {
     for origin in
         ["https://api.example.com", "http://127.0.0.1:2", "https://cloud-api.cmux.dev.example.com"]
     {
-        let mut stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
+        let mut stream =
+            UnixStream::connect(cmux_coderouter::admin_socket_path(dir.as_ref())).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true});
         stream.write_all(format!("{register}\n").as_bytes()).unwrap();
@@ -664,7 +671,7 @@ fn free_tier_an_app_that_leaves_before_the_provider_line_leaves_no_provider_and_
     // moment). It half-closes: a fully closed peer fails the relay's peer check on macOS
     // (getpeereid on a dead socket), so that close would test the refusal, not this rule. The
     // stream drops only after the relay ended the provider, and nothing is ever read from it.
-    let mut early = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
+    let mut early = UnixStream::connect(cmux_coderouter::admin_socket_path(dir.as_ref())).unwrap();
     let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true});
     early.write_all(format!("{register}\n").as_bytes()).unwrap();
     early.shutdown(std::net::Shutdown::Write).unwrap();
