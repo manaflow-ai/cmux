@@ -594,7 +594,8 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone"
+        "two-tone",
+        "floating"
       ],
       "title" : "Window Style",
       "type" : "string"
