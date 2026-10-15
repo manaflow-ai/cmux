@@ -239,7 +239,7 @@
             "rows" : [
               "appearance.density",
               "app.uiScale",
-              "appearance.interfaceScale",
+              "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
               "appearance.metrics.titlebarHeight",
@@ -670,6 +670,16 @@
             "title" : {
               "key" : "settings.group.bookmarks",
               "text" : "Bookmarks"
+            }
+          },
+          {
+            "key" : "settings.group.extensions",
+            "rows" : [
+              "browser.builtInAdBlocker"
+            ],
+            "title" : {
+              "key" : "settings.group.extensions",
+              "text" : "Extensions"
             }
           },
           {
@@ -9469,7 +9479,7 @@
         "chromeFontSize"
       ],
       "kind" : "number",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "metrics",
@@ -9529,11 +9539,10 @@
         "scale",
         "bigger",
         "smaller",
-        "interfaceScale",
-        "labs"
+        "interfaceScale"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "interfaceScale"
@@ -19131,6 +19140,54 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.extensions",
+        "text" : "Extensions"
+      },
+      "help" : {
+        "key" : "settings.browser.builtInAdBlocker.help",
+        "text" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.builtInAdBlocker",
+      "keywords" : [
+        "ublock",
+        "ad blocker",
+        "adblock",
+        "extensions",
+        "trackers"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "builtInAdBlocker"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.builtInAdBlocker",
+        "text" : "Built-in uBlock Origin"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "moderate",
         "aggressive",
         "off",
@@ -23831,7 +23888,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "40f2b1ccdabcf11d6d75765eb2debc2aca631a22efb4458aefe24d1c03ea0ec0",
+  "schema_hash" : "42768ec761c195fc457b020794ebfc7a5f18b8c7f4663602b402e3c29d83a961",
   "sections" : [
     {
       "id" : "general",
