@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// One-time adopt of the old shared daemon session by an untagged NIGHTLY,
@@ -123,16 +124,15 @@ public struct LegacyChannelSession: Sendable {
 }
 
 /// `LegacyChannelSession`'s per-process answers.
-final class DecisionCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var answers: [String: Bool] = [:]
+final class DecisionCache: Sendable {
+    private let answers = Mutex<[String: Bool]>([:])
 
     func answer(_ key: String, _ decide: () -> Bool) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if let known = answers[key] { return known }
-        let value = decide()
-        answers[key] = value
-        return value
+        answers.withLock { answers in
+            if let known = answers[key] { return known }
+            let value = decide()
+            answers[key] = value
+            return value
+        }
     }
 }
