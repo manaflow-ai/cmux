@@ -161,14 +161,18 @@ extension BrowserPanel {
             webViewDidRequestClose?()
         case .devToolsVisibilityChanged(let open):
             isEngineDevToolsOpen = open
-        case .navigationFailed(let url, _, _, _):
+        case .navigationFailed(let url, let code, _, _):
             // A Chromium runtime that failed to start reports it as a failed
             // load: the panel opens the page in WebKit instead of staying blank.
             if let enginePage, let reason = engineRuntime.availability(for: enginePage.engineKind).unavailableReason {
                 fallBackToWebKit(reason: reason)
                 return
             }
-            finishEngineNavigation(failure: "navigation failed")
+            // ERR_ABORTED (-3) is a load that a newer one (a reload, the
+            // next navigation) replaced: it must not fail the newer load's wait.
+            if code != Self.engineAbortedErrorCode {
+                finishEngineNavigation(failure: "navigation failed")
+            }
             applyEnginePageNavigationFailure(url: url)
         default:
             break
@@ -229,6 +233,9 @@ extension BrowserPanel {
         guard entries.indices.contains(target) else { return nil }
         return entries[target]["id"] as? Int
     }
+
+    /// Chromium's `net::ERR_ABORTED`: a load replaced by a newer one.
+    static let engineAbortedErrorCode = -3
 
     /// A load the engine page started, as automation's navigation identity.
     private final class EngineNavigationToken {}

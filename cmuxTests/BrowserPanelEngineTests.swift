@@ -292,6 +292,24 @@ import Testing
         #expect(outcome == .failed("navigation failed"))
     }
 
+    @Test func anAbortedEarlierLoadDoesNotFailAutomationsReload() async throws {
+        let provider = FakeChromiumProvider()
+        let url = URL(string: "https://example.com/")!
+        provider.initialState = BrowserPageState(url: url)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let reload = try #require(panel.beginAutomationReloadFromCLI())
+        panel.handleEnginePageEvent(.navigationFailed(url, code: -3, message: "ERR_ABORTED", showsEngineErrorPage: false))
+        panel.handleEnginePageEvent(.navigationCommitted(url))
+        let outcome = await panel.automationNavigationCoordinator.wait(for: reload.ticket)
+        #expect(outcome == .committed)
+    }
+
     @Test func closingTheChromiumPanelClosesItsPage() {
         let provider = FakeChromiumProvider()
         let panel = BrowserPanel(
