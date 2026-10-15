@@ -32,6 +32,7 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
+              "tabs.hoverPreviews",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
               "tabs.tabBar.terminal",
@@ -2025,6 +2026,81 @@
       "title" : {
         "key" : "settings.tabs.toolbarButtons",
         "text" : "Tab Bar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "compact",
+        "full"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.compact",
+            "text" : "Compact"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverPreviews.full",
+            "text" : "Full"
+          },
+          "value" : "full"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "full",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.hoverPreviews.help",
+        "text" : "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.hoverPreviews",
+      "keywords" : [
+        "tabs",
+        "hover",
+        "preview",
+        "card",
+        "tooltip",
+        "thumbnail",
+        "memory",
+        "compact"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "hoverPreviews"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.hoverPreviews",
+        "text" : "Hover Previews"
       },
       "validation" : "portable"
     },
@@ -23772,7 +23848,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bcd28b55ae95c1dc208eb2f6284da7af98930017e4294732258c1ba9f5563b5a",
+  "schema_hash" : "088e92417c740b6e17aca03fddaa95c818733b6845f8a862653f560b3cebd18f",
   "sections" : [
     {
       "id" : "general",

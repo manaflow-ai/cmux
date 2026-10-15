@@ -109,12 +109,12 @@ final class TabHoverCardController: HoverCardSource {
     var hoverCardWindow: NSWindow? { strip?.window }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
-        guard let strip, let window = strip.window,
+        guard DesignSettings.shared.tabHoverPreviews != .off, let strip, let window = strip.window,
               let target = strip.hoverCardTarget(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
-                                delay: policy.showDelay(tabWidth: target.width, metrics: metrics)),
+                                delay: policy.showDelay(tabWidth: target.width, metrics: metrics), leave: policy.leave),
             anchor: target.anchor
         )
     }
@@ -129,12 +129,14 @@ final class TabHoverCardController: HoverCardSource {
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)
+        // Compact previews (`tabs.hoverPreviews`) show the facts without a thumbnail.
+        let full = DesignSettings.shared.tabHoverPreviews == .full
         if case .tab = content {
             body.setResources(resources.report ?? lastReports[tab])
             // On a retarget, a tab whose thumbnail is not known yet keeps what the card
             // shows (the last tab's picture, or no frame) until its own lands: never an
             // empty frame that collapses again (R131).
-            if noThumbnail.contains(tab) {
+            if !full || noThumbnail.contains(tab) {
                 body.setThumbnailVisible(false)
             } else if thumbnails.image(for: tab) != nil || (bodyID != id && opensFresh) {
                 body.setThumbnailVisible(true)
@@ -144,16 +146,19 @@ final class TabHoverCardController: HoverCardSource {
         if newCard { opensFresh = false }
         // A retarget keeps the shown thumbnail until this tab's lands; a tab
         // seen before shows its own at once.
-        if newCard, let cached = thumbnails.image(for: tab) { body.setThumbnail(cached) }
+        if newCard, full, let cached = thumbnails.image(for: tab) { body.setThumbnail(cached) }
         bodyID = id
         // Once per card, not on every content refresh (resource samples).
-        if newCard, case .tab = content { loadThumbnail(for: tab) }
+        if newCard, full, case .tab = content { loadThumbnail(for: tab) }
         return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in body?.applyColors() }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
         guard let tab = tabID(id), !tab.isGroupChip else { return }
         forgetClosedTabs()
+        // A hibernated page has no process to sample: its card keeps the last sample from
+        // before, which says what hibernating freed.
+        if strip?.model.tab(tab)?.isDormant == true { return }
         resources.open(.tab(tab.rawValue)) { [weak self] report in
             guard let self else { return }
             self.rememberReport(report, for: tab)
