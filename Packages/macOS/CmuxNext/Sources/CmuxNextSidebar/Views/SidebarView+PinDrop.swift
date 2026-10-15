@@ -34,7 +34,8 @@ import AppKit
     /// the item it goes before, or past the section's last item.
     static func slot(_ sidebar: SidebarView, for drop: SidebarRegionDrop) -> NSRect? {
         let region = sidebar.aboveRegion
-        let rows = region.layoutResult.rows.filter { SidebarRegionReorder.item(of: $0)?.1 == drop.section }
+        // The drop's index counts document items, so a client item drawn there (Channels after Home) is skipped.
+        let rows = region.layoutResult.rows.filter { SidebarRegionReorder.item(of: $0).map { $0.1 == drop.section && !$0.0.isTransient } == true }
         let frame: CGRect
         if drop.index < rows.count {
             frame = rows[drop.index].frame

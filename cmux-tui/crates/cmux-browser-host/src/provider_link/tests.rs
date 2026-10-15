@@ -24,6 +24,7 @@ fn tab(target_id: &str, engine: &str) -> TabAnnounce {
         url: "https://a.test/".into(),
         title: String::new(),
         visible: true,
+        input_scale: 1.0,
     }
 }
 
