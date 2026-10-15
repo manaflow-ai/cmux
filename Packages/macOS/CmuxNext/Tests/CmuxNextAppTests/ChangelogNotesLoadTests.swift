@@ -15,7 +15,7 @@ import Testing
     static let build = "4242"
 
     /// A notes server: answers the files it holds, counts every request, and
-    /// can hold each request until a second one is in flight (or a second passes).
+    /// can hold each request until two have been in flight at once (or a second passes).
     actor Network: AppcastFetching {
         var files: [String: Data]
         let pairRequests: Bool
@@ -34,7 +34,7 @@ import Testing
             peakInFlight = max(peakInFlight, inFlight)
             defer { inFlight -= 1 }
             if pairRequests {
-                for _ in 0..<100 where inFlight < 2 { try await Task.sleep(for: .milliseconds(10)) }
+                for _ in 0..<100 where peakInFlight < 2 { try await Task.sleep(for: .milliseconds(10)) }
             }
             guard let data = files[url.lastPathComponent] else { throw URLError(.fileDoesNotExist) }
             return data
