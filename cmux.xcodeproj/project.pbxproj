@@ -14034,6 +14034,7 @@
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 				C12758000000000000000005 /* Build Plain Text Paste Worker */,
 				A9E030000000000000000009 /* Reject Bundled Provider Binaries */,
+				CEFE3B000000000000000001 /* Embed CEF */,
 
 			);
 			buildRules = (
@@ -14654,6 +14655,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/build-plain-text-paste-worker.sh\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/cmux-paste-text-worker\" \"${ARCHS}\"\n";
+		};
+		CEFE3B000000000000000001 /* Embed CEF */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Embed CEF";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/scripts/cef/embed-cef.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
