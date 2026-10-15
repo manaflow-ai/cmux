@@ -21,10 +21,11 @@ public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting 
         self.init(contentRect: Self.frame(near: owner, remembered: remembered))
         // Moves, the end of a live resize, and resizes outside one (Zoom, a title bar double click).
         for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification, NSWindow.didResizeNotification] {
-            frameObservers.append(NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] note in
+            let isResize = name == NSWindow.didResizeNotification
+            frameObservers.append(NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { // main-proof: observer on queue: .main
                     guard let self else { return }
-                    if note.name == NSWindow.didResizeNotification, self.inLiveResize { return }
+                    if isResize, self.inLiveResize { return }
                     self.onFrameChange?(self.frame)
                 }
             })
