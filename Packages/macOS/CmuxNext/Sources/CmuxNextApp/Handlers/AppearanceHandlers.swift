@@ -165,12 +165,10 @@ enum AppearanceHandlers {
 
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
         try requireUnmanaged(fontSizePath, context)
-        let design = context.design
-        let values = InterfaceScaleSetting().values
-        let current = interfaceSize(design)
+        let values = InterfaceScaleSetting().values, current = interfaceSize(context.design)
         let index = values.enumerated().min(by: { abs($0.element - current) < abs($1.element - current) })?.offset ?? 1
         let next = values[min(max(index + Int(delta), 0), values.count - 1)]
-        design.interfaceScale = CGFloat(next)
+        context.design.interfaceScale = CGFloat(next)
         context.writeSetting("set interface size", fontSizePath, .number(next), reloadOnFailure: true)
     }
 
