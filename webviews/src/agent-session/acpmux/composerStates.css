@@ -41,8 +41,10 @@
 }
 
 /* Composer chips: Plan, the mode, model and effort pickers, and +. */
+/* The Plan toggle's rules name the button (`:where`, so their specificity stays a class's): the transcript's todo list row is `.acpmux-plan` too
+   (App.tsx's `acpmux-row acpmux-${kind}`), and the toggle's 28px height clipped the list. */
 .acpmux-picker-button:active,
-.acpmux-plan:active {
+:where(button).acpmux-plan:active {
   background: var(--acpmux-composer-press);
 }
 .acpmux-plan[aria-pressed="true"]:hover {
@@ -144,7 +146,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
-  .acpmux-plan {
+  :where(button).acpmux-plan {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
       color var(--agent-motion-hover) var(--agent-ease-out);

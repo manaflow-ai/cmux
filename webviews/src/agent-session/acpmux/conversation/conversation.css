@@ -2357,6 +2357,93 @@ pre.cv-math-source {
   border-color: var(--agent-text);
 }
 
+/* The status card (agent.sessionStatus Debug toggle, cx-ncc.102): a quiet card under the turn's work; a dashed circle waits, a
+   spinner runs and a filled check is done. No heading, strike-through or bold. */
+.cv-plan.is-card {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+.cv-plan.is-card .cv-plan__item {
+  min-height: 24px;
+}
+.cv-plan.is-card .cv-plan__item[data-status] {
+  font-weight: inherit;
+  text-decoration: none;
+}
+.cv-plan.is-card .cv-plan__item[data-status="pending"] .cv-plan__mark {
+  border-style: dashed;
+}
+.cv-plan.is-card .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-color: var(--cv-card-ring);
+  border-top-color: var(--agent-text);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-plan.is-card .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+    animation: cv-plan-spin 0.9s linear infinite;
+  }
+}
+@keyframes cv-plan-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* The live turn's activity line under the card (ActivityLine.tsx, cx-ncc.102). */
+.cv-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: 4px 0 8px;
+  padding-inline-start: 2px;
+  font-size: var(--text-body);
+  color: var(--cv-text-muted);
+}
+.cv-activity__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-activity__time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.cv-activity__dots {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+}
+.cv-activity__dots > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--agent-accent, currentColor);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-activity__dots > span {
+    animation: cv-activity-dot 1.2s ease-in-out infinite;
+  }
+  .cv-activity__dots > span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .cv-activity__dots > span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+@keyframes cv-activity-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
