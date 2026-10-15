@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CoreGraphics
 
 /// `appearance.metrics.chromeFontSize` in cmux.json: the legacy interface size.
 public struct InterfaceSizeSetting: Sendable {
@@ -29,6 +30,7 @@ public struct InterfaceScaleSetting: Sendable {
 
 /// The palette's Interface Size step and reset: `appearance.interfaceScale` while the Debug
 /// Settings toggle `chrome.interfaceSize` is on, else the familiar `chromeFontSize` in points.
+@MainActor
 extension DesignSettings {
     /// The setting an Interface Size step or reset writes.
     public var interfaceSizePath: [String] {
