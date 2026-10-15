@@ -149,7 +149,9 @@ extension TerminalFrameCoverTests {
         // Six display frames at 120 Hz: the end's frame is not in yet.
         #expect(!TerminalScrollGate.fallbackMoves(covered: false, waited: 0.05))
         #expect(!TerminalScrollGate.fallbackMoves(covered: false, waited: 0.25))
-        #expect(TerminalScrollGate.fallbackMoves(covered: false, waited: TerminalScrollGate.maxWait))
+        // qa11 wt-fling-c/d: never, not even past the maximum wait (3-frame blacks).
+        #expect(!TerminalScrollGate.fallbackMoves(covered: false, waited: TerminalScrollGate.maxWait))
+        #expect(!TerminalScrollGate.fallbackMoves(covered: false, waited: 5))
         #expect(TerminalScrollGate.fallbackMoves(covered: true, waited: 0.02))
         #expect(TerminalScrollGate.maxWait < 0.4)
     }
@@ -182,5 +184,29 @@ extension TerminalFrameCoverTests {
         // Rows past the document's end are the page's own background.
         #expect(TerminalScrollGate.interimOffset(frame: 271000..<272500, document: 0..<272500, current: 271900,
                                                  target: 271950, viewport: viewport) == nil)
+    }
+}
+
+/// qa11 wt-fling-c/d (build 2e205166, 4 black runs of 3 source frames in 120
+/// jumps, the scroll indicator already at the bottom): while the jump waited,
+/// viewport requests still followed the page's offset (the reader's rows):
+/// a scrollbar report or the composer's inset change asked Ghostty for the
+/// reader's rows again after the end had been asked for. The end's frame was
+/// placed and the page moved, then the reader's frame came, was placed at the
+/// reader's rows, and the page at the end had nothing under it for 3 frames.
+/// While a move waits, every viewport request is for its target's rows; past
+/// the maximum wait the page goes to the placed frame's rows nearest the
+/// target, never to rows no frame covers.
+@Suite struct TerminalScrollGateRequestTests {
+    @Test func aWaitingMoveAsksOnlyForItsTargetsRows() {
+        #expect(TerminalScrollGate.requestOffset(awaiting: true, current: 250_000, target: 273_000) == 273_000)
+        #expect(TerminalScrollGate.requestOffset(awaiting: false, current: 250_000, target: 273_000) == 250_000)
+        #expect(TerminalScrollGate.requestOffset(awaiting: true, current: 250_000, target: nil) == 250_000)
+    }
+
+    @Test func pastTheMaximumWaitThePageGoesToTheFramesRowsNearestTheTarget() {
+        #expect(TerminalScrollGate.fallbackOffset(frame: 270_000..<272_400, target: 271_700, viewport: 800) == 271_600)
+        #expect(TerminalScrollGate.fallbackOffset(frame: 250_000..<252_400, target: 271_700, viewport: 800) == 251_600)
+        #expect(TerminalScrollGate.fallbackOffset(frame: 270_000..<272_400, target: 260_000, viewport: 800) == 270_000)
     }
 }
