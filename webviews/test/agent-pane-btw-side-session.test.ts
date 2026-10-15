@@ -170,7 +170,8 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   }
 
-  /// Opens `session` with the gate on or off, recording what the page asks the app to open
+  /// Opens `session` with Debug Settings' Side sessions (/btw) on or off (the `sideSessions` of
+  /// the header state the app answers `pane.tabState` with), recording what the page asks the app to open
   /// (`chat.sideChat`) on top of the dev host.
   async function openChat(session: string, gate: boolean): Promise<Page> {
     btws.length = 0;
@@ -178,7 +179,6 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     cancels.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.addInitScript((gate: boolean) => {
-      if (gate) localStorage.setItem("cmux.experiments", '{"side-question":"on"}');
       const sideChats: unknown[] = [];
       const handlers: Record<string, unknown> = {};
       let host: { postMessage(message: unknown): Promise<unknown> } | undefined;
@@ -188,6 +188,9 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         get: () =>
           host && {
             postMessage(message: { t?: string; id?: number; op?: string; params?: unknown }) {
+              // The chat's header state carries Debug Settings' Side sessions (/btw) toggle.
+              if (message?.t === "call" && message.op === "cmux.agent.pane.tabState")
+                return Promise.resolve({ t: "ok", id: message.id, value: { sideSessions: gate, version: 1 } });
               if (message?.t === "call" && message.op === "cmux.agent.chat.sideChat") {
                 sideChats.push(message.params);
                 // A test sets `refuseSideChat`: the app does not open the side session.
@@ -257,7 +260,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       await page.close();
     });
 
-    test("with the gate off, /btw starts no side session", async () => {
+    test("with Side sessions off, /btw starts no side session", async () => {
       const page = await openChat(MAIN, false);
       await type(page, `/btw ${QUESTION}`);
       for (let i = 0; i < 40 && prompts.length === 0; i++) await page.waitForTimeout(50);
@@ -307,6 +310,31 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".acpmux-composer-prompt")))).toBe(true);
       await page.keyboard.type(QUESTION);
       await page.keyboard.press("Enter");
+      await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
+      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
+      await page.close();
+    });
+
+    test("with Side sessions off, the palette's sideQuestion leaves the composer empty", async () => {
+      const page = await openChat(MAIN, false);
+      await page.evaluate(() =>
+        (window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }).cmuxAcpmuxBridge.command(
+          "sideQuestion",
+        ),
+      );
+      await page.waitForTimeout(300);
+      expect(await composerText(page)).toBe("");
+      await page.close();
+    });
+
+    test("turning Side sessions on reaches an open chat without reopening it", async () => {
+      const page = await openChat(MAIN, false);
+      await page.evaluate(() =>
+        (
+          window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+        ).cmuxAcpmuxBridge.applyHeaderState({ sideSessions: true, version: 2 }),
+      );
+      await type(page, `/btw ${QUESTION}`);
       await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
       await page.close();
