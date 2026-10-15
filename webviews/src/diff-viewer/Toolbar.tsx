@@ -302,7 +302,6 @@ function SourceControls({
           onSelectSessionSource={(source) =>
             onSelectSessionSource(repoSelectionWithActiveSource(source, activeSessionSource))
           }
-          selectedOptionTitle
           selectedValue={diffSourceRepoRoot(activeSessionSource)}
         />
       ) : null}
@@ -496,7 +495,6 @@ function NavigationSelect({
   onNavigate,
   onSelectSessionSource,
   options,
-  selectedOptionTitle = false,
   selectedValue,
 }: {
   ariaLabel: string;
@@ -505,7 +503,6 @@ function NavigationSelect({
   onNavigate: (url: string) => void;
   onSelectSessionSource?: (source: DiffSource) => void;
   options: any[] | undefined;
-  selectedOptionTitle?: boolean;
   selectedValue?: string | null;
 }) {
   if (!Array.isArray(options) || options.length < 2) {
@@ -515,17 +512,11 @@ function NavigationSelect({
     options.find((option) => option.value === selectedValue) ??
     options.find((option) => option.selected) ??
     options.find((option) => !option.disabled);
-  const selectedTitle = selectedOptionTitle
-    ? typeof selected?.message === "string" && selected.message.trim() !== ""
-      ? selected.message
-      : String(selected?.value ?? fallbackValue).trim() || ariaLabel
-    : ariaLabel;
   return (
     <select
       id={id}
       aria-label={ariaLabel}
       value={selected?.value ?? fallbackValue}
-      title={selectedTitle}
       onChange={(event) => {
         const next = options.find((option) => option.value === event.currentTarget.value);
         if (validDiffSource(next?.sessionSource) && onSelectSessionSource) {
@@ -544,7 +535,6 @@ function NavigationSelect({
           key={option.value}
           value={option.value}
           disabled={option.disabled || (!option.url && !validDiffSource(option.sessionSource))}
-          title={option.message}
         >
           {option.label}
         </option>

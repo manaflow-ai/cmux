@@ -10,6 +10,7 @@ enum AgentPanePageHost {
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
         let page = PageWebView(descriptor: .agent, root: root,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
+                               documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(fullFrameRate: renderRate != .capped))
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in

@@ -415,6 +415,10 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number): Acpm
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
+  // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
+  // the stored one, so the row draws again, done, once another row follows it.
+  if (last.kind === "activity")
+    return [status, ...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
   return [status, ...rows];
 }
 

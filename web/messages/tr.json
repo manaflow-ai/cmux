@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Makine yanıt vermiyor",
       "message": "Bu makine zamanında yanıt vermediği için istek tamamlanamadı.",
-      "action": "Makineyi duraklatın, ardından sürdürün ve tekrar deneyin. Mac uygulamasında Makineyi duraklat'ı, ardından Makineyi sürdür'ü seçin. Terminalde cmux vm pause '<machine>', ardından cmux vm resume '<machine>' çalıştırın."
+      "action": "Yeni bir makine oluşturmadan önce izleme kimliğiyle desteğe başvurun."
     },
     "inProgress": {
       "title": "Hâlâ devam ediyor",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go, 2 vCPU, 4 GiB RAM ve 16 GiB disk destekler.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} işlem kotası doldu",
+      "computeMessage": "{plan} planınız bu fatura dönemindeki {included} işlem saatini kullandı. Bir işlem saati, 2 GB bellekli 1 vCPU'nun bir saat çalışmasıdır. Makineleriniz {resetDate} tarihinde yeniden başlatılabilir.",
+      "computeAction": "Duraklatılan makineler dosyalarını korur. {resetDate} tarihinden önce daha fazla işlem gücüne ihtiyacınız varsa destekle iletişime geçin.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} disk kotası doldu",
+      "storageMessage": "{plan} planınız, kayıtlı tüm makineler için toplam {included} GB disk içerir. Kayıtlı makineler {used} GB kullanıyor ve bu istek {requested} GB gerektiriyor.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Yeterli Cloud VM kaynağı yok",

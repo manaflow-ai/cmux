@@ -4,6 +4,11 @@
 //! codex binary the bridge runs, and a family `prefer` list picks the profile.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -12,7 +17,7 @@ use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -33,7 +38,11 @@ fn dir(tag: &str) -> PathBuf {
 /// An executable `name` in `d/bin` that runs `script` with its arguments.
 fn shim(d: &Path, name: &str, script: &str) -> PathBuf {
     let path = d.join("bin").join(name);
-    std::fs::write(&path, format!("#!/bin/sh\nexec python3 {script} \"$@\"\n")).unwrap();
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(script)),
+    )
+    .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
 }
@@ -213,25 +222,21 @@ async fn a_prefer_list_still_picks_the_codex_profile() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// The real daemon discovers its harnesses on its own PATH.
-#[tokio::test]
-async fn codex_on_path_is_the_bridge_and_the_adapter_becomes_codex_acp() {
-    let d = dir("discover");
-    shim(&d, "codex", FAKE_APP_SERVER);
-    shim(&d, "codex-acp", FAKE_AGENT);
+/// The harnesses a real daemon discovers on the PATH `d/bin` (plus the system's).
+async fn discovered_harnesses(d: &Path) -> Value {
     let home = d.join("home");
     std::fs::create_dir_all(&home).unwrap();
     let acp_home = d.join("acpmux");
     std::fs::create_dir_all(&acp_home).unwrap();
     let socket = acp_home.join("s.sock");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    // The stand-in codex in `d/bin`, first on the bare PATH, is only listed:
+    // no launch is needed.
+    let mut child = daemon_env::acpmux(d)
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
-        .env("PATH", format!("{}:/usr/bin:/bin", d.join("bin").display()))
-        .env("HOME", &home)
+        .env("PATH", format!("{}:{}", d.join("bin").display(), daemon_env::bare_path(&[])))
         .env("ACPMUX_HOME", &acp_home)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -264,9 +269,41 @@ async fn codex_on_path_is_the_bridge_and_the_adapter_becomes_codex_acp() {
     };
     let _ = child.kill();
     let _ = child.wait();
-    let h = &reply["result"]["harnesses"];
+    reply["result"]["harnesses"].clone()
+}
+
+/// The real daemon discovers its harnesses on its own PATH.
+#[tokio::test]
+async fn codex_on_path_is_the_bridge_and_the_adapter_becomes_codex_acp() {
+    let d = dir("discover");
+    shim(&d, "codex", FAKE_APP_SERVER);
+    shim(&d, "codex-acp", FAKE_AGENT);
+    let h = &discovered_harnesses(&d).await;
     assert_eq!(h["codex"]["argv"][1], "app-server", "{h}");
     assert!(h["codex"]["argv"][0].as_str().unwrap_or("").ends_with("/codex"), "{h}");
     assert!(h["codex-acp"]["argv"][0].as_str().unwrap_or("").ends_with("/codex-acp"), "{h}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Without a codex-acp on PATH, the pinned npx adapter is not offered beside
+/// the bridge: it reads the account through codex's `account/read`, which a
+/// ChatGPT login behind a routing proxy (subrouter) fails, so its chats never
+/// started ("Authentication required"). `codex-acp`, the name earlier chats
+/// and model picks recorded, runs the bridge instead.
+#[tokio::test]
+async fn without_codex_acp_on_path_the_npx_adapter_gives_way_to_the_bridge() {
+    let d = dir("npx-adapter");
+    shim(&d, "codex", FAKE_APP_SERVER);
+    // An npx that installs nothing: discovery only needs it to exist.
+    let npx = d.join("bin").join("npx");
+    std::fs::write(&npx, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&npx, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let h = &discovered_harnesses(&d).await;
+    for (name, profile) in h.as_object().unwrap() {
+        let program = profile["argv"][0].as_str().unwrap_or("");
+        assert!(!program.ends_with("/npx"), "{name} launches through npx: {h}");
+    }
+    assert_eq!(h["codex"]["argv"][1], "app-server", "{h}");
+    assert_eq!(h["codex-acp"]["argv"], h["codex"]["argv"], "codex-acp runs the bridge: {h}");
     let _ = std::fs::remove_dir_all(&d);
 }

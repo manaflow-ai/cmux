@@ -6,11 +6,16 @@
 //! still go through. Real binaries, real sockets, a temporary home.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -31,15 +36,12 @@ fn scratch(tag: &str) -> PathBuf {
 
 /// A daemon in `dir` with the local router on; returns after its readiness line.
 fn start_daemon(dir: &Path) -> Child {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .env("ACPMUX_LOCAL_ROUTER", "1")
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("ACPMUX_AGENT_HOSTS")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -59,7 +61,7 @@ fn start_daemon(dir: &Path) -> Child {
 
 /// `acpmux daemon shutdown` as the CLI runs it, against the daemon in `dir`.
 fn cli_shutdown(dir: &Path, extra: &[&str]) {
-    let out = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let out = daemon_env::acpmux(dir)
         .args(["daemon", "shutdown"])
         .args(extra)
         .env("ACPMUX_HOME", dir)
