@@ -231,6 +231,8 @@ final class BrowserHibernation {
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
+        // A probe that kept the page before no longer applies (`debug.surfaces`).
+        exemptions[key] = nil
         hibernatedCount += 1
         logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
     }
