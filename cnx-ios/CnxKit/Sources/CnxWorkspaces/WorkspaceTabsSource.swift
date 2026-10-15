@@ -245,18 +245,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func close(_ id: TabsKitTab.ID) async -> Bool {
         guard let workspace, let tab = workspace.tabs.first(where: { $0.id == id }) else { return true }
-        // A program running in the tab (Codex working): one small tap would
-        // detach it with no way back from the phone. Ask first, like closing a
-        // terminal with a running process on the Mac (Codex QA F9).
-        if let program = TabCloseGuard().runningProgram(tab) {
-            resolvePendingClose(false)
-            let confirmed = await withCheckedContinuation { continuation in
-                pendingClose = PendingClose(title: "Close \(tab.title)?",
-                                            message: "\(program) is still running on \(macName). Closing the tab stops it there.",
-                                            resume: continuation)
-            }
-            guard confirmed else { return false }
-        }
+        // A working agent or a program running in the tab: a phone close ends
+        // its terminal with no way back. Ask first, exactly as the Mac's tab
+        // close does (TabCloseGuard), from the Mac's own process state.
+        guard await confirmClose([tab], in: workspace) else { return false }
         guard let creator else {
             show("Connect to \(macName) first.")
             CnxTheme.standard.haptics.error()
@@ -278,6 +270,24 @@ public final class WorkspaceTabsSource: TabsDataSource {
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
         return true
+    }
+
+    /// Whether closing `tabs` may go ahead: at once when no closing terminal
+    /// is doing work, else after the person confirms the Mac's question
+    /// ("Close “name”?" / "Still running: sleep."). A newer close question
+    /// cancels an older one that is still shown.
+    func confirmClose(_ tabs: [WorkspaceTab], in workspace: Workspace) async -> Bool {
+        let guardrail = TabCloseGuard()
+        let asked = guardrail.terminalsToAsk(tabs)
+        let hasAgent = tabs.contains { guardrail.workingAgent($0) != nil }
+        guard hasAgent || !asked.isEmpty else { return true }
+        var programs: [String] = []
+        if !hasAgent, let creator { programs = await creator.backend.runningPrograms(of: asked, in: workspace) }
+        guard let prompt = guardrail.prompt(closing: tabs, programs: programs) else { return true }
+        resolvePendingClose(false)
+        return await withCheckedContinuation { continuation in
+            pendingClose = PendingClose(title: prompt.title, message: prompt.message, resume: continuation)
+        }
     }
 
     /// The workspace's toast (a tab that could not be opened or closed): one short line
@@ -679,6 +689,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         renamingGroupTab = nil
         guard let workspace, let creator, let tab = workspaceTab(id) else { return }
         if case .rename(let name) = edit, name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+        // Close Tab Group asks as closing its tabs one by one would (A2).
+        if edit == .close, let group = tab.group {
+            let members = workspace.tabs.filter { $0.group?.id == group.id }
+            guard await confirmClose(members, in: workspace) else { return }
+        }
         let before = workspace.tabs
         apply(edit, to: tab)
         do {
@@ -687,6 +702,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 for member in before where member.group?.id == group.id {
                     _ = store.removeTab(member.id, from: workspaceID)
                     surfaces[member.id] = nil
+                    browsers[member.id] = nil
+                    streamed.drop(tab: member.id)
                 }
                 if workspaceTab(selectedTabID ?? "") == nil { selectedTabID = self.workspace?.tabs.first?.id }
                 if self.workspace?.tabs.isEmpty ?? true { exit() }

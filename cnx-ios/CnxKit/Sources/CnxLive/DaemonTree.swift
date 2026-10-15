@@ -41,8 +41,20 @@ public struct DaemonTree: Sendable {
     /// The terminal to end with `tab`: its own `pty` terminal, unless another
     /// listed tab (any workspace) still shows it.
     public func terminalEndedByClosing(_ tab: String) -> TerminalRef? {
-        guard let terminal = terminals[tab] else { return nil }
-        return terminals.contains { $0.key != tab && $0.value.id == terminal.id } ? nil : terminal
+        terminalsEndedByClosing([tab]).first
+    }
+
+    /// The terminals to end when `tabs` close together (a tab group): each
+    /// one's own `pty` terminal that no tab outside `tabs` still shows, once.
+    public func terminalsEndedByClosing(_ tabs: [String]) -> [TerminalRef] {
+        let closing = Set(tabs)
+        var ended: [TerminalRef] = []
+        for tab in tabs {
+            guard let terminal = terminals[tab], !ended.contains(where: { $0.id == terminal.id }) else { continue }
+            if terminals.contains(where: { !closing.contains($0.key) && $0.value.id == terminal.id }) { continue }
+            ended.append(terminal)
+        }
+        return ended
     }
     /// Each workspace's numeric daemon id by app workspace id (`move-tab-to-workspace`).
     public var workspaceNumbers: [String: Int] = [:]

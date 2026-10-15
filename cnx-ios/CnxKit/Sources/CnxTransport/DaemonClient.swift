@@ -44,10 +44,19 @@ public actor DaemonClient {
     }
 
     /// Sends `{"id", "cmd", ...params}` and returns the raw JSON reply line.
-    public func request(_ cmd: String, params: [String: Any] = [:]) async throws -> Data {
+    /// With `deadline`, a reply that has not come by then fails with
+    /// `LinkError` `reply_timeout` (a late reply is dropped).
+    public func request(_ cmd: String, params: [String: Any] = [:], deadline: Duration? = nil,
+                        clock: any Clock<Duration> = ContinuousClock()) async throws -> Data {
         start()
         let id = nextRequestID()
         let line = try line(id: id, cmd: cmd, params: params)
+        if let deadline {
+            Task { [weak self] in
+                try? await clock.sleep(for: deadline)
+                await self?.fail(id: id, error: LinkError(code: Self.replyTimeout, message: "no reply to \(cmd) in time"))
+            }
+        }
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
             Task {

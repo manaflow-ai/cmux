@@ -205,6 +205,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab
     /// Closes a tab on the Mac.
     func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// The foreground programs other than the login shell in `tabs`' terminals, read from
+    /// the Mac (`process-info`), unique and sorted; a terminal that does not answer in
+    /// time counts as idle, as on the Mac.
+    func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String]
     /// Whether tabs can be renamed, duplicated and moved on `macID` now.
     func canEditTabs(on macID: String) -> Bool
     /// Renames a tab on the Mac (the phone never sends an empty name).
@@ -264,6 +268,7 @@ extension WorkspaceCreationBackend {
     public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
+    public func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String] { [] }
     public func canEditTabs(on macID: String) -> Bool { false }
     public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")

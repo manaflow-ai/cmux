@@ -1,26 +1,55 @@
 import CnxModel
 import Foundation
 
-/// Whether closing a tab needs the person's confirmation (Codex QA F9): a
-/// terminal running an agent or a known long-running program, not a shell at
-/// its prompt. The Mac reports agents (Codex, Claude) by status; a program
-/// otherwise names the tab through its title.
+/// The one question a tab close can ask, as the cmux-next Mac app asks it
+/// (`CmuxNextApp/Handlers/TabCloseGuard.swift`, #17501): only while a closing
+/// terminal is doing work. A working agent in it (or one waiting on an answer)
+/// is that agent's question ("Codex is still working."); else a foreground
+/// program other than the login shell, which the Mac reports through
+/// `process-info` (`foreground_executable`), asks "Still running: sleep.".
+/// Idle shells, ended shells, browser tabs and agent chats close at once.
+/// The title is never read: a Codex named by its thread, `sleep` or `yes`
+/// under zsh's title all asked nothing before (round 11 N2/A1), and since a
+/// phone close ends the terminal (`close-terminal`) that stopped them.
 public struct TabCloseGuard: Sendable {
-    /// Programs whose tab asks before closing (by the title's first word).
-    static let programs: Set<String> = [
-        "codex", "claude", "gemini", "aider", "vim", "nvim", "vi", "emacs", "nano", "hx", "top", "htop", "btop",
-        "less", "man", "ssh", "mosh", "tmux", "screen", "python", "python3", "node", "npm", "pnpm", "bun", "cargo",
-        "make", "docker", "kubectl",
-    ]
-
     public init() {}
 
-    /// The running program's name, or nil when the tab closes at once.
-    public func runningProgram(_ tab: WorkspaceTab) -> String? {
-        guard tab.kind == .terminal else { return nil }
-        if tab.agentStatus != nil { return tab.agentName }
-        let first = tab.title.trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init) ?? ""
-        let name = (first as NSString).lastPathComponent.lowercased()
-        return Self.programs.contains(name) ? name : nil
+    public struct Prompt: Equatable, Sendable {
+        public var title: String
+        public var message: String
+    }
+
+    /// The terminals whose foreground program the Mac is asked for: live
+    /// terminal tabs with no working agent (an agent's tab is its own question).
+    public func terminalsToAsk(_ tabs: [WorkspaceTab]) -> [WorkspaceTab] {
+        tabs.filter { $0.kind == .terminal && !$0.hasEndedShell && workingAgent($0) == nil }
+    }
+
+    /// The display name of an agent working (or waiting on a permission or a
+    /// question) in `tab`'s terminal, else nil. An unnamed agent reads "The agent".
+    public func workingAgent(_ tab: WorkspaceTab) -> String? {
+        guard tab.kind == .terminal, !tab.hasEndedShell else { return nil }
+        let working = tab.agentStatus == .working || (tab.agentStatus == .waiting && tab.waitingFor != nil)
+        guard working else { return nil }
+        guard let harness = tab.harness, !harness.isEmpty else { return "The agent" }
+        return tab.agentName
+    }
+
+    /// The question for closing `tabs` (one tab or a group), given the
+    /// programs the Mac reported for `terminalsToAsk(tabs)`; nil closes at once.
+    public func prompt(closing tabs: [WorkspaceTab], programs: [String]) -> Prompt? {
+        let title = tabs.count == 1 ? "Close \u{201C}\(tabs[0].title)\u{201D}?" : "Close \(tabs.count) tabs?"
+        if let agent = tabs.lazy.compactMap(workingAgent).first {
+            return Prompt(title: title, message: "\(agent) is still working.")
+        }
+        let unique = Set(programs.filter { !$0.isEmpty }).sorted()
+        guard !unique.isEmpty else { return nil }
+        return Prompt(title: title, message: "Still running: \(unique.joined(separator: ", ")).")
+    }
+
+    /// `process-info`'s foreground program when it is not the terminal's own
+    /// shell, else nil.
+    public static func runningProgram(foregroundExecutable: String?, command: String?) -> String? {
+        TerminalProcessInfo(command: command, foregroundExecutable: foregroundExecutable).runningProgram
     }
 }

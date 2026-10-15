@@ -455,23 +455,71 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let surface = sync.tree?.surfaces[tab.id] else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")
         }
-        let terminal = sync.tree?.terminalEndedByClosing(tab.id)
+        let terminals = sync.tree?.terminalsEndedByClosing([tab.id]) ?? []
         do {
             try WorkspaceSync.check(await client.request("close-surface", params: ["surface": surface]))
-            if let terminal {
-                var params: [String: Any] = ["terminal_id": terminal.id]
-                if let incarnation = terminal.incarnation { params["terminal_incarnation"] = incarnation }
-                do {
-                    try WorkspaceSync.check(await client.request("close-terminal", params: params))
-                } catch {
-                    creationLog.error("close-terminal \(terminal.id, privacy: .public) after the tab closed: \(String(describing: error), privacy: .public)")
-                }
-            }
+            await end(terminals, on: client)
             _ = try? await sync.listNow()
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
     }
+
+    /// `close-terminal` for each terminal a phone close ended (`terminalsEndedByClosing`),
+    /// after its tabs closed. A refusal leaves the reap to the daemon: the tabs are closed.
+    private func end(_ terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async {
+        for terminal in terminals {
+            do {
+                try WorkspaceSync.check(await client.request("close-terminal", params: Self.closeParams(terminal)))
+            } catch {
+                creationLog.error("close-terminal \(terminal.id, privacy: .public) after the tab closed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    nonisolated static func closeParams(_ terminal: DaemonTree.TerminalRef) -> sending [String: Any] {
+        var params: [String: Any] = ["terminal_id": terminal.id]
+        if let incarnation = terminal.incarnation { params["terminal_incarnation"] = incarnation }
+        return params
+    }
+
+    /// The foreground programs in `tabs`' terminals (`process-info`, one bounded read per
+    /// terminal, concurrent, 1 s each as on the Mac). No link, an unlisted tab, a refusal or
+    /// a late reply count as idle: the close never waits on a quiet Mac.
+    public func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String] {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { return [] }
+        let surfaces = tabs.filter { $0.kind == .terminal }.compactMap { sync.tree?.surfaces[$0.id] }
+        guard !surfaces.isEmpty else { return [] }
+        let replies = await withTaskGroup(of: (Int, Result<Data, any Error>).self) { group in
+            for surface in surfaces {
+                group.addTask {
+                    do {
+                        return (surface, .success(try await client.request("process-info", params: ["surface": surface],
+                                                                           deadline: Self.processInfoDeadline)))
+                    } catch {
+                        return (surface, .failure(error))
+                    }
+                }
+            }
+            var replies: [(Int, Result<Data, any Error>)] = []
+            for await reply in group { replies.append(reply) }
+            return replies
+        }
+        var programs: [String] = []
+        for (surface, reply) in replies {
+            do {
+                if let program = TerminalProcessInfo(reply: try WorkspaceSync.check(try reply.get())).runningProgram {
+                    programs.append(program)
+                }
+            } catch {
+                creationLog.error("process-info \(surface) before a close: \(String(describing: error), privacy: .public)")
+            }
+        }
+        return Set(programs).sorted()
+    }
+
+    /// How long a close waits for one terminal's `process-info` (the Mac's 1 s).
+    nonisolated static let processInfoDeadline: Duration = .seconds(1)
 
     // MARK: Tab edits
 
@@ -652,7 +700,17 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         case .ungroup:
             try await run(client, "ungroup-tab-group", ["group": try group(of: tab)])
         case .close:
-            try await run(client, "close-tab-group", ["group": try group(of: tab)])
+            // The phone has no undo: each member's terminal ends, as a tab close ends it (A2).
+            let id = try group(of: tab)
+            let members = workspace.tabs.filter { $0.group?.id == id }.map(\.id)
+            let terminals = sync.tree?.terminalsEndedByClosing(members) ?? []
+            do {
+                try WorkspaceSync.check(await client.request("close-tab-group", params: ["group": id]))
+                await end(terminals, on: client)
+                _ = try? await sync.listNow()
+            } catch let error as DaemonReplyError {
+                throw WorkspaceCreationError(error.message)
+            }
         case .save:
             try await run(client, "save-tab-group", ["group": try group(of: tab)])
         case .unsave:
