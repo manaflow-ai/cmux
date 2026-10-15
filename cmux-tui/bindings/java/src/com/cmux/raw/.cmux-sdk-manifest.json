@@ -117,8 +117,8 @@
     },
     {
       "path": "BindConversationTabSessionRequest.java",
-      "sha256": "c2412ed41a5281068eeff20f00c6fc0a25569e81045a09d44f4b9fcb29a7288d",
-      "size": 3912
+      "sha256": "7261ad51d8b1c5dab2303e11fd0f0e1800d99dba82afd30b8809c8a63c7cd35a",
+      "size": 4760
     },
     {
       "path": "BindConversationTabSessionResult.java",
@@ -1977,7 +1977,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "23f975f9ab381ab6ddd5ee243e5df51117d279cda69887f5df4ad854f0c35159",
+      "sha256": "4d7f5a325c213bfe633be39ed6964e3d79cfa145073f6e9298c5d3125b5dbddf",
       "size": 6943
     },
     {
@@ -3237,7 +3237,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "db606192e33b79a036e50749996c1711fd97da4f5599d8d34085e09e53434396",
+  "ir_sha256": "09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "db606192e33b79a036e50749996c1711fd97da4f5599d8d34085e09e53434396";
+inline constexpr std::string_view kProtocolIrSha256 = "09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -880,6 +880,7 @@ struct BellEvent {
 
 struct BindConversationTabSessionRequest {
     std::optional<std::string> expected_session{};
+    Field<std::string> harness{};
     std::string session{};
     Id surface{};
     friend bool operator==(const BindConversationTabSessionRequest&, const BindConversationTabSessionRequest&) = default;

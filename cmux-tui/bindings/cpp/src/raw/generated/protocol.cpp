@@ -13883,6 +13883,11 @@ Result<Json> Codec<BindConversationTabSessionRequest>::encode(const BindConversa
     } else {
         object.emplace("expected_session", Json(nullptr));
     }
+    if (!value.harness.is_absent()) {
+        auto encoded = encode_value(value.harness);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("harness", std::move(encoded).value());
+    }
     auto encoded_session = encode_value(value.session);
     if (!encoded_session) return std::move(encoded_session).error();
     object.emplace("session", std::move(encoded_session).value());
@@ -13907,6 +13912,16 @@ Result<BindConversationTabSessionRequest> Codec<BindConversationTabSessionReques
             auto decoded = decode_value<std::string>(*field_expected_session);
             if (!decoded) return std::move(decoded).error();
             result.expected_session = std::move(decoded).value();
+        }
+    }
+    const Json* field_harness = value.find("harness");
+    if (field_harness) {
+        if (field_harness->is_null()) {
+            result.harness = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_harness);
+            if (!decoded) return std::move(decoded).error();
+            result.harness = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_session = value.find("session");

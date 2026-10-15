@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR db606192e33b79a036e50749996c1711fd97da4f5599d8d34085e09e53434396. */
+/* cmux-tui mux protocol 12, IR 09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297. */
 
 
 import type * as T from "./types.js";
@@ -80,6 +80,8 @@ export interface BindConversationTabSessionRequest extends CmuxRequestBase {
   cmd: "bind-conversation-tab-session";
   /** The tab's current session, or null for a tab without one; the bind applies only when it matches. */
   "expected_session": (string) | null;
+  /** The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone. */
+  "harness"?: (string) | null;
   "session": string;
   "surface": T.Id;
 }
