@@ -65,9 +65,9 @@ import Testing
             let escapedStderr = stderr.replacingOccurrences(of: "'", with: "'\\''")
             let script = """
             #!/bin/sh
-            printf '%s\\n' "$*" >> '(logPath)'
-            printf '%s' '(escapedStderr)' >&2
-            exit (exitCode)
+            printf '%s\\n' "$*" >> '\(logPath)'
+            printf '%s' '\(escapedStderr)' >&2
+            exit \(exitCode)
             """
             let executable = root.appendingPathComponent("ssh")
             try script.write(to: executable, atomically: true, encoding: .utf8)
