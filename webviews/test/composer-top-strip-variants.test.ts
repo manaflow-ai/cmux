@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 300
 // The composer's top strip variants (Debug toggle agentPane.debug.topStripStyle, which the app sets
 // on <html> as data-top-strip; composerLocation.css). The "top strip" is whatever stands on the
 // card's top edge: the location strip of a new chat (chat composer and New Tab) or the queued
