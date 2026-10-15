@@ -8,6 +8,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("narrow-layouts.test.ts", async () => {
   const VARIANTS = [
@@ -86,8 +87,8 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    await play("controls", 480, 1);
   });
   afterAll(async () => {
     await browser?.close();
