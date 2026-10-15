@@ -73,25 +73,35 @@ def _shell_pid(t, surface):
 
 
 def restart_shell():
-    """Restart Shell Here, live (SECURITY.md rule 4). The rig Mac runs a shell whose tab
-    stays after the shell ends (`run --on-exit keep`, as a person can on the Mac); the
-    phone types `exit` into it, sees the ended shell and restarts it; the Mac lists a NEW
-    shell process for the same tab, running on the Mac (pid and parent on the rig Mac)."""
+    """Restart Shell Here, live (SECURITY.md rule 4). The rig runs with host-loss respawn
+    off (PQ_RIG_ENV CMUX_TUI_TEST_DISABLE_RESPAWN=1), so a terminal whose host is lost
+    stays dead, as the Mac's "Terminal stopped" tabs do. The rig kills the tab's terminal
+    host; the phone shows the ended shell and restarts it; the Mac lists a NEW shell
+    process for the same tab, running on the Mac (pid and parent on the rig Mac)."""
     import pq_tabs as t
     ws = t.seed("restart", terminals=1)
     name = ws.get("name") or ws.get("title")
-    pane = t.ws_tabs(ws)[0][0]
-    surface = t.mac_raw({"cmd": "run", "argv": ["/bin/zsh", "-l"], "pane": pane, "name": "p2-keep",
-                         "on_exit": "keep"})["surface"]
+    surface = t.ws_tabs(ws)[0][1]["surface"]
     s, m, j = pq.ctx()
     pq.rec_start("restart-shell")
     try:
         t.open_ws(j, name)
-        t.open_tab(j, "p2-keep")
-        before = _shell_pid(t, surface)
-        term_type(s, "exit")
-        t.until(lambda: (lambda x: x if x and x.get("dead") else None)(_tab(t, name, surface)),
-                timeout=30, what="the shell to end on the Mac")
+        t.open_tab(j, "p2tabs-t1")
+        # The Mac respawns a lost host 5 times in 10 minutes (0, 2, 10, 30, 60 s), then
+        # leaves the tab dead ("Terminal stopped: its host kept failing").
+        killed, kills, t0 = None, 0, time.time()
+        while time.time() - t0 < 300:
+            tab = _tab(t, name, surface)
+            if tab and tab.get("dead"):
+                break
+            pid = _shell_pid(t, surface)
+            alive = pid and pq.rsh(f"ps -o ppid= -p {pid}").stdout.strip()
+            if pid and pid != killed and alive and alive != "1":
+                pq.rsh(f"kill -9 {alive} {pid}")
+                killed, kills = pid, kills + 1
+            time.sleep(1)
+        check(_tab(t, name, surface).get("dead"), f"the tab never ended ({kills} host losses)")
+        before = killed
         btn = s.wait(label="Restart Shell Here", kind="Button", timeout=30)
         check(btn, "no Restart Shell Here on the phone")
         time.sleep(1)
@@ -105,11 +115,11 @@ def restart_shell():
             if pid and pid != before:
                 break
             time.sleep(1)
-        on_mac = pq.rsh(f"ps -o pid,ppid,command -p {pid}").stdout.strip() if pid else ""
-        time.sleep(2)
+        on_mac = pq.rsh(f"ps -o pid,ppid,command -p {pid}; ps -o pid,command -p $(ps -o ppid= -p {pid})").stdout.strip() if pid else ""
+        time.sleep(3)
         term_type(s, "echo restarted-$((6*7))")
         time.sleep(3)
         pq.shot("restart-after")
-        return {"restarted_s": round(took, 1), "before_pid": before, "after_pid": pid, "shell_on_mac": on_mac[-200:]}
+        return {"restarted_s": round(took, 1), "before_pid": before, "after_pid": pid, "on_mac": on_mac[-400:]}
     finally:
         pq.rec_stop()
