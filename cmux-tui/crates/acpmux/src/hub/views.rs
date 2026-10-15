@@ -260,6 +260,8 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            // `deny`: this daemon starts no agent process (cx-9ettq).
+            "agentLaunch": crate::launch_policy::status_word(),
             // Hidden pre-created sessions; never counted above.
             "pool": self.pool_view_json(),
             // New agents outlive this daemon (agent hosts): a restart for an
