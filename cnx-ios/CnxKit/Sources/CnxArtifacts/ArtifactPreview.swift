@@ -132,7 +132,7 @@ public struct ArtifactPreview: View {
         switch content {
         case .text(let text):
             if artifact.kind == .html, !showSource {
-                WebPreview(mode: .html(text))
+                WebPreview(mode: .html(artifact.fileExtension == "svg" ? TerminalArtifact.fittedSVG(text) : text))
             } else if artifact.kind == .markdown, !showSource {
                 WebPreview(mode: .html(MarkdownHTML.render(text)))
             } else {

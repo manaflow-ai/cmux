@@ -565,5 +565,5 @@ Shell check):
 - **File previews by default**: the Mac shares only its Chat Folders with phones; with none set,
   no session file opens on the phone. Sharing the workspace folders by default is the pending
   file-roots decision (#13742).
-- Polish: an SVG preview draws at its own size in the corner; a chat opened from a Feed tap once
+- Polish: an SVG preview drew at its own size in the corner (now centered and fitted, `FittedSVGTests`; not re-driven live); a chat opened from a Feed tap once
   showed a permission the Mac had already answered (not reproduced; opening it again was current).

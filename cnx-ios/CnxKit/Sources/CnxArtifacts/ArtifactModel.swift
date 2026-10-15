@@ -355,3 +355,14 @@ public struct ArtifactExtractor: Sendable {
         return trimmed.contains("/bin/") || trimmed.contains("/release/") || trimmed.contains("/debug/") ? .binary : .directory
     }
 }
+
+extension TerminalArtifact {
+    /// An SVG file drawn in a page of its own, centered and fitted to the screen (bare markup
+    /// draws at its own size in the top-left corner).
+    nonisolated static func fittedSVG(_ svg: String) -> String {
+        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            + "<style>html,body{margin:0;height:100%;}body{display:flex;align-items:center;justify-content:center;}"
+            + "svg{width:100%;height:100%;max-width:100vw;max-height:100vh;}</style></head><body>"
+            + svg + "</body></html>"
+    }
+}

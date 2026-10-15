@@ -70,3 +70,15 @@ import Testing
         }
     }
 }
+
+@Suite struct FittedSVGTests {
+    /// Round 3 live: an SVG previewed at its own size in the top-left corner; it is now
+    /// centered and fitted to the page.
+    @Test func anSVGIsCenteredAndFitted() {
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="50" cy="50" r="40" fill="red"/></svg>"#
+        let page = TerminalArtifact.fittedSVG(svg)
+        #expect(page.contains(svg))
+        #expect(page.contains("justify-content:center"))
+        #expect(page.contains("svg{width:100%;height:100%"))
+    }
+}
