@@ -399,6 +399,16 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.deviceString, CatalogArgument.orientationString], targets: [.pane],
                 cliName: "browser device"
             ),
+            // Fit as 16:9 Desktop (cx-va1wd): a toggle of the tab's emulation
+            // (browser.tab.emulate {fit: "16:9"}); a desktop layout scaled to
+            // the pane's width that fills its full height.
+            ActionDescriptor(
+                id: "browserFitDesktop",
+                title: String(localized: "action.browserFitDesktop", defaultValue: "Fit as 16:9 Desktop", bundle: .module),
+                keywords: ["browser", "fit", "16:9", "16x9", "desktop", "scale", "zoom out", "viewport", "emulation", "split", "narrow"],
+                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                targets: [.pane], cliName: "browser fit-desktop"
+            ),
         ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + pinnedPageDescriptors()
     }
 }

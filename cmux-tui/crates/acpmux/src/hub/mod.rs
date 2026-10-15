@@ -7,6 +7,7 @@
 mod adoption;
 mod aside;
 mod bookmarks;
+mod cancel;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
@@ -57,6 +58,7 @@ mod steer_end;
 mod stream;
 mod tags;
 mod tap;
+mod titles;
 mod tools;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -363,6 +365,7 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
+            hub.watch_titles();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
