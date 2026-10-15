@@ -112,7 +112,8 @@ final class HomeDockView: NSView {
                 if let given { open(given) }
                 return syncControl()
             }
-            let selection = given ?? (await currentSelection())
+            var selection = given
+            if selection == nil { selection = await currentSelection() }
             show(target)
             if let selection { open(selection) }
             focusPrimaryInput()
