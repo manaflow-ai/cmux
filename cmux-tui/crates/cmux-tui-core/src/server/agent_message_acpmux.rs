@@ -136,17 +136,22 @@ impl crate::mux::Mux {
             Err(LinkError::Rpc(message, data)) => {
                 // acpmux names a refusal in `data.reason`, or before the
                 // first colon of its message (`transfer.moving: …`).
-                let reason = data.get("reason").and_then(Value::as_str).map_or_else(
-                    || message.split(':').next().unwrap_or_default().trim().to_owned(),
-                    str::to_owned,
-                );
-                if reason == "withdraw.not_found" || message.starts_with("no session matches") {
+                let reason = data
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or_else(|| message.split(':').next().unwrap_or_default())
+                    .trim();
+                if reason == "withdraw.not_found" {
                     Ok(Withdrawn::NotFound)
+                } else if message.starts_with("no session matches") {
+                    // acpmux's session lookup (`Hub::resolve`) names no
+                    // reason; its message is the stable part.
+                    Ok(Withdrawn::NoSession)
                 } else if reason.is_empty() {
                     Err(WithdrawError::Refused("withdraw.refused".to_owned()))
                 } else {
                     // The spec's limit on `error.acpmux_reason`.
-                    Err(WithdrawError::Refused(clip(&reason, ACPMUX_REASON_MAX)))
+                    Err(WithdrawError::Refused(clip(reason, ACPMUX_REASON_MAX)))
                 }
             }
             Err(LinkError::Closed | LinkError::Timeout | LinkError::Busy) => {
