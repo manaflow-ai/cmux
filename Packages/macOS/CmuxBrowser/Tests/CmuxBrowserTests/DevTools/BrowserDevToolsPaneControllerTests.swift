@@ -161,6 +161,30 @@ private final class FakeDevToolsWindow: BrowserDevToolsWindowHosting {
         #expect(h.controller.state == BrowserDevToolsState(isOpen: false, dock: .left))
     }
 
+    @Test func anEngineWindowAfterADockedOfferLeavesNoEmptyArea() {
+        let h = Harness()
+        h.controller.engineWillOpenDevTools()
+        h.controller.engineDidOpenDevTools(docked: false)
+        h.pane.layoutSubtreeIfNeeded()
+        #expect(h.host() == nil)
+        #expect(h.pane.pageView.frame == h.pane.bounds)
+        #expect(h.controller.state == BrowserDevToolsState(isOpen: true, dock: .window))
+    }
+
+    @Test func tearDownReportsTheCloseAndClosingWithoutAnEngineDropsTheViews() throws {
+        let h = Harness()
+        var changes: [BrowserDevToolsState] = []
+        h.controller.onStateChange = { state, _ in changes.append(state) }
+        h.open()
+        h.controller.perform(.dock(.window))
+        let window = try #require(h.windowBox.made.first)
+        h.controller.driver = nil
+        window.onClose?()
+        #expect(window.dismissed == 1)
+        #expect(!h.controller.state.isOpen)
+        #expect(changes.last == BrowserDevToolsState(isOpen: false, dock: .window))
+    }
+
     @Test func dockMenuListsChoicesWithTheCurrentOneChecked() {
         let h = Harness()
         h.open()

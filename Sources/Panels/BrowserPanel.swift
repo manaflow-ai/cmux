@@ -2130,6 +2130,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Why this panel opened in WebKit although another engine was wanted,
     /// shown once per run as a notice; `nil` otherwise.
     @Published private(set) var engineFallbackNotice: BrowserEngineUnavailableReason?
+    /// Whether a Chromium page's DevTools are open (the toolbar button shows its pressed fill).
+    @Published var isEngineDevToolsOpen = false
     var enginePageEventsTask: Task<Void, Never>?
     /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
     /// child-window (Chromium) page; does nothing for a WebKit page.
@@ -2519,9 +2521,13 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Find-in-page search execution: generates the find scripts, evaluates them against the
     /// panel's live `webView` through ``BrowserFindWebViewEvaluator``, and parses results into
     /// `BrowserFindMatchCount`. The panel owns the find bar visibility, focus, and `searchState`;
-    /// this service owns only the script generation and result parsing.
-    private lazy var findService = BrowserFindService(
-        evaluator: BrowserFindWebViewEvaluator(panel: self)
+    /// this service owns only the script generation and result parsing. A Chromium page finds
+    /// natively instead (`makeFindService()`).
+    private lazy var findService: any BrowserFinding = makeFindService()
+    /// The zoom chip and popover state (Chromium panels; design spec §7).
+    lazy var zoomIndicator = BrowserZoomIndicatorModel(
+        defaultFactor: BrowserZoomSettings().current(defaults: .standard),
+        clock: ContinuousClock()
     )
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
     struct PortalHostLock {
@@ -7249,10 +7255,7 @@ extension BrowserPanel {
 
     @discardableResult
     func toggleDeveloperTools() -> Bool {
-        if let enginePage {
-            enginePage.isDevToolsVisible ? enginePage.closeDevTools() : enginePage.showDevTools()
-            return true
-        }
+        if let handled = performEngineDevTools(.toggle) { return handled }
 #if DEBUG
         cmuxDebugLog(
             "browser.devtools toggle.begin panel=\(id.uuidString.prefix(5)) " +
@@ -7279,15 +7282,13 @@ extension BrowserPanel {
 
     @discardableResult
     func showDeveloperTools() -> Bool {
-        if let enginePage {
-            enginePage.showDevTools()
-            return true
-        }
+        if let handled = performEngineDevTools(.show) { return handled }
         return enqueueDeveloperToolsVisibilityTransition(to: true, source: "show")
     }
 
     @discardableResult
     func showDeveloperToolsConsole() -> Bool {
+        if let handled = performEngineDevTools(.console) { return handled }
         guard showDeveloperTools() else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return true }
         guard let inspector = webView.cmuxInspectorObject() else { return true }
@@ -7528,17 +7529,14 @@ extension BrowserPanel {
 
     @discardableResult
     func isDeveloperToolsVisible() -> Bool {
-        if let enginePage { return enginePage.isDevToolsVisible }
+        if let visible = engineDevToolsVisible { return visible }
         guard let inspector = webView.cmuxInspectorObject() else { return false }
         return inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
     }
 
     @discardableResult
     func hideDeveloperTools() -> Bool {
-        if let enginePage {
-            enginePage.closeDevTools()
-            return true
-        }
+        if let handled = performEngineDevTools(.close) { return handled }
         return enqueueDeveloperToolsVisibilityTransition(to: false, source: "hide")
     }
 
@@ -7567,29 +7565,36 @@ extension BrowserPanel {
 
     @discardableResult
     func zoomIn() -> Bool {
-        pageZoomMutationHandled(zoomInResult())
+        defer { noteEngineZoomFromUser() }
+        return pageZoomMutationHandled(zoomInResult())
     }
 
     @discardableResult
     func zoomOut() -> Bool {
-        pageZoomMutationHandled(zoomOutResult())
+        defer { noteEngineZoomFromUser() }
+        return pageZoomMutationHandled(zoomOutResult())
     }
 
     @discardableResult
     func resetZoom() -> Bool {
-        pageZoomMutationHandled(resetZoomResult())
+        defer { noteEngineZoomFromUser() }
+        return pageZoomMutationHandled(resetZoomResult())
     }
 
     func zoomInResult() -> Result<Bool, BrowserAutomationViewportError> {
-        applyPageZoom(currentPageZoomFactor() + pageZoomStep)
+        if let factor = engineZoomInFactor, let result = applyEnginePageZoom(factor) { return result }
+        return applyPageZoom(webView.pageZoom + pageZoomStep)
     }
 
     func zoomOutResult() -> Result<Bool, BrowserAutomationViewportError> {
-        applyPageZoom(currentPageZoomFactor() - pageZoomStep)
+        if let factor = engineZoomOutFactor, let result = applyEnginePageZoom(factor) { return result }
+        return applyPageZoom(webView.pageZoom - pageZoomStep)
     }
 
     func resetZoomResult() -> Result<Bool, BrowserAutomationViewportError> {
-        applyPageZoom(CGFloat(BrowserZoomSettings().current(defaults: .standard)))
+        let defaultZoom = BrowserZoomSettings().current(defaults: .standard)
+        if let result = applyEnginePageZoom(defaultZoom) { return result }
+        return applyPageZoom(CGFloat(defaultZoom))
     }
 
     func currentPageZoomFactor() -> CGFloat {
@@ -7603,7 +7608,8 @@ extension BrowserPanel {
     }
 
     func setPageZoomFactorResult(_ pageZoom: CGFloat) -> Result<Bool, BrowserAutomationViewportError> {
-        applyPageZoom(pageZoom)
+        if let result = applyEnginePageZoom(Double(pageZoom)) { return result }
+        return applyPageZoom(pageZoom)
     }
 
     /// Take a snapshot of the web view

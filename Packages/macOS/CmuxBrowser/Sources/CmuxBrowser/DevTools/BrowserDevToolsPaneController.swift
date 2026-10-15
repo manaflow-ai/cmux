@@ -70,7 +70,11 @@ public final class BrowserDevToolsPaneController {
     /// Runs a command from a shortcut, menu, the divider menu or automation.
     /// - Parameter command: The command.
     public func perform(_ command: BrowserDevToolsCommand) {
-        guard let driver else { return }
+        guard let driver else {
+            // No engine to ask (the page is gone): a close still takes the tools' views down.
+            if command == .close { tearDown() }
+            return
+        }
         switch command {
         case .toggle:
             perform(state.isOpen ? .close : .show)
@@ -112,10 +116,12 @@ public final class BrowserDevToolsPaneController {
 
     /// Closes the tools and drops their views and window; the page is going away.
     public func tearDown() {
-        if state.isOpen { driver?.runDevToolsRequest(.close) }
+        let wasOpen = state.isOpen
+        if wasOpen { driver?.runDevToolsRequest(.close) }
         removeViews()
         opening = false
         state.isOpen = false
+        if wasOpen { onStateChange?(state, false) }
     }
 
     private func move(to dock: BrowserDevToolsDock) {
@@ -207,6 +213,8 @@ public final class BrowserDevToolsPaneController {
         opening = false
         state = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
+        // The engine put DevTools in its own window after all: keep no empty docked area.
+        if !docked { removeViews() }
         paneView.needsLayout = true
         onStateChange?(state, true)
     }

@@ -107,13 +107,6 @@ public final class CEFPageFeatures {
         return true
     }
 
-    /// Sets the page zoom.
-    /// - Parameter factor: The zoom factor; `1` is 100%.
-    public func setZoomFactor(_ factor: Double) {
-        guard let id = browserID() else { return }
-        shim.setZoomLevel(browser: id, level: BrowserChromiumZoomLevel(factor: factor).level)
-    }
-
     /// Ends find and DevTools; the page is closing.
     public func tearDown() {
         nativeFind.cancelPending()
@@ -127,8 +120,10 @@ public final class CEFPageFeatures {
         if !frames.grab.isEmpty { pageRects.append(frames.grab) }
         pageHostView.occlusionRects = Self.local(pageRects, in: frames.page)
         if let host = devTools.devToolsHostView as? CEFHostView {
-            host.occlusionRects = host.superview === paneView && !frames.grab.isEmpty
-                ? Self.local([frames.grab], in: frames.devTools)
+            // Docked, the DevTools window sits under the same overlays (a find card at the top
+            // right over right-docked DevTools); in its own window nothing covers it.
+            host.occlusionRects = host.superview === paneView && !frames.devTools.isEmpty
+                ? Self.local(pageRects, in: frames.devTools)
                 : []
         }
     }

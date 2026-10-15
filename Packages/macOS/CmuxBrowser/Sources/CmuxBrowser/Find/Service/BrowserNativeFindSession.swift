@@ -5,8 +5,8 @@ import Foundation
 ///
 /// The engine answers each request with a stream of find-result events; only the final event
 /// answers the caller. A new request, ``clear()`` or ``cancelPending()`` answers a pending
-/// request with no matches, so a caller never waits forever (for example when the page
-/// navigates away while a search is still counting).
+/// request with `nil` (the find bar keeps its count, as when a WebKit find script fails), so a
+/// caller never waits forever, for example when the page navigates away mid-search.
 ///
 /// ```swift
 /// let session = BrowserNativeFindSession(driver: chromiumFindDriver)
@@ -76,11 +76,11 @@ public final class BrowserNativeFindSession: BrowserFinding {
         continuation.resume(returning: Self.matchCount(count: count, activeOrdinal: activeOrdinal))
     }
 
-    /// Answers a pending request with no matches (page navigated, engine closed).
+    /// Answers a pending request with `nil` (superseded, page navigated, engine closed).
     public func cancelPending() {
         guard let continuation = pending else { return }
         pending = nil
-        continuation.resume(returning: BrowserFindMatchCount(total: 0, selected: nil))
+        continuation.resume(returning: nil)
     }
 
     /// Forgets the current needle after the page committed a new document, so the next

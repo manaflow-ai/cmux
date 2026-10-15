@@ -23,14 +23,14 @@ final class BrowserEngineRuntime {
     private let environment: [String: String]
     private let defaults: UserDefaults
 
+    // Main-actor defaults are built in the body: default argument expressions are
+    // evaluated in a nonisolated context and cannot call main-actor initializers.
     init(
         registry: BrowserEngineRegistry? = nil,
         fallbackNotices: BrowserEngineFallbackNoticeLedger? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) {
-        // Main-actor types are built here, not in default arguments, which
-        // Swift evaluates outside the main actor.
         self.registry = registry ?? BrowserEngineRegistry()
         self.fallbackNotices = fallbackNotices ?? BrowserEngineFallbackNoticeLedger()
         self.environment = environment
@@ -63,7 +63,10 @@ final class BrowserEngineRuntime {
     /// Chromium runtime. Called once at launch.
     func registerBundledEngines() {
         guard registry.provider(for: .chromium) == nil else { return }
-        registry.register(CEFBrowserEngineProvider(runtime: .shared))
+        registry.register(CEFBrowserEngineProvider(
+            runtime: .shared,
+            devToolsLayoutStore: BrowserDevToolsLayoutStore(defaults: defaults)
+        ))
     }
 
     /// Whether an engine can create pages now.

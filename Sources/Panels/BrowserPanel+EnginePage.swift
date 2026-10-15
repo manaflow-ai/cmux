@@ -116,6 +116,7 @@ extension BrowserPanel {
         guard let enginePage, enginePageEventsTask == nil else { return }
         enginePageDelegate.panel = self
         enginePage.uiDelegate = enginePageDelegate
+        attachEnginePageFeatures()
         applyEnginePageState(enginePage.state)
         let events = enginePage.events
         enginePageEventsTask = Task { @MainActor [weak self] in
@@ -137,6 +138,8 @@ extension BrowserPanel {
             historyStore.recordVisit(url: url, title: pageTitle)
         case .closeRequested:
             webViewDidRequestClose?()
+        case .devToolsVisibilityChanged(let open):
+            isEngineDevToolsOpen = open
         case .navigationFailed(let url, _, _, _):
             applyEnginePageNavigationFailure(url: url)
         default:
