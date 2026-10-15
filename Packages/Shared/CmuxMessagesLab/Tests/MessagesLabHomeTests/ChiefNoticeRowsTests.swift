@@ -70,6 +70,13 @@ import Testing
         #expect(ChiefToolRowView.truncated(command, keep: 99) == String(command))
     }
 
+    @Test func expandedChildrenShowTheSubjectWithoutRepeatingRan() {
+        let command = ChiefRows.ToolCall(id: "1", title: "cmux tree --all", state: .done)
+        let dispatch = ChiefRows.ToolCall(id: "2", title: "cmux chief dispatch --agent codex --name Scratch", state: .done)
+        #expect(ChiefRows.subject(command) == "cmux tree --all")
+        #expect(ChiefRows.subject(dispatch) == "Started Codex in “Scratch”")
+    }
+
     @Test func theCardsCommandBreaksOnlyBetweenWords() {
         #expect(ChiefRows.wrappable("--wait-working /a/b") == "\u{2011}\u{2011}wait\u{2011}working /\u{200B}a/\u{200B}b")
         let a = ChiefRows.Approval(request: "r", prompt: "Run `cmux chief dispatch --wait-working`?", options: ["Allow", "Deny"])

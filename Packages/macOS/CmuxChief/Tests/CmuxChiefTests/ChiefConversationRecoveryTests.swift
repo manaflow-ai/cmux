@@ -199,14 +199,18 @@ import Testing
     // MARK: Localized text
 
     @Test func transcriptTextIsLocalized() throws {
-        // SwiftPM's resource bundle is a wrapper on macOS. Resolve the
-        // localization relative to its Resources directory instead of asking
-        // NSBundle to infer the wrapper layout (that lookup is nil on the
-        // Xcode 26 SwiftPM test runner even though the .lproj is present).
-        let resources = try #require(ChiefText.bundle.resourceURL)
-        let path = resources.appendingPathComponent("ja.lproj", isDirectory: true)
-        let japanese = try #require(Bundle(path: path.path))
-        let failed = japanese.localizedString(forKey: "chief.turn.failed", value: nil, table: nil)
+        // SwiftPM uses both a flat resource directory and an app-style
+        // Contents/Resources wrapper across its package and Xcode runners.
+        // Read the catalog file directly so the test checks the resource that
+        // ships instead of relying on Bundle(path:) accepting an .lproj URL.
+        let roots = [ChiefText.bundle.resourceURL, ChiefText.bundle.bundleURL].compactMap { $0 }
+        let candidates = roots.flatMap { root in
+            [root.appendingPathComponent("ja.lproj/Localizable.strings"),
+             root.appendingPathComponent("Contents/Resources/ja.lproj/Localizable.strings")]
+        }
+        let stringsURL = try #require(candidates.first { FileManager.default.isReadableFile(atPath: $0.path) })
+        let strings = try #require(NSDictionary(contentsOf: stringsURL) as? [String: String])
+        let failed = try #require(strings["chief.turn.failed"])
         #expect(failed != "chief.turn.failed")
         #expect(failed.contains("%@") && !failed.contains("could not finish"))
         #expect(ChiefText.turnFailed("boom").contains("boom"))

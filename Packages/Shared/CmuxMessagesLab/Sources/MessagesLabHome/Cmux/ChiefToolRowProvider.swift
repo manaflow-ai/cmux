@@ -205,6 +205,16 @@ final class ChiefToolRowView: ChiefDrawnRowView {
     private func line(_ call: ChiefRows.ToolCall, width: CGFloat, list: Bool, allowed: Bool = false) -> NSAttributedString {
         let font = list ? Self.listFont : Self.font, mono = list ? Self.listCode : Self.code
         let plainColor = hovering && !list ? Fixture.incomingText : secondary
+        // Expanded runs are a history list. The parent already says “Ran N
+        // commands”; repeating “Ran” on every child makes the hierarchy read
+        // like duplicated log entries, so children show only the subject.
+        if list {
+            let subject = ChiefRows.subject(call)
+            let subjectFont = call.kind == .command && call.humanTitle == nil ? mono : font
+            return Self.fitting(subject, width: width) { shown in
+                NSAttributedString(string: shown, attributes: [.font: subjectFont, .foregroundColor: plainColor])
+            }
+        }
         let tag = allowed ? " · " + CmuxStrings.approvalAllowed : ""
         if let human = call.humanTitle {
             return Self.fitting(human, width: width) { shown in
