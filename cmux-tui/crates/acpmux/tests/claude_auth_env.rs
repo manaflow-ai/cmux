@@ -453,17 +453,27 @@ async fn an_edited_rc_file_refreshes_the_login_env_without_a_spawn() {
 
 /// An edit that lands while the login shell is still reading the previous
 /// edit is read too: the login env ends at the last edit, never one behind.
-/// The shell takes about 1 s; edit B lands about 0.7 s after edit A, past
-/// the watcher's 300 ms quiet window, so A's read is already running.
+/// Edit A marks when the shell starts reading it, then takes about 1.5 s;
+/// edit B lands right after the mark, so A's read is running.
 #[tokio::test]
 async fn an_edited_rc_file_during_a_read_is_read_again() {
     let dir = scratch("race", "export NO_PROXY=before-edit\n");
     let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
     let _d = start_config(&dir, config, &[]).await;
     assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
-    std::fs::write(dir.join("home/.zshrc"), "sleep 1\nexport NO_PROXY=edit-a\n").unwrap();
-    tokio::time::sleep(Duration::from_millis(700)).await;
-    std::fs::write(dir.join("home/.zshrc"), "sleep 1\nexport NO_PROXY=edit-b-last\n").unwrap();
+    // The mark is outside HOME, so it is no watched folder's event.
+    let mark = dir.join("reading-a");
+    std::fs::write(
+        dir.join("home/.zshrc"),
+        "touch \"$HOME/../reading-a\"\nsleep 1.5\nexport NO_PROXY=edit-a\n",
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !mark.exists() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(mark.exists(), "edit A was never read");
+    std::fs::write(dir.join("home/.zshrc"), "export NO_PROXY=edit-b-last\n").unwrap();
     assert!(
         cached_no_proxy(&dir, "edit-b-last", Duration::from_secs(10)).await,
         "the edit made during a read was dropped"
