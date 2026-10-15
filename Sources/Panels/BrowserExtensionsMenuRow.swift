@@ -14,33 +14,28 @@ struct BrowserExtensionsMenuRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button {
-                if info.isTerminated { onChoice(.reload(info.id)) } else if canRun { onChoice(.run(info.id)) }
-            } label: {
-                HStack(spacing: 8) {
-                    icon
-                    Text(info.name)
-                        .cmuxFont(size: 12)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(info.isEnabled || info.isTerminated ? .primary : .secondary)
-                    if info.isTerminated {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: metrics.secureBadgeFontSize, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .accessibilityLabel(String(
-                                format: String(localized: "browser.extensions.crashedHelp", defaultValue: "Crashed: %@. Click to reload."),
-                                info.name
-                            ))
-                    }
-                    Spacer(minLength: 0)
+        HStack(spacing: metrics.extensionsMenuSpacing) {
+            if info.isTerminated || canRun {
+                Button {
+                    if info.isTerminated { onChoice(.reload(info.id)) } else { onChoice(.run(info.id)) }
+                } label: {
+                    rowLabel
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel(info.name)
+                .accessibilityValue(accessibilityState)
+                .accessibilityHint(info.isTerminated
+                    ? BrowserExtensionAccessibilityText.reloadsHint
+                    : BrowserExtensionAccessibilityText.runsHint)
+                .accessibilityIdentifier("browser.extensions.menu.row.\(info.id)")
+            } else {
+                // No toolbar action: inert, but not dimmed (only a disabled extension reads as off).
+                rowLabel
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(info.name)
+                    .accessibilityValue(accessibilityState)
+                    .accessibilityIdentifier("browser.extensions.menu.row.\(info.id)")
             }
-            .buttonStyle(.plain)
-            .disabled(!canRun && !info.isTerminated)
-            .accessibilityIdentifier("browser.extensions.menu.row.\(info.id)")
 
             if supportsManagement && info.hasAction {
                 Button {
@@ -60,13 +55,44 @@ struct BrowserExtensionsMenuRow: View {
 
             moreMenu
         }
-        .padding(.leading, 8)
+        .padding(.leading, metrics.extensionsMenuSpacing)
         .frame(height: metrics.extensionsMenuRowHeight)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: metrics.extensionsMenuRowCornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(isHovered ? 0.08 : 0))
         )
         .onHover { isHovered = $0 }
+    }
+
+    /// "Crashed" or "Disabled" for VoiceOver (colour and the triangle alone don't say it).
+    private var accessibilityState: String {
+        if info.isTerminated { return BrowserExtensionAccessibilityText.crashed }
+        if !info.isEnabled { return BrowserExtensionAccessibilityText.disabled }
+        return ""
+    }
+
+    private var rowLabel: some View {
+        HStack(spacing: metrics.extensionsMenuSpacing) {
+            icon
+                .accessibilityHidden(true)
+            Text(info.name)
+                .cmuxFont(size: metrics.extensionsMenuFontSize)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(info.isEnabled || info.isTerminated ? .primary : .secondary)
+            if info.isTerminated {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: metrics.secureBadgeFontSize, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var moreTitle: String {
+        String(format: String(localized: "browser.extensions.moreFormat", defaultValue: "More Actions for %@"), info.name)
     }
 
     private var pinTitle: String { String(localized: "browser.extensions.pin", defaultValue: "Pin to Toolbar") }
@@ -127,10 +153,8 @@ struct BrowserExtensionsMenuRow: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: metrics.extensionsMenuRowHeight, height: metrics.extensionsMenuRowHeight)
-        .safeHelp(String(
-            format: String(localized: "browser.extensions.moreFormat", defaultValue: "More Actions for %@"),
-            info.name
-        ))
+        .safeHelp(moreTitle)
+        .accessibilityLabel(moreTitle)
         .accessibilityIdentifier("browser.extensions.menu.more.\(info.id)")
     }
 }

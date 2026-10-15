@@ -481,6 +481,7 @@
 		279D03070EB4EF6D9A2759C5 /* BrowserEngineSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCB9513322321D01C4B712B9 /* BrowserEngineSocketTests.swift */; };
 		B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */; };
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
+		CEFE0E0000000000000000D0 /* BrowserExtensionAccessibilityText.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E0000000000000000CF /* BrowserExtensionAccessibilityText.swift */; };
 		CEFE0E000000000000000066 /* BrowserExtensionActionButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E000000000000000065 /* BrowserExtensionActionButton.swift */; };
 		CEFE0E0000000000000000CA /* BrowserExtensionAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E0000000000000000C9 /* BrowserExtensionAnchor.swift */; };
 		CEFE0E0000000000000000CE /* BrowserExtensionAnchorReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE0E0000000000000000CD /* BrowserExtensionAnchorReader.swift */; };
@@ -5255,6 +5256,7 @@
 		FCB9513322321D01C4B712B9 /* BrowserEngineSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserEngineSocketTests.swift"; sourceTree = "<group>"; };
 		B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEphemeralRestorationTests.swift; sourceTree = "<group>"; };
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
+		CEFE0E0000000000000000CF /* BrowserExtensionAccessibilityText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionAccessibilityText.swift"; sourceTree = "<group>"; };
 		CEFE0E000000000000000065 /* BrowserExtensionActionButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionActionButton.swift"; sourceTree = "<group>"; };
 		CEFE0E0000000000000000C9 /* BrowserExtensionAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionAnchor.swift"; sourceTree = "<group>"; };
 		CEFE0E0000000000000000CD /* BrowserExtensionAnchorReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserExtensionAnchorReader.swift"; sourceTree = "<group>"; };
@@ -11616,6 +11618,7 @@
 				B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */,
 				B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */,
 				C0DE47010000000000000002 /* BrowserPanel+WebContentTermination.swift */,
+				CEFE0E0000000000000000CF /* BrowserExtensionAccessibilityText.swift */,
 				CEFE0E0000000000000000CD /* BrowserExtensionAnchorReader.swift */,
 				CEFE0E0000000000000000CB /* BrowserExtensionAnchorSet.swift */,
 				CEFE0E0000000000000000C9 /* BrowserExtensionAnchor.swift */,
@@ -15213,6 +15216,7 @@
 				E8D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift in Sources */,
 				E8346BB212320F84B73CAD1F /* BrowserEngineRuntime.swift in Sources */,
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
+				CEFE0E0000000000000000D0 /* BrowserExtensionAccessibilityText.swift in Sources */,
 				CEFE0E000000000000000066 /* BrowserExtensionActionButton.swift in Sources */,
 				CEFE0E0000000000000000CA /* BrowserExtensionAnchor.swift in Sources */,
 				CEFE0E0000000000000000CE /* BrowserExtensionAnchorReader.swift in Sources */,

@@ -39,8 +39,29 @@ struct BrowserExtensionActionButton: View {
             }
         }
         .safeHelp(helpText)
-        .accessibilityLabel(helpText)
+        .accessibilityLabel(action.title.isEmpty ? action.name : action.title)
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint(isCrashed ? BrowserExtensionAccessibilityText.reloadsHint : BrowserExtensionAccessibilityText.runsHint)
+        .accessibilityAddTraits(isPopupOpen ? .isSelected : [])
+        // VoiceOver can't right-click: offer Chromium's action menu as a named action.
+        .accessibilityAction(named: Text(BrowserExtensionAccessibilityText.siteAccess)) {
+            let frame = anchor.windowFrame ?? .zero
+            let screen = anchor.view?.window?.convertToScreen(frame) ?? frame
+            onContextMenu(CGPoint(x: screen.midX, y: screen.minY))
+        }
         .accessibilityIdentifier("BrowserExtensionAction.\(action.id)")
+    }
+
+    /// The badge, then crashed/disabled state, for VoiceOver.
+    private var accessibilityValue: String {
+        var parts: [String] = []
+        if !action.badge.isEmpty { parts.append(action.badge) }
+        if isCrashed {
+            parts.append(BrowserExtensionAccessibilityText.crashed)
+        } else if !action.isEnabled {
+            parts.append(BrowserExtensionAccessibilityText.disabled)
+        }
+        return parts.joined(separator: ", ")
     }
 
     private var helpText: String {

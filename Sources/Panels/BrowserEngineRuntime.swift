@@ -78,7 +78,21 @@ final class BrowserEngineRuntime {
                     ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.parent == nil && !($0 is NSPanel) }
             },
             present: { content, icon, window in
-                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)
+            present: { content, icon, window in
+                // Chromium raised it, so a Chromium page shows in that window.
+                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window, overChromiumPage: true)
+            },
+            installed: { notice, _ in
+                // VoiceOver hears the successful install (design spec section 0.7a).
+                NSAccessibility.post(
+                    element: NSApp as Any,
+                    notification: .announcementRequested,
+                    userInfo: [
+                        .announcement: BrowserExtensionAccessibilityText.added(notice.name),
+                        .priority: NSAccessibilityPriorityLevel.high.rawValue,
+                    ]
+                )
+            }
             }
         )
         chromiumExtensions = extensions
