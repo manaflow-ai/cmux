@@ -14,6 +14,9 @@ import Foundation
 public actor CloudSecretVault {
     /// The most secrets the vault holds across all scopes.
     public static let maxSecrets = 500
+    /// The most UTF-8 bytes of names and values the vault holds across all scopes, so
+    /// the stored document stays a small Keychain item.
+    public static let maxTotalBytes = 1_048_576
 
     private let storage: any CloudSecretVaultStorage
     private let now: @Sendable () -> Date
@@ -359,6 +362,14 @@ public actor CloudSecretVault {
         }
         guard document.secrets.count + addedCount <= maxSecrets else {
             throw CloudSecretValidationError.tooMany
+        }
+        // The total after the change: a replaced value no longer counts.
+        let replaced = Set(pending.map(\.change.name))
+        let kept = document.secrets.filter { $0.record.scope != scope || !replaced.contains($0.record.name) }
+        let total = kept.reduce(0) { $0 + $1.record.name.utf8.count + $1.value.utf8.count }
+            + pending.reduce(0) { $0 + $1.change.name.utf8.count + $1.value.utf8.count }
+        guard total <= maxTotalBytes else {
+            throw CloudSecretValidationError.vaultTooLarge
         }
         return pending
     }

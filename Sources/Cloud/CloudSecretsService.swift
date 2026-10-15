@@ -159,7 +159,8 @@ final class CloudSecretsService: ObservableObject {
     }
 
     /// Stores `inputs` in `scope`. With `sync` (and auto-sync on, or `sync` forced by the
-    /// caller), every machine the change affects is brought up to date before returning.
+    /// caller), every stale machine is brought up to date before returning, even when
+    /// nothing changed: a machine a failed sync left behind still gets the value.
     @discardableResult
     func set(
         _ inputs: [CloudSecretInput],
@@ -170,13 +171,13 @@ final class CloudSecretsService: ObservableObject {
         let changes = try await vault.set(inputs, scope: scope, source: source)
         await reload()
         postDidChange()
-        let changed = changes.contains { $0.kind != .unchanged }
-        let synced = (sync && changed) ? await syncAllStale() : []
+        let synced = sync ? await syncAllStale() : []
         return (changes, synced)
     }
 
     /// Removes `names` from `scope`, then (with `sync`) removes them from every machine
-    /// that no longer gets them from another scope.
+    /// that no longer gets them from another scope and brings every other stale
+    /// machine up to date, even when nothing was removed.
     @discardableResult
     func remove(
         names: [String],
@@ -186,7 +187,7 @@ final class CloudSecretsService: ObservableObject {
         let changes = try await vault.remove(names: names, scope: scope)
         await reload()
         postDidChange()
-        let synced = (sync && !changes.isEmpty) ? await syncAllStale() : []
+        let synced = sync ? await syncAllStale() : []
         return (changes, synced)
     }
 

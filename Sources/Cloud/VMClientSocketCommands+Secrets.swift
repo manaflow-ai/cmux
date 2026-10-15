@@ -52,7 +52,14 @@ enum CloudSecretsSocketParams {
                 ))
             }
             if case .project(let key) = scope {
-                return .project(normalizedProjectKey(key))
+                let normalized = normalizedProjectKey(key)
+                guard !normalized.isEmpty else {
+                    throw CloudSecretsSocketFailure.invalidParams(String(
+                        format: String(localized: "cloudSecrets.socket.invalidScope", defaultValue: "%1$@: unknown scope '%2$@' (use all, project:<key>, or machine:<id>)."),
+                        method, raw
+                    ))
+                }
+                return .project(normalized)
             }
             return scope
         }
@@ -62,7 +69,8 @@ enum CloudSecretsSocketParams {
     /// normalized, else `local/<project_dir_name>`.
     static func projectKey(_ params: [String: Any]) -> String? {
         if let explicit = string(params["project"]), explicit != "." {
-            return normalizedProjectKey(explicit)
+            let key = normalizedProjectKey(explicit)
+            return key.isEmpty ? nil : key
         }
         if let remote = string(params["project_remote_url"]),
            let key = CloudSecretProjectKey.normalize(remoteURL: remote) {
@@ -74,9 +82,11 @@ enum CloudSecretsSocketParams {
         return nil
     }
 
-    /// A remote URL becomes its key; anything else (already a key) is kept.
+    /// A remote URL becomes its key; a bare key is normalized the same way
+    /// (``CloudSecretProjectKey/normalize(key:)``), so `GitHub.com/Owner/Repo.git`
+    /// names the scope a checkout of that repository resolves to.
     static func normalizedProjectKey(_ raw: String) -> String {
-        CloudSecretProjectKey.normalize(remoteURL: raw) ?? raw
+        CloudSecretProjectKey.normalize(key: raw)
     }
 
     /// `entries: [{key, value}]`, validated (names, single-line, size) before any write.

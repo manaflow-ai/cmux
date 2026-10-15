@@ -1361,8 +1361,9 @@ extension CMUXCLI {
         CLIError(message: String(format: String(localized: "cloudSecrets.cli.unknownFlag", defaultValue: "vm secrets %1$@: unknown flag '%2$@'\n\n%3$@"), verb, flag, vmSecretsUsage), exitCode: 2)
     }
 
+    /// The name is not shown: text in the name position can be a pasted value.
     private static func vmSecretsInvalidName(_ name: String, verb: String) -> CLIError {
-        CLIError(message: String(format: String(localized: "cloudSecrets.cli.invalidName", defaultValue: "vm secrets %1$@: invalid variable name '%2$@' (names match [A-Za-z_][A-Za-z0-9_]*)"), verb, name), exitCode: 2)
+        CLIError(message: String(format: String(localized: "cloudSecrets.cli.invalidNameHidden", defaultValue: "vm secrets %@: a name is not a valid variable name (names match [A-Za-z_][A-Za-z0-9_]*)"), verb), exitCode: 2)
     }
 
     private static func vmSecretsScopeError(_ raw: String) -> CLIError {

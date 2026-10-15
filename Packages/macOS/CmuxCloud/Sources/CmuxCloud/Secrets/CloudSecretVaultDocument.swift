@@ -4,6 +4,12 @@ import Foundation
 /// `{version, hmacKey (base64), secrets: [{record, value}], ledger: [...]}`.
 ///
 /// Internal: only ``CloudSecretVault`` reads or writes it.
+///
+/// Forward compatibility: an older build that decodes a newer document drops the
+/// fields it does not know, and its next write would erase them. So any change to the
+/// stored shape (a new field here, in ``Entry``, ``CloudSecretRecord`` or
+/// ``CloudSecretDelivery``) bumps ``currentVersion``; ``decode(_:)`` then makes the
+/// older build refuse the vault instead of rewriting it.
 struct CloudSecretVaultDocument: Codable, Equatable {
     static let currentVersion = 1
 

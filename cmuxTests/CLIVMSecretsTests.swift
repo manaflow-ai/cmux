@@ -244,7 +244,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (["vm", "secrets", "set", "A_KEY", "--scope", "machine:"], "v\n", "unknown scope 'machine:'"),
             (["vm", "secrets", "set", "A_KEY", "--scope", "all", "--machine", "m1"], "v\n", "give one scope"),
             (["vm", "secrets", "set", "A_KEY", "B_KEY"], "only-one-line-secret\n", "expected 2 lines on stdin"),
-            (["vm", "secrets", "set", "1BAD"], "v\n", "invalid variable name '1BAD'"),
+            // The name is never echoed: it may be a pasted value.
+            (["vm", "secrets", "set", "1BAD_pasted_token"], "v\n", "a name is not a valid variable name"),
             (["vm", "secrets", "rm"], "", "give at least one NAME"),
             (["vm", "secrets", "set", "A_KEY", "--bogus"], "v\n", "unknown flag '--bogus'"),
         ]
@@ -259,6 +260,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(result.status, 2, "\(testCase.arguments): stdout=\(result.stdout) stderr=\(result.stderr)")
             XCTAssertTrue(result.stderr.contains(testCase.expected), "\(testCase.arguments): \(result.stderr)")
             XCTAssertFalse(result.stderr.contains("only-one-line-secret"), result.stderr)
+            XCTAssertFalse(result.stderr.contains("1BAD_pasted_token"), result.stderr)
         }
         assertNoSocketConnection(listenerFD)
     }

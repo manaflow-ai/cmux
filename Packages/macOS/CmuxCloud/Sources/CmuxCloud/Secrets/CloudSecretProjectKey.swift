@@ -42,6 +42,23 @@ public enum CloudSecretProjectKey {
         return "\(host)/\(cleanPath)".lowercased()
     }
 
+    /// A project key as typed (`github.com/Owner/Repo.git/`), or a remote URL: a remote
+    /// becomes its key; a bare key is trimmed of whitespace and slashes and loses a
+    /// `.git` suffix, and is lowercased like a remote's key, except a `local/<name>` key,
+    /// whose directory name is kept as ``fallback(directoryName:)`` made it.
+    public static func normalize(key raw: String) -> String {
+        if let remote = normalize(remoteURL: raw) { return remote }
+        let slashes = CharacterSet(charactersIn: "/")
+        var key = raw.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: slashes)
+        if key.lowercased().hasPrefix("local/") {
+            return "local/" + key.dropFirst("local/".count).trimmingCharacters(in: slashes)
+        }
+        if key.lowercased().hasSuffix(".git") {
+            key = String(key.dropLast(".git".count)).trimmingCharacters(in: slashes)
+        }
+        return key.lowercased()
+    }
+
     /// `local/<name>` for a directory without a usable remote.
     public static func fallback(directoryName: String) -> String {
         "local/\(directoryName)"

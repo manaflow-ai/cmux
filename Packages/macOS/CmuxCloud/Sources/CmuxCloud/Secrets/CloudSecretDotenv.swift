@@ -3,10 +3,11 @@ import Foundation
 /// Parses `.env` text into secrets, with the rules `cmux vm env set --file` uses.
 ///
 /// Blank lines and `#` comments are skipped; an optional `export ` prefix is dropped;
-/// each line is `KEY=VALUE`. A matching pair of surrounding quotes is stripped with no
-/// escape processing, and a trailing ` # comment` outside quotes is dropped. A quoted
-/// value whose closing quote is not on the same line is refused, because a multi-line
-/// value cannot be delivered. A repeated key keeps its last value at its first position.
+/// each line is `KEY=VALUE`. A matching pair of surrounding quotes is stripped; inside
+/// double quotes `\"` is a quote (no other escapes), inside single quotes nothing is an
+/// escape. A trailing ` # comment` outside quotes is dropped. A quoted value whose
+/// closing quote is not on the same line is refused, because a multi-line value cannot
+/// be delivered, and so is one with other text after its closing quote. A repeated key keeps its last value at its first position.
 /// Values are not validated here; ``CloudSecretVault/set(_:scope:source:)`` does that.
 ///
 /// ``parse(_:)`` stops at the first bad line. ``parseLenient(_:)`` keeps every good line
@@ -74,8 +75,15 @@ public enum CloudSecretDotenv {
                 continue
             }
             let rawValue = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
-            guard let value = parseValue(rawValue) else {
+            let value: String
+            switch parseValue(rawValue) {
+            case .value(let parsed):
+                value = parsed
+            case .unclosedQuote:
                 onBadLine(CloudSecretDotenvError(line: lineNumber, reason: .multilineValue(key)))
+                continue
+            case .trailingText:
+                onBadLine(CloudSecretDotenvError(line: lineNumber, reason: .trailingText(key)))
                 continue
             }
             if skipEmptyValues, value.isEmpty {
@@ -88,27 +96,39 @@ public enum CloudSecretDotenv {
         return order.compactMap { key in values[key].map { CloudSecretInput(name: key, value: $0) } }
     }
 
-    /// One value, or `nil` when it opens a quote it never closes.
-    static func parseValue(_ value: String) -> String? {
-        if let quote = value.first, quote == "\"" || quote == "'" {
-            var escaped = false
-            var closed = false
-            for index in value.indices.dropFirst() {
-                let character = value[index]
-                if character == quote, !escaped {
-                    closed = true
-                    let suffix = value[value.index(after: index)...].trimmingCharacters(in: .whitespaces)
-                    if suffix.isEmpty || suffix.hasPrefix("#") {
-                        return String(value[value.index(after: value.startIndex)..<index])
-                    }
-                }
-                escaped = character == "\\" && !escaped
+    /// What one raw value parses to.
+    enum ParsedValue: Equatable {
+        case value(String)
+        /// It opens a quote it never closes on its line.
+        case unclosedQuote
+        /// It is quoted, with text other than a comment after the closing quote.
+        case trailingText
+    }
+
+    static func parseValue(_ value: String) -> ParsedValue {
+        guard let quote = value.first, quote == "\"" || quote == "'" else {
+            if let comment = value.range(of: "[ \\t]+#", options: .regularExpression) {
+                return .value(value[..<comment.lowerBound].trimmingCharacters(in: .whitespaces))
             }
-            if !closed { return nil }
+            return .value(value)
         }
-        if let comment = value.range(of: "[ \\t]+#", options: .regularExpression) {
-            return value[..<comment.lowerBound].trimmingCharacters(in: .whitespaces)
+        var unquoted = ""
+        var index = value.index(after: value.startIndex)
+        while index < value.endIndex {
+            let character = value[index]
+            let next = value.index(after: index)
+            if quote == "\"", character == "\\", next < value.endIndex, value[next] == "\"" {
+                unquoted.append("\"")
+                index = value.index(after: next)
+                continue
+            }
+            if character == quote {
+                let suffix = value[next...].trimmingCharacters(in: .whitespaces)
+                return suffix.isEmpty || suffix.hasPrefix("#") ? .value(unquoted) : .trailingText
+            }
+            unquoted.append(character)
+            index = next
         }
-        return value
+        return .unclosedQuote
     }
 }
