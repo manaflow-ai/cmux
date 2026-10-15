@@ -198,6 +198,44 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
     /// the agent is parked, and a pulsing hourglass would claim otherwise.
     var pulses: Bool { kind == .running || kind == .subagents }
 
+    /// How a compact row says what its agents are doing
+    /// (`sidebarCompactStatusStyle`).
+    ///
+    /// - `color`: one colored dot or symbol carries running, needs input and
+    ///   unread (amber, blue, red), the look this mode shipped with.
+    /// - `cmux`: speaks like the default rows. The spinner and the unread count
+    ///   badge keep their slots, needs input is a word at the trailing edge,
+    ///   and settled states (pull request, idle, branch) draw nothing.
+    /// - `mono`: spinner and count badge too; needs input and errors draw as
+    ///   glyphs without hue.
+    enum Style: String {
+        case color
+        case cmux
+        case mono
+
+        /// Only the colored style folds running and unread into the glyph.
+        var foldsActivityIntoGlyph: Bool { self == .color }
+    }
+
+    /// The glyph this style draws, or nil when the row shows the state another
+    /// way (spinner, count badge, trailing word) or not at all.
+    func drawn(in style: Style) -> SidebarCompactStatusGlyph? {
+        switch style {
+        case .color:
+            return self
+        case .cmux:
+            switch kind {
+            case .error, .waiting, .subagents: return self
+            default: return nil
+            }
+        case .mono:
+            switch kind {
+            case .error, .needsInput, .waiting, .subagents: return self
+            default: return nil
+            }
+        }
+    }
+
     /// Unread notifications turn a settled row blue; agent activity and
     /// errors stay louder. The latest notification leads the tooltip, since
     /// compact rows hide the notification preview line and the count badge.
@@ -293,7 +331,14 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
     /// Selected rows flatten the glyph to the selected foreground, like the
     /// metadata rows do, so colors never vanish into the selection fill.
     func color(isActive: Bool, selected: NSColor, secondary: NSColor) -> NSColor {
+        color(isActive: isActive, selected: selected, secondary: secondary, primary: selected, style: .color)
+    }
+
+    /// The cmux and Mono styles draw without hue: needs input in the primary
+    /// label color, everything else secondary.
+    func color(isActive: Bool, selected: NSColor, secondary: NSColor, primary: NSColor, style: Style) -> NSColor {
         if isActive { return selected }
+        if style != .color { return kind == .needsInput ? primary : secondary }
         switch kind {
         case .error: return .systemRed
         case .needsInput: return Self.needsInputColor

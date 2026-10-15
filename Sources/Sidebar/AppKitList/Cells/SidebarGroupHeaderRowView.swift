@@ -193,6 +193,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
         )
 
+        // An empty symbol means a text-only header (the app always passes a resolved one).
+        iconImageView.isHidden = model.iconSymbol.isEmpty
         let iconSymbol = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: model.iconSymbol, configured: nil)
         iconImageView.image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: iconSymbol,
@@ -213,19 +215,25 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         // In compact status mode unread folds into the glyph (blue), so the
         // count badge stays off even when no member state rolls up.
-        statusGlyphView.isHidden = model.statusGlyph == nil
-        if let glyph = model.statusGlyph {
+        // The cmux and Mono styles keep the count badge and drop the hue.
+        let style = model.compactStatusStyle
+        let headerGlyph = model.statusGlyph?.drawn(in: style)
+        statusGlyphView.isHidden = headerGlyph == nil
+        if let glyph = headerGlyph {
             statusGlyphView.configure(
                 glyph,
                 pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
                 color: glyph.color(
                     isActive: false,
                     selected: .labelColor,
-                    secondary: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+                    secondary: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme),
+                    primary: colorResolver.resolvedColor(.labelColor, for: colorScheme),
+                    style: style
                 )
             )
         }
-        let showsBadge = model.statusGlyph == nil && !model.compactsAgentStatus && model.anchorUnreadCount > 0
+        let badgeFolded = model.compactsAgentStatus && style.foldsActivityIntoGlyph
+        let showsBadge = headerGlyph == nil && !badgeFolded && model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(
@@ -444,7 +452,13 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
-        let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
+        // A nested header shifts whole, wash included, like a group member row.
+        let bgFrame = NSRect(
+            x: outerPad + model.leadingIndent,
+            y: 0,
+            width: max(0, bounds.width - outerPad * 2 - model.leadingIndent),
+            height: bounds.height
+        )
         backgroundView.frame = bgFrame
         SidebarGlassSelection.fitOverlay(rowHoverLayer)
         let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
@@ -465,8 +479,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let plusSide = metrics.plusFrame
         plusButton.frame = NSRect(x: contentMaxX - plusSide, y: midY - plusSide / 2, width: plusSide, height: plusSide)
 
-        iconImageView.frame = centered(metrics.iconFrame)
-        x = iconImageView.frame.maxX + 6
+        if !iconImageView.isHidden {
+            iconImageView.frame = centered(metrics.iconFrame)
+            x = iconImageView.frame.maxX + 6
+        }
 
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
@@ -540,6 +556,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     // toggle (add then remove) and made header multi-selection impossible.
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        // A header that only folds (a machine section) has no group to act on.
+        if model?.foldsOnPress == true { return nil }
         let point = convert(event.locationInWindow, from: nil)
         if plusButton.frame.contains(point), !plusButton.isHidden {
             return makePlusMenu()

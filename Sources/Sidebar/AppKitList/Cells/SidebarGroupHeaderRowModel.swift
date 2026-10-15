@@ -37,6 +37,8 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     /// as the glyph, so the numeric badge never returns, not even when no
     /// member state is loud enough to roll up.
     var compactsAgentStatus = false
+    /// `sidebarCompactStatusStyle`; only the colored style replaces the count badge.
+    var compactStatusStyle: SidebarCompactStatusGlyph.Style = .color
     /// Resolved modifier-hold hint (for example "⌘3"); nil hides the pill.
     let shortcutHintText: String?
     let shortcutHintXOffset: Double
@@ -55,6 +57,11 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let notificationBadgeColorHex: String?
     /// Resolved cmux accent for the badge fallback and drop indicators.
     var accentColor = CmuxAccentColor()
+    /// Extra leading inset, for a header nested under another (a machine under "Cloud").
+    var leadingIndent: CGFloat = 0
+    /// A press only folds this header, it never selects it, so the press
+    /// skips the optimistic selected paint (which would flash and clear).
+    var foldsOnPress = false
 }
 
 /// Behavior bundle for one group header row; recreated per apply and excluded

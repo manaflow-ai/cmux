@@ -3314,10 +3314,12 @@
 		AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000205 /* SidebarInlineRenameKeyResolverTests.swift */; };
 		AABBCC000000000000000212 /* SidebarInlineRenameTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000211 /* SidebarInlineRenameTextField.swift */; };
 		B804A0290000000000000029 /* SidebarLayoutModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0290000000000000029 /* SidebarLayoutModel.swift */; };
+		2241DDB713ADB45F1F0EEE4E /* SidebarLayoutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7437195CCCDC3B7B9C34B09 /* SidebarLayoutViews.swift */; };
 		5732A0115732A0115732A011 /* SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0115732B0115732B011 /* SidebarLazyContractProbe.swift */; };
 		5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */; };
 		D41A7C01D41A7C01D41A7C01 /* SidebarLazyLayoutScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41A7C02D41A7C02D41A7C02 /* SidebarLazyLayoutScaleTests.swift */; };
 		C0DE10085100000000000001 /* SidebarLeadingEdgeAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10085100000000000002 /* SidebarLeadingEdgeAnchorTests.swift */; };
+		18E9647759646BE474BD147C /* SidebarMachineLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89FF6FF8B039398374C9F7D6 /* SidebarMachineLayout.swift */; };
 		385C6BA7E78DB87460E5D930 /* SidebarMarkdownRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */; };
 			A6AC73F20000000000000001 /* SidebarMediaActivityIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73F20000000000000002 /* SidebarMediaActivityIndicators.swift */; };
 		C0DE5F210000000000000001 /* SidebarMetadataMarkdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5F210000000000000002 /* SidebarMetadataMarkdownRenderer.swift */; };
@@ -3340,6 +3342,10 @@
 		2E9404437EB47D116E0EE48D /* SidebarPresentedWhileHiddenSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E400D59987274763C0558AD7 /* SidebarPresentedWhileHiddenSnapshotTests.swift */; };
 		C0DEA7710000000000000005 /* SidebarProBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000006 /* SidebarProBadge.swift */; };
 		D75280020000000000000001 /* SidebarProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280020000000000000002 /* SidebarProfilingSignposts.swift */; };
+		12331E607C4E9D5B04BD671A /* SidebarProjectsAppHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9E53BBBE95A4D1D656F5BFC /* SidebarProjectsAppHost.swift */; };
+		35D2C89FBF2F91441B5249D2 /* SidebarProjectsCustomizePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23BFFFFAA9E7BB165013967C /* SidebarProjectsCustomizePanel.swift */; };
+		D696C039E35CC38156B62816 /* SidebarProjectsStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5AD885A206CA30188A26036 /* SidebarProjectsStyle.swift */; };
+		D17013BE8B1BB36E4BB45397 /* SidebarProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992E2E540BA904A7651DF243 /* SidebarProjectsView.swift */; };
 		C0DE48000000000000000001 /* SidebarProviderMenuRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */; };
 		B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */; };
 		B2BF08A600CA41EA8660EB96 /* SidebarReorderIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA16301CC6C54207991577EB /* SidebarReorderIndicatorView.swift */; };
@@ -7811,10 +7817,12 @@
 		AABBCC000000000000000205 /* SidebarInlineRenameKeyResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarInlineRenameKeyResolverTests.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000211 /* SidebarInlineRenameTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarInlineRenameTextField.swift; sourceTree = "<group>"; };
 		B804B0290000000000000029 /* SidebarLayoutModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarLayoutModel.swift; sourceTree = "<group>"; };
+		A7437195CCCDC3B7B9C34B09 /* SidebarLayoutViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Projects/SidebarLayoutViews.swift; sourceTree = "<group>"; };
 		5732B0115732B0115732B011 /* SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/SidebarLazyContractProbe.swift; sourceTree = "<group>"; };
 		5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/SidebarLazyContractProbeKey.swift"; sourceTree = "<group>"; };
 		D41A7C02D41A7C02D41A7C02 /* SidebarLazyLayoutScaleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLazyLayoutScaleTests.swift; sourceTree = "<group>"; };
 		C0DE10085100000000000002 /* SidebarLeadingEdgeAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLeadingEdgeAnchorTests.swift; sourceTree = "<group>"; };
+		89FF6FF8B039398374C9F7D6 /* SidebarMachineLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Projects/SidebarMachineLayout.swift; sourceTree = "<group>"; };
 		F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMarkdownRendererTests.swift; sourceTree = "<group>"; };
 			A6AC73F20000000000000002 /* SidebarMediaActivityIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarMediaActivityIndicators.swift; sourceTree = "<group>"; };
 		C0DE5F210000000000000002 /* SidebarMetadataMarkdownRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarMetadataMarkdownRenderer.swift; sourceTree = "<group>"; };
@@ -7837,6 +7845,10 @@
 		E400D59987274763C0558AD7 /* SidebarPresentedWhileHiddenSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarPresentedWhileHiddenSnapshotTests.swift"; sourceTree = "<group>"; };
 		C0DEA7710000000000000006 /* SidebarProBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProBadge.swift; sourceTree = "<group>"; };
 		D75280020000000000000002 /* SidebarProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProfilingSignposts.swift; sourceTree = "<group>"; };
+		C9E53BBBE95A4D1D656F5BFC /* SidebarProjectsAppHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Projects/SidebarProjectsAppHost.swift; sourceTree = "<group>"; };
+		23BFFFFAA9E7BB165013967C /* SidebarProjectsCustomizePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Projects/SidebarProjectsCustomizePanel.swift; sourceTree = "<group>"; };
+		D5AD885A206CA30188A26036 /* SidebarProjectsStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Projects/SidebarProjectsStyle.swift; sourceTree = "<group>"; };
+		992E2E540BA904A7651DF243 /* SidebarProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Projects/SidebarProjectsView.swift; sourceTree = "<group>"; };
 		C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProviderMenuRegressionTests.swift; sourceTree = "<group>"; };
 		B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPullRequestInteractivityUITests.swift; sourceTree = "<group>"; };
 		BA16301CC6C54207991577EB /* SidebarReorderIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SidebarReorderIndicatorView.swift"; sourceTree = "<group>"; };
@@ -12162,6 +12174,12 @@
 				8DE45ECEA152871DE70F4D89 /* SidebarWorkspaceTableController+ReorderLiftRebuild.swift */,
 				944B5844794AC86FE82F96AE /* SidebarWorkspaceTableController+ReorderDragGhost.swift */,
 				D9A19AD78B9125704236916C /* SidebarMetadataRows.swift */,
+				D5AD885A206CA30188A26036 /* SidebarProjectsStyle.swift */,
+				992E2E540BA904A7651DF243 /* SidebarProjectsView.swift */,
+				23BFFFFAA9E7BB165013967C /* SidebarProjectsCustomizePanel.swift */,
+				C9E53BBBE95A4D1D656F5BFC /* SidebarProjectsAppHost.swift */,
+				A7437195CCCDC3B7B9C34B09 /* SidebarLayoutViews.swift */,
+				89FF6FF8B039398374C9F7D6 /* SidebarMachineLayout.swift */,
 				832F4DCA73AF2BCDC0DA6C9D /* TerminalBrowserHostNormalizer.swift */,
 				D83581C030F97F43F72D421C /* TitlebarControlsStyleConfig.swift */,
 				A16A1380FA28417F95C922EA /* WorkspaceGroupNewWorkspaceTarget.swift */,
@@ -16308,8 +16326,10 @@
 				AABBCC000000000000000202 /* SidebarInlineRenameKeyResolver.swift in Sources */,
 				AABBCC000000000000000212 /* SidebarInlineRenameTextField.swift in Sources */,
 				B804A0290000000000000029 /* SidebarLayoutModel.swift in Sources */,
+				2241DDB713ADB45F1F0EEE4E /* SidebarLayoutViews.swift in Sources */,
 				5732A0115732A0115732A011 /* SidebarLazyContractProbe.swift in Sources */,
 				5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */,
+				18E9647759646BE474BD147C /* SidebarMachineLayout.swift in Sources */,
 				A6AC73F20000000000000001 /* SidebarMediaActivityIndicators.swift in Sources */,
 				C0DE5F210000000000000001 /* SidebarMetadataMarkdownRenderer.swift in Sources */,
 				C35940171171F069B78CD8C5 /* SidebarMetadataRows.swift in Sources */,
@@ -16325,6 +16345,10 @@
 				C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */,
 				C0DEA7710000000000000005 /* SidebarProBadge.swift in Sources */,
 				D75280020000000000000001 /* SidebarProfilingSignposts.swift in Sources */,
+				12331E607C4E9D5B04BD671A /* SidebarProjectsAppHost.swift in Sources */,
+				35D2C89FBF2F91441B5249D2 /* SidebarProjectsCustomizePanel.swift in Sources */,
+				D696C039E35CC38156B62816 /* SidebarProjectsStyle.swift in Sources */,
+				D17013BE8B1BB36E4BB45397 /* SidebarProjectsView.swift in Sources */,
 				B2BF08A600CA41EA8660EB96 /* SidebarReorderIndicatorView.swift in Sources */,
 				BF469CA04EB1FB1769E79038 /* SidebarReorderInteractionState.swift in Sources */,
 				9C55B7258975E4099C5DA375 /* SidebarResizerAccessibilityModifier.swift in Sources */,
