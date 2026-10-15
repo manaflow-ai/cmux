@@ -34,6 +34,13 @@ public nonisolated struct AgentPaneTunables {
         }
     }
 
+    /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
+    /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
+    public static let sessionStatus = Tunable<Bool>.toggle(
+        "agent.sessionStatus", PageTunables.section, "In-session status (plan card, recap card)",
+        help: "Agent chats show the live plan card and the recap card.",
+        default: false, code: "AgentPaneTunables.sessionStatus")
+
     /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
     /// the transcript's view folds to one line that opens to its text. Off keeps every thought in
     /// full (Leo 2026-10-13, #20330) until Leo picks the default. New agent tabs read it.
@@ -58,5 +65,5 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, sessionStatus.descriptor, foldLongThoughts.descriptor] }
 }
