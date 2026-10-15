@@ -25,7 +25,9 @@
 
 use super::*;
 use crate::workspace_registry::relaunch_store::RelaunchKind;
-use crate::workspace_registry::terminal_archive_store::{ARCHIVE_MAX_SCREEN_BYTES, ArchiveRow};
+use crate::workspace_registry::terminal_archive_store::{
+    ARCHIVE_BLOB_BUDGET_BYTES, ARCHIVE_MAX_SCREEN_BYTES, ArchiveRow,
+};
 
 /// What one archived terminal keeps (see the module docs).
 pub(crate) struct TerminalArchive {
@@ -119,7 +121,7 @@ impl Mux {
             .collect::<Vec<_>>();
         let now = crate::workspace_registry::session_journal::unix_epoch_ms().unwrap_or_default();
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Err(error) = registry.put_terminal_archives(&rows, now) {
+        if let Err(error) = registry.put_terminal_archives(&rows, now, ARCHIVE_BLOB_BUDGET_BYTES) {
             eprintln!("cmux-tui: could not store {} terminal archive(s): {error:#}", rows.len());
         }
     }

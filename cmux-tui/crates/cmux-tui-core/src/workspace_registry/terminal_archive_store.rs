@@ -32,6 +32,10 @@ use super::WorkspaceRegistry;
 pub(crate) const ARCHIVE_MAX_SCREEN_BYTES: usize = 1024 * 1024;
 /// Most archives kept; the oldest go first.
 pub(crate) const MAX_ARCHIVES: usize = 100;
+/// Most gzip screen bytes all archives keep (`history.closed.blobBudgetMB`,
+/// plans/cmux-next/reopen-closed.md section 2); past it the oldest archives
+/// lose their screen first.
+pub(crate) const ARCHIVE_BLOB_BUDGET_BYTES: u64 = 2048 * 1024 * 1024;
 /// An archive older than this is deleted (a printed secret does not stay).
 pub(crate) const MAX_ARCHIVE_AGE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 /// Longest stored program name, in bytes (cut at a character boundary).
@@ -186,6 +190,7 @@ impl WorkspaceRegistry {
         &mut self,
         archives: &[ArchiveRow<'_>],
         now_ms: u64,
+        _blob_budget_bytes: u64,
     ) -> anyhow::Result<()> {
         if archives.is_empty() {
             return Ok(());
