@@ -553,7 +553,9 @@ mod tests {
             {"kind":"wg-init","publicKey":"k","endpoints":["1.2.3.4:5","9.9.9.9:7"],"overlayIP":"10.77.0.2",
              "relayed":["9.9.9.9:7"]}))
         .unwrap();
-        assert!(matches!(with_relayed, SignalPayload::WgInit { ref relayed, .. } if relayed == &["9.9.9.9:7"]));
+        assert!(
+            matches!(with_relayed, SignalPayload::WgInit { ref relayed, .. } if relayed == &["9.9.9.9:7"])
+        );
         let hello: SignalMessage = serde_json::from_str(
             r#"{"type":"hello","you":"p","macs":[{"deviceId":"m","name":"Mac","online":true,"lastSeenAt":1}]}"#,
         )
