@@ -25,6 +25,10 @@ public final class CEFBrowserPage: BrowserPage {
     private var muted = false
     private var lastFaviconURL: URL?
     private var isClosed = false
+    /// `cmux_shim_set_navigation_guard` mode bits this page wants.
+    private var navigationGuardMode: Int32 = 0
+    /// The mode last applied to the Chromium browser, nil before it exists.
+    private var appliedNavigationGuardMode: Int32?
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
@@ -280,6 +284,29 @@ public final class CEFBrowserPage: BrowserPage {
         set { muted = newValue }
     }
 
+    /// Turns Chromium's agent navigation guard on or off (mode bit 4): while
+    /// an agent drives the page, a main-frame navigation, redirect or
+    /// history step to a Chromium internal page is cancelled in Chromium.
+    /// Applied as soon as the browser exists.
+    /// - Parameter enabled: `true` while an agent drives the page.
+    public func setAgentNavigationGuard(_ enabled: Bool) {
+        if enabled {
+            navigationGuardMode |= Self.agentNavigationGuardBit
+        } else {
+            navigationGuardMode &= ~Self.agentNavigationGuardBit
+        }
+        applyNavigationGuardIfNeeded()
+    }
+
+    static let agentNavigationGuardBit: Int32 = 4
+
+    private func applyNavigationGuardIfNeeded() {
+        guard let id = browser.browserID, appliedNavigationGuardMode != navigationGuardMode,
+              let shim = CEFRuntime.shared.shim else { return }
+        shim.setNavigationGuard(id, navigationGuardMode)
+        appliedNavigationGuardMode = navigationGuardMode
+    }
+
     /// Answers a renderer hang.
     /// - Parameter terminate: `true` ends the renderer.
     public func answerUnresponsive(terminate: Bool) {
@@ -306,6 +333,8 @@ public final class CEFBrowserPage: BrowserPage {
     private func handle(_ event: CEFBrowserEvent) {
         switch event {
         case .stateChanged(let cefState):
+            // The browser may have been created since the guard was set.
+            applyNavigationGuardIfNeeded()
             emit(.stateChanged(Self.pageState(cefState)))
             if cefState.faviconURL != lastFaviconURL {
                 lastFaviconURL = cefState.faviconURL
