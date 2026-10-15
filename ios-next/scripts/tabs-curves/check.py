@@ -106,7 +106,10 @@ def track(video, hexc, band_px=90, tol=28, lock_rows=False, rows_pt=None):
         # 60 pt (the page's own coloured bars and dots are narrower).
         band = m.sum(1) >= band_px
         if lock_rows:
-            if band.sum() >= 6:
+            # Keep the widest band found: as the card leaves, the rows
+            # beside its close button drop under the band width first, and
+            # a band of only the rows above it put x1 at the button (9 pt).
+            if band.sum() >= max(6, 0 if locked is None else locked.sum()):
                 locked = band
             elif locked is not None:
                 band = locked
