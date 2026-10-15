@@ -169,3 +169,6 @@ extension BrowserPanel {
         enginePage?.close()
     }
 }
+
+/// Web Inspector stays owned by the panel; ``BrowserPanel/page`` forwards to it.
+extension BrowserPanel: WebKitBrowserPageDevToolsControlling {}

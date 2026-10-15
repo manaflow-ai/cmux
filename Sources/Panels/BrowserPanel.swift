@@ -6747,7 +6747,7 @@ extension BrowserPanel {
     var page: any BrowserPage {
         if let enginePage { return enginePage }
         if let adapter = webKitPageAdapter, adapter.webView === webView { return adapter }
-        let adapter = WebKitBrowserPage(webView: webView)
+        let adapter = WebKitBrowserPage(webView: webView, devToolsController: self)
         webKitPageAdapter = adapter
         return adapter
     }
@@ -7528,12 +7528,17 @@ extension BrowserPanel {
 
     @discardableResult
     func isDeveloperToolsVisible() -> Bool {
+        if let enginePage { return enginePage.isDevToolsVisible }
         guard let inspector = webView.cmuxInspectorObject() else { return false }
         return inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
     }
 
     @discardableResult
     func hideDeveloperTools() -> Bool {
+        if let enginePage {
+            enginePage.closeDevTools()
+            return true
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: false, source: "hide")
     }
 
