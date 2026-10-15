@@ -6,6 +6,11 @@
 //! `remove`, `restore` and `registry` (recoverable or read only); Web and
 //! peer may call none of them.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

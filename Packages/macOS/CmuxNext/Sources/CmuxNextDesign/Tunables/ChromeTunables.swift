@@ -35,6 +35,11 @@ public nonisolated enum ChromeTunables {
         "chrome.tabs.compact", .tabs, "Compact tabs",
         help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 6 pt in and 4 pt from its title. Off: 28, 24, 8 and 6.",
         default: false, code: "ChromeTunables.compactTabs")
+    // @intent opt-in looks live in Debug Settings, off by default, until promoted (Lawrence via Leo, 2026-10-15).
+    public static let interfaceSize = Tunable<Bool>.toggle(
+        "chrome.interfaceSize", .shape, "Interface size",
+        help: "Scale chrome type, spacing and control heights together by appearance.interfaceScale (90, 100, 110 or 125%). Off: 100%.",
+        default: false, code: "ChromeTunables.interfaceSize")
     public static let compactTabContentLeadingInset = points("compactTabContentLeadingInset", .tabs, "Compact tab content inset",
                                                              help: "Tab content inset under Compact tabs.", 6, range: 0...24)
     public static let dividerThickness = points("dividerThickness", .panes, "Divider thickness", help: "Visible line between split panes.", 1, range: 0...6)
@@ -61,7 +66,7 @@ public nonisolated enum ChromeTunables {
     static var fixed: [TunableDescriptor] {
         [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
          tabContentLeadingInset, dividerThickness, dividerHitWidth].map(\.descriptor)
-            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor]
+            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, interfaceSize.descriptor]
             + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }

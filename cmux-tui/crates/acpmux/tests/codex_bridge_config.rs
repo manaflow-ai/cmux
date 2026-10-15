@@ -6,6 +6,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -36,7 +38,11 @@ fn dir(tag: &str) -> PathBuf {
 /// An executable `name` in `d/bin` that runs `script` with its arguments.
 fn shim(d: &Path, name: &str, script: &str) -> PathBuf {
     let path = d.join("bin").join(name);
-    std::fs::write(&path, format!("#!/bin/sh\nexec python3 {script} \"$@\"\n")).unwrap();
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(script)),
+    )
+    .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
 }

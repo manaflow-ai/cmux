@@ -110,6 +110,9 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
           const prompt = Boolean(element.closest(".acpmux-composer-prompt"));
           const sizeOk = sizes.includes(size) || (prompt && size === content);
           if (sizeOk && weights.includes(weight)) continue;
+          // The shared ghost button (src/ui/ghost.css, the footer's location buttons) keeps base's
+          // medium weight: moving it onto the scale changes a default look, so it waits for that call.
+          if (sizeOk && weight === 500 && element.closest(".ui-ghost")) continue;
           const where =
             element.className && typeof element.className === "string"
               ? element.className.split(" ")[0]
@@ -131,6 +134,7 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
       "new-chat",
       "footer-essentials",
       "footer-full-access",
+      "footer-essentials-new-chat",
       "agent-home",
       "agent-home-path",
       "agent-home-folders",

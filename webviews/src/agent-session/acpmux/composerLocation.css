@@ -73,6 +73,9 @@
 }
 .acpmux-location-button {
   --ui-ghost-end-bearing: 4px;
+  /* The composer's text is on the one type scale (regular or emphasis), not the shared ghost
+     button's medium label weight. */
+  font-weight: var(--weight-regular);
 }
 .acpmux-location-readonly {
   gap: 4px;
@@ -200,40 +203,57 @@
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); }
 .acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
-.acpmux-permission-status { display: inline-flex; flex: none; align-items: center; }
-.acpmux-permission-status-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  height: 28px;
-  padding: 0 5px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--agent-muted);
-  font: inherit;
-  cursor: pointer;
+.acpmux-access-grant-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
 }
-.acpmux-permission-status-trigger:hover,
-.acpmux-permission-status-trigger[aria-expanded="true"] { color: var(--agent-text); background: var(--acpmux-menu-hover); }
-.acpmux-permission-status-trigger:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
-.acpmux-permission-status-trigger .acpmux-icon { width: 14px; height: 14px; }
-.acpmux-permission-status-label { max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-detail); }
-.acpmux-permission-status-menu { min-width: 150px; }
-.acpmux-permission-status-undo {
-  height: 24px;
-  padding: 0 6px;
+.acpmux-access-grants {
+  min-inline-size: 0;
+  border: 0;
+  margin: 8px 4px 2px;
+  padding-top: 8px;
+  border-top: .5px solid var(--acpmux-composer-edge);
+}
+.acpmux-access-grants-heading {
+  padding: 0 8px 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-access-grant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--ui-row-height);
+  padding: 2px 8px 2px 10px;
+  border-radius: var(--ui-row-radius);
+}
+.acpmux-access-grant:hover { background: var(--acpmux-menu-hover); }
+.acpmux-access-grant-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); }
+.acpmux-access-grant-remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--agent-muted);
-  font: inherit;
-  font-size: var(--text-detail);
+  font-family: system-ui;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
   cursor: pointer;
 }
-.acpmux-permission-status-undo:hover { color: var(--agent-text); background: var(--acpmux-menu-hover); }
-.acpmux-permission-status-undo:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+.acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
+.acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
 
 /* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
    opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay

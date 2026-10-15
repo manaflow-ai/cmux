@@ -88,7 +88,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: var(--ui-row-height);
+  min-height: var(--ui-row-height, var(--cmux-control-height));
   padding: 2px var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
   outline: none;
