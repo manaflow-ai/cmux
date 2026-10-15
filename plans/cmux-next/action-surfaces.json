@@ -1074,6 +1074,18 @@
         {
           "keys" : [
             {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
               "key" : "",
               "modifiers" : [
                 "opt",
@@ -1111,7 +1123,7 @@
       "default_shortcut" : {
         "key" : "]",
         "modifiers" : [
-          "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -1139,6 +1151,18 @@
 
       ],
       "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
         {
           "keys" : [
             {
@@ -1179,7 +1203,7 @@
       "default_shortcut" : {
         "key" : "[",
         "modifiers" : [
-          "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -7850,18 +7874,6 @@
             }
           ],
           "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "]",
-              "modifiers" : [
-                "shift",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
         }
       ],
       "default_chord" : null,
@@ -7902,18 +7914,6 @@
               "modifiers" : [
                 "ctrl",
                 "shift"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
-              "key" : "[",
-              "modifiers" : [
-                "shift",
-                "cmd"
               ]
             }
           ],
@@ -25894,6 +25894,174 @@
       "title_table" : "MusicActions"
     },
     {
+      "cli" : "ownerVerb",
+      "cli_name" : "action tab-stash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.stash",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stash Tab",
+      "title_key" : "action.stash.tab",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "action tab-stash-to-right",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.stashToRight",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stash Tabs to the Right",
+      "title_key" : "action.stash.toRight",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "action tab-stash-others",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.stashOthers",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stash Other Tabs",
+      "title_key" : "action.stash.others",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "action workspace-stash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.stash",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stash Workspace",
+      "title_key" : "action.stash.workspace",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "history stashed",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "stash.show",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Stashed Tabs",
+      "title_key" : "action.stash.show",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "history import-onetab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "stash.importOneTab",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import from OneTab…",
+      "title_key" : "action.stash.importOneTab",
+      "title_table" : "StashActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "bookmark add-page",
       "context_menu" : "offered",
@@ -35265,6 +35433,58 @@
                   "id" : "closeOtherTabsInPane",
                   "kind" : "action",
                   "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tab.stash",
+                  "kind" : "action",
+                  "order" : 3,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tab.stashToRight",
+                  "kind" : "action",
+                  "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tab.stashOthers",
+                  "kind" : "action",
+                  "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.stash",
+                  "kind" : "action",
+                  "order" : 6,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
