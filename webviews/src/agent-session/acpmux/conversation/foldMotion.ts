@@ -12,7 +12,7 @@
 // (tokens 0) none.
 
 /// How the fold moves: `slide` (rows slide, steps fade), `fade` (every row that moved or appeared
-/// fades in at its new place, over FADE_MS) or `none`.
+/// fades in at its new place, over FADE_MS) or `none` (rows jump; a toggled header still keeps its place).
 /// The page reads `#foldMotion=` so captures can compare them; `slide` is the default.
 export type FoldMotionMode = "slide" | "fade" | "none";
 
@@ -24,6 +24,8 @@ export function foldMotionMode(hash = globalThis.location?.hash ?? ""): FoldMoti
 type Armed = {
   /// Where each mounted row was drawn, as its top on screen.
   before: Map<string, number>;
+  /// Where each mounted row was placed in the transcript, whatever the scroll.
+  placed: Map<string, number>;
   /// The fold header the reader toggled, which keeps its place on screen.
   anchor?: string;
   /// Rows that left in this change, as copies to fade out where they were.
@@ -35,6 +37,9 @@ type Armed = {
 const STALE_MS = 500;
 /// The `fade` mode's fade: short, and visible (Leo 2026-10-14: a fade that shows nothing is no option).
 const FADE_MS = { min: 120, max: 180 };
+
+/// A row's place in the transcript: RowFrame places it with `translateY(top)`.
+const placeOf = (row: HTMLElement) => Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1] ?? Number.NaN);
 
 const rowsOf = (thread: HTMLElement) => [...thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]")];
 
@@ -63,13 +68,18 @@ export class FoldMotion {
     return this.armed?.anchor;
   }
 
-  /// Arms the next commit: `thread` is drawn as it was before it.
+  /// Arms the next commit: `thread` is drawn as it was before it. With no motion it only keeps the
+  /// toggled header in place.
   arm(thread: HTMLElement | null, anchor?: string): void {
-    if (this.mode === "none" || !thread) return;
+    if (!thread || (this.mode === "none" && anchor === undefined)) return;
     this.finish();
     const before = new Map<string, number>();
-    for (const row of rowsOf(thread)) before.set(row.dataset.rowId!, row.getBoundingClientRect().top);
-    const armed: Armed = { before, anchor, leaving: [], held: false, thread };
+    const placed = new Map<string, number>();
+    for (const row of rowsOf(thread)) {
+      before.set(row.dataset.rowId!, row.getBoundingClientRect().top);
+      placed.set(row.dataset.rowId!, placeOf(row));
+    }
+    const armed: Armed = { before, placed, anchor, leaving: [], held: false, thread };
     this.armed = armed;
     // A change that never commits does not keep the transcript from gliding and following.
     setTimeout(() => {
@@ -80,7 +90,7 @@ export class FoldMotion {
   /// A row unmounts while a change is armed: a copy of it fades out where it was.
   leave(id: string, node: HTMLElement): void {
     const armed = this.armed;
-    if (!armed || armed.held) return;
+    if (!armed || armed.held || this.mode === "none") return;
     const top = armed.before.get(id);
     if (top === undefined) return;
     const copy = node.cloneNode(true) as HTMLElement;
@@ -99,6 +109,10 @@ export class FoldMotion {
     const armed = this.armed;
     if (!armed || armed.held || !thread) return;
     armed.held = true;
+    if (this.mode === "none") {
+      this.armed = undefined;
+      return;
+    }
     const style = getComputedStyle(thread);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const move = this.mode === "slide" && !reduced ? seconds(style.getPropertyValue("--agent-motion-move")) * 1000 : 0;
@@ -123,7 +137,8 @@ export class FoldMotion {
       } else if (move > 0) {
         const shift = was - row.getBoundingClientRect().top;
         if (Math.abs(shift) > 0.5) row.style.translate = `0 ${shift}px`;
-      } else if (fading && Math.abs(was - row.getBoundingClientRect().top) > 0.5) {
+      } else if (fading && Math.abs((armed.placed.get(row.dataset.rowId!) ?? Number.NaN) - placeOf(row)) > 0.5) {
+        // Moved in the transcript, not only on screen: rows the scroll alone moves stay in full ink.
         row.style.opacity = "0";
         moved.add(row);
       }
