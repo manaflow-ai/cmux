@@ -54,7 +54,7 @@ struct AgentPaneSessionStatusTests {
             received = await pageReceived(view)
         }
         #expect(received.last == true, "the open page's bridge never got applySessionStatus(true)")
-        #expect(AgentPanePageHost.currentEvents(view).contains(.sessionStatus(true)),
+        #expect(AgentPanePageHost.currentEvents(view).filter { $0.kind == "sessionStatus" } == [.sessionStatus(true)],
                 "a page that loads again on the page host would not get the toggle")
 
         let later = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
