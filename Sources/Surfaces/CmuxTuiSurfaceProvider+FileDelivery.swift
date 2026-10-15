@@ -39,7 +39,7 @@ extension CmuxTuiSurfaceProvider {
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let result = try await link.run(arguments: CloudTuiRequests.createWorkspaceArguments(
             socketPath: connected.socketPath,
-            name: "\(CloudFileDelivery.receiverTitle) \(UUID().uuidString)",
+            name: SurfaceRemoteWorkspace.internalReceiverWorkspaceName(title: CloudFileDelivery.receiverTitle),
             empty: true
         ))
         guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any],
@@ -56,8 +56,10 @@ extension CmuxTuiSurfaceProvider {
                 guard await self.refreshCurrentGraph(force: true) else {
                     throw CloudFileDelivery.DeliveryError.workspaceCleanupFailed(workspaceID)
                 }
-                return self.catalog.snapshot.resources(on: self.machine).filter {
-                    $0.kind == .terminal && $0.remoteWorkspaces.contains { $0.id == workspaceID }
+                // The catalog snapshot hides receiver workspaces; read the raw rows.
+                return self.catalog.resources.values.filter {
+                    $0.machine == self.machine
+                        && $0.kind == .terminal && $0.remoteWorkspaces.contains { $0.id == workspaceID }
                 }.map { $0.id.key }
             },
             closeTerminal: { terminalID in

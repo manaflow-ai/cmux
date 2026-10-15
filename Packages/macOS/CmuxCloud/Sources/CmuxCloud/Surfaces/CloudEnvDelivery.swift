@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// How environment variables reach a machine without ever being a secret in transit.
@@ -28,7 +29,8 @@ import Foundation
 public enum CloudEnvDelivery {
     /// Absolute: the daemon's own PATH is not a login shell's.
     public static let receiverCommand = ["/usr/local/bin/cmux", "env", "receive"]
-    public static let receiverTitle = "cmux env"
+    /// Also the reserved prefix of its internal workspace (`SurfaceRemoteWorkspace.isInternalReceiver`).
+    public static let receiverTitle = SurfaceRemoteWorkspace.environmentReceiverTitle
     public static let readyMarker = "CMUX-ENV-READY"
     public static let endMarker = "CMUX-ENV-END"
     public static let resultPattern = "CMUX-ENV-(OK|ERR)"

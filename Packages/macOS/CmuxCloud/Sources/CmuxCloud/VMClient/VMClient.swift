@@ -2592,6 +2592,11 @@ public actor VMClient {
             let context = CloudOperationContext.current
             let elapsed = context.map { $0.operation == .list || $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero
             let deadline = self.readRequests.makeDeadline(elapsed: elapsed)
+            // The launch restore/revalidation holds the session identity nil
+            // while it owns the token store. A read that arrives then (the first
+            // `cmux vm ls` after launch) waits for it to settle instead of
+            // failing with "could not refresh your session".
+            await self.auth.awaitBootstrapped()
             let identity = await self.auth.authenticatedSessionIdentity
             guard let identity else {
                 let isAuthenticated = await self.auth.isAuthenticated
@@ -3248,6 +3253,7 @@ public actor MachineUsageClient {
         return try await withOperation(.stats, foreground: false) {
             let context = CloudOperationContext.current
             let deadline = readRequests.makeDeadline(elapsed: context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero, limit: .seconds(15))
+            await auth.awaitBootstrapped()
             let identity = await auth.authenticatedSessionIdentity
             guard let identity else {
                 let isAuthenticated = await auth.isAuthenticated
