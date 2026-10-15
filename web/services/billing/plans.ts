@@ -83,6 +83,25 @@ export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year
 export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 
 /**
+ * The prices the hosted plan-switch portal lists, so the only subscriptions
+ * it can switch (web/scripts/stripe/provision-catalog.sh provisions exactly
+ * these). Every listed price is also a choice in that portal, so a
+ * grandfathered price is never listed; a subscription on one switches in the
+ * dashboard instead, which prices any subscription.
+ */
+export const PORTAL_SWITCHABLE_LOOKUP_KEYS: readonly string[] = [
+  PRO_PRICING_USD.month.lookupKey,
+  PRO_PRICING_USD.year.lookupKey,
+  MAX_PRICING_USD.month.lookupKey,
+  MAX_PRICING_USD.year.lookupKey,
+  GO_PRICING_USD.month.lookupKey,
+];
+
+export function isPortalSwitchableLookupKey(lookupKey: string | null | undefined): boolean {
+  return typeof lookupKey === "string" && PORTAL_SWITCHABLE_LOOKUP_KEYS.includes(lookupKey);
+}
+
+/**
  * Lookup keys that no new checkout may use. Each stays active in Stripe for
  * the subscriptions grandfathered on it; the dashboard prices those rows from
  * the subscription's own Stripe amount, never from these keys.

@@ -837,6 +837,8 @@
         "unavailable": {
           "cancelScheduled": "変更するには、まずプランを再開してください。",
           "granted": "cmux から付与されたプランです。変更できる項目はありません。",
+          "grantedNoCancel": "cmux から付与されたプランのため、解約するものはありません。",
+          "paymentFailed": "プランを変更する前に、お支払い方法を更新してください。",
           "adminOnly": "プランを変更できるのはチーム管理者だけです。"
         },
         "names": {

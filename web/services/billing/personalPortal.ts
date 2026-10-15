@@ -1,5 +1,6 @@
 import { stripe, resolvePersonalPlanSwitchPortalConfiguration } from "./stripe";
 import { stripeBillingStatusForUser } from "./pro";
+import { isPortalSwitchableLookupKey } from "./plans";
 import { captureBillingPlanSwitchStarted } from "../analytics/stripeBilling";
 import type { CheckoutAttribution } from "../analytics/checkoutAttribution";
 
@@ -16,7 +17,9 @@ export async function personalPortalSession(input: {
     ["active", "trialing"].includes(status.subscriptionStatus ?? "") &&
     // A switch keeps a scheduled cancellation; the plain portal offers Renew.
     !status.cancelAtPeriodEnd &&
-    status.activePlanId !== input.target;
+    status.activePlanId !== input.target &&
+    // The switch flow fails for a price the portal does not list.
+    isPortalSwitchableLookupKey(status.planLookupKey);
   const session = await stripe().billingPortal.sessions.create({
     customer: status.customerId,
     return_url: new URL("/dashboard/billing", input.origin).toString(),

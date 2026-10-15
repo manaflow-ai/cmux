@@ -524,6 +524,8 @@
         "unavailable": {
           "cancelScheduled": "Nastavite plan da biste ga promijenili.",
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
+          "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {

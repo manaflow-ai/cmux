@@ -524,6 +524,8 @@
         "unavailable": {
           "cancelScheduled": "請先恢復方案再進行變更。",
           "granted": "由 cmux 授予，沒有可變更的項目。",
+          "grantedNoCancel": "由 cmux 授予，因此沒有可取消的項目。",
+          "paymentFailed": "變更方案前，請先更新付款方式。",
           "adminOnly": "只有團隊管理員可以變更方案。"
         },
         "names": {

@@ -89,7 +89,9 @@ function StripePersonalBilling({ data }: { data: PersonalBillingJson }) {
   const cards = personalPlanCards({
     planId: status.planId,
     isPro: status.isPro,
-    subscription: subscription ? { plan: subscription.plan, cancelAtPeriodEnd: subscription.cancelAtPeriodEnd } : null,
+    subscription: subscription
+      ? { plan: subscription.plan, cancelAtPeriodEnd: subscription.cancelAtPeriodEnd, status: subscription.status }
+      : null,
     goPlanEnabled: data.goPlanEnabled,
   });
   const picker = (

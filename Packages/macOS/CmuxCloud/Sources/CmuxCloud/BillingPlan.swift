@@ -1,6 +1,16 @@
 import CMUXMobileCore
 import Foundation
 
+/// Who bills the account's personal plan, as reported by the Cloud service.
+public enum BillingSource: String, Sendable, Equatable {
+    /// Billed by cmux through the hosted billing portal.
+    case stripe
+    /// Billed through the App Store.
+    case apple
+    /// Not billed: a free plan or a plan granted by cmux.
+    case none
+}
+
 /// The account-scoped billing entitlement used by Cloud access controls.
 public struct BillingPlanState: Sendable, Equatable {
     /// The account whose entitlement is known, or `nil` while unknown.
@@ -11,6 +21,8 @@ public struct BillingPlanState: Sendable, Equatable {
     public let canManageBilling: Bool
     /// The known account's effective tier, or `nil` while unknown.
     public let tier: CmuxPlanTier?
+    /// Who bills the known account's personal plan, or `nil` while unknown.
+    public let billingSource: BillingSource?
 
     /// Creates an entitlement snapshot.
     ///
@@ -20,11 +32,19 @@ public struct BillingPlanState: Sendable, Equatable {
     ///   - canManageBilling: Whether billing can be managed in the hosted portal.
     ///   - tier: The effective tier. Defaults to Pro or Free from `isPro`
     ///     for callers that only know the legacy flag.
-    public init(accountID: String?, isPro: Bool, canManageBilling: Bool, tier: CmuxPlanTier? = nil) {
+    ///   - billingSource: Who bills the personal plan, when known.
+    public init(
+        accountID: String?,
+        isPro: Bool,
+        canManageBilling: Bool,
+        tier: CmuxPlanTier? = nil,
+        billingSource: BillingSource? = nil
+    ) {
         self.accountID = accountID
         self.isPro = isPro
         self.canManageBilling = canManageBilling
         self.tier = accountID == nil ? nil : (tier ?? (isPro ? .pro : .free))
+        self.billingSource = accountID == nil ? nil : billingSource
     }
 
     /// An unknown entitlement that must not be treated as a free plan.
@@ -35,9 +55,16 @@ public struct BillingPlanState: Sendable, Equatable {
         for accountID: String,
         isPro: Bool,
         canManageBilling: Bool,
-        tier: CmuxPlanTier? = nil
+        tier: CmuxPlanTier? = nil,
+        billingSource: BillingSource? = nil
     ) -> Self {
-        Self(accountID: accountID, isPro: isPro, canManageBilling: canManageBilling, tier: tier)
+        Self(
+            accountID: accountID,
+            isPro: isPro,
+            canManageBilling: canManageBilling,
+            tier: tier,
+            billingSource: billingSource
+        )
     }
 
     /// Retains an existing answer for the same account and clears other answers.
@@ -54,12 +81,20 @@ public struct BillingPlanDetails: Sendable, Equatable {
     public let canManageBilling: Bool
     /// The effective tier: the higher of the personal and active-team plans.
     public let tier: CmuxPlanTier
+    /// Who bills the personal plan. An older service that omits it reads as `none`.
+    public let billingSource: BillingSource
 
     /// Creates decoded billing details.
-    public init(isPro: Bool, canManageBilling: Bool, tier: CmuxPlanTier? = nil) {
+    public init(
+        isPro: Bool,
+        canManageBilling: Bool,
+        tier: CmuxPlanTier? = nil,
+        billingSource: BillingSource = .none
+    ) {
         self.isPro = isPro
         self.canManageBilling = canManageBilling
         self.tier = tier ?? (isPro ? .pro : .free)
+        self.billingSource = billingSource
     }
 }
 
@@ -117,7 +152,12 @@ public struct BillingPlanClient: Sendable {
             teamPlanID: decoded.teamPlanId,
             isPro: decoded.isPro == true
         )
-        return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling, tier: tier)
+        return BillingPlanDetails(
+            isPro: isPro,
+            canManageBilling: canManageBilling,
+            tier: tier,
+            billingSource: decoded.billingSource.flatMap(BillingSource.init(rawValue:)) ?? .none
+        )
     }
 
     private let session: URLSession
@@ -128,6 +168,7 @@ public struct BillingPlanClient: Sendable {
         let planId: String?
         let subscriptionPlanId: String?
         let billingManagement: String?
+        let billingSource: String?
         let teamPlanId: String?
         let teamBillingManagement: String?
     }

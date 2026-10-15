@@ -524,6 +524,8 @@
         "unavailable": {
           "cancelScheduled": "Reprenez votre forfait pour le modifier.",
           "granted": "Accordé par cmux. Il n'y a rien à modifier.",
+          "grantedNoCancel": "Accordé par cmux, il n'y a donc rien à résilier.",
+          "paymentFailed": "Mettez à jour votre moyen de paiement avant de changer de forfait.",
           "adminOnly": "Seuls les administrateurs de l'équipe peuvent modifier le forfait."
         },
         "names": {

@@ -524,6 +524,8 @@
         "unavailable": {
           "cancelScheduled": "Wznów plan, aby go zmienić.",
           "granted": "Przyznany przez cmux. Nie ma czego zmieniać.",
+          "grantedNoCancel": "Przyznany przez cmux, więc nie ma czego anulować.",
+          "paymentFailed": "Zaktualizuj metodę płatności przed zmianą planu.",
           "adminOnly": "Tylko administratorzy zespołu mogą zmienić plan."
         },
         "names": {

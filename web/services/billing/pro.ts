@@ -27,6 +27,7 @@ import {
   "../account/metadataMutation";
 import { activeApplePlanForUser } from "./apple/entitlement";
 import { planTierRank } from "./planTier";
+import { planItem } from "./subscriptionItems";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 
 export const PRO_PLAN_ID = "pro";
@@ -210,6 +211,12 @@ export type StripeBillingStatus = {
   readonly hasCustomer: boolean;
   /** Whether the newest subscription grants current Pro access. */
   readonly hasActiveSubscription: boolean;
+  /**
+   * The lookup key of the plan price behind `subscriptionId`, or null when
+   * it has none (or it is unknown). Decides whether the hosted portal can
+   * switch the subscription's plan.
+   */
+  readonly planLookupKey?: string | null;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -247,6 +254,11 @@ export type ProPlanStatus = {
    * end, so pricing offers Resume instead of a new purchase.
    */
   readonly cancelScheduled?: boolean;
+  /**
+   * The Stripe subscription that grants the plan has a failed payment, so
+   * pricing sends the subscriber to fix it before offering a plan switch.
+   */
+  readonly paymentPastDue?: boolean;
 };
 
 /**
@@ -378,9 +390,17 @@ export async function resolveProPlanStatus(
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
-    ...(billingSource === "stripe" && hasActiveStripePro && stripeBillingStatus?.cancelAtPeriodEnd
-      ? { cancelScheduled: true }
-      : {}),
+    ...(billingSource === "stripe" && hasActiveStripePro ? stripeSubscriptionFlags(stripeBillingStatus) : {}),
+  };
+}
+
+/** Pricing states of the Stripe subscription that grants the plan. */
+function stripeSubscriptionFlags(
+  status: StripeBillingStatus | null,
+): Pick<ProPlanStatus, "cancelScheduled" | "paymentPastDue"> {
+  return {
+    ...(status?.cancelAtPeriodEnd ? { cancelScheduled: true } : {}),
+    ...(status?.subscriptionStatus === "past_due" ? { paymentPastDue: true } : {}),
   };
 }
 
@@ -726,6 +746,7 @@ export async function stripeBillingStatusForUser(
       activePlanId !== null,
       activePlanId,
     ), subscriptionStatus: subscription?.status ?? null,
+    planLookupKey: planLookupKeyFromRaw(subscription?.raw),
     hasRecurringSubscription: recurringRows.some((row) =>
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) };
@@ -951,6 +972,12 @@ function stripeBillingStatusFromRows(
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
     ),
   };
+}
+
+function planLookupKeyFromRaw(raw: unknown): string | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const lookupKey = (item as { price?: { lookup_key?: unknown } | null } | undefined)?.price?.lookup_key;
+  return typeof lookupKey === "string" && lookupKey ? lookupKey : null;
 }
 
 function emptyStripeBillingStatus(): StripeBillingStatus {

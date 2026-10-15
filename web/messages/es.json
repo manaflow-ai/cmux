@@ -524,6 +524,8 @@
         "unavailable": {
           "cancelScheduled": "Reanuda tu plan para cambiarlo.",
           "granted": "Otorgado por cmux. No hay nada que cambiar.",
+          "grantedNoCancel": "Otorgado por cmux, así que no hay nada que cancelar.",
+          "paymentFailed": "Actualiza tu método de pago antes de cambiar de plan.",
           "adminOnly": "Solo los administradores del equipo pueden cambiar el plan."
         },
         "names": {

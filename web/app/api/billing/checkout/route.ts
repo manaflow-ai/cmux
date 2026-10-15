@@ -25,6 +25,7 @@ import {
   stripeBillingStatusForTeam,
   stripeBillingStatusForUser,
   type PersonalPlanId,
+  type StripeBillingStatus,
 } from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
@@ -37,6 +38,7 @@ import {
 } from "../../../../services/billing/stripe";
 import {
   CHECKOUT_BILLING_INTERVAL,
+  isPortalSwitchableLookupKey,
   type BillingInterval,
 } from "../../../../services/billing/plans";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
@@ -166,6 +168,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ url: portal.url, plan: plan, flow: "portal" });
     }
     if (url.searchParams.has("billing")) return nativeCheckoutError("billing_unavailable");
+    if (url.pathname === "/dashboard/billing" && url.origin === requestOrigin(request)) {
+      return NextResponse.json({ url: destination, plan: plan, flow: "dashboard" });
+    }
     return NextResponse.json({ url: destination, plan: plan, flow: url.searchParams.has("welcome") ? "already_active" : "checkout" });
   } catch (error) {
     captureBillingError(error, { route: "/api/billing/checkout", method: "POST" });
@@ -343,19 +348,7 @@ async function stripePersonalCheckout(
     // after a terminal cancellation. A plan switch keeps a scheduled
     // cancellation, so a cancelling subscriber gets the plain portal and Renew.
     if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
-      const portalURL = new URL("/api/billing/portal", requestOrigin(request));
-      if (
-        plan !== GO_PLAN_ID && stripeBillingStatus.hasActiveSubscription &&
-        !stripeBillingStatus.cancelAtPeriodEnd &&
-        stripeBillingStatus.activePlanId !== plan
-      ) {
-        portalURL.searchParams.set("flow", "switch_plan");
-        portalURL.searchParams.set("plan", plan);
-      }
-      forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
-      captureCheckoutDecision(user.id, plan, stripeBillingStatus.activePlanId,
-        portalURL.searchParams.has("flow") ? "switch_plan" : "manage_billing", attribution, interval);
-      return NextResponse.redirect(portalURL);
+      return existingSubscriptionRedirect(request, user.id, plan, interval, stripeBillingStatus, attribution);
     }
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
     // An App Store subscriber changes plans in the App Store; a Stripe
@@ -436,6 +429,38 @@ async function stripePersonalCheckout(
     });
     return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
   }
+}
+
+/**
+ * An account that already pays for a personal plan never gets a second
+ * subscription. A plan switch the hosted portal can do (the subscription is
+ * on a price it lists) opens its switch flow; one it cannot (a grandfathered
+ * price) goes to the dashboard, whose in-place switch prices any
+ * subscription. Every other state opens the plain portal.
+ */
+function existingSubscriptionRedirect(
+  request: NextRequest,
+  userId: string,
+  plan: PersonalPlanId,
+  interval: BillingInterval,
+  status: StripeBillingStatus,
+  attribution: CheckoutAttribution,
+): NextResponse {
+  const wantsSwitch = plan !== GO_PLAN_ID && status.hasActiveSubscription &&
+    !status.cancelAtPeriodEnd && status.activePlanId !== plan;
+  if (wantsSwitch && !isPortalSwitchableLookupKey(status.planLookupKey) && status.subscriptionStatus !== "past_due") {
+    captureCheckoutDecision(userId, plan, status.activePlanId, "switch_plan", attribution, interval);
+    return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
+  }
+  const portalURL = new URL("/api/billing/portal", requestOrigin(request));
+  if (wantsSwitch) {
+    portalURL.searchParams.set("flow", "switch_plan");
+    portalURL.searchParams.set("plan", plan);
+  }
+  forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
+  captureCheckoutDecision(userId, plan, status.activePlanId,
+    wantsSwitch ? "switch_plan" : "manage_billing", attribution, interval);
+  return NextResponse.redirect(portalURL);
 }
 
 type TeamCheckoutTarget = {

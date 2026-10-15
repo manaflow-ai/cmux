@@ -16,7 +16,10 @@ export type PlanCardAction =
   | { readonly kind: "switch"; readonly plan: SwitchPlanId }
   | { readonly kind: "cancel" }
   | { readonly kind: "resume" }
-  | { readonly kind: "unavailable"; readonly reason: "cancelScheduled" | "granted" | "adminOnly" };
+  | {
+      readonly kind: "unavailable";
+      readonly reason: "cancelScheduled" | "granted" | "grantedNoCancel" | "paymentFailed" | "adminOnly";
+    };
 
 export type PlanCard = {
   readonly id: PickerPlanId;
@@ -25,36 +28,47 @@ export type PlanCard = {
 };
 
 type Subscription = { readonly cancelAtPeriodEnd: boolean };
+type PickerState = "free" | "active" | "pastDue" | "cancelling" | "granted" | "readOnly";
 
 function paidPersonalPlan(value: string | null | undefined): "go" | "pro" | "max" | null {
   return value === "go" || value === "pro" || value === "max" ? value : null;
 }
 
 /** Actions for the non-current cards, from the state of the current plan. */
-function otherAction(
-  state: "free" | "active" | "cancelling" | "granted" | "readOnly",
-  card: PickerPlanId,
-): PlanCardAction {
+function otherAction(state: PickerState, card: PickerPlanId, current: PickerPlanId): PlanCardAction {
   switch (state) {
     case "free":
       return card === "free" ? { kind: "current" } : { kind: "checkout", plan: card };
     case "active":
       if (card === "free") return { kind: "cancel" };
       return card === "pro" || card === "max" ? { kind: "switch", plan: card } : { kind: "unavailable", reason: "granted" };
+    case "pastDue":
+      // A switch needs a paid-up subscription; the payment is fixed first.
+      return { kind: "unavailable", reason: "paymentFailed" };
     case "cancelling":
       return { kind: "unavailable", reason: "cancelScheduled" };
     case "granted":
-      return { kind: "unavailable", reason: "granted" };
+      return grantedAction(card, current);
     case "readOnly":
       return { kind: "unavailable", reason: "adminOnly" };
   }
 }
 
-function cards(ids: readonly PickerPlanId[], current: PickerPlanId, state: Parameters<typeof otherAction>[0]): PlanCard[] {
+/**
+ * A grant has no subscription to switch or cancel, but a granted personal
+ * plan below Max can still buy Max: checkout starts a new subscription.
+ */
+function grantedAction(card: PickerPlanId, current: PickerPlanId): PlanCardAction {
+  if (card === "max" && (current === "go" || current === "pro")) return { kind: "checkout", plan: "max" };
+  if (card === "free" && current !== "max" && current !== "team") return { kind: "unavailable", reason: "grantedNoCancel" };
+  return { kind: "unavailable", reason: "granted" };
+}
+
+function cards(ids: readonly PickerPlanId[], current: PickerPlanId, state: PickerState): PlanCard[] {
   return ids.map((id) => ({
     id,
     current: id === current,
-    action: id === current ? (state === "cancelling" ? { kind: "resume" } : { kind: "current" }) : otherAction(state, id),
+    action: id === current ? (state === "cancelling" ? { kind: "resume" } : { kind: "current" }) : otherAction(state, id, current),
   }));
 }
 
@@ -65,17 +79,24 @@ function cards(ids: readonly PickerPlanId[], current: PickerPlanId, state: Param
 export function personalPlanCards(input: {
   readonly planId: string;
   readonly isPro: boolean;
-  readonly subscription: (Subscription & { readonly plan: string | null }) | null;
+  readonly subscription: (Subscription & { readonly plan: string | null; readonly status?: string }) | null;
   readonly goPlanEnabled: boolean;
 }): PlanCard[] {
   const subscribed = input.subscription ? paidPersonalPlan(input.subscription.plan) ?? paidPersonalPlan(input.planId) : null;
   const current: PickerPlanId = subscribed ?? (input.isPro ? paidPersonalPlan(input.planId) ?? "pro" : "free");
   const showGo = current === "go" || (current === "free" && input.goPlanEnabled);
   const ids: PickerPlanId[] = ["free", ...(showGo ? (["go"] as const) : []), "pro", "max"];
-  const state = subscribed
-    ? input.subscription!.cancelAtPeriodEnd ? "cancelling" : "active"
-    : current === "free" ? "free" : "granted";
-  return cards(ids, current, state);
+  return cards(ids, current, personalState(input.subscription, subscribed !== null, current));
+}
+
+function personalState(
+  subscription: (Subscription & { readonly status?: string }) | null,
+  subscribed: boolean,
+  current: PickerPlanId,
+): PickerState {
+  if (!subscribed) return current === "free" ? "free" : "granted";
+  if (subscription!.cancelAtPeriodEnd) return "cancelling";
+  return subscription!.status === "past_due" ? "pastDue" : "active";
 }
 
 /** A team's plans: Free and Team. Only team admins change them. */

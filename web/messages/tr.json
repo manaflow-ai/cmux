@@ -524,6 +524,8 @@
         "unavailable": {
           "cancelScheduled": "Değiştirmek için planınızı sürdürün.",
           "granted": "cmux tarafından verildi. Değiştirilecek bir şey yok.",
+          "grantedNoCancel": "cmux tarafından verildi, bu yüzden iptal edilecek bir şey yok.",
+          "paymentFailed": "Planı değiştirmeden önce ödeme yönteminizi güncelleyin.",
           "adminOnly": "Planı yalnızca ekip yöneticileri değiştirebilir."
         },
         "names": {

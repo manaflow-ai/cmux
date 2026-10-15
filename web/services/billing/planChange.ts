@@ -1,11 +1,12 @@
-// In-app switch between paid personal plans (Go, Pro, Max). An upgrade takes
-// effect now and charges the prorated difference now; a downgrade takes
-// effect now and credits the unused time to later invoices. The preview and
-// the change use the same proration date, so the amount shown is the amount
-// charged.
+// In-app switch between paid personal plans (Go, Pro, Max). The switch keeps
+// the subscription's billing interval (Pro yearly becomes Max yearly), so the
+// billing period and its renewal date do not move. An upgrade takes effect
+// now and charges the prorated difference now; a downgrade takes effect now
+// and credits the unused time to later invoices. The preview and the change
+// use the same proration date, so the amount shown is the amount charged.
 
 import type Stripe from "stripe";
-import { MAX_PRICING_USD, PRO_PRICING_USD } from "./plans";
+import type { BillingInterval } from "./plans";
 import { planTierRank } from "./planTier";
 import { stripeBillingStatusForUser, type StripeBillingStatus } from "./pro";
 import { applySubscriptionUpdate } from "./purchase";
@@ -48,7 +49,8 @@ type StripeClient = Pick<Stripe, "subscriptions" | "invoices">;
 
 export type PlanChangeDependencies = {
   readonly billingStatus: (stackUserId: string) => Promise<StripeBillingStatus>;
-  readonly priceFor: (plan: SwitchTargetPlan) => Promise<string>;
+  /** The current catalog price of `plan` billed every `interval`. */
+  readonly priceFor: (plan: SwitchTargetPlan, interval: BillingInterval) => Promise<string>;
   readonly stripe: () => StripeClient;
   readonly now: () => number;
   /** Stores the updated subscription the way the Stripe webhook would. */
@@ -57,16 +59,12 @@ export type PlanChangeDependencies = {
 
 const defaultDependencies: PlanChangeDependencies = {
   billingStatus: stripeBillingStatusForUser,
-  priceFor: (plan) => (plan === "max" ? resolveMaxPrice("month") : resolveProPrice("month")),
+  priceFor: (plan, interval) => (plan === "max" ? resolveMaxPrice(interval) : resolveProPrice(interval)),
   stripe,
   now: () => Math.floor(Date.now() / 1000),
   syncSubscription: (subscription) => applySubscriptionUpdate(subscription),
 };
 
-const MONTHLY_AMOUNT: Readonly<Record<SwitchTargetPlan, number>> = {
-  pro: PRO_PRICING_USD.month.billedAmount * 100,
-  max: MAX_PRICING_USD.month.billedAmount * 100,
-};
 /** A preview older than this, or from the future, is not reused for the charge. */
 const PRORATION_DATE_MAX_AGE_SECONDS = 3_600;
 
@@ -104,7 +102,7 @@ async function resolveSwitch(
     customerId,
     subscription,
     itemId: item.id,
-    price: await deps.priceFor(target),
+    price: await deps.priceFor(target, item.price?.recurring?.interval === "year" ? "year" : "month"),
     direction: planTierRank(target) > planTierRank(current) ? "upgrade" : "downgrade",
     periodEnd: typeof item.current_period_end === "number" ? item.current_period_end : null,
   };
@@ -134,24 +132,40 @@ export async function previewPersonalPlanChange(
 ): Promise<PlanChangePreview> {
   const change = await resolveSwitch(input.userId, input.target, deps);
   const prorationDate = deps.now();
-  const invoice = await deps.stripe().invoices.createPreview({
-    customer: change.customerId,
-    subscription: change.subscription.id,
-    subscription_details: {
-      items: [{ id: change.itemId, price: change.price }],
-      proration_behavior: prorationBehavior(change.direction),
-      proration_date: prorationDate,
-    },
-  });
+  const client = deps.stripe();
+  const items = [{ id: change.itemId, price: change.price }];
   const upgrade = change.direction === "upgrade";
+  // An upgrade invoices its proration now, so the next renewal is a separate
+  // invoice: preview it on the new price with no proration, which carries any
+  // discount, tax, or balance Stripe will apply. A downgrade's prorations land
+  // on that renewal, so its one preview is already the renewal.
+  const [invoice, renewal] = await Promise.all([
+    client.invoices.createPreview({
+      customer: change.customerId,
+      subscription: change.subscription.id,
+      subscription_details: {
+        items,
+        proration_behavior: prorationBehavior(change.direction),
+        proration_date: prorationDate,
+      },
+    }),
+    upgrade
+      ? client.invoices.createPreview({
+          customer: change.customerId,
+          subscription: change.subscription.id,
+          subscription_details: { items, proration_behavior: "none" },
+        })
+      : null,
+  ]);
   return {
     plan: input.target,
     direction: change.direction,
     currency: invoice.currency,
     amountDueToday: upgrade ? invoice.amount_due : 0,
     credit: upgrade ? 0 : prorationCredit(invoice),
+    // The interval is kept, so the billing period (and its end) is unchanged.
     nextRenewalAt: change.periodEnd === null ? null : new Date(change.periodEnd * 1000).toISOString(),
-    nextInvoiceAmount: upgrade ? MONTHLY_AMOUNT[input.target] : invoice.amount_due,
+    nextInvoiceAmount: (renewal ?? invoice).amount_due,
     prorationDate,
   };
 }

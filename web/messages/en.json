@@ -837,6 +837,8 @@
         "unavailable": {
           "cancelScheduled": "Resume your plan to change it.",
           "granted": "Granted by cmux. There is nothing to change.",
+          "grantedNoCancel": "Granted by cmux, so there is nothing to cancel.",
+          "paymentFailed": "Update your payment method before changing plans.",
           "adminOnly": "Only team admins can change the plan."
         },
         "names": {

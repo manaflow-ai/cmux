@@ -524,6 +524,8 @@
         "unavailable": {
           "cancelScheduled": "Gjenoppta planen for å endre den.",
           "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "grantedNoCancel": "Tildelt av cmux, så det er ingenting å si opp.",
+          "paymentFailed": "Oppdater betalingsmåten før du bytter abonnement.",
           "adminOnly": "Bare teamadministratorer kan endre planen."
         },
         "names": {
