@@ -335,6 +335,9 @@ export function summary(decision) {
     `- current nightly-next: \`${decision.current || 'none'}\``,
     `- reason: ${decision.reason}`,
   ];
+  if (decision.force) {
+    lines.push('- nightly-next is a hand-made baseline that this promotion replaces; the patches it drops are listed only when the compare shows them');
+  }
   if (decision.surfaceFiles?.length) {
     lines.push('- release surface files changed:', ...decision.surfaceFiles.map((file) => `  - \`${file}\``));
   }
