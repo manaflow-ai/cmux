@@ -1,7 +1,7 @@
 // Quote in Reply (the app's native menu on selected message text, POLISH.md right-click contract):
 // the page command `quoteSelection` puts the selection into the open composer as a Markdown quote,
 // ahead of what is already typed. An open thread's composer takes it, else the conversation's; an
-// inline edit never does, and text selected inside a composer is never quoted. The composer
+// inline edit never does, and text selected inside a composer or any other field is never quoted. The composer
 // (Composer.tsx) takes the text through QUOTE_EVENT.
 
 /** The page command the app's selection menu sends (HomeChannelsSelectionMenu.swift). */
@@ -23,7 +23,7 @@ export function quoteSelection(doc: Document): boolean {
   if (!selection || selection.isCollapsed || !text.trim()) return false;
   const anchor = selection.anchorNode;
   const element = anchor?.nodeType === 1 ? (anchor as Element) : anchor?.parentElement;
-  if (element?.closest(".hc-composer")) return false;
+  if (element?.closest(".hc-composer, input, textarea, [contenteditable]")) return false;
   const target =
     doc.querySelector(".lg-sheet .hc-composer:not(.hc-edit)") ??
     doc.querySelector(".lg-main-compose .hc-composer:not(.hc-edit)");

@@ -227,13 +227,16 @@ export function Composer({
     setPop({ kind: "emoji", anchor });
     loadEmoji().then(setEmoji, () => setPop(undefined));
   };
-  // Quote in Reply (quoteSelection.ts): the quote goes ahead of what is typed, and typing goes on after it.
+  // Quote in Reply (quoteSelection.ts): the quote goes ahead of what is typed, and typing goes on after
+  // it. A composer that cannot send (offline, a thread I cannot post in) takes none.
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
   useEffect(() => {
     const node = root.current;
     if (!node) return;
     const take = (event: Event) => {
       const text = (event as CustomEvent<string>).detail;
-      if (!text) return;
+      if (!text || disabledRef.current) return;
       setValue((current) => quoteMarkdown(text) + current);
       editor.current?.focus();
     };

@@ -12,6 +12,7 @@ import "../shared/desktop";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
 import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -65,7 +66,7 @@ export function mountDaemonHomeChannelsPage(
   const edit = client ? hostEdit(client) : undefined;
   // The app's menu on selected message text: Quote in Reply.
   void client
-    ?.subscribe<{ command?: string }>("cmux.page.command", (data) => {
+    ?.subscribe<PageCommand>(PAGE_COMMAND, (data) => {
       if (data.command === QUOTE_COMMAND) quoteSelection(document);
     })
     .catch(() => {});
