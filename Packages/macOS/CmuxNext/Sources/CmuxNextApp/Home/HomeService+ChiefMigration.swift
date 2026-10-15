@@ -61,13 +61,11 @@ extension HomeService {
         cloudChief?.mainConversation == id.rawValue || homeStore.summary(id)?.owner == .cloud
     }
 
-    /// The notice row of a conversation: on the local Chief, that agents
-    /// are off in this build session (cx-tgf4h: it cannot answer), else its
-    /// organizing status while a turn waits; else the merge notice.
+    /// The notice row of a conversation: on the local Chief, agents off in this build session (cx-tgf4h)
+    /// or its organizing status while a turn waits; else the merge notice.
     func conversationNotice(for id: ConversationID) -> String? {
         let isLocalChief = HomeChiefName.select(from: conversations)?.id == id.rawValue
-        let chiefNotice = isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? settleNotice) : nil
-        return chiefNotice ?? migrationNotice
+        return (isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? settleNotice) : nil) ?? migrationNotice
     }
 
     /// What Home shows when it cannot show conversations.

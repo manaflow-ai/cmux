@@ -3,7 +3,7 @@ import { BranchIcon } from "./icons";
 
 export function RowBranch({ branch }: { branch: string }) {
   return (
-    <span className="proto-row-branch" title={branch}>
+    <span className="proto-row-branch">
       <BranchIcon />
       <span>{branch}</span>
     </span>
