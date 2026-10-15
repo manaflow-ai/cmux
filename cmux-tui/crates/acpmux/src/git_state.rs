@@ -128,8 +128,12 @@ mod tests {
             .args(["-c", "user.name=acpmux", "-c", "user.email=acpmux@example.com"])
             .args(["-c", "commit.gpgsign=false"])
             .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_COMMON_DIR")
+            .env_remove("GIT_INDEX_FILE")
             .output()
             .unwrap();
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
@@ -170,5 +174,61 @@ mod tests {
         git(&dir, &["checkout", "-q", "-b", "fresh"]);
         let state = GitState::read(&dir);
         assert_eq!(state, GitState { branch: Some("fresh".into()), head: None });
+    }
+
+    /// A repository at `dir` on `branch` with one commit; returns that commit.
+    fn repo(dir: &Path, branch: &str) -> String {
+        git(dir, &["init", "-q"]);
+        git(dir, &["checkout", "-q", "-b", branch]);
+        git(dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        git(dir, &["rev-parse", "HEAD"])
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_state_follows_a_symlinked_folder_to_its_repository() {
+        let dir = scratch("symlink");
+        let main = dir.join("repo");
+        std::fs::create_dir_all(main.join("sub")).unwrap();
+        let head = repo(&main, "linked");
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(main.join("sub"), &link).unwrap();
+        let state = GitState::read(&link);
+        assert_eq!(state, GitState { branch: Some("linked".into()), head: Some(head) });
+    }
+
+    #[test]
+    fn git_state_of_a_missing_folder_is_empty() {
+        let dir = scratch("missing");
+        repo(&dir, "topic");
+        assert_eq!(GitState::read(&dir.join("gone")), GitState::default());
+    }
+
+    #[test]
+    fn git_state_drops_a_branch_name_git_would_refuse() {
+        let dir = scratch("badref");
+        repo(&dir, "topic");
+        for name in ["refs/heads/../../x", "refs/heads/a\u{1b}[31mb", "refs/heads/a\\..\\b"] {
+            std::fs::write(dir.join(".git/HEAD"), format!("ref: {name}\n")).unwrap();
+            assert_eq!(GitState::read(&dir).branch, None, "{name:?}");
+        }
+    }
+
+    /// A HEAD that is a FIFO (or a device) is skipped, not read: reading it
+    /// would block session/new forever.
+    #[cfg(unix)]
+    #[test]
+    fn git_state_skips_a_head_that_is_not_a_regular_file() {
+        let dir = scratch("fifo");
+        repo(&dir, "topic");
+        let head = dir.join(".git/HEAD");
+        std::fs::remove_file(&head).unwrap();
+        let path = std::ffi::CString::new(head.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(GitState::read(&dir)).unwrap());
+        let state =
+            rx.recv_timeout(std::time::Duration::from_secs(5)).expect("read hung on a FIFO");
+        assert_eq!(state, GitState::default());
     }
 }

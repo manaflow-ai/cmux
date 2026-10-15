@@ -23,8 +23,12 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .args(["-c", "user.name=acpmux", "-c", "user.email=acpmux@example.com"])
         .args(["-c", "commit.gpgsign=false"])
         .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_INDEX_FILE")
         .output()
         .unwrap();
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
