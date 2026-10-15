@@ -1997,7 +1997,16 @@ w("\r\x1b[2KSTREAMDONE\n")
         subprocess.run(["axe", "type", text, "--udid", self.sim.udid], capture_output=True, timeout=60)
 
     def _chat_send(self, prompt, timeout=15):
-        f = self.sim.wait(kind="TextView", timeout=timeout) or self.sim.wait(kind="TextField", timeout=5)
+        f = None
+        deadline = time.time() + timeout
+        while time.time() < deadline and not f:
+            # The empty chat's "Ask Codex" field is a TextView; after a turn the composer
+            # reads "Reply to Codex" and AX may report another kind for it.
+            found = (self.sim.find(kind="TextView") or self.sim.find(kind="TextField")
+                     or self.sim.find(contains="Reply to") or self.sim.find(contains="Ask Codex"))
+            f = found[0] if found else None
+            if not f:
+                time.sleep(0.5)
         check(f, "no chat composer")
         self.sim.tap_el(f); time.sleep(0.6)
         self._axe_type(prompt); time.sleep(0.5)
