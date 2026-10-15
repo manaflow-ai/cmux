@@ -89,10 +89,12 @@ final class AppControl {
             },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md).
             // `deactivate: true` first puts the app in the background (as a person working in another
-            // app), so a live proof can click an inactive window.
+            // app; `activate_pid` names the app that takes over), so a live proof can click an inactive window.
             .mainActor("debug.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
-                if call.params["deactivate"]?.boolValue == true { DebugFocus.deactivateApp() }
+                if call.params["deactivate"]?.boolValue == true {
+                    DebugFocus.deactivateApp(handingActivationTo: call.params["activate_pid"]?.intValue)
+                }
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).

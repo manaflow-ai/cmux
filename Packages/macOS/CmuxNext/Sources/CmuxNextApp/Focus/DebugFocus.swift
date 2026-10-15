@@ -6,13 +6,14 @@ import CmuxNextSettings
 /// (plans/cmux-next/focus.md section 6). Pane and tab ids match
 /// `debug.surfaces` and the compat tree.
 enum DebugFocus {
-    /// The app hands activation to Finder (always running) and resigns active, as when a person
-    /// works in another app; its windows stay where they are. `NSApp.deactivate()` alone left the
-    /// app active when no other app took over.
-    static func deactivateApp() {
-        if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
-            NSApp.yieldActivation(to: finder)
-            finder.activate(from: .current, options: [])
+    /// The app hands activation to the app `pid` names (the caller passes one, for example Finder's)
+    /// and resigns active, as when a person works in another app; its windows stay where they are.
+    /// `NSApp.deactivate()` alone left the app active when no other app took over. The caller names
+    /// the app, so the app looks up no process.
+    static func deactivateApp(handingActivationTo pid: Int?) {
+        if let pid, let other = NSRunningApplication(processIdentifier: pid_t(pid)) {
+            NSApp.yieldActivation(to: other)
+            other.activate(from: .current, options: [])
         }
         NSApp.deactivate()
     }

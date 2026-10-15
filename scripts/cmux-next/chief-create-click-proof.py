@@ -311,12 +311,23 @@ def real_click_link(pid, mark, text, role="link", front=True, before_click=None)
     return done
 
 
+def lsapp(*args):
+    return subprocess.run(["/usr/bin/lsappinfo", *args], capture_output=True, text=True, timeout=10).stdout.strip()
+
+
 def front_bundle_id():
-    """The bundle id of the frontmost app, as the window server sees it (outside the app's own view)."""
-    asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=10).stdout.strip()
-    info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "bundleid", asn], capture_output=True, text=True,
-                          timeout=10).stdout.strip()
-    return info.split("=", 1)[-1].strip().strip('"') if "=" in info else info
+    """The bundle id of the frontmost app, as LaunchServices sees it (outside the app's own view)."""
+    import re
+    info = lsapp("info", "-only", "bundleid", lsapp("front"))
+    m = re.search(r'(?:bundleID|CFBundleIdentifier)"?\s*=\s*"([^"]+)"', info)
+    return m.group(1) if m else info[:200]
+
+
+def finder_pid():
+    """Finder's pid from LaunchServices (one named app, no process scan): the app the proof hands activation to."""
+    import re
+    m = re.search(r'"?pid"?\s*=\s*(\d+)', lsapp("info", "-only", "pid", lsapp("find", "bundleid=com.apple.finder")))
+    return int(m.group(1)) if m else None
 
 
 def inactive_now():
@@ -439,7 +450,8 @@ try:
     until(lambda: None, 1)  # proof pacing: the first click's activation settles before the gesture click
     # The person works in another app: cmux is inactive, its window stays where it is. ONE click on Create Chief
     # must make the Chief (the first click on an inactive window reaches the page, as on the native controls).
-    R["deactivate"] = res(rpc("debug.focus", {"deactivate": True}, 30)) or {}
+    R["finder_pid"] = finder_pid()
+    R["deactivate"] = res(rpc("debug.focus", {"deactivate": True, "activate_pid": R["finder_pid"]}, 30)) or {}
     until(lambda: inactive_now().get("ok"), 10)
     # The precondition is read again immediately before the pointer event (in real_click_link); the click is
     # sent only when cmux is not active and no cmux window is key, so an active app cannot make a false green.
