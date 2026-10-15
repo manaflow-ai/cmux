@@ -12,6 +12,7 @@ final class HomeLiveLine {
     private var activity: HomeLiveActivity?
     private var shown: String?
     private var clock: Timer?
+    private var hiding = false
     private let now: () -> Date
 
     init(now: @escaping () -> Date = Date.init) {
@@ -19,6 +20,7 @@ final class HomeLiveLine {
     }
 
     func show(_ activity: HomeLiveActivity?) {
+        if activity != nil { hiding = false }
         guard activity != self.activity else { return }
         self.activity = activity
         clock?.invalidate()
@@ -33,6 +35,18 @@ final class HomeLiveLine {
             self.clock = clock
         }
         tick()
+    }
+
+    /// The line closes on the next display frame (after the commit that lands the reply);
+    /// a line shown again before then stays.
+    func hide(after controller: ChatController) {
+        guard activity != nil, !hiding else { return }
+        hiding = true
+        controller.nextFrame { [weak self] in
+            guard let self, self.hiding else { return }
+            self.hiding = false
+            self.show(nil)
+        }
     }
 
     /// The transcript's store was made again (install): it shows the line again.
