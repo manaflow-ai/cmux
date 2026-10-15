@@ -41,8 +41,11 @@ export type AcpmuxRow = {
   plan?: AcpmuxPlanEntry[];
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
-  /// A session offer's chip (offer/OfferChip.tsx).
-  offer?: AcpmuxSessionOffer;
+  /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
+  /// order the agent made them, or one offer made without a group.
+  offers?: AcpmuxSessionOffer[];
+  /// A prompt acpmux sent this chat with a suggested task's result (offer/SuggestedTasks.tsx).
+  received?: AcpmuxOfferResult;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -127,9 +130,20 @@ export type AcpmuxSessionOffer = {
   worktree: boolean;
   harness?: string;
   model?: string;
-  outcome?: "accepted" | "dismissed";
+  /// The offers an agent suggested together (`suggest_tasks`) share one; they draw as one card.
+  groupId?: string;
+  /// `here`: the person had this chat do it; its prompt went to this chat.
+  outcome?: "accepted" | "dismissed" | "here";
   childSessionId?: string;
+  /// A started offer's chat, while the page watches it: its status (acpmux's session list) and
+  /// its latest tool call's title.
+  childStatus?: string;
+  activity?: string;
 };
+
+/// The `_meta.provenance` acpmux puts on the prompt that brings a started offer's result back to
+/// the chat that offered it (cx-lo9yf).
+export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title: string };
 
 export type AcpmuxPermission = {
   permissionId: string;
@@ -441,6 +455,13 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
+  // A suggested tasks card (offer/SuggestedTasks.tsx): its 28px heading, about 84px per open task
+  // and 30px per started one, in 8px of margins.
+  if (row.kind === "sessionOffer" && row.offers) {
+    const open = row.offers.filter((offer) => !offer.outcome).length;
+    const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
+    return 8 + 8 + 28 + open * 84 + started * 30;
+  }
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (
@@ -567,6 +588,8 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 }
 
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
+  // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
+  if (row.received) return 26 + 16;
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {
