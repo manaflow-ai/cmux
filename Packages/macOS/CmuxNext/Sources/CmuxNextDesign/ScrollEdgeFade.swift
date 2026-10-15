@@ -75,11 +75,14 @@ public final class ScrollEdgeFadeView: NSView {
         clip.postsBoundsChangedNotifications = true
         clip.postsFrameChangedNotifications = true
         let center = NotificationCenter.default
-        for name in [NSView.boundsDidChangeNotification, NSView.frameDidChangeNotification] {
-            observers.append(center.addObserver(forName: name, object: clip, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
-            })
-        }
+        // A scroll (the clip's bounds) changes only which edges hide content; the mask's geometry
+        // follows this view's own size, so a scroll frame touches the mask only when an edge flips.
+        observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateEdges() } // main-proof: observer on queue: .main
+        })
+        observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
+        })
         updateFade(animated: false)
     }
 
@@ -159,6 +162,18 @@ public final class ScrollEdgeFadeView: NSView {
             fadeMask.endPoint = CGPoint(x: 0.5, y: 1 - top)
             fadeMask.locations = [0, fade, 1 - fade, 1].map { NSNumber(value: Double($0)) }
         }
+        setEdges(next, animated: animated)
+    }
+
+    /// Re-reads only which edges hide content (a scroll). Before the first full update (no
+    /// mask yet) it does the full one.
+    func updateEdges() {
+        guard layer?.mask === fadeMask else { return updateFade() }
+        observeDocument(scrollView.documentView)
+        setEdges(Self.hiddenEdges(of: scrollView), animated: true)
+    }
+
+    private func setEdges(_ next: ScrollEdges, animated: Bool) {
         guard next != edges else { return }
         edges = next
         // The band's opacity fades; geometry above never animates.
