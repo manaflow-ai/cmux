@@ -106,7 +106,11 @@ class Job:
         self.phase = phase
         self.app = os.environ["NX_APP"]
         self.socket = os.environ["NX_APP_SOCKET"]
-        self.out = os.path.join(os.environ.get("NX_ARTIFACTS", "/tmp/ext-mv2"), phase)
+        # Experiment (cx-mv2-dispatch-experiment): MV2_DISABLE_PER_CONTEXT=1 turns off
+        # Chromium's WebRequestPerContextEventDispatch and writes to <phase>-disable-per-context.
+        self.disable_per_context = os.environ.get("MV2_DISABLE_PER_CONTEXT") == "1"
+        suffix = "-disable-per-context" if self.disable_per_context else ""
+        self.out = os.path.join(os.environ.get("NX_ARTIFACTS", "/tmp/ext-mv2"), phase + suffix)
         os.makedirs(self.out, exist_ok=True)
         self.port = free_port()
         self.extensions = list(extensions)
@@ -135,6 +139,9 @@ class Job:
             "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,860",
             "CMUX_NEXT_CEF_EXTRA_SWITCHES": f"remote-debugging-port={self.port}:remote-allow-origins=*",
         }
+        if self.disable_per_context:
+            env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] += ":disable-features=WebRequestPerContextEventDispatch"
+        log(f"CMUX_NEXT_CEF_EXTRA_SWITCHES={env['CMUX_NEXT_CEF_EXTRA_SWITCHES']}")
         if "NX_JOB_ID" in os.environ:
             env["NX_JOB_ID"] = os.environ["NX_JOB_ID"]
         if self.extensions:
@@ -173,6 +180,14 @@ class Job:
         else:
             raise SystemExit(f"no DevTools port {self.port}: CMUX_NEXT_CEF_EXTRA_SWITCHES did not apply")
         log(f"app up: pid {self.pid}, cdp {self.port}")
+        # Diagnostic: the helper command lines carry the merged feature lists.
+        try:
+            ps = subprocess.run(["/bin/ps", "-axww", "-o", "pid=,ppid=,command="], capture_output=True,
+                                text=True, timeout=10).stdout
+            with open(os.path.join(self.out, "processes.txt"), "w") as handle:
+                handle.write("".join(line + "\n" for line in ps.splitlines() if self.app in line))
+        except (OSError, subprocess.SubprocessError) as error:
+            log(f"ps failed: {error}")
 
     def stop(self):
         stop = os.environ.get("NX_APP_STOP")
