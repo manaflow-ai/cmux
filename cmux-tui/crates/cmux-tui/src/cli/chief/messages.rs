@@ -107,7 +107,7 @@ static JAPANESE: Messages = Messages {
     started_brain: "{home} で Chief を開始しました (pid {pid})。ログはそこの host.log です",
     daemon_failed: "Chief のセッションデーモンが動いておらず、{why}",
     no_brain: "Chief が動いておらず、この cmux の隣にも PATH にも Chief の頭脳 (optchat-chief) がありません。cmux DEV か NIGHTLY のアプリで Home を一度開くか、CMUX_CHIEF_BRAIN_BIN を設定してください",
-    agents_disabled: "このビルドセッションではエージェントが無効です (ACPMUX_AGENT_LAUNCH=deny または CMUX_AGENTS_DISABLED=1)。Chief はターンを始めないため、何も送信していません。Chief と話すには変数を外してください",
+    agents_disabled: "このビルドセッションではエージェントが無効です (ACPMUX_AGENT_LAUNCH=deny または CMUX_AGENTS_DISABLED=1)。Chief はターンを始めないため、何も送信していません。Chief と話すには環境変数の設定を解除してください",
     home_and_socket: "--chief-home と --socket/--session は同時に指定できません",
     stop_sent: "Chief のターンを停止します",
     shutdown_needs_home: "cmux chief shutdown は Chief ホームを停止します。--socket や --session ではなく --chief-home を指定してください (省略するとあなたの Chief)",

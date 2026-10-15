@@ -20,7 +20,10 @@ pub const MESSAGE: &str = "agents are disabled in this build session (ACPMUX_AGE
 /// Whether this process's environment turns agents off. Read at each call,
 /// never cached.
 pub fn disabled() -> bool {
-    disabled_by(std::env::var(LAUNCH_ENV).ok().as_deref(), std::env::var(DISABLED_ENV).ok().as_deref())
+    disabled_by(
+        std::env::var(LAUNCH_ENV).ok().as_deref(),
+        std::env::var(DISABLED_ENV).ok().as_deref(),
+    )
 }
 
 /// The test of [`disabled`] on given values (acpmux launch_policy.rs).

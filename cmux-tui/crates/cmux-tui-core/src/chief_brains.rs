@@ -735,7 +735,10 @@ impl Supervisor {
         if crate::agent_launch::disabled() {
             let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
             if !std::mem::replace(&mut brain.lock_noted, true) {
-                eprintln!("cmux-tui: Chief brain {chief} does not start: {}", crate::agent_launch::MESSAGE);
+                eprintln!(
+                    "cmux-tui: Chief brain {chief} does not start: {}",
+                    crate::agent_launch::MESSAGE
+                );
             }
             return;
         }

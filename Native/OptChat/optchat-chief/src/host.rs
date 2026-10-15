@@ -487,7 +487,10 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // cx-tgf4h: agents are off in this build session (acpmux refuses every
     // launch), so no turn could start; the host would only hold messages.
     if agent_launch_disabled() {
-        log("not starting: agents are disabled in this build session (ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1)".to_owned());
+        log(
+            "not starting: agents are disabled in this build session \
+             (ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1)",
+        );
         return 0;
     }
     let _lock = match HostLock::take(&paths.host_lock, started_ms) {

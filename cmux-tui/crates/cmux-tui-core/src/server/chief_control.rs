@@ -60,20 +60,10 @@ pub(super) fn handle_with(
     if let Err(error) = require_owner(mux, client) {
         return send_resource_response(writer, id, operation, Err(error));
     }
-    // cx-tgf4h: with agents off in this build session no brain runs; say
-    // so at once instead of a socket error the panel reads as "not running".
-    if crate::agent_launch::disabled() {
-        let refused = ResourceError::operation_failed(
-            operation.wire_name(),
-            crate::agent_launch::REASON,
-            json!({"message": crate::agent_launch::MESSAGE}),
-        );
-        return send_resource_response(writer, id, operation, Err(refused));
-    }
     let line = tool_line(operation, &request.fields);
     let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
     let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
-        let answer = ask(operation, &line, socket.as_deref());
+        let answer = disabled_unless_answered(operation, ask(operation, &line, socket.as_deref()));
         send_resource_response(
             &thread_writer,
             reply_id,
@@ -92,6 +82,24 @@ pub(super) fn handle_with(
                 json!({"message": "cannot start the Chief control request"}),
             )),
         )
+}
+
+/// cx-tgf4h: with agents off in this build session the daemon starts no
+/// brain, so a brain that does not answer is not "not running" but off on
+/// purpose: the typed refusal. A brain that still runs (started before)
+/// answers as always, so its turn can still be stopped.
+fn disabled_unless_answered(
+    operation: ResourceOperation,
+    answer: Result<Value, ResourceError>,
+) -> Result<Value, ResourceError> {
+    match answer {
+        Err(_) if crate::agent_launch::disabled() => Err(ResourceError::operation_failed(
+            operation.wire_name(),
+            crate::agent_launch::REASON,
+            json!({"message": crate::agent_launch::MESSAGE}),
+        )),
+        other => other,
+    }
 }
 
 /// The owner rule of `chief-inspect`, as an `origin.forbidden` refusal.

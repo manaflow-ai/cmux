@@ -17,6 +17,11 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 Ends with quitEndSessions, endAgents, acpmux daemon shutdown + router shutdown, chief shutdown.
 Reads NX_APP, NX_APP_TAG, NX_APP_STOP, NX_APP_CLI, NX_CAPTURE, NX_ARTIFACTS."""
 import json, os, shutil, socket, subprocess, sys, tempfile, time
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-create-click-proof.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 APP, TAG, OUT = os.environ["NX_APP"], os.environ["NX_APP_TAG"], os.environ["NX_ARTIFACTS"]
 CAPTURE, STOP, CLI = os.environ["NX_CAPTURE"], os.environ["NX_APP_STOP"], os.environ["NX_APP_CLI"]
@@ -43,11 +48,6 @@ def chief_component(raw):
 
 
 import plistlib
-# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
-# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
-if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
-    sys.exit("chief-create-click-proof.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
-             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 BUNDLE_ID = plistlib.load(open(os.path.join(APP, "Contents/Info.plist"), "rb"))["CFBundleIdentifier"]
 # ChiefHome rule 2 (CMUX_NEXT_CHIEF_ROOT): this build's own home, <root>/<bundle id>, buildID = bundle id.
 CHIEF = os.path.join(CHIEF_ROOT, chief_component(BUNDLE_ID))
