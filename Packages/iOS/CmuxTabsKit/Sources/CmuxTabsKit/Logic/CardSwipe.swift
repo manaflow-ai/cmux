@@ -43,6 +43,18 @@ struct CardSwipe: Equatable, Sendable {
     /// The card follows the finger on this spring (Safari's glide over the
     /// slop and its carry past a stopped finger, cmux-next re-audit 3 D3).
     static let follow = ZoomSpring(response: 0.12, damping: 0.7)
+    /// The card stays in its slot until the finger is this far out, then
+    /// glides onto it: Safari's card starts later in a drag than a pan
+    /// recognised at UIKit's slop (re-audit 4 D3: ours ran 13-15 pt behind
+    /// Safari's track from its onset).
+    static let onsetTravel: CGFloat = 19
+    /// Leftward, the card runs this far ahead of the finger along its
+    /// velocity (at most `leadMax`), like a predicted touch: Safari's card
+    /// ends about 4 pt past a finger that stopped at 100 pt/s, and springs
+    /// back from there.
+    static let leadTime: CGFloat = 0.045
+    static let leadMax: CGFloat = 8
+    static let leadMaxSpeed: CGFloat = 300
     /// A closing card keeps going left at the finger's speed (device ≈ 1000
     /// pt/s, still lifted and opaque) until it is off screen.
     static let flyOffMinSpeed: CGFloat = 1000
