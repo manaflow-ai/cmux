@@ -527,7 +527,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// A session exists only for a tab the phone saw in the tree, so a
     /// surface the tree no longer lists is a closed tab, not a new one.
     nonisolated public static func surfacesToReattach(_ sessions: [Int], tree: Set<Int>?) -> [Int] {
-        sessions
+        guard let tree else { return sessions }
+        return sessions.filter(tree.contains)
     }
 
     /// Whether the daemon takes the viewer's size in `attach-surface`.

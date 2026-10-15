@@ -819,7 +819,11 @@ public final class LiveCoordinator {
             // own `daemon` channel of this link; open ones reattach now. Input-lane
             // channels may ride another stream, so they wait for pairing here.
             self.terminals.removeAll { $0.session == nil }
-            for terminal in self.terminals { terminal.session?.reconnect() }
+            let attach = Set(DaemonTerminalSession.surfacesToReattach(self.terminals.compactMap { $0.session?.surface },
+                                                     tree: self.workspaces.tree.map { Set($0.surfaces.values) }))
+            for terminal in self.terminals where terminal.session.map({ attach.contains($0.surface) }) == true {
+                terminal.session?.reconnect()
+            }
             // Streamed browser tabs that dropped open again on this link.
             StreamedBrowserDirectory.shared.linkChanged()
             do {
