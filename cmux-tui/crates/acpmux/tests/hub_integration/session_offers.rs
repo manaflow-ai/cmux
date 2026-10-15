@@ -287,7 +287,10 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     let id = new_chat(&mut person).await;
     let socket = listen(&hub).await;
-    let mut mcp = tokio::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    // The hermetic environment (cx-s8wux): nothing from the host, no agent launches.
+    let scratch = std::env::temp_dir().join(format!("acpmux-offers-mcp-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let mut mcp = crate::daemon_env::tokio_command(&scratch, crate::daemon_env::Agents::Deny)
         .arg("offer-mcp")
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_OFFER_SESSION", &id)
@@ -327,6 +330,7 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
     }
     drop(stdin);
     let _ = std::fs::remove_file(&socket);
+    let _ = std::fs::remove_dir_all(&scratch);
 
     let tools = replies[&2]["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
