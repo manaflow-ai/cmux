@@ -304,6 +304,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
+        mainPaneShade.paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         onContentChange?()
     }
 
