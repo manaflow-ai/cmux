@@ -52,12 +52,6 @@
       "title" : "Files Outside the Project",
       "type" : "string"
     },
-    "agentPane.reasoningSlider" : {
-      "default" : false,
-      "description" : "The composer's reasoning menu shows a slider from Faster to Smarter instead of a list of levels.",
-      "title" : "Use Reasoning Slider",
-      "type" : "boolean"
-    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",
@@ -931,6 +925,12 @@
       },
       "title" : "Theme Edits",
       "type" : "object"
+    },
+    "browser.builtInAdBlocker" : {
+      "default" : true,
+      "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
+      "title" : "Built-in uBlock Origin",
+      "type" : "boolean"
     },
     "browser.customSearchEngine.search" : {
       "default" : "",

@@ -96,8 +96,8 @@ async function render(calls: unknown[][]) {
 }
 
 async function type(text: string) {
-  const field = host.querySelector<HTMLInputElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
   await act(async () => {
     setValue.call(field, text);
     field.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -108,7 +108,7 @@ async function type(text: string) {
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 
 const selected = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
-async function press(field: HTMLInputElement, key: string, modifiers: Partial<KeyboardEventInit> = {}) {
+async function press(field: HTMLTextAreaElement, key: string, modifiers: Partial<KeyboardEventInit> = {}) {
   const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
   await act(async () => field.dispatchEvent(event));
   return event;

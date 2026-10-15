@@ -1,5 +1,5 @@
-//! `cmux chief list|new|edit|delete`: the person's Chiefs, through the
-//! daemon's Chief registry (`chief.profile.list`, `chief.profile.create`, `chief.profile.update`,
+//! `cmux chief list|new|adopt|edit|delete`: the person's Chiefs, through the
+//! daemon's Chief registry (`chief.profile.list`, `chief.profile.create`, `chief.profile.adopt`, `chief.profile.update`,
 //! `chief.profile.delete`, `chief.profile.avatar.set`). One call per command on the Chief
 //! home's owner, as `cmux chief engine` finds it; nothing is started. A
 //! CHIEF argument is an id or a display name that names one Chief.
@@ -18,7 +18,7 @@ use crate::cli::OutputMode;
 const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
 
 /// The registry words `cmux chief` takes first.
-pub(super) const WORDS: [&str; 4] = ["list", "new", "edit", "delete"];
+pub(super) const WORDS: [&str; 5] = ["list", "new", "adopt", "edit", "delete"];
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Request {
@@ -40,6 +40,8 @@ struct Text {
     no_such: &'static str,
     ambiguous: &'static str,
     created: &'static str,
+    needs_agent: &'static str,
+    adopted: &'static str,
     updated: &'static str,
     deleted: &'static str,
     default_mark: &'static str,
@@ -50,12 +52,14 @@ struct Text {
 }
 
 static ENGLISH: Text = Text {
-    usage: "usage: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  Your Chiefs: each has its own name, role, picture, personality, instructions,\n  tools and memory. CHIEF is an id (agent_...) or a name.\n\n  PROFILE:\n  --name NAME              1 to 100 characters\n  --role TEXT              one line, for example \"Release captain\"\n  --personality TEXT       tone and style\n  --instructions TEXT      added to the Chief's system prompt (after the base rules)\n  --instructions-file F    the same, read from file F\n  --avatar FILE            a PNG, JPEG, GIF or WebP picture, at most 1 MiB\n  --tools a,b              from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces\n  --harnesses a,b          the harnesses its subagents may use (empty: all)\n  --self-edit a,b          what the Chief may change itself: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   its engine\n  --chief-home DIR         an isolated Chief home",
+    usage: "usage: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  Your Chiefs: each has its own name, role, picture, personality, instructions,\n  tools and memory. CHIEF is an id (agent_...) or a name.\n  adopt makes AGENT, an agent already in your conversations (agent_...), a Chief\n  under its own id: its conversations and history stay; it gets a new Chief's defaults.\n\n  PROFILE:\n  --name NAME              1 to 100 characters\n  --role TEXT              one line, for example \"Release captain\"\n  --personality TEXT       tone and style\n  --instructions TEXT      added to the Chief's system prompt (after the base rules)\n  --instructions-file F    the same, read from file F\n  --avatar FILE            a PNG, JPEG, GIF or WebP picture, at most 1 MiB\n  --tools a,b              from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces\n  --harnesses a,b          the harnesses its subagents may use (empty: all)\n  --self-edit a,b          what the Chief may change itself: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   its engine\n  --chief-home DIR         an isolated Chief home",
     needs_name: "cmux chief new needs --name NAME",
     needs_chief: "give the Chief: an id (agent_...) or its name; cmux chief list shows them",
     no_such: "no Chief is named {chief}; cmux chief list shows them",
     ambiguous: "more than one Chief is named {chief}; use its id",
     created: "created {name} ({id})",
+    needs_agent: "cmux chief adopt needs the agent: its participant id (agent_...)",
+    adopted: "adopted {name} ({id}) as a Chief",
     updated: "updated {name} ({id}, rev {rev})",
     deleted: "deleted {name} ({id})",
     default_mark: "default",
@@ -66,12 +70,14 @@ static ENGLISH: Text = Text {
 };
 
 static JAPANESE: Text = Text {
-    usage: "使い方: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  あなたの Chief たち。それぞれに名前、役割、画像、性格、指示、ツール、記憶があります。\n  CHIEF は id (agent_...) または名前です。\n\n  PROFILE:\n  --name NAME              1 から 100 文字\n  --role TEXT              1 行。例: \"リリース担当\"\n  --personality TEXT       口調とスタイル\n  --instructions TEXT      Chief のシステムプロンプトに追加 (基本ルールの後)\n  --instructions-file F    同じ内容をファイル F から読む\n  --avatar FILE            PNG、JPEG、GIF または WebP の画像 (1 MiB まで)\n  --tools a,b              browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces から\n  --harnesses a,b          サブエージェントが使えるハーネス (空ならすべて)\n  --self-edit a,b          Chief が自分で変えられる項目: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   エンジン\n  --chief-home DIR         独立した Chief ホーム",
+    usage: "使い方: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  あなたの Chief たち。それぞれに名前、役割、画像、性格、指示、ツール、記憶があります。\n  CHIEF は id (agent_...) または名前です。\n  adopt は会話にすでにいるエージェント AGENT (agent_...) を、その id のまま Chief にします。\n  会話と履歴はそのまま残り、新しい Chief の既定値が付きます。\n\n  PROFILE:\n  --name NAME              1 から 100 文字\n  --role TEXT              1 行。例: \"リリース担当\"\n  --personality TEXT       口調とスタイル\n  --instructions TEXT      Chief のシステムプロンプトに追加 (基本ルールの後)\n  --instructions-file F    同じ内容をファイル F から読む\n  --avatar FILE            PNG、JPEG、GIF または WebP の画像 (1 MiB まで)\n  --tools a,b              browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces から\n  --harnesses a,b          サブエージェントが使えるハーネス (空ならすべて)\n  --self-edit a,b          Chief が自分で変えられる項目: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   エンジン\n  --chief-home DIR         独立した Chief ホーム",
     needs_name: "cmux chief new には --name NAME が必要です",
     needs_chief: "Chief を指定してください: id (agent_...) または名前。cmux chief list で一覧を表示します",
     no_such: "{chief} という名前の Chief はいません。cmux chief list で一覧を表示します",
     ambiguous: "{chief} という名前の Chief が複数います。id を使ってください",
     created: "{name} を作成しました ({id})",
+    needs_agent: "cmux chief adopt にはエージェントの参加者 id (agent_...) が必要です",
+    adopted: "{name} ({id}) を Chief にしました",
     updated: "{name} を更新しました ({id}、rev {rev})",
     deleted: "{name} を削除しました ({id})",
     default_mark: "既定",
@@ -145,6 +151,9 @@ fn parse(args: &[String]) -> Result<Request, String> {
     if word == "list" && (request.chief.is_some() || !request.fields.is_empty()) {
         return Err("cmux chief list takes no Chief or profile".into());
     }
+    if word == "adopt" && !request.help && request.chief.is_none() {
+        return Err(text().needs_agent.into());
+    }
     if word == "new" && request.chief.is_some() {
         return Err("cmux chief new takes --name, not a Chief".into());
     }
@@ -179,7 +188,7 @@ impl Request {
     /// connection. `None` for a read (list).
     fn write(&self) -> Option<&str> {
         match self.word.as_str() {
-            "new" | "edit" | "delete" => Some(self.word.as_str()),
+            "new" | "adopt" | "edit" | "delete" => Some(self.word.as_str()),
             _ => None,
         }
     }
@@ -356,7 +365,14 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         return Ok(());
     }
     let avatar = request.avatar.as_deref().map(read_avatar).transpose().map_err(Failure::Usage)?;
-    let mut record = if request.word == "new" {
+    let mut record = if request.word == "adopt" {
+        let agent = request.chief.as_deref().ok_or_else(|| Failure::Usage(t.needs_agent.into()))?;
+        let mut params = request.fields.clone();
+        params.insert("participant_id".into(), json!(agent));
+        let key = super::link::new_message_id();
+        let adopted = link.call("chief.profile.adopt", Value::Object(params), Some(&key))?;
+        adopted.get("value").cloned().unwrap_or(Value::Null)
+    } else if request.word == "new" {
         if !request.fields.contains_key("display_name") {
             return Err(Failure::Usage(t.needs_name.into()));
         }
@@ -406,13 +422,21 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         match link.call("chief.profile.avatar.set", params, Some(&key)) {
             Ok(set) => record = set.get("value").cloned().unwrap_or(Value::Null),
             Err(error) => {
-                let template = if request.word == "new" { t.created } else { t.updated };
+                let template = match request.word.as_str() {
+                    "new" => t.created,
+                    "adopt" => t.adopted,
+                    _ => t.updated,
+                };
                 let done = format!("{}; {}", fill(&record, template), t.picture_not_set);
                 return Err(Failure::Partial { done, error });
             }
         }
     }
-    let template = if request.word == "new" { t.created } else { t.updated };
+    let template = match request.word.as_str() {
+        "new" => t.created,
+        "adopt" => t.adopted,
+        _ => t.updated,
+    };
     print_result(&record, template, json_out);
     Ok(())
 }

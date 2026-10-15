@@ -19,9 +19,7 @@ export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) 
       {folders.map((folder) => (
         <Fragment key={folder.path}>
           <span className="folder-item" data-folder={folder.path} data-locked={folder.managed || undefined}>
-            <span className="folder-path selectable" title={folder.path}>
-              {folder.path}
-            </span>
+            <span className="folder-path selectable">{folder.path}</span>
             {folder.managed ? (
               <span className="row-managed" title={t("settingsWindow.managed.device")}>
                 <Icon name="lock" />
