@@ -102,7 +102,7 @@ public struct BrowserPageAutomation {
     /// Stores `cookie` in the page's profile.
     public func setCookie(_ cookie: HTTPCookie) async throws(BrowserAutomationPageError) {
         if speaksDevTools {
-            let json = try await devTools("Network.setCookie", codec.setCookieParams(cookie))
+            let json = try await devTools("Network.setCookie", codec.setCookieParams(cookie, pageURL: page.state.url))
             guard codec.setCookieSucceeded(fromJSON: json) else {
                 throw .engine(String(
                     localized: "browser.automation.error.cookieRejected",

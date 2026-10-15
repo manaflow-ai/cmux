@@ -28,6 +28,14 @@ extension TerminalController {
         return (engine, nil)
     }
 
+    /// The panel's non-WebKit engine page, or nil for a WebKit panel. The
+    /// engine is fixed at panel creation, so a WebKit panel answers without a
+    /// main-thread hop and its automation paths cost nothing extra.
+    nonisolated func v2EnginePage(_ panel: BrowserPanel) -> (any BrowserPage)? {
+        guard panel.engineKind != .webkit else { return nil }
+        return v2MainSync { panel.automationEnginePage }
+    }
+
     /// Runs one engine-page operation on the main actor and waits for it on
     /// the socket worker, at most `timeout` seconds. Nil when it did not finish
     /// in time (the operation is then cancelled).

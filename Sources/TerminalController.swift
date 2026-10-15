@@ -7296,7 +7296,7 @@ class TerminalController {
     ) -> Bool {
         // A non-WebKit engine page owns its own document lifecycle; its scripts
         // run against whatever document it has, as cmux Next's do.
-        if v2MainSync({ browserPanel.automationEnginePage }) != nil {
+        if v2EnginePage(browserPanel) != nil {
             return true
         }
         let expectedWebViewIdentifier = ObjectIdentifier(webView)
@@ -7339,7 +7339,7 @@ class TerminalController {
         requiresPageWorld: Bool = false,
         onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
-        if let enginePage = v2MainSync({ browserPanel.automationEnginePage }) {
+        if let enginePage = v2EnginePage(browserPanel) {
             return v2RunEngineBrowserJavaScript(
                 enginePage,
                 surfaceId: surfaceId,
@@ -9216,7 +9216,7 @@ class TerminalController {
             let surfaceId = ctx.surfaceId
             // A non-WebKit engine delivers any key value as trusted input, so the
             // synthetic DOM-event compatibility path is WebKit-only.
-            if let enginePage = v2MainSync({ ctx.browserPanel.automationEnginePage }) {
+            if let enginePage = v2EnginePage(ctx.browserPanel) {
                 let outcome: Result<Void, any Error>? = v2AwaitEnginePage(timeout: 5.0) {
                     do {
                         try await BrowserPageAutomation(page: enginePage).dispatchKey(event, action: action, modifiers: [])
@@ -9399,7 +9399,7 @@ class TerminalController {
         }
 
         let timingBudget = BrowserScreenshotTimingBudget()
-        if let enginePage = v2MainSync({ browserPanel.automationEnginePage }) {
+        if let enginePage = v2EnginePage(browserPanel) {
             let capture: Result<Data, any Error>? = v2AwaitEnginePage(timeout: timingBudget.socketResponseTimeout) {
                 do {
                     return .success(try await BrowserPageAutomation(page: enginePage).captureViewportPNG())
@@ -11063,55 +11063,115 @@ class TerminalController {
         return .webKit(ctx.webView.configuration.websiteDataStore.httpCookieStore)
     }
 
-    private nonisolated func v2BrowserCookieStoreAll(_ jar: V2BrowserCookieJar, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
+    /// The outcome of one cookie-jar operation: its value, or the socket error
+    /// to return (a timeout, or the engine's own failure).
+    private enum V2BrowserCookieOutcome<Value> {
+        case value(Value)
+        case failure(V2CallResult)
+    }
+
+    /// Runs one engine cookie operation; an engine failure keeps its own error
+    /// instead of reading as a timeout.
+    private nonisolated func v2BrowserEngineCookieOperation<Value>(
+        _ page: any BrowserPage,
+        timeout: TimeInterval,
+        timeoutMessage: String,
+        _ operation: @escaping @MainActor (BrowserPageAutomation) async throws -> Value
+    ) -> V2BrowserCookieOutcome<Value> {
+        let outcome: Result<Value, any Error>? = v2AwaitEnginePage(timeout: timeout) {
+            do {
+                return .success(try await operation(BrowserPageAutomation(page: page)))
+            } catch {
+                return .failure(error)
+            }
+        }
+        switch outcome {
+        case nil:
+            return .failure(.err(code: "timeout", message: timeoutMessage, data: nil))
+        case .failure(let error):
+            return .failure(.err(code: "internal_error", message: Self.v2EngineAutomationMessage(error), data: nil))
+        case .success(let value):
+            return .value(value)
+        }
+    }
+
+    private nonisolated func v2BrowserCookieStoreAll(
+        _ jar: V2BrowserCookieJar,
+        timeout: TimeInterval = 3.0
+    ) -> V2BrowserCookieOutcome<[HTTPCookie]> {
+        let timeoutMessage = "Timed out reading cookies"
         switch jar {
         case .engine(let page):
-            let cookies: [HTTPCookie]?? = v2AwaitEnginePage(timeout: timeout) {
-                try? await BrowserPageAutomation(page: page).allCookies()
+            return v2BrowserEngineCookieOperation(page, timeout: timeout, timeoutMessage: timeoutMessage) {
+                try await $0.allCookies()
             }
-            return cookies ?? nil
         case .webKit(let store):
-            return v2AwaitCallback(timeout: timeout) { finish in
+            let cookies: [HTTPCookie]? = v2AwaitCallback(timeout: timeout) { finish in
                 v2MainSync {
                     store.getAllCookies { items in
                         finish(items)
                     }
                 }
             }
+            guard let cookies else {
+                return .failure(.err(code: "timeout", message: timeoutMessage, data: nil))
+            }
+            return .value(cookies)
         }
     }
 
-    private nonisolated func v2BrowserCookieStoreSet(_ jar: V2BrowserCookieJar, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+    /// Nil on success, else the socket error to return.
+    private nonisolated func v2BrowserCookieStoreSet(
+        _ jar: V2BrowserCookieJar,
+        cookie: HTTPCookie,
+        timeout: TimeInterval = 3.0
+    ) -> V2CallResult? {
+        let timeoutMessage = "Timed out setting cookie"
         switch jar {
         case .engine(let page):
-            return v2AwaitEnginePage(timeout: timeout) {
-                (try? await BrowserPageAutomation(page: page).setCookie(cookie)) != nil
-            } ?? false
+            let outcome: V2BrowserCookieOutcome<Void> = v2BrowserEngineCookieOperation(
+                page,
+                timeout: timeout,
+                timeoutMessage: timeoutMessage
+            ) {
+                try await $0.setCookie(cookie)
+            }
+            if case .failure(let error) = outcome {
+                return error
+            }
+            return nil
         case .webKit(let store):
-            return v2AwaitCallback(timeout: timeout) { finish in
+            let stored = v2AwaitCallback(timeout: timeout) { finish in
                 v2MainSync {
                     store.setCookie(cookie) {
                         finish(true)
                     }
                 }
             } ?? false
+            return stored ? nil : .err(code: "timeout", message: timeoutMessage, data: nil)
         }
     }
 
-    private nonisolated func v2BrowserCookieStoreDelete(_ jar: V2BrowserCookieJar, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+    /// Whether the cookie was deleted; an engine failure is returned as an error.
+    private nonisolated func v2BrowserCookieStoreDelete(
+        _ jar: V2BrowserCookieJar,
+        cookie: HTTPCookie,
+        timeout: TimeInterval = 3.0
+    ) -> V2BrowserCookieOutcome<Bool> {
         switch jar {
         case .engine(let page):
-            return v2AwaitEnginePage(timeout: timeout) {
-                (try? await BrowserPageAutomation(page: page).deleteCookie(cookie)) != nil
-            } ?? false
+            return v2BrowserEngineCookieOperation(page, timeout: timeout, timeoutMessage: "Timed out clearing cookies") {
+                try await $0.deleteCookie(cookie)
+                return true
+            }
         case .webKit(let store):
-            return v2AwaitCallback(timeout: timeout) { finish in
+            return .value(v2AwaitCallback(timeout: timeout) { finish in
                 v2MainSync {
                     store.delete(cookie) {
                         finish(true)
                     }
                 }
-            } ?? false
+            } ?? false)
         }
     }
 
@@ -11160,8 +11220,10 @@ class TerminalController {
             let store = v2MainSync {
                 v2BrowserCookieJar(ctx)
             }
-            guard let cookies = v2BrowserCookieStoreAll(store) else {
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            let cookies: [HTTPCookie]
+            switch v2BrowserCookieStoreAll(store) {
+            case .value(let value): cookies = value
+            case .failure(let error): return error
             }
 
             let name = v2String(params, "name")
@@ -11216,11 +11278,10 @@ class TerminalController {
                 guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: cookieContext.fallbackURL) else {
                     return .err(code: "invalid_params", message: "Invalid cookie payload", data: nil)
                 }
-                if v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie) {
-                    setCount += 1
-                } else {
-                    return .err(code: "timeout", message: "Timed out setting cookie", data: nil)
+                if let error = v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie) {
+                    return error
                 }
+                setCount += 1
             }
 
             return .ok(v2BrowserPanelFields(ctx, adding: ["set": setCount]))
@@ -11331,8 +11392,10 @@ class TerminalController {
                 )
             }
 
-            guard let cookies = v2BrowserCookieStoreAll(store) else {
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            let cookies: [HTTPCookie]
+            switch v2BrowserCookieStoreAll(store) {
+            case .value(let value): cookies = value
+            case .failure(let error): return error
             }
 
             let targets = cookies.filter { cookie in
@@ -11352,8 +11415,10 @@ class TerminalController {
 
             var removed = 0
             for cookie in targets {
-                if v2BrowserCookieStoreDelete(store, cookie: cookie) {
-                    removed += 1
+                switch v2BrowserCookieStoreDelete(store, cookie: cookie) {
+                case .value(true): removed += 1
+                case .value(false): break
+                case .failure(let error): return error
                 }
             }
 
@@ -11920,7 +11985,11 @@ class TerminalController {
             let store = v2MainSync {
                 v2BrowserCookieJar(ctx)
             }
-            let cookies = (v2BrowserCookieStoreAll(store) ?? []).map(v2BrowserCookieDict)
+            let cookies: [[String: Any]]
+            switch v2BrowserCookieStoreAll(store) {
+            case .value(let value): cookies = value.map(v2BrowserCookieDict)
+            case .failure: cookies = []
+            }
             let stateSnapshot = v2MainSync {
                 (
                     url: ctx.browserPanel.currentURL?.absoluteString ?? "",
@@ -12012,7 +12081,7 @@ class TerminalController {
                         guard let cookie = v2BrowserCookieFromObject(
                             row,
                             fallbackURL: context.fallbackURL
-                        ), v2BrowserCookieStoreSet(context.store, cookie: cookie) else {
+                        ), v2BrowserCookieStoreSet(context.store, cookie: cookie) == nil else {
                             return false
                         }
                     }
