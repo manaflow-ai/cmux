@@ -949,7 +949,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         document = next
         documentTotal = max(0, documentTotal - rows)
         settingOffset = true
-        scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+        setContentHeight(next.contentHeight(cellHeight: cell.height))
         if shiftY != 0 { scrollView.contentOffset.y += shiftY }
         settingOffset = false
         place(atRow: presentedTop)
@@ -1289,7 +1289,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             measureAfterGesture = true
             if next != current {
                 document = next
-                scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+                setContentHeight(next.contentHeight(cellHeight: cell.height))
             }
             return
         }
@@ -1335,7 +1335,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil
         document = next
-        scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+        setContentHeight(next.contentHeight(cellHeight: cell.height))
         if hadDocument, shift != 0 {
             // The top moved (cleared, or found): the frame on screen goes
             // where its rows now belong.
@@ -1621,6 +1621,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     // MARK: Scrolling
 
+    /// The document's height changed under the page (output, a prune, a
+    /// clear). While a shorter height clamps the offset, the scroll that
+    /// UIKit reports is the content moving, not the finger or a fling: it
+    /// never counts as a fling reaching the bottom (V5-2).
+    private var contentShrinking = false
+    private var lastDidScrollY: CGFloat = 0
+
+    private func setContentHeight(_ height: CGFloat) {
+        let shrinking = height < scrollView.contentSize.height
+        if shrinking { contentShrinking = true }
+        scrollView.contentSize = CGSize(width: view.bounds.width, height: height)
+        if shrinking { contentShrinking = false }
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         measured("did-scroll") { didScroll(scrollView) }
     }
@@ -1655,7 +1669,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
         // end and leave the page short of it.
-        if !settingOffset, scroll.isInteracting, !scrollView.isTracking, scrollView.isDecelerating,
+        // Only a fling moving toward newer rows reaches the bottom; a prune
+        // shrinking the document under it does not (V5-2: logged in the same
+        // millisecond as a prune, a fling up from the live bottom snapped
+        // back to following).
+        let movingDown = scrollView.contentOffset.y > lastDidScrollY + 0.01
+        lastDidScrollY = scrollView.contentOffset.y
+        if !settingOffset, !contentShrinking, movingDown, scroll.isInteracting, !scrollView.isTracking, scrollView.isDecelerating,
            scrollView.contentOffset.y >= maxOffsetY - 0.5 {
             settingOffset = true
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
