@@ -25,8 +25,8 @@ public final class ChromiumChildProcessMonitor: @unchecked Sendable {
         public var status: Int32
 
         /// Why the helper ended, or nil for a normal end.
-        public var abnormalReason: BrowserProcessExit.Reason? {
-            BrowserProcessExit.abnormalReason(waitStatus: status)
+        public var abnormalKind: BrowserPageProcessExit.Kind? {
+            BrowserPageProcessExit.helperExitKind(waitStatus: status)
         }
     }
 

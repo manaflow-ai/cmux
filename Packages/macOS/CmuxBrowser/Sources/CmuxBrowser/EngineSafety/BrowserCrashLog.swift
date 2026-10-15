@@ -20,8 +20,9 @@ public struct BrowserCrashRecord: Hashable, Sendable {
     /// Chromium utility sub type (`network.mojom.NetworkService`), if any.
     public var subType: String?
     public var pid: Int32?
-    public var reason: BrowserProcessExit.Reason
-    public var code: Int?
+    public var kind: BrowserPageProcessExit.Kind
+    /// Raw `waitpid` status, when known.
+    public var status: Int32?
     /// The browser pane that lost its page, if one did.
     public var panelID: UUID?
     public var source: Source
@@ -31,8 +32,8 @@ public struct BrowserCrashRecord: Hashable, Sendable {
         processType: String,
         subType: String? = nil,
         pid: Int32? = nil,
-        reason: BrowserProcessExit.Reason,
-        code: Int? = nil,
+        kind: BrowserPageProcessExit.Kind,
+        status: Int32? = nil,
         panelID: UUID? = nil,
         source: Source
     ) {
@@ -40,13 +41,13 @@ public struct BrowserCrashRecord: Hashable, Sendable {
         self.processType = processType
         self.subType = subType
         self.pid = pid
-        self.reason = reason
-        self.code = code
+        self.kind = kind
+        self.status = status
         self.panelID = panelID
         self.source = source
     }
 
-    public var codeDescription: String? { BrowserProcessExit(reason: reason, code: code).codeDescription }
+    public var codeDescription: String? { BrowserPageProcessExit.codeDescription(status: status) }
 }
 
 /// Recent engine process failures, newest last, bounded. Read by the debug

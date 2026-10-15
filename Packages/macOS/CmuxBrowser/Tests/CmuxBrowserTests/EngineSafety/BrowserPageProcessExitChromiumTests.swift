@@ -3,43 +3,43 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite struct BrowserProcessExitTests {
+@Suite struct BrowserPageProcessExitChromiumTests {
     @Test(arguments: [
-        (0, BrowserProcessExit.Reason.abnormal),
+        (0, BrowserPageProcessExit.Kind.other),
         (1, .killed),
         (2, .crashed),
         (3, .outOfMemory),
-        (4, .launchFailed),
-        (5, .integrityFailure),
-        (99, .abnormal),
+        (4, .other),
+        (5, .other),
+        (99, .other),
     ])
-    func mapsCEFTerminationStatus(status: Int, reason: BrowserProcessExit.Reason) {
-        #expect(BrowserProcessExit.chromium(terminationStatus: status, code: 11).reason == reason)
+    func mapsCEFTerminationStatus(status: Int, kind: BrowserPageProcessExit.Kind) {
+        #expect(BrowserPageProcessExit.chromium(terminationStatus: status, code: 11).kind == kind)
     }
 
     @Test func zeroCodeIsUnknown() {
-        #expect(BrowserProcessExit.chromium(terminationStatus: 2, code: 0).code == nil)
-        #expect(BrowserProcessExit.chromium(terminationStatus: 2, code: 0).codeDescription == nil)
+        #expect(BrowserPageProcessExit.chromium(terminationStatus: 2, code: 0).status == nil)
+        #expect(BrowserPageProcessExit.chromium(terminationStatus: 2, code: 0).codeDescription == nil)
     }
 
     @Test func describesSignalsAndExitStatuses() {
-        #expect(BrowserProcessExit(reason: .crashed, code: Int(SIGSEGV)).codeDescription == "SIGSEGV")
-        #expect(BrowserProcessExit(reason: .killed, code: Int(SIGKILL)).codeDescription == "SIGKILL")
-        #expect(BrowserProcessExit(reason: .crashed, code: 0x80 | Int(SIGTRAP)).codeDescription == "SIGTRAP")
-        #expect(BrowserProcessExit(reason: .crashed, code: 31).codeDescription == "signal 31")
-        #expect(BrowserProcessExit(reason: .abnormal, code: 3 << 8).codeDescription == "exit 3")
+        #expect(BrowserPageProcessExit(kind: .crashed, status: SIGSEGV).codeDescription == "SIGSEGV")
+        #expect(BrowserPageProcessExit(kind: .killed, status: SIGKILL).codeDescription == "SIGKILL")
+        #expect(BrowserPageProcessExit(kind: .crashed, status: 0x80 | SIGTRAP).codeDescription == "SIGTRAP")
+        #expect(BrowserPageProcessExit(kind: .crashed, status: 31).codeDescription == "signal 31")
+        #expect(BrowserPageProcessExit(kind: .other, status: 3 << 8).codeDescription == "exit 3")
     }
 
     @Test func helperWaitStatusClassification() {
         // Normal ends: exit 0, SIGTERM (Chromium retiring a helper), a stop.
-        #expect(BrowserProcessExit.abnormalReason(waitStatus: 0) == nil)
-        #expect(BrowserProcessExit.abnormalReason(waitStatus: SIGTERM) == nil)
-        #expect(BrowserProcessExit.abnormalReason(waitStatus: 0x7f | (SIGSTOP << 8)) == nil)
+        #expect(BrowserPageProcessExit.helperExitKind(waitStatus: 0) == nil)
+        #expect(BrowserPageProcessExit.helperExitKind(waitStatus: SIGTERM) == nil)
+        #expect(BrowserPageProcessExit.helperExitKind(waitStatus: 0x7f | (SIGSTOP << 8)) == nil)
         // Abnormal ends.
-        #expect(BrowserProcessExit.abnormalReason(waitStatus: SIGKILL) == .killed)
-        #expect(BrowserProcessExit.abnormalReason(waitStatus: SIGSEGV) == .crashed)
-        #expect(BrowserProcessExit.abnormalReason(waitStatus: SIGABRT | 0x80) == .crashed)
-        #expect(BrowserProcessExit.abnormalReason(waitStatus: 1 << 8) == .abnormal)
+        #expect(BrowserPageProcessExit.helperExitKind(waitStatus: SIGKILL) == .killed)
+        #expect(BrowserPageProcessExit.helperExitKind(waitStatus: SIGSEGV) == .crashed)
+        #expect(BrowserPageProcessExit.helperExitKind(waitStatus: SIGABRT | 0x80) == .crashed)
+        #expect(BrowserPageProcessExit.helperExitKind(waitStatus: 1 << 8) == .other)
     }
 }
 
@@ -78,14 +78,15 @@ import Testing
         var seen = 0
         let token = log.addObserver { _ in seen += 1 }
         for index in 0..<(BrowserCrashLog.capacity + 5) {
-            log.append(BrowserCrashRecord(processType: "renderer", pid: Int32(index), reason: .crashed, source: .process))
+            log.append(BrowserCrashRecord(processType: "renderer", pid: Int32(index), kind: .crashed, source: .process))
         }
         #expect(log.records.count == BrowserCrashLog.capacity)
         #expect(log.records.last?.pid == Int32(BrowserCrashLog.capacity + 4))
         #expect(log.total == BrowserCrashLog.capacity + 5)
         #expect(seen == BrowserCrashLog.capacity + 5)
         log.removeObserver(token)
-        log.append(BrowserCrashRecord(processType: "gpu-process", reason: .killed, source: .process))
+        log.append(BrowserCrashRecord(processType: "gpu-process", kind: .killed, status: SIGKILL, source: .process))
         #expect(seen == BrowserCrashLog.capacity + 5)
+        #expect(log.records.last?.codeDescription == "SIGKILL")
     }
 }

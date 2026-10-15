@@ -71,7 +71,7 @@ import Testing
             break
         }
         #expect(reported?.identity.processType == "renderer")
-        #expect(reported?.abnormalReason == .killed)
+        #expect(reported?.abnormalKind == .killed)
         child.waitUntilExit()
         withExtendedLifetime((monitor, input)) {}
     }
@@ -120,11 +120,11 @@ import Testing
         let first = UUID()
         let second = UUID()
         log.record(.notBundled, source: .setting, panelID: first)
-        log.record(.startFailed, source: .explicitRequest, panelID: second)
+        log.record(.startFailed("boom"), source: .explicit, panelID: second)
         #expect(log.count == 2)
-        #expect(log.lastReason == .startFailed)
+        #expect(log.lastReason == .startFailed("boom"))
         #expect(log.takeNotice(panelID: UUID()) == nil)
-        #expect(log.takeNotice(panelID: second) == .startFailed)
+        #expect(log.takeNotice(panelID: second) == .startFailed("boom"))
         #expect(log.takeNotice(panelID: first) == nil)
         log.record(.notBundled, source: .setting, panelID: UUID())
         #expect(log.count == 3)
