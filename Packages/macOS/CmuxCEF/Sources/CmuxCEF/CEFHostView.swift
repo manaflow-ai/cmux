@@ -26,9 +26,16 @@ public final class CEFHostView: NSView {
 
     /// Called when the view enters or leaves a window, or is hidden or shown.
     var onPresentationChange: (@MainActor (CEFHostView) -> Void)?
-    /// The color the view shows until the page's first frame.
+    /// The color the view shows until the page's first frame (the theme
+    /// background, set by the owner).
     public var placeholderColor: NSColor = .windowBackgroundColor {
         didSet { updateBackground() }
+    }
+    /// False once the page painted: the view is then transparent, so no
+    /// placeholder band can show around the page window where its frame
+    /// rounds differently from this view's (design spec §0.4).
+    public var showsPlaceholder = true {
+        didSet { if showsPlaceholder != oldValue { updateBackground() } }
     }
 
     public override init(frame: NSRect) {
@@ -46,6 +53,10 @@ public final class CEFHostView: NSView {
     }
 
     private func updateBackground() {
+        guard showsPlaceholder else {
+            layer?.backgroundColor = nil
+            return
+        }
         var color = placeholderColor.cgColor
         effectiveAppearance.performAsCurrentDrawingAppearance {
             color = placeholderColor.cgColor

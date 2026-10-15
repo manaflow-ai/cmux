@@ -27,6 +27,48 @@ import Testing
         #expect(plan.holes == [CGRect(x: 0, y: 0, width: 400, height: 300)])
     }
 
+    @Test func roundedCardsGetANotchedHoleThatLeavesTheCornersToThePage() {
+        let card = CGRect(x: 100, y: 50, width: 200, height: 80)
+        let plan = BrowserPageOcclusionPlan(
+            contentBounds: CGRect(x: 0, y: 0, width: 400, height: 300),
+            overlays: [.init(rect: card, cornerRadius: 10)]
+        )
+        let holes = plan.holes
+        #expect(holes.count == 3)
+        // No two rects overlap: the fork masks even-odd, so an overlap would show the page again.
+        for (i, a) in holes.enumerated() {
+            for b in holes[(i + 1)...] {
+                #expect(a.intersection(b).isEmpty || a.intersection(b).isNull)
+            }
+        }
+        // Their union is the card minus its four r x r corners.
+        let area = holes.reduce(CGFloat(0)) { $0 + $1.width * $1.height }
+        #expect(area == card.width * card.height - 4 * 10 * 10)
+        let union = holes.dropFirst().reduce(holes[0]) { $0.union($1) }
+        #expect(union == card)
+        for corner in [CGPoint(x: 101, y: 51), CGPoint(x: 299, y: 51), CGPoint(x: 101, y: 129), CGPoint(x: 299, y: 129)] {
+            #expect(!holes.contains { $0.contains(corner) })
+        }
+        #expect(holes.contains { $0.contains(CGPoint(x: 200, y: 51)) })
+    }
+
+    @Test func squareBarsAndTinyCardsKeepOneRect() {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        #expect(BrowserPageOcclusionPlan(contentBounds: bounds, overlays: [.init(rect: CGRect(x: 0, y: 0, width: 400, height: 30))]).holes
+            == [CGRect(x: 0, y: 0, width: 400, height: 30)])
+        #expect(BrowserPageOcclusionPlan(contentBounds: bounds, overlays: [.init(rect: CGRect(x: 0, y: 0, width: 15, height: 15), cornerRadius: 10)]).holes
+            == [CGRect(x: 0, y: 0, width: 15, height: 15)])
+    }
+
+    @Test func aBarOverAFullPageCardMakesNoHoleOfItsOwn() {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let holes = BrowserPageOcclusionPlan(contentBounds: bounds, overlays: [
+            .init(rect: bounds),
+            .init(rect: CGRect(x: 20, y: 20, width: 100, height: 40), cornerRadius: 8),
+        ]).holes
+        #expect(holes == [bounds])
+    }
+
     @Test func fractionalFramesRoundOutward() {
         let plan = BrowserPageOcclusionPlan(
             contentBounds: CGRect(x: 0, y: 0, width: 400, height: 300),
@@ -141,6 +183,20 @@ private final class FlippedView: NSView {
         coordinator.attach(contentView: page, target: target)
         coordinator.registerOccluding(anchor, id: "bar")
         #expect(target.pageOcclusionRects == [CGRect(x: 0, y: 0, width: 500, height: 40)])
+        withExtendedLifetime(window) {}
+    }
+
+    @Test func registeredCornerRadiusNotchesTheHole() {
+        let (window, root, page) = makeWindow()
+        let anchor = NSView(frame: CGRect(x: 200, y: 100, width: 200, height: 100))
+        root.addSubview(anchor)
+        let coordinator = BrowserPageOverlayCoordinator()
+        let target = FakeOcclusionTarget()
+        coordinator.attach(contentView: page, target: target)
+        coordinator.registerOccluding(anchor, id: "card", cornerRadius: 10)
+        #expect(target.pageOcclusionRects.count == 3)
+        coordinator.registerOccluding(anchor, id: "card")
+        #expect(target.pageOcclusionRects == [CGRect(x: 100, y: 100, width: 200, height: 100)])
         withExtendedLifetime(window) {}
     }
 
