@@ -117,8 +117,12 @@ impl Link {
                 .pointer("/details/extra/message")
                 .and_then(Value::as_str)
                 .filter(|m| !m.trim().is_empty());
-            let message =
+            let mut message =
                 detail.map_or_else(|| text("message"), crate::cli::wire::sanitize_remote_text);
+            if let Some(id) = error.pointer("/details/extra/request_id").and_then(Value::as_str) {
+                let id = crate::cli::wire::sanitize_remote_text(id);
+                message.push_str(&format!(" (Request ID {id})"));
+            }
             return Err(LinkError::Rejected { code, message });
         }
     }

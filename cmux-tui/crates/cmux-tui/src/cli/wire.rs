@@ -761,6 +761,9 @@ fn human_error_lines(error: &Value) -> String {
         text.push_str(": ");
         text.push_str(&sanitize_human_block(detail));
     }
+    if let Some(id) = error.pointer("/details/extra/request_id").and_then(Value::as_str) {
+        text.push_str(&format!(" (Request ID {})", sanitize_human_cell(id)));
+    }
     text.push('\n');
     if let Some(candidates) =
         error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
