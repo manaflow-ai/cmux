@@ -567,3 +567,18 @@ Shell check):
   file-roots decision (#13742).
 - Polish: an SVG preview drew at its own size in the corner (now centered and fitted, `FittedSVGTests`; not re-driven live); a chat opened from a Feed tap once
   showed a permission the Mac had already answered (not reproduced; opening it again was current).
+
+### Review (correctness-first subagent, round 3)
+
+No blocker: the relay allowlist holds (exact param sets on both lists, `command`/`argv`/`cwd`/
+`env`/host refused, ownership read on the bytes hostd forwards, the daemon's reopen only
+reattaches or starts the login shell). Fixed after it (ee607662): API retries reach the chat
+(`claude.system.api_retry` asked for by name); Move Workspace to New Group deletes the group
+it made when the place fails; Duplicate Workspace closes a half-made copy and no longer lets
+a failed page stop the terminals; unique group section ids; a lone single-use Deny keeps the
+lasting Allow beside it. Re-driven live on the reviewed app: `groups` and `duplicate` pass.
+Accepted and documented (SECURITY.md): an empty group's ownership, check-then-forward, the
+Swift lane's create-without-place. Left as nits: format characters in group names, remote
+images in SVG/HTML previews (scripts are off; no network block), a Feed reply showing a
+later chat error, a Feed refill racing a team switch, a group rollback racing a second change,
+a file read's timeout racing its last chunk, a written-then-failed-edit file labeled Added.
