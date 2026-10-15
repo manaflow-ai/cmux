@@ -134,6 +134,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// The Mac's agents now: `_acpmux/harnesses`, and `_acpmux/models` when it answers.
     public func agentCatalog(on macID: String) async throws -> AgentCatalog {
+        try await agentCatalog(on: macID, models: true)
+    }
+
+    /// `models: false` for a start that names no model: the harness list alone decides it.
+    func agentCatalog(on macID: String, models withModels: Bool) async throws -> AgentCatalog {
         guard canManage(on: macID), let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true)
         }
@@ -143,7 +148,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         } catch {
             throw WorkspaceCreationError(AcpmuxSessionSource.message(error))
         }
-        let models = try? await acpmux.request("_acpmux/models", .object([:]), timeout: .seconds(10))
+        let models = withModels ? try? await acpmux.request("_acpmux/models", .object([:]), timeout: .seconds(10)) : nil
         return AgentCatalog(harnesses: harnesses, models: models)
     }
 
@@ -205,7 +210,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("Agent chats start in a project folder. Open this workspace in one (New Workspace › Recent Directories) or cd into one in its terminal.",
                                          isForPerson: true)
         }
-        let catalog = try await agentCatalog(on: workspace.macID)
+        let catalog = try await agentCatalog(on: workspace.macID, models: start.model != nil)
         guard let (choice, model) = catalog.resolve(start) else {
             if let id = start.harness, let reason = catalog.harness(id)?.unavailableReason {
                 throw WorkspaceCreationError(reason, isForPerson: true)
