@@ -1,0 +1,6 @@
+             Ty Process[PID:TID]
+22:06:13.237 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] scroll pacing: 327 frames, longest 50.2 ms, 10 over 17 ms, longest main-thread step 0.0 ms
+22:06:13.237 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] scroll: settled -> following (offset 268972, bottom 268972)
+22:06:13.237 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] scroll: a fling reached the bottom -> following
+22:06:16.915 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] scroll pacing: 190 frames, longest 37.2 ms, 8 over 17 ms, longest main-thread step 0.1 ms
+22:06:16.915 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 16621, delta: 14.33333333331393)) (offset 265950, bottom 271532)

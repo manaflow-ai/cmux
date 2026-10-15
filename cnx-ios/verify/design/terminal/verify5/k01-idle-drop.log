@@ -1,0 +1,19 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-14 21:13:22.784 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link macOffline
+2026-10-14 21:13:22.834 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 20: link dropped, waiting to reattach
+2026-10-14 21:13:22.835 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: link dropped, waiting to reattach
+2026-10-14 21:13:22.835 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 17: link dropped, waiting to reattach
+2026-10-14 21:13:24.328 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link connecting(CnxTransport.TransportKind.wireGuard, attempt: 1)
+2026-10-14 21:13:24.328 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] dial wireguard relayOnly=true
+2026-10-14 21:13:26.509 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link connected(CnxTransport.TransportKind.wireGuard, CnxTransport.LinkPathKind.relay, rttMillis: nil)
+2026-10-14 21:13:26.607 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:live] Mac host: 0.1.0, link protocol 2
+2026-10-14 21:13:26.639 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-14 21:13:26.663 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:acpmux] acpmux ready, 0 sessions
+2026-10-14 21:13:26.663 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:feed] feed history 0 turns
+2026-10-14 21:13:26.785 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:live] chief unavailable: Chief on this Mac: daemon channel closed
+2026-10-14 21:13:26.785 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-14 21:13:26.785 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:13:26.911 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-14 21:13:26.911 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:13:35.183 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:feed] feed history 0 turns
+2026-10-14 21:13:35.310 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:feed] feed history 0 turns

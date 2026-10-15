@@ -1,0 +1,35 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-14 21:46:02.482 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link macOffline
+2026-10-14 21:46:02.552 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 17: link dropped, waiting to reattach
+2026-10-14 21:46:02.552 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: link dropped, waiting to reattach
+2026-10-14 21:46:04.613 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link connecting(CnxTransport.TransportKind.webRTC, attempt: 1)
+2026-10-14 21:46:04.613 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] dial webrtc relayOnly=true
+2026-10-14 21:46:05.254 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link connected(CnxTransport.TransportKind.webRTC, CnxTransport.LinkPathKind.turn, rttMillis: nil)
+2026-10-14 21:46:05.299 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:live] Mac host: 0.1.0, link protocol 2
+2026-10-14 21:46:05.325 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-14 21:46:05.341 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:acpmux] acpmux ready, 0 sessions
+2026-10-14 21:46:05.341 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:feed] feed history 0 turns
+2026-10-14 21:46:05.415 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:live] chief unavailable: Chief on this Mac: daemon channel closed
+2026-10-14 21:46:05.416 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-14 21:46:05.416 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:46:05.416 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] reading mark row 1839 of 2270: kept
+2026-10-14 21:46:05.442 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-14 21:46:05.442 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:46:05.486 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] reading mark restored row 1839 -> 1839 of 2270
+2026-10-14 21:46:27.207 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link macOffline
+2026-10-14 21:46:27.290 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: link dropped, waiting to reattach
+2026-10-14 21:46:27.290 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 17: link dropped, waiting to reattach
+2026-10-14 21:46:28.485 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link connecting(CnxTransport.TransportKind.webRTC, attempt: 1)
+2026-10-14 21:46:28.485 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] dial webrtc relayOnly=true
+2026-10-14 21:46:28.985 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:link] link connected(CnxTransport.TransportKind.webRTC, CnxTransport.LinkPathKind.turn, rttMillis: nil)
+2026-10-14 21:46:29.040 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:live] Mac host: 0.1.0, link protocol 2
+2026-10-14 21:46:29.047 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-14 21:46:29.054 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:acpmux] acpmux ready, 0 sessions
+2026-10-14 21:46:29.054 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:feed] feed history 0 turns
+2026-10-14 21:46:29.134 I  CnxApp[82264:2e51fd7] [dev.cmux.cnx:live] chief unavailable: Chief on this Mac: daemon channel closed
+2026-10-14 21:46:29.136 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-14 21:46:29.136 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:46:29.136 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] reading mark row 1839 of 2270: kept
+2026-10-14 21:46:29.162 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-14 21:46:29.162 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:46:29.220 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] reading mark restored row 1839 -> 1839 of 2270

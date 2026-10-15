@@ -1,0 +1,16 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-14 21:34:43.132 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] scroll pacing: 58 frames, longest 66.6 ms, 9 over 17 ms, longest main-thread step 0.0 ms
+2026-10-14 21:34:43.132 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 113, delta: -62.0)) (offset -62, bottom 25068)
+2026-10-14 21:34:45.281 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] scroll pacing: 59 frames, longest 66.6 ms, 10 over 17 ms, longest main-thread step 0.0 ms
+2026-10-14 21:34:45.281 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 113, delta: -62.0)) (offset -62, bottom 25068)
+2026-10-14 21:34:47.465 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] scroll pacing: 58 frames, longest 66.6 ms, 9 over 17 ms, longest main-thread step 0.0 ms
+2026-10-14 21:34:47.465 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 113, delta: -62.0)) (offset -62, bottom 25068)
+2026-10-14 21:34:49.698 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] scroll pacing: 57 frames, longest 83.5 ms, 11 over 17 ms, longest main-thread step 0.0 ms
+2026-10-14 21:34:49.698 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 113, delta: -62.0)) (offset -62, bottom 25068)
+2026-10-14 21:35:16.185 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-14 21:35:16.249 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-14 21:35:16.249 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:35:16.249 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] reading mark row 113 of 1723: kept
+2026-10-14 21:35:16.267 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] reading mark restored row 113 -> 113 of 1723
+2026-10-14 21:35:16.279 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-14 21:35:16.279 Df CnxApp[82264:2e51fd7] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)

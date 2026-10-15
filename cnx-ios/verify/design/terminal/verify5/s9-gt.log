@@ -1,0 +1,21 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-14 22:06:44.624 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] link connecting(CnxTransport.TransportKind.wireGuard, attempt: 1)
+2026-10-14 22:06:44.624 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] dial wireguard relayOnly=true
+2026-10-14 22:06:44.681 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 16: link dropped, waiting to reattach
+2026-10-14 22:06:44.681 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 17: link dropped, waiting to reattach
+2026-10-14 22:06:44.829 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] link connected(CnxTransport.TransportKind.wireGuard, CnxTransport.LinkPathKind.turn, rttMillis: nil)
+2026-10-14 22:06:46.348 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] link connecting(CnxTransport.TransportKind.wireGuard, attempt: 1)
+2026-10-14 22:06:46.349 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] dial wireguard relayOnly=true
+2026-10-14 22:06:46.555 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] link connected(CnxTransport.TransportKind.wireGuard, CnxTransport.LinkPathKind.relay, rttMillis: nil)
+2026-10-14 22:06:46.575 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] link connected(CnxTransport.TransportKind.wireGuard, CnxTransport.LinkPathKind.turn, rttMillis: nil)
+2026-10-14 22:06:46.622 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:live] Mac host: 0.1.0, link protocol 2
+2026-10-14 22:06:46.631 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-14 22:06:46.653 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:acpmux] acpmux ready, 0 sessions
+2026-10-14 22:06:46.653 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:feed] feed history 0 turns
+2026-10-14 22:06:46.713 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:live] chief unavailable: Chief on this Mac: daemon channel closed
+2026-10-14 22:06:46.714 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-14 22:06:46.714 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 22:06:46.773 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-14 22:06:46.773 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 22:06:46.773 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] reading mark row 15140 of 17318: kept
+2026-10-14 22:06:46.796 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] reading mark restored row 15140 -> 15140 of 17414

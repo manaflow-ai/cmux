@@ -1,0 +1,84 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv5/s4-deep-2drops-gt.mp4",
+  "fps": 30,
+  "start": 22.0,
+  "frames": 764,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 76,
+  "moves": 0,
+  "moves_down": 0,
+  "moves_up": 0,
+  "max_move_rows": 0,
+  "low_confidence_moves": 0,
+  "reversals": 0,
+  "reversal_list": [],
+  "flashes": 1,
+  "flashes_foreign": 1,
+  "flashes_jump": 0,
+  "flash_list": [
+   {
+    "t": 33.6667,
+    "frames": 1,
+    "kind": "foreign",
+    "jump_pt": null,
+    "diff_prev": 20.6,
+    "prev_to_next": 0.0
+   }
+  ],
+  "lit_median": 0.13481,
+  "black_frames": 1,
+  "black_runs": [
+   {
+    "start": 33.6667,
+    "end": 33.6667,
+    "first_i": 350,
+    "last_i": 350,
+    "frames": 1
+   }
+  ],
+  "black_times": [
+   33.6667
+  ],
+  "source": {
+   "source_frames": 326,
+   "gaps_over_34ms": 101,
+   "frac_gaps_over_34ms": 0.3108,
+   "max_gap_ms": 593.3,
+   "effective_fps": 12.8,
+   "valid": false
+  },
+  "valid": false
+ },
+ "frames_black_or_flash": [
+  {
+   "i": 350,
+   "t": 33.6667,
+   "lit": 0.0,
+   "resid": 20.49,
+   "resid0": 20.6,
+   "conf": 0.0,
+   "diff": 20.6,
+   "flash": {
+    "frames": 1,
+    "kind": "foreign",
+    "jump_pt": null,
+    "diff_prev": 20.6,
+    "prev_to_next": 0.0
+   },
+   "shift_pt": -4.0,
+   "shift_px": -12.0,
+   "shift_rows": -0.25,
+   "move": false,
+   "black": true
+  }
+ ]
+}

@@ -1,0 +1,219 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv5/s1-stream-readdrop-gt.mp4",
+  "fps": 30,
+  "start": 0.0,
+  "frames": 1536,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 154,
+  "moves": 146,
+  "moves_down": 141,
+  "moves_up": 5,
+  "max_move_rows": 7.375,
+  "low_confidence_moves": 8,
+  "reversals": 25,
+  "reversal_list": [
+   {
+    "t": 7.5333,
+    "shift_px": 300.0,
+    "t2": 7.6667,
+    "shift2_px": -117.0,
+    "spontaneous": true
+   },
+   {
+    "t": 7.6,
+    "shift_px": 318.0,
+    "t2": 7.6667,
+    "shift2_px": -117.0,
+    "spontaneous": true
+   },
+   {
+    "t": 7.6667,
+    "shift_px": -117.0,
+    "t2": 7.7,
+    "shift2_px": 171.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.3333,
+    "shift_px": 12.0,
+    "t2": 9.8333,
+    "shift2_px": -174.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.3667,
+    "shift_px": 12.0,
+    "t2": 9.8333,
+    "shift2_px": -174.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.4,
+    "shift_px": 12.0,
+    "t2": 9.8333,
+    "shift2_px": -174.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.4667,
+    "shift_px": 15.0,
+    "t2": 9.8333,
+    "shift2_px": -174.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.6333,
+    "shift_px": 15.0,
+    "t2": 9.8333,
+    "shift2_px": -174.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.8,
+    "shift_px": 300.0,
+    "t2": 9.8333,
+    "shift2_px": -174.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.8333,
+    "shift_px": -174.0,
+    "t2": 9.8667,
+    "shift2_px": 336.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.8667,
+    "shift_px": 336.0,
+    "t2": 9.9667,
+    "shift2_px": -24.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.9,
+    "shift_px": 354.0,
+    "t2": 9.9667,
+    "shift2_px": -24.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.9333,
+    "shift_px": 330.0,
+    "t2": 9.9667,
+    "shift2_px": -24.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.9667,
+    "shift_px": -24.0,
+    "t2": 10.0,
+    "shift2_px": 279.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.0,
+    "shift_px": 279.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.0333,
+    "shift_px": 132.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.0667,
+    "shift_px": 132.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.1333,
+    "shift_px": 228.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.1667,
+    "shift_px": 213.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.2,
+    "shift_px": 294.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.3333,
+    "shift_px": 153.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.3667,
+    "shift_px": 279.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.4,
+    "shift_px": 63.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.4667,
+    "shift_px": 180.0,
+    "t2": 10.5,
+    "shift2_px": -30.0,
+    "spontaneous": true
+   },
+   {
+    "t": 10.5,
+    "shift_px": -30.0,
+    "t2": 10.6333,
+    "shift2_px": 168.0,
+    "spontaneous": true
+   }
+  ],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.11996,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 2331,
+   "gaps_over_34ms": 421,
+   "frac_gaps_over_34ms": 0.1807,
+   "max_gap_ms": 453.3,
+   "effective_fps": 45.5,
+   "valid": false
+  },
+  "valid": false
+ },
+ "frames_black_or_flash": []
+}

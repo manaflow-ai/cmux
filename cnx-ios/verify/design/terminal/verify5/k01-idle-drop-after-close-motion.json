@@ -1,0 +1,43 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv5/k01-idle-drop-after-close.mp4",
+  "fps": 30,
+  "start": 0.0,
+  "frames": 360,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 36,
+  "moves": 0,
+  "moves_down": 0,
+  "moves_up": 0,
+  "max_move_rows": 0,
+  "low_confidence_moves": 0,
+  "reversals": 0,
+  "reversal_list": [],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.11158,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 75,
+   "gaps_over_34ms": 57,
+   "frac_gaps_over_34ms": 0.7703,
+   "max_gap_ms": 576.7,
+   "effective_fps": 6.2,
+   "valid": false
+  },
+  "valid": false
+ },
+ "frames_black_or_flash": []
+}

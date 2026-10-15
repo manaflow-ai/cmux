@@ -1,0 +1,9 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-14 21:55:01.682 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:timing] timing event tab_activate (190924ms) s17
+2026-10-14 21:55:01.757 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] mirror rows 0 -> 151 cause=layout page 874pt
+2026-10-14 21:55:01.763 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] resize 53x42 cause=first attached=false (TUI false)
+2026-10-14 21:55:01.763 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 17: resize to 53x42
+2026-10-14 21:55:02.090 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=attach size=53x42
+2026-10-14 21:55:02.090 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:55:11.819 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:feed] feed history 0 turns
+2026-10-14 21:55:12.997 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:feed] feed history 0 turns

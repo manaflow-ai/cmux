@@ -1,0 +1,6 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-14 22:04:02.849 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-14 22:04:02.921 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-14 22:04:02.921 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 22:04:02.962 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-14 22:04:02.962 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)

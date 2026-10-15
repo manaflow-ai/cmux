@@ -1,0 +1,366 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv5/s5-transport-to-webrtc.mp4",
+  "fps": 30,
+  "start": 0.0,
+  "frames": 16255,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 1408,
+  "moves": 189,
+  "moves_down": 57,
+  "moves_up": 132,
+  "max_move_rows": 7.063,
+  "low_confidence_moves": 1,
+  "reversals": 46,
+  "reversal_list": [
+   {
+    "t": 2.4667,
+    "shift_px": 42.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.5,
+    "shift_px": 114.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.5333,
+    "shift_px": 36.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.5667,
+    "shift_px": 69.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.6,
+    "shift_px": 66.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.6333,
+    "shift_px": 30.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.6667,
+    "shift_px": 60.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.7,
+    "shift_px": 57.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.7333,
+    "shift_px": 27.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.7667,
+    "shift_px": 51.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 2.8,
+    "shift_px": 51.0,
+    "t2": 2.9,
+    "shift2_px": -120.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.6,
+    "shift_px": 42.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.6333,
+    "shift_px": 78.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.6667,
+    "shift_px": 36.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.7,
+    "shift_px": 72.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.7333,
+    "shift_px": 66.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.7667,
+    "shift_px": 63.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.8,
+    "shift_px": 30.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.8333,
+    "shift_px": 57.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.8667,
+    "shift_px": 57.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.9,
+    "shift_px": 27.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.9333,
+    "shift_px": 51.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 4.9667,
+    "shift_px": 24.0,
+    "t2": 5.0333,
+    "shift2_px": -72.0,
+    "spontaneous": true
+   },
+   {
+    "t": 6.8,
+    "shift_px": 42.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 6.8333,
+    "shift_px": 114.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 6.8667,
+    "shift_px": 36.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 6.9,
+    "shift_px": 69.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 6.9333,
+    "shift_px": 66.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 6.9667,
+    "shift_px": 30.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 7.0,
+    "shift_px": 60.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 7.0333,
+    "shift_px": 57.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 7.0667,
+    "shift_px": 27.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 7.1,
+    "shift_px": 51.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 7.1333,
+    "shift_px": 51.0,
+    "t2": 7.2,
+    "shift2_px": -33.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.0,
+    "shift_px": 42.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.0333,
+    "shift_px": 78.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.0667,
+    "shift_px": 36.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.1,
+    "shift_px": 72.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.1333,
+    "shift_px": 66.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.1667,
+    "shift_px": 33.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.2,
+    "shift_px": 63.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.2333,
+    "shift_px": 57.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.2667,
+    "shift_px": 57.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.3,
+    "shift_px": 27.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.3333,
+    "shift_px": 51.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   },
+   {
+    "t": 9.3667,
+    "shift_px": 24.0,
+    "t2": 9.4333,
+    "shift2_px": -42.0,
+    "spontaneous": true
+   }
+  ],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.0801,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 15788,
+   "gaps_over_34ms": 3917,
+   "frac_gaps_over_34ms": 0.2481,
+   "max_gap_ms": 49440.0,
+   "effective_fps": 29.1,
+   "valid": false
+  },
+  "valid": false
+ },
+ "frames_black_or_flash": []
+}

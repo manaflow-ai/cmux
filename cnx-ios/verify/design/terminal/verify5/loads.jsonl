@@ -1,0 +1,16 @@
+{"capture": "k01-idle-drop-after-close", "t0": 1792037599.080367, "end": 1792037611.254446}
+{"capture": "s1-stream-readdrop-gt", "t0": 1792037876.107417, "end": 1792037927.596829}
+{"capture": "s2-midstream-readdrop-gt", "t0": 1792038023.21051, "end": 1792038071.50291}
+{"capture": "s3-flingdrop-gt", "t0": 1792038101.01131, "end": 1792038128.95277}
+{"capture": "s3b-fling-at-reattach-gt", "t0": 1792038327.9377978, "end": 1792038351.2189682}
+{"capture": "s4-deep-2drops-gt", "t0": 1792038621.31252, "end": 1792038669.134157}
+{"capture": "s6-wt-follow-drop-grid", "t0": 1792039421.3617349, "end": 1792039475.8448472}
+{"capture": "s7-wt-readdrop-x2", "t0": 1792039546.66367, "end": 1792039607.017288}
+{"capture": "d5-relaunch-grid", "t0": 1792039706.938344, "end": 1792039781.268928}
+{"capture": "d5b-relaunch-grid", "t0": 1792039910.90475, "end": 1792039972.345612}
+{"capture": "s8-t2-shallow-wt", "t0": 1792040157.366487, "end": 1792040187.105574}
+{"capture": "s8-t2-mid-wt", "t0": 1792040192.1740658, "end": 1792040250.083062}
+{"capture": "s8-t2-deep-wt", "t0": 1792040254.88565, "end": 1792040350.398915}
+{"capture": "s9-evict-readdrop-wt", "t0": 1792040416.656072, "end": 1792040462.403615}
+{"capture": "s9-evict-readdrop-gt", "t0": 1792040765.752945, "end": 1792040825.8237162}
+{"capture": "s11-gt-drop-grid-working", "t0": 1792043389.086161, "end": 1792043519.654758}

@@ -1,0 +1,20 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-14 21:56:10.553 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] link macOffline
+2026-10-14 21:56:10.617 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 17: link dropped, waiting to reattach
+2026-10-14 21:56:10.617 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 16: link dropped, waiting to reattach
+2026-10-14 21:56:12.168 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] link connecting(CnxTransport.TransportKind.webRTC, attempt: 1)
+2026-10-14 21:56:12.168 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] dial webrtc relayOnly=true
+2026-10-14 21:56:12.827 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:link] link connected(CnxTransport.TransportKind.webRTC, CnxTransport.LinkPathKind.turn, rttMillis: nil)
+2026-10-14 21:56:12.874 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:live] Mac host: 0.1.0, link protocol 2
+2026-10-14 21:56:12.899 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-14 21:56:12.900 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:acpmux] acpmux ready, 0 sessions
+2026-10-14 21:56:12.900 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:feed] feed history 0 turns
+2026-10-14 21:56:12.916 I  CnxApp[23190:2f2153f] [dev.cmux.cnx:live] chief unavailable: Chief on this Mac: daemon channel closed
+2026-10-14 21:56:12.979 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-14 21:56:12.979 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:56:13.011 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-14 21:56:13.011 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-14 21:56:13.012 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] reading mark row 17090 of 17726: kept
+2026-10-14 21:56:14.587 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] reading mark restored row 17090 -> 17090 of 17726
+2026-10-14 21:56:24.815 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] scroll pacing: 120 frames, longest 66.4 ms, 34 over 17 ms, longest main-thread step 0.0 ms
+2026-10-14 21:56:24.815 Df CnxApp[23190:2f2153f] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 17070, delta: 9.0)) (offset 273129, bottom 282924)

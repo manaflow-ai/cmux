@@ -1,0 +1,100 @@
+{
+ "summary": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv5/s3b-fling-at-reattach-gt.mp4",
+  "fps": 30,
+  "start": 0.0,
+  "frames": 690,
+  "analysis_width": 402,
+  "band_pt": [
+   0,
+   70,
+   402,
+   629.2
+  ],
+  "row_pitch_pt": 16.0,
+  "row_pitch_px": 48.0,
+  "row_pitch_samples": 69,
+  "moves": 89,
+  "moves_down": 86,
+  "moves_up": 3,
+  "max_move_rows": 7.002,
+  "low_confidence_moves": 4,
+  "reversals": 8,
+  "reversal_list": [
+   {
+    "t": 8.3667,
+    "shift_px": 150.0,
+    "t2": 8.4667,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 8.4,
+    "shift_px": 210.0,
+    "t2": 8.4667,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 8.4333,
+    "shift_px": 210.0,
+    "t2": 8.4667,
+    "shift2_px": -21.0,
+    "spontaneous": true
+   },
+   {
+    "t": 8.4667,
+    "shift_px": -21.0,
+    "t2": 8.5,
+    "shift2_px": 216.0,
+    "spontaneous": true
+   },
+   {
+    "t": 8.5,
+    "shift_px": 216.0,
+    "t2": 8.5333,
+    "shift2_px": -165.0,
+    "spontaneous": true
+   },
+   {
+    "t": 8.5333,
+    "shift_px": -165.0,
+    "t2": 8.5667,
+    "shift2_px": 195.0,
+    "spontaneous": true
+   },
+   {
+    "t": 8.5667,
+    "shift_px": 195.0,
+    "t2": 8.6,
+    "shift2_px": -219.0,
+    "spontaneous": true
+   },
+   {
+    "t": 8.6,
+    "shift_px": -219.0,
+    "t2": 8.6333,
+    "shift2_px": 336.0,
+    "spontaneous": true
+   }
+  ],
+  "flashes": 0,
+  "flashes_foreign": 0,
+  "flashes_jump": 0,
+  "flash_list": [],
+  "lit_median": 0.08998,
+  "black_frames": 0,
+  "black_runs": [],
+  "black_times": [],
+  "source": {
+   "source_frames": 447,
+   "gaps_over_34ms": 95,
+   "frac_gaps_over_34ms": 0.213,
+   "max_gap_ms": 533.3,
+   "effective_fps": 19.5,
+   "valid": false
+  },
+  "valid": false
+ },
+ "frames_black_or_flash": []
+}
