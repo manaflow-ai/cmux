@@ -475,6 +475,7 @@
               "agentPane.editedFiles.scope",
               "agentPane.showContextUsage",
               "agentPane.showDictation",
+              "agentPane.reasoningSlider",
               "agentPane.zoom",
               "app.warnBeforeClosingAgentSession"
             ],
@@ -22926,6 +22927,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.reasoningSlider.help",
+        "text" : "The composer's reasoning menu shows a slider from Faster to Smarter instead of a list of levels."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.reasoningSlider",
+      "keywords" : [
+        "reasoning",
+        "effort",
+        "thinking",
+        "slider",
+        "level",
+        "composer",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "reasoningSlider"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.reasoningSlider",
+        "text" : "Use Reasoning Slider"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         2,
         1.25
@@ -23772,7 +23823,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bcd28b55ae95c1dc208eb2f6284da7af98930017e4294732258c1ba9f5563b5a",
+  "schema_hash" : "f7ab3fefe94e7ff7285517a84798b435d4dd806f92cc52c7106b1da700d163c6",
   "sections" : [
     {
       "id" : "general",

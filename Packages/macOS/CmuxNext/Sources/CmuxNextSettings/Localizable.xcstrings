@@ -84478,6 +84478,268 @@
         }
       }
     },
+    "settings.agentPane.reasoningSlider": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام شريط تمرير الاستدلال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi klizač za zaključivanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug skyder til ræsonnement"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reasoning-Regler verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Reasoning Slider"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar control deslizante de razonamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser le curseur de raisonnement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa il cursore di ragionamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "推論スライダーを使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើគ្រាប់រំកិលការវែកញែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "추론 슬라이더 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk glidebryter for resonnering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Używaj suwaka rozumowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar controle deslizante de raciocínio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ползунок рассуждения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้แถบเลื่อนการให้เหตุผล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Akıl yürütme kaydırıcısını kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повзунок міркування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng thanh trượt suy luận"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用推理滑块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用推理滑桿"
+          }
+        }
+      }
+    },
+    "settings.agentPane.reasoningSlider.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض قائمة الاستدلال في محرر الرسائل شريط تمرير من «أسرع» إلى «أذكى» بدلاً من قائمة المستويات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meni za zaključivanje u polju za unos prikazuje klizač od Brže do Pametnije umjesto liste nivoa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ræsonnementsmenuen i skrivefeltet viser en skyder fra Hurtigere til Klogere i stedet for en liste med niveauer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Reasoning-Menü im Eingabefeld zeigt einen Regler von „Schneller“ bis „Gründlicher“ statt einer Liste der Stufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The composer's reasoning menu shows a slider from Faster to Smarter instead of a list of levels."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El menú de razonamiento del redactor muestra un control deslizante de Más rápido a Más inteligente en lugar de una lista de niveles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le menu de raisonnement de la zone de saisie affiche un curseur de Plus rapide à Plus intelligent au lieu d’une liste de niveaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il menu di ragionamento del compositore mostra un cursore da Più veloce a Più intelligente invece di un elenco di livelli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力欄の推論メニューに、レベルの一覧ではなく「高速」から「高精度」までのスライダーを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ឺនុយការវែកញែកនៃប្រអប់សរសេរ បង្ហាញគ្រាប់រំកិលពី លឿនជាង ដល់ ឆ្លាតជាង ជំនួសឱ្យបញ្ជីកម្រិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력창의 추론 메뉴에 단계 목록 대신 '더 빠르게'에서 '더 똑똑하게'까지의 슬라이더를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Resonneringsmenyen i skrivefeltet viser en glidebryter fra Raskere til Smartere i stedet for en liste med nivåer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu rozumowania w polu tworzenia pokazuje suwak od Szybciej do Mądrzej zamiast listy poziomów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O menu de raciocínio do editor mostra um controle deslizante de Mais rápido a Mais inteligente em vez de uma lista de níveis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню рассуждения в поле ввода показывает ползунок от «Быстрее» до «Умнее» вместо списка уровней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมนูการให้เหตุผลของช่องเขียนจะแสดงแถบเลื่อนจาก เร็วขึ้น ถึง ฉลาดขึ้น แทนรายการระดับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazma alanının akıl yürütme menüsü, düzey listesi yerine Daha hızlı ile Daha akıllı arasında bir kaydırıcı gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню міркування в полі введення показує повзунок від «Швидше» до «Розумніше» замість списку рівнів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu suy luận của khung soạn hiển thị thanh trượt từ Nhanh hơn đến Thông minh hơn thay vì danh sách các mức."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输入框的推理菜单显示从“更快”到“更智能”的滑块，而不是级别列表。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸入框的推理選單顯示從「更快」到「更聰明」的滑桿，而不是等級列表。"
+          }
+        }
+      }
+    },
     "settings.agentPane.showDictation": {
       "extractionState": "manual",
       "localizations": {
