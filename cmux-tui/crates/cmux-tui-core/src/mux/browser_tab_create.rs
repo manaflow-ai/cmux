@@ -72,12 +72,6 @@ pub(crate) fn frontend_fields(
     if let Some(after) = placement.after {
         fields.insert(AFTER_FIELD.to_string(), Value::from(after));
     }
-    if let Some(index) = placement.index {
-        fields.insert(
-            super::tab_slot::INDEX_FIELD.to_string(),
-            Value::from(u64::try_from(index).unwrap_or(u64::MAX)),
-        );
-    }
     fields
 }
 
@@ -132,7 +126,7 @@ impl Mux {
         let placement = FrontendTabPlacement {
             activate: fields.get(ACTIVATE_FIELD).and_then(Value::as_bool).unwrap_or(true),
             after: fields.get(AFTER_FIELD).and_then(Value::as_u64),
-            index: super::tab_slot::effect_index(fields),
+            index: tab_slot::effect_index(fields),
         };
         let transaction = effect_transaction(fields);
         self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement, transaction)
@@ -395,7 +389,7 @@ impl Mux {
                 Some(pane) => {
                     let end = pane.tabs.len();
                     let index = match strip_index {
-                        Some(index) => super::tab_slot::slot(Some(index), end),
+                        Some(index) => tab_slot::slot(Some(index), end),
                         None => slot.unwrap_or(end),
                     };
                     pane.tabs.insert(index, surface.id);

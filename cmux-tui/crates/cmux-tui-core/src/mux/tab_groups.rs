@@ -841,12 +841,11 @@ impl Mux {
             terminal: Some(public.as_str().to_string()),
             ..Self::ordinary_resource_selectors()
         };
-        let requested = super::tab_slot::take_for(pane);
+        // Peeked, and taken only once the view exists: a failed reattach
+        // leaves it to the new terminal `reopen_tab_record` falls back to.
+        let requested = tab_slot::peek_for(pane);
         let index = self.with_state(|state| {
-            super::tab_slot::slot(
-                requested,
-                state.panes.get(&pane).map_or(0, |record| record.tabs.len()),
-            )
+            tab_slot::slot(requested, state.panes.get(&pane).map_or(0, |record| record.tabs.len()))
         });
         self.resource_project_terminal_selected(
             selectors,
@@ -856,6 +855,7 @@ impl Mux {
             None,
             &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
         )?;
+        tab_slot::take_for(pane);
         self.with_state(|state| {
             state.panes.get(&pane).and_then(|record| record.tabs.get(index).copied())
         })

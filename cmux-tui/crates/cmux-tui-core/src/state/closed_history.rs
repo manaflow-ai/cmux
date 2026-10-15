@@ -679,7 +679,7 @@ impl Mux {
         });
         let surface = match pane {
             Some(pane) => match index {
-                Some(index) => crate::mux::tab_slot::scoped(pane, index, || {
+                Some(index) => tab_slot::scoped(pane, index, || {
                     self.reopen_tab_record(actor, pane, tab, true)
                 })?,
                 None => self.reopen_tab_record(actor, pane, tab, true)?,

@@ -50,6 +50,11 @@ pub(crate) fn take_for(pane: PaneId) -> Option<usize> {
     })
 }
 
+/// The index a tab created now in `pane` would take, left in place.
+pub(crate) fn peek_for(pane: PaneId) -> Option<usize> {
+    SCOPED.with(|slot| slot.get().and_then(|(scoped, index)| (scoped == pane).then_some(index)))
+}
+
 /// Put the scoped index of a creation in `pane` into its effect `fields`.
 pub(crate) fn insert_field(fields: &mut Map<String, Value>, pane: Option<PaneId>) {
     if let Some(index) = pane.and_then(take_for) {
