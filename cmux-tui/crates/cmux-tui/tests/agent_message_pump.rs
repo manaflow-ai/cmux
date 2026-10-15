@@ -198,13 +198,19 @@ mod agent_message_pump {
     #[test]
     fn a_cli_send_racing_an_unsend_is_handed_over_once_and_withdrawn() {
         let (daemon, a) = two_agents("unsend-race");
+        // a's CLI answers b's message: its recipient is b, by the daemon.
+        let b = daemon.acp_credential("b");
+        let parent = id(&daemon.sent(Some(&b), to("acp:a", "question")));
+        daemon.wait_for(&parent, "the question", |m| state(m, "acp:a") == "delivered");
         daemon.gate("b");
         daemon.withdraw_answers("b", "retracted");
-        let mut cli = daemon.cli_started(&["agent", "message", "acp:b", "racing"], &a);
+        let args = ["agent", "message", "--reply-to", parent.as_str(), "racing"];
+        let mut cli = daemon.cli_started(&args, &a);
         // The first hand-over waits at the gate: the message is acpmux's now.
         let deadline = Instant::now() + Duration::from_secs(20);
         let message = loop {
-            let found = daemon.prompts().first().map(|p| p["_meta"]["acpmux"]["promptId"].clone());
+            let to_b = daemon.prompts().into_iter().find(|p| p["sessionId"] == "b");
+            let found = to_b.map(|p| p["_meta"]["acpmux"]["promptId"].clone());
             if let Some(Value::String(found)) = found {
                 break found;
             }
