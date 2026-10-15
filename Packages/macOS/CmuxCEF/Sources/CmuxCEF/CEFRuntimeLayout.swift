@@ -1,7 +1,7 @@
 public import Foundation
 
-/// Where the CEF runtime lives inside an app bundle (or a directory named by
-/// `CMUX_CEF_RUNTIME`, for tools that are not bundled apps).
+/// Where the CEF runtime lives inside an app bundle (or, in Debug builds only,
+/// a directory named by `CMUX_CEF_RUNTIME`).
 ///
 /// `scripts/cef/embed-cef.sh` produces this layout in
 /// `<App>.app/Contents/Frameworks`:
@@ -42,16 +42,27 @@ public struct CEFRuntimeLayout: Hashable, Sendable {
             .first
     }
 
+    /// Whether `CMUX_CEF_RUNTIME` may name the runtime directory: Debug
+    /// builds only. A Release build always loads the shim and framework from
+    /// its own signed bundle; an environment variable must never make it
+    /// `dlopen` code from another directory.
+    #if DEBUG
+    public static let allowsRuntimeOverride = true
+    #else
+    public static let allowsRuntimeOverride = false
+    #endif
+
     /// Resolves the layout for `bundle`, or nil when CEF was not embedded
     /// (the build skipped CEF or the artifact was unavailable). Lists one
     /// directory; cheap enough for launch.
     public static func locate(
         bundle: Bundle = .main,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        allowsRuntimeOverride: Bool = CEFRuntimeLayout.allowsRuntimeOverride
     ) -> CEFRuntimeLayout? {
         let frameworks: URL
-        if let override = environment["CMUX_CEF_RUNTIME"], !override.isEmpty {
+        if allowsRuntimeOverride, let override = environment["CMUX_CEF_RUNTIME"], !override.isEmpty {
             frameworks = URL(fileURLWithPath: override, isDirectory: true)
         } else if let url = bundle.privateFrameworksURL {
             frameworks = url
