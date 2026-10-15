@@ -693,20 +693,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let isReset = data == Self.mirrorReset
             if isReset {
                 sizingLog.notice("mirror reset cause=session-reset (the session's replay follows)")
-                freezeLastFrame()
                 // The rows being read are rebuilt from the replay: a reader
                 // goes back to their rows once it is in (V2-3,
                 // TerminalReadingMark); otherwise to the prompt.
-                if case .reading(let anchor) = scroll.state, !model.isTUI, readingMark == nil {
-                    let surface = surface
-                    readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { surface.rowText($0) }
-                    sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
-                }
+                markReadingPosition()
+                freezeLastFrame()
                 // A second reset (D4) waits for its own replay.
                 readingMarkAwaitsReport = false
                 scroll.reset()
+                armReplayDeadline()
             }
-            replayGate.received(data.count, isReset: isReset)
+            replayGate.received(data.count, isReset: isReset, at: CACurrentMediaTime())
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
             model.ingest(event)
@@ -800,6 +797,71 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard let anchor = mark.locate(totalRows: total, rowText: { surface.rowText($0) }) else { return }
         sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
+        restoredMark = (mark, anchor)
+    }
+
+    /// The last mark restored and where it put the reader; reused when another
+    /// reset comes before the reader moves (V3-1: a second reset read the
+    /// rows at a misplaced restore, found them blank, and left a black page).
+    private var restoredMark: (mark: TerminalReadingMark, anchor: TerminalScrollModel.Anchor)?
+
+    /// At a reset: where the reader is, from the rows on screen, whatever the
+    /// scroll state. Mid-fling or mid-drag counts too (V3-3: a drop during a
+    /// fling lost the place, since only a settled reader was marked); a fling
+    /// stops so the restore can land. Near the bottom, nothing: follow.
+    private func markReadingPosition() {
+        guard !model.isTUI, readingMark == nil, cell.height > 0 else { return }
+        let anchor: TerminalScrollModel.Anchor?
+        switch scroll.state {
+        case .following:
+            anchor = nil
+        case .reading(let reading):
+            anchor = reading
+        case .interacting:
+            if let document, scrollView.contentOffset.y < maxOffsetY - TerminalScrollModel.followSlackRows * cell.height {
+                anchor = TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height)
+            } else {
+                anchor = nil
+            }
+        }
+        guard let anchor else {
+            restoredMark = nil
+            return
+        }
+        if scrollView.isDecelerating || fling != nil {
+            fling?.stop()
+            fling = nil
+            settingOffset = true
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+            settingOffset = false
+        }
+        if let restored = restoredMark, restored.anchor == anchor {
+            // Nothing moved since the last restore: the same rows, not the
+            // ones a misplaced restore put on screen.
+            readingMark = restored.mark
+        } else {
+            let surface = surface
+            readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { surface.rowText($0) }
+        }
+        restoredMark = nil
+        sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
+    }
+
+    /// The replay gate's own deadline (V3-2): the document is never left
+    /// ungrown past it, held frame or not.
+    private func armReplayDeadline() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + TerminalReplayGate.deadline) { [weak self] in
+            guard let self, self.replayGate.expireIfOverdue(at: CACurrentMediaTime()) else { return }
+            sizingLog.notice("replay gate expired at its deadline")
+            self.outputSinceProbe = true
+            self.updateDocument()
+            if self.readingMark != nil {
+                self.restoreReadingMark()
+                self.updateDocument()
+            }
+            self.applyScroll()
+            if self.freezeView != nil, self.readingMark == nil { self.unfreeze() }
+        }
     }
 
     /// Ghostty parsed a batch (`raw` session bytes).
@@ -1340,6 +1402,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
         // A finger owns the offset until it lifts (or the deceleration ends).
         scroll.began()
+        restoredMark = nil
         placesFromReport = false
         fling?.stop()
         fling = nil

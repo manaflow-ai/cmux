@@ -19,14 +19,23 @@ public struct TerminalReplayGate: Equatable, Sendable {
     /// How long a reset may gate the document (seconds).
     public static let deadline: TimeInterval = 2
 
+    /// When the reset being replayed arrived (nil: none).
+    private var resetAt: TimeInterval?
+
     /// A chunk of session output arrived (in order) at `now` (seconds, any clock).
     public mutating func received(_ count: Int, isReset: Bool, at now: TimeInterval) {
+        if isReset { resetAt = now }
         received(count, isReset: isReset)
     }
 
     /// Ends a replay still gating at `now` past its deadline; true when it did.
+    /// The gate's own deadline, whatever the held frame did: the held frame's
+    /// timer is not armed for a reset during a scroll or while another frame
+    /// is held, and a gate left on froze the page until the next drop (V3-2).
     public mutating func expireIfOverdue(at now: TimeInterval) -> Bool {
-        false
+        guard isReplaying, let resetAt, now - resetAt >= Self.deadline - 0.001 else { return false }
+        expire()
+        return true
     }
 
     /// A chunk of session output arrived (in order).
@@ -57,5 +66,6 @@ public struct TerminalReplayGate: Equatable, Sendable {
     public mutating func expire() {
         isReplaying = false
         remaining = nil
+        resetAt = nil
     }
 }
