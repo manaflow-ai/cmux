@@ -654417,6 +654417,65 @@
           }
         }
       }
+    },
+    "cli.browser.rawInput.engineUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw input is not available for this browser engine yet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإدخال الخام غير متاح بعد لمحرك المتصفح هذا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rohe Eingaben sind für diese Browser-Engine noch nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La entrada sin procesar aún no está disponible para este motor de navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les entrées brutes ne sont pas encore disponibles pour ce moteur de navigateur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブラウザエンジンではまだ生の入力を使用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 브라우저 엔진에서는 아직 원시 입력을 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此浏览器引擎尚不支持原始输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此瀏覽器引擎尚不支援原始輸入"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

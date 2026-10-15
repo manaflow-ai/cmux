@@ -45,7 +45,10 @@ final class BrowserRawInputPointerState {
 }
 
 /// Why a raw input request failed after it was read.
-enum BrowserRawInputFailure: Error, Sendable {
+enum BrowserRawInputFailure: Error, Equatable, Sendable {
+    /// The panel shows a non-WebKit page; native AppKit events would reach
+    /// its hidden WKWebView instead.
+    case notWebKit
     case stale
     case timedOut
     case notRenderable
@@ -68,7 +71,8 @@ extension BrowserPanel: WebKitBrowserPageNativeInputDelivering {
         _ steps: [BrowserRawInputStep],
         to webView: WKWebView
     ) async throws -> CGPoint {
-        try await browserRawInputPointer.serialized { [self] in
+        guard automationEnginePage == nil else { throw BrowserRawInputFailure.notWebKit }
+        return try await browserRawInputPointer.serialized { [self] in
             try await deliverNativeInputNow(steps, to: webView)
         }
     }
