@@ -642,8 +642,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "a2e91a88f71a07273715218c944abeb44baebceab05f95b7dc08bce1f8d216d7",
-      "size": 73510
+      "sha256": "dad3aabe0a0d893c8ffa66e047f84100493cec2c9cf22a0475ab6b24f0c2b828",
+      "size": 73769
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1751,6 +1751,11 @@
       "size": 7054
     },
     {
+      "path": "NameSource.java",
+      "sha256": "649c9df1468685f28056cccfd523392a7d8c60a8b8f6703b15b8a17bdfbd3ea6",
+      "size": 866
+    },
+    {
       "path": "NewBrowserTabRequest.java",
       "sha256": "b75f3b0dfb06b7fcd2b1f22997b8257c2d96119c3dbcc07285ae01b059c4d185",
       "size": 3749
@@ -1977,7 +1982,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4d7f5a325c213bfe633be39ed6964e3d79cfa145073f6e9298c5d3125b5dbddf",
+      "sha256": "3210594710c307a2a56b63b7aaac339c0f5083007f246fe6be8473f137f10bdb",
       "size": 6943
     },
     {
@@ -2107,8 +2112,8 @@
     },
     {
       "path": "RenameWorkspaceRequest.java",
-      "sha256": "1b86791b526625fc739e3c87eb8433ba074bc0d4543327c057e4aac2291ecc2c",
-      "size": 6370
+      "sha256": "130928afd94c647cee816e6709c8db305a60bf4640fd8750052f73f98cbdfb49",
+      "size": 8922
     },
     {
       "path": "RenderAttachEvent.java",
@@ -3182,8 +3187,8 @@
     },
     {
       "path": "Workspace.java",
-      "sha256": "37b4b2ac889082fd95481de8e644ad36a207b05e9e315d7c9e355cc00145142a",
-      "size": 4922
+      "sha256": "081d466d05322049051338e0928e6fae9ec23601035dd4fb46046f386b76a395",
+      "size": 6289
     },
     {
       "path": "WorkspaceAddedEvent.java",
@@ -3237,7 +3242,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297",
+  "ir_sha256": "6854d2d91f7e368b0270551ce6575bf9d17533646214a67a6bd984e18ab9a020",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
