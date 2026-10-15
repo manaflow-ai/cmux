@@ -13731,7 +13731,7 @@
       },
       "help" : {
         "key" : "settings.fonts.chatSize.help",
-        "text" : "The size of chat messages and the composer."
+        "text" : "The size of chat messages."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.fonts.chatSize",
@@ -24147,7 +24147,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "321bc1d503ce71fb39aa4b0dfc99427b9ed8dcba8e35728ac03a2f306a31278f",
+  "schema_hash" : "74130fb304575c2b8aefed852cb2211f10ce7aaf4b9446a2239d5d196335a754",
   "sections" : [
     {
       "id" : "general",

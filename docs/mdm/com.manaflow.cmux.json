@@ -630,7 +630,7 @@
     },
     "appearance.fonts.chatSize" : {
       "default" : 14,
-      "description" : "The size of chat messages and the composer.",
+      "description" : "The size of chat messages.",
       "maximum" : 20,
       "minimum" : 11,
       "title" : "Chat Text Size",

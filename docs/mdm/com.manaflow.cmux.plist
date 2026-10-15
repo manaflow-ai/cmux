@@ -2595,7 +2595,7 @@
 			<key>pfm_default</key>
 			<integer>14</integer>
 			<key>pfm_description</key>
-			<string>The size of chat messages and the composer.</string>
+			<string>The size of chat messages.</string>
 			<key>pfm_name</key>
 			<string>appearance.fonts.chatSize</string>
 			<key>pfm_range_max</key>
