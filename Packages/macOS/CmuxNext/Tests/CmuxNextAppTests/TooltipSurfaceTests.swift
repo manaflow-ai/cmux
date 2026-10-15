@@ -151,10 +151,41 @@ import Testing
             + "speed \(Motion.speed), reduce \(Motion.reduceMotion), active \(NSApp.isActive), screens \(NSScreen.screens.count)"
     }
 
+    /// Whether another suite set or cleared `Motion.reduceMotionOverride` while a test ran. The
+    /// override is process-global, and a lane that runs every suite in one process (the macOS 27
+    /// lane, 2026-10-14) lets another suite change it while this one awaits the hover delay; the
+    /// tooltip then reads that, not this test's value.
+    /// The change is posted on the main actor, where the test reads `changed`.
+    nonisolated final class OverrideWatch: @unchecked Sendable {
+        private(set) var changed = false
+        private var token: (any NSObjectProtocol)?
+        init(_ name: Notification.Name) {
+            token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+                self?.changed = true
+            }
+        }
+        func stop() {
+            if let token { NotificationCenter.default.removeObserver(token) }
+        }
+    }
+
+    /// Whether the tooltip read Reduce Motion when it showed, from its fade's length (Reduce Motion
+    /// caps a fade at one crossfade): the same gate the product used, whatever the override says now.
+    private static func readReduceMotion(_ fade: CABasicAnimation) throws -> Bool {
+        let on = MotionPolicy(speed: Motion.speed, reduceMotion: true).duration(.fadeIn)
+        let off = MotionPolicy(speed: Motion.speed, reduceMotion: false).duration(.fadeIn)
+        try #require(on != off, "Reduce Motion does not change the fade in at speed \(Motion.speed)")
+        return abs(fade.duration - on) < 0.0001
+    }
+
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
     func theFirstTooltipFadesInRisingAndAWarmNeighborsIsThereAtOnce() async throws {
         Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
+        let watch = OverrideWatch(Motion.reduceMotionDidChange)
+        defer {
+            watch.stop()
+            Motion.reduceMotionOverride = nil
+        }
         let clock = ManualClock()
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)
         defer {
@@ -168,9 +199,15 @@ import Testing
         let layer = try #require(presenter.panel.surface.layer)
         let fade = try #require(layer.animation(forKey: "opacity") as? CABasicAnimation,
                                 "the first tooltip did not fade in: \(Self.diagnose(presenter, layer, before))")
+        if try Self.readReduceMotion(fade) {
+            // Another suite turned Reduce Motion on under this one: the fade stays and the rise goes.
+            #expect(watch.changed, "the tooltip read Reduce Motion on though nothing turned it on")
+            #expect(layer.animation(forKey: "transform.translation.y") == nil, "it rose under Reduce Motion")
+            return
+        }
         let rise = try #require(layer.animation(forKey: "transform.translation.y") as? CABasicAnimation,
                                 "the first tooltip did not rise")
-        #expect(fade.duration == Motion.duration(.fadeIn))
+        #expect(fade.duration == MotionPolicy(speed: Motion.speed, reduceMotion: false).duration(.fadeIn))
         #expect(fade.duration >= 0.1 && fade.duration <= 0.15, "fade in \(fade.duration) s")
         #expect(abs(try Self.value(of: fade, at: 0)) < 0.01)
         let midway = try Self.value(of: fade, at: 75)
@@ -208,7 +245,11 @@ import Testing
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
     func underReduceMotionTheTooltipFadesWithNoRise() async throws {
         Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
+        let watch = OverrideWatch(Motion.reduceMotionDidChange)
+        defer {
+            watch.stop()
+            Motion.reduceMotionOverride = nil
+        }
         let clock = ManualClock()
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)
         defer {
@@ -220,7 +261,12 @@ import Testing
         let layer = try #require(presenter.panel.surface.layer)
         let fade = try #require(layer.animation(forKey: "opacity") as? CABasicAnimation, "no fade under Reduce Motion")
         #expect(fade.duration > 0)
-        #expect(layer.animation(forKey: "transform.translation.y") == nil, "it rose under Reduce Motion")
+        // The rise follows the gate the tooltip read; it reads Reduce Motion off only when another
+        // suite cleared the override under this one.
+        let reduced = try Self.readReduceMotion(fade)
+        #expect(reduced || watch.changed, "the tooltip read Reduce Motion off though nothing turned it off")
+        #expect((layer.animation(forKey: "transform.translation.y") == nil) == reduced,
+                "the rise does not follow Reduce Motion (read \(reduced ? "on" : "off"))")
     }
 
     @Test func theSurfaceIsFrostedGlassOrOpaqueUnderReduceTransparency() async throws {
