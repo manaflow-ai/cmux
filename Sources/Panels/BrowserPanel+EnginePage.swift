@@ -283,6 +283,31 @@ extension BrowserPanel {
         )
     }
 
+    /// Whether this panel's loads must go through WebKit's proxy routing
+    /// (a Cloud machine, an SSH workspace, a remote proxy), which a Chromium
+    /// page would bypass, reaching this Mac's own network instead.
+    var requiresWebKitRouting: Bool {
+        cloudBrowserMachineID != nil || cloudAccess.model != nil || owningWorkspaceRoutesThroughSSHTui
+            || usesRemoteWorkspaceProxy || remoteProxyEndpoint != nil
+    }
+
+    /// Switches the panel to WebKit without a notice: routing, not engine
+    /// availability, decided it.
+    func dropEnginePageForWebKitRouting() {
+        guard enginePage != nil else { return }
+#if DEBUG
+        cmuxDebugLog("browser.engine.webkitRouting panel=\(id.uuidString.prefix(5))")
+#endif
+        closeEnginePage()
+        clearEnginePageForWebKit()
+    }
+
+    /// Opens the Chromium log (the fallback strip's Show Log).
+    func showEngineLog() {
+        guard let url = engineRuntime.chromiumLogFile else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     /// Steps a non-WebKit page's history.
     ///
     /// A person's Back and Forward follow the engine (Chromium skips entries

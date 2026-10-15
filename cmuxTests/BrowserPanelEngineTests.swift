@@ -347,6 +347,22 @@ import WebKit
         #expect(provider.pages.isEmpty)
     }
 
+    @Test func cloudRoutingMovesAChromiumPanelToWebKit() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        panel.cloudBrowserMachineID = "vm-test"
+        _ = panel.navigate(to: URL(string: "https://example.com/")!)
+        #expect(panel.activeEngineKind == .webkit)
+        #expect(try #require(provider.pages.first).closeCount == 1)
+        #expect(try #require(provider.pages.first).loadedURLs.isEmpty)
+        #expect(panel.engineFallbackNotice == nil)
+    }
+
     @Test func closingTheChromiumPanelClosesItsPage() {
         let provider = FakeChromiumProvider()
         let panel = BrowserPanel(

@@ -3778,8 +3778,11 @@ final class BrowserPanel: Panel, ObservableObject {
         // WKWebView with the opener link; it stays WebKit whatever
         // browser.engine says.
         let adoptsWebKitPopup = initialURL != nil && Self.pendingPopupWebView?.url == initialURL
+        // A managed URL allowlist is enforced on every page-started
+        // navigation only by the WebKit delegate, so managed panes stay WebKit.
+        let urlAllowlistActive = BrowserURLAllowlistPolicy(defaults: .standard).isActive
         let routesThroughBrowserProxy = isRemoteWorkspace || proxyEndpoint != nil || explicitWebsiteDataStore != nil
-            || adoptsWebKitPopup
+            || adoptsWebKitPopup || urlAllowlistActive
         let enginePageSetup = Self.makeEnginePage(
             choice: routesThroughBrowserProxy
                 ? BrowserEngineChoice(engine: .webkit, source: .inherited)
@@ -5943,6 +5946,11 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil,
         skipsAppSessionBootstrap: Bool = false
     ) -> WKNavigation? {
+        if enginePage != nil, requiresWebKitRouting {
+            // Cloud, SSH and remote routing go through WebKit's proxy; the
+            // panel becomes WebKit before this load.
+            dropEnginePageForWebKitRouting()
+        }
         if let enginePage {
             // Last line of the agent URL rule for loads an agent starts here
             // (open with a URL, reload paths); the engine's guard covers
@@ -6802,6 +6810,12 @@ extension BrowserPanel {
         if let url, url.absoluteString != blankURLString {
             navigate(to: url)
         }
+    }
+
+    /// Forgets the closed engine page so the panel renders with its web view.
+    func clearEnginePageForWebKit() {
+        enginePage = nil
+        objectWillChange.send()
     }
 
     /// Clears the fallback notice once the person dismissed it.
