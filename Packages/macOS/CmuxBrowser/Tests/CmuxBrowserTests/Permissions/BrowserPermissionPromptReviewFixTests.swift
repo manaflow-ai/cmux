@@ -73,6 +73,15 @@ struct BrowserPermissionPromptReviewFixTests {
         #expect(BrowserChromiumPermissionRequest(mediaAccess: 4) == .screenCapture)
     }
 
+    @Test func askedKindsMapToTheShimContentSettingNames() {
+        #expect(BrowserChromiumPermissionRequest.contentSettingType(for: .camera) == "camera")
+        #expect(BrowserChromiumPermissionRequest.contentSettingType(for: .geolocation) == "location")
+        #expect(BrowserChromiumPermissionRequest.contentSettingType(for: .clipboardRead) == "clipboard")
+        #expect(BrowserChromiumPermissionRequest.contentSettingType(for: .other("x")) == nil)
+        #expect(BrowserChromiumPermissionRequest.contentSettingType(forKindKey: "microphone") == "microphone")
+        #expect(BrowserChromiumPermissionRequest.contentSettingType(forKindKey: "other:x") == nil)
+    }
+
     @Test func resetReturnsForgottenAnswersAndARetiredStoreNeverRecreatesTheProfile() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-retire-\(UUID().uuidString)/Chromium")
         defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }

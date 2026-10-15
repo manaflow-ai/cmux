@@ -107,6 +107,31 @@ public struct BrowserChromiumPermissionRequest: OptionSet, Hashable, Sendable {
         (.midiSysex, .midiSysex),
     ]
 
+    /// The shim's content-setting type name (`cmux_shim_set_content_setting`,
+    /// `shim_site.mm` `kContentTypes`) that Chromium saves a prompt answer
+    /// under, or `nil` for a kind cmux never asks about.
+    public static func contentSettingType(for kind: BrowserPagePermissionRequest.Kind) -> String? {
+        switch kind {
+        case .camera: "camera"
+        case .microphone: "microphone"
+        case .geolocation: "location"
+        case .notifications: "notifications"
+        case .clipboardRead: "clipboard"
+        case .midiSysex: "midi"
+        case .screenCapture, .other: nil
+        }
+    }
+
+    /// The content-setting type for a ``BrowserSitePermissionStore`` kind key.
+    public static func contentSettingType(forKindKey key: String) -> String? {
+        let kinds: [BrowserPagePermissionRequest.Kind] = [.camera, .microphone, .geolocation, .notifications, .clipboardRead, .midiSysex]
+        return kinds.first { BrowserSitePermissionStore.kindKey($0) == key }.flatMap(contentSettingType(for:))
+    }
+
+    /// `cef_content_setting_values_t`: DEFAULT clears a saved answer so
+    /// Chromium asks again.
+    public static let contentSettingDefault: Int32 = 0
+
     private static let otherNames: [Int: String] = [
         0: "ar-session", 1: "camera-pan-tilt-zoom", 3: "captured-surface-control", 5: "top-level-storage-access",
         6: "disk-quota", 7: "local-fonts", 9: "hand-tracking", 10: "identity-provider", 11: "idle-detection",
