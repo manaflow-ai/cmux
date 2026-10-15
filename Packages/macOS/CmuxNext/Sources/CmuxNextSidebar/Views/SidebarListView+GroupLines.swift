@@ -26,9 +26,10 @@ extension SidebarListView {
 }
 
 extension SidebarGroupLine {
-    /// Every open group in `rows` with shown members: its line from the
-    /// header's middle (the opaque header bar covers the top) to the last
-    /// member row's bottom, rounded off just above it, in the members'
+    /// Every open group in `rows` with shown members: its line from just
+    /// under the header bar, rounded off there (cg-design-judge 2026-10-14: a
+    /// line under the bar cut its rounded corner), to the last member row's
+    /// bottom, rounded off just above it, in the members'
     /// gutter (`SidebarStyle.groupGutter`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
     static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
@@ -45,7 +46,8 @@ extension SidebarGroupLine {
         return headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
-            let top = head.midY, bottom = tail.maxY - Metrics.space1
+            let bar = header.isThinHeader ? 0 : SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
+            let top = head.midY + bar / 2 + (bar > 0 ? Metrics.space1 : 0), bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
             return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
                                     color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))

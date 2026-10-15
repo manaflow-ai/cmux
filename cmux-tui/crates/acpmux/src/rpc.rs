@@ -245,6 +245,9 @@ pub mod method {
     /// The harness the pane is about to switch to: a hidden session for it
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
+    /// The permission mode a plain new chat on a harness would start in
+    /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
+    pub const MUX_START_MODE: &str = "_acpmux/start_mode";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
@@ -255,6 +258,9 @@ pub mod method {
     pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     pub const MUX_ASK: &str = "_acpmux/ask";
+    /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
+    /// cheap model, sent the question; answers with its session id at once.
+    pub const MUX_BTW: &str = "_acpmux/btw";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
@@ -330,6 +336,9 @@ pub mod method {
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.
     pub const MUX_HARNESSES_CHANGED: &str = "_acpmux/harnesses_changed";
+    /// To local watchers when a new chat's start mode may have changed (a
+    /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
+    pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
