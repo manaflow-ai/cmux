@@ -39,6 +39,14 @@ public nonisolated struct AgentPaneTunables {
         help: "A header button opens a rail beside the chat with its environment, context use and changed files.",
         default: false, code: "AgentPaneTunables.sessionRail")
 
+    /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
+    /// terminal on the right each time." On, the chat header's Terminal opens a split on every
+    /// click (`AgentChatSplitToggles.open`) instead of toggling the one it opened.
+    public static let terminalButtonAdds = Tunable<Bool>.toggle(
+        "agentChat.terminalButtonAdds", .panes, "Terminal button adds a terminal",
+        help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened.",
+        default: false, code: "AgentPaneTunables.terminalButtonAdds")
+
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
     public static let chatWidth = Tunable<ChatWidth>.choice(
@@ -60,6 +68,14 @@ public nonisolated struct AgentPaneTunables {
             }
         }
     }
+
+    /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
+    /// beside it.
+    /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
+    public static let sideSessions = Tunable<Bool>.toggle(
+        "agentPane.debug.sideSessions", PageTunables.section, "Side sessions (/btw)",
+        help: "The composer's /btw opens a read-only side session beside the chat.",
+        default: false, code: "AgentPaneTunables.sideSessions")
 
     /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
     /// the transcript's view folds to one line that opens to its text. Off keeps every thought in
@@ -126,5 +142,5 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor] }
 }

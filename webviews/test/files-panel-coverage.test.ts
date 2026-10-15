@@ -15,6 +15,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type BrowserType } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -69,7 +70,7 @@ await requireBrowserLane("files-panel-coverage.test.ts", async () => {
   }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
   });
 
   interface Step {

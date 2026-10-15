@@ -12,6 +12,8 @@ public protocol CloudConversationCommands: Sendable {
     func subscribeInbox() async throws -> CloudSubscription
     func subscribe(_ conversation: String) async throws -> CloudSubscription
     func unsubscribe(_ conversation: String) async throws
+    /// `cloud-conversation-live`: asks the owner for its `run.live` snapshot (it comes as an event).
+    func requestLive(_ conversation: String) async throws
 }
 
 /// Cloud conversations (`cloud-conversations-v1`, plans/cmux-next/home-cloud-proxy.md)
@@ -91,9 +93,17 @@ public struct CloudConversationClient: CloudConversationCommands {
     public func unsubscribe(_ conversation: String) async throws {
         _ = try await local(CloudConversationUnsubscribeRequest(conversation: conversation))
     }
+
+    public func requestLive(_ conversation: String) async throws {
+        guard await connection.identity?.supports(DaemonCapabilities.shared.cloudChiefLive) == true else { return }
+        _ = try await local(CloudConversationLiveRequest(conversation: conversation))
+    }
 }
 
 extension CloudConversationCommands {
+    /// Fakes and daemons without live frames: nothing to ask.
+    public func requestLive(_ conversation: String) async throws {}
+
     /// Fakes and daemons without the read: the caller falls back to history.
     public func thread(_ conversation: String, root: String, after seq: UInt64, limit: Int) async throws -> ConversationThread {
         throw DaemonError.missingCapabilities([DaemonCapabilities.shared.conversationThread])
