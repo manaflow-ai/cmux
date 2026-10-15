@@ -279,6 +279,9 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserTabEmulate
         | Op::BrowserTabEmulateClear
         | Op::BrowserTabSetProfile
+        | Op::BrowserProfileList
+        | Op::BrowserProfileCreate
+        | Op::BrowserProfileOpen
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport

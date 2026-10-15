@@ -522,9 +522,9 @@ terminal <selector> viewport scroll
 browser open <url> | --url <url> [OPTIONS]
 browser list
 browser profile list
-browser profile create --name <name> [--profile <id>] [--color <value>] [--icon <value>] [--index <n>]
+browser profile create --name <name> [--color <value>] [--icon <value>] [--index <n>]
 browser profile move --profile <id-or-name> --index <n>
-browser profile open <url> --engine webkit|cef --profile <id-or-name> [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
+browser profile open <url> | --url <url> --profile <id-or-name> [--engine webkit|cef] [--pane <selector>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>

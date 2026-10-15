@@ -1143,7 +1143,7 @@ fn stop_lock_holder(lock: &Path) {
 
 /// Removes the per-Chief acpmux homes `<home>/c/<tail>/a` that brains of
 /// earlier builds used (before one acpmux per Chief home): `acpmux daemon
-/// shutdown` there first (that Chief's own daemon, not the shared one),
+/// shutdown --end-agents` there first (that Chief's own daemon, not the shared one),
 /// then the folder. Only inside this build's Chief home `home`, never in
 /// the person's shared `~/.cmux/chief/default` (NIGHTLY's), and not while
 /// a brain an earlier owner left holds that Chief's lock (it still uses
@@ -1176,24 +1176,37 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         }
         let acpmux = acpmux_bin.map(Path::to_path_buf).unwrap_or_else(|| "acpmux".into());
         let user = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let mut command = std::process::Command::new(acpmux);
-        command
-            .args(["daemon", "shutdown"])
-            .env_clear()
-            .env("ACPMUX_HOME", &old)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        for key in ["PATH", "HOME", "USER", "TMPDIR"] {
-            if let Some(value) = user(key) {
-                command.env(key, value);
+        let stop = |end_flag: bool| {
+            let mut command = std::process::Command::new(&acpmux);
+            command.args(["daemon", "shutdown"]);
+            if end_flag {
+                command.arg("--end-agents");
             }
+            command
+                .env_clear()
+                .env("ACPMUX_HOME", &old)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            for key in ["PATH", "HOME", "USER", "TMPDIR"] {
+                if let Some(value) = user(key) {
+                    command.env(key, value);
+                }
+            }
+            command.status().ok()
+        };
+        // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
+        // first (acpmux bounds its own grace), then the folder goes. An acpmux of a build
+        // before the flag refuses it (usage error, exit 2); its plain shutdown ends them.
+        // A stop that failed (no acpmux to ask, or no daemon there: acpmux exits 1) removes the
+        // folder only when no daemon holds its lock; a running one keeps it.
+        let stopped = match stop(true) {
+            Some(status) if status.code() == Some(2) => stop(false),
+            other => other,
+        };
+        if !stopped.is_some_and(|status| status.success()) && lock_held(&old.join("daemon.lock")) {
+            continue;
         }
-        // On this thread only: `daemon shutdown` ends that daemon's agents
-        // first (acpmux bounds its own grace), then the folder goes.
-        // No acpmux to ask: its daemon may still run there; keep the folder.
-        let Ok(mut child) = command.spawn() else { continue };
-        let _ = child.wait();
         if let Err(error) = std::fs::remove_dir_all(&old) {
             eprintln!("cmux-tui: removing {}: {error}", old.display());
         }
