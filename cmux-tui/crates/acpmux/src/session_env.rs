@@ -25,6 +25,12 @@ pub const ALLOWED_KEYS: &[&str] = &[
     // agent hooks inside it target that workspace (the same variable a cmux
     // terminal carries). Validated as a workspace id.
     "CMUX_WORKSPACE_ID",
+    // A Chief turn's seal (optchat-chief chief_profile.rs TURN_KEY_ENV): the
+    // Chief host gives it to its own turn session only, never a subagent's,
+    // so its tools socket answers the `chiefs` tool (make and edit other
+    // Chiefs) to that turn alone. A secret, not a route: it changes nothing
+    // about what runs or where it connects. Validated as 64 hex digits.
+    "OPTCHAT_TURN_SEAL",
 ];
 
 /// Most keys one request may set.
@@ -113,9 +119,32 @@ pub fn parse(meta: Option<&Value>) -> Result<BTreeMap<String, String>, RpcError>
                 Some(key),
             ));
         }
+        if key == "OPTCHAT_TURN_SEAL"
+            && !(value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
+            return Err(refusal(
+                "env.value_refused",
+                format!("env.{key} must be 64 hex digits"),
+                Some(key),
+            ));
+        }
         env.insert(key.clone(), value.to_owned());
     }
     Ok(env)
+}
+
+/// Keys whose value is a secret: never shown back (`_acpmux/info`).
+const SECRET_KEYS: &[&str] = &["OPTCHAT_TURN_SEAL"];
+
+/// The session env as `_acpmux/info` shows it: a secret's value is hidden.
+pub fn shown(env: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    env.iter()
+        .map(|(k, v)| {
+            let v =
+                if SECRET_KEYS.contains(&k.as_str()) { "(hidden)".to_owned() } else { v.clone() };
+            (k.clone(), v)
+        })
+        .collect()
 }
 
 /// Whether a request carries a session env at all (any non-null `env`).

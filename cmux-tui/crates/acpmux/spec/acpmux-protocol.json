@@ -288,6 +288,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/btw",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tag",
       "params": true,
       "result": true
@@ -301,6 +307,12 @@
     {
       "kind": "request",
       "name": "_acpmux/events",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/attachment",
       "params": true,
       "result": true
     },
@@ -645,6 +657,18 @@
     {
       "kind": "request",
       "name": "_acpmux/harness/health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sessions/restart_harness",
       "params": true,
       "result": true
     },

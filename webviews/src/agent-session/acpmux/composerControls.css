@@ -78,10 +78,10 @@
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
 .acpmux-effort-track {
-  --acpmux-effort-inset: 13px;
+  --acpmux-effort-inset: calc(13px * var(--cmux-interface-scale, 1));
   position: relative;
-  height: 23.5px;
-  margin-top: 12px;
+  height: calc(23.5px * var(--cmux-interface-scale, 1));
+  margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
@@ -97,9 +97,9 @@
   position: absolute;
   top: 50%;
   left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-stop));
-  width: 15px;
-  height: 15px;
-  margin: -7.5px 0 0 -7.5px;
+  width: calc(15px * var(--cmux-interface-scale, 1));
+  height: calc(15px * var(--cmux-interface-scale, 1));
+  margin: calc(-7.5px * var(--cmux-interface-scale, 1)) 0 0 calc(-7.5px * var(--cmux-interface-scale, 1));
   padding: 0;
   border: 0;
   background: none;
@@ -171,7 +171,7 @@
 .acpmux-menu-heading {
   padding: 6px 10px 4px;
   font-size: var(--text-detail);
-  line-height: 18px;
+  line-height: var(--text-body--line-height, 18px);
   color: var(--agent-muted);
   white-space: normal;
 }

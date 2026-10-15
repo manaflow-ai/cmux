@@ -66,8 +66,8 @@ impl<T: Zeroize> Drop for Secret<T> {
     }
 }
 
-/// Loads the install identity and Keychain-held secret without exposing the
-/// storage mechanism to the router.
+/// Loads the install identity and its secret without exposing the storage
+/// mechanism to the router.
 pub trait InstallSecretStore: Send + Sync {
     /// Stable installation identifier used in scoped key strings.
     fn install_id(&self) -> &str;
@@ -75,15 +75,14 @@ pub trait InstallSecretStore: Send + Sync {
     fn load(&self) -> anyhow::Result<Secret<Vec<u8>>>;
 }
 
-/// A deterministic store for tests and local fixtures. Production composition
-/// supplies a Keychain implementation through the same trait.
+/// A deterministic store for tests and local fixtures.
 pub struct StaticInstallSecretStore {
     install_id: String,
     secret: Vec<u8>,
 }
 
-/// A per-install random store used by tests to model first-launch Keychain
-/// creation. Each instance creates one OS-CSPRNG secret and reuses it.
+/// The router's store: one OS-CSPRNG secret per router run, in memory only
+/// (keys never outlive the run). Each instance creates one secret and reuses it.
 pub struct RandomInstallSecretStore {
     install_id: String,
     secret: Secret<Vec<u8>>,
@@ -121,54 +120,6 @@ impl InstallSecretStore for StaticInstallSecretStore {
             anyhow::bail!("install secret is empty");
         }
         Ok(Secret::new(self.secret.clone()))
-    }
-}
-
-/// `errSecItemNotFound` (Security framework): the Keychain item does not exist yet.
-#[cfg(target_os = "macos")]
-const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
-
-/// Production Keychain store. The item is addressed by service and install id;
-/// the router never persists the returned bytes.
-pub struct KeychainInstallSecretStore {
-    install_id: String,
-}
-impl KeychainInstallSecretStore {
-    /// Use the per-install CodeRouter generic-password account.
-    pub fn new(install_id: impl Into<String>) -> Self {
-        Self { install_id: install_id.into() }
-    }
-}
-impl InstallSecretStore for KeychainInstallSecretStore {
-    fn install_id(&self) -> &str {
-        &self.install_id
-    }
-    #[cfg(target_os = "macos")]
-    fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
-        let keychain = security_framework::os::macos::keychain::SecKeychain::default()?;
-        match keychain.find_generic_password("com.cmuxterm.coderouter", &self.install_id) {
-            Ok((password, _item)) => Ok(Secret::new(password.to_owned())),
-            // Only a missing item is created: any other error (a locked or
-            // unreadable keychain) must not rotate the install secret.
-            Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => {
-                let mut secret = [0u8; 32];
-                getrandom::fill(&mut secret)?;
-                let set = keychain.set_generic_password(
-                    "com.cmuxterm.coderouter",
-                    &self.install_id,
-                    &secret,
-                );
-                let kept = Secret::new(secret.to_vec());
-                secret.zeroize();
-                set?;
-                Ok(kept)
-            }
-            Err(e) => Err(e.into()),
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
-        anyhow::bail!("Keychain install secrets require macOS")
     }
 }
 
@@ -398,11 +349,10 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
 static OWNERS_GONE: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
 /// Where this run's install secret lives, for `status` (`install_secret`):
-/// `keychain` (macOS Keychain) or `ephemeral` (random, in memory, this run
-/// only: Linux, or a Mac with no default keychain).
+/// always `ephemeral` (random, in memory, this run only). The router never
+/// uses the Keychain: a macOS access prompt appeared for every differently
+/// signed build ("acpmux wants to use ... com.cmuxterm.coderouter").
 static INSTALL_SECRET_KIND: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
-#[cfg(target_os = "macos")]
-const INSTALL_SECRET_KEYCHAIN: &str = "keychain";
 const INSTALL_SECRET_EPHEMERAL: &str = "ephemeral";
 
 /// Reads the owner FIFO on its own thread (a blocking read: no polling, no
@@ -510,16 +460,13 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     let lock = tokio::time::timeout(std::time::Duration::from_secs(30), lock_rx)
         .await
         .map_err(|_| anyhow::anyhow!("another local router holds router.lock"))???;
-    // Keys live in memory for one router run. macOS keeps the install secret in
-    // the Keychain; elsewhere a fresh random secret per run is equivalent.
+    // Keys live in memory for one router run, so a fresh random install secret
+    // per run is as strong as a stored one, on every platform. No Keychain:
+    // its access prompt asked again for every differently signed build.
     // Chosen before the admin socket exists: a client that reaches the socket
     // gets an answer.
-    #[cfg(target_os = "macos")]
-    let (store, kind) = macos_install_secret_store()?;
-    #[cfg(not(target_os = "macos"))]
-    let (store, kind): (Arc<dyn InstallSecretStore>, &'static str) =
-        (Arc::new(RandomInstallSecretStore::new("default")?), INSTALL_SECRET_EPHEMERAL);
-    let _ = INSTALL_SECRET_KIND.set(kind);
+    let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
+    let _ = INSTALL_SECRET_KIND.set(INSTALL_SECRET_EPHEMERAL);
     let socket_path = router_dir.join("router.sock");
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = UnixListener::bind(&socket_path)?;
@@ -544,55 +491,6 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     drop(lock);
     Ok(())
 }
-
-/// The Keychain store when the Keychain answers at start, else a random
-/// in-memory secret for this run (a Mac with no default keychain: a fleet
-/// worker, a session without a login keychain). Keys never outlive one router
-/// run, so the random secret is as strong; without it every mint failed and
-/// the admin socket closed with no reply. Decided once: the key digest reads
-/// the store on every check, so it must never switch during a run.
-#[cfg(target_os = "macos")]
-fn macos_install_secret_store() -> anyhow::Result<(Arc<dyn InstallSecretStore>, &'static str)> {
-    let keychain = KeychainInstallSecretStore::new("default");
-    // Debug builds only: tests take the no-keychain path on any Mac.
-    #[cfg(debug_assertions)]
-    let loaded = if std::env::var_os("CMUX_CODEROUTER_TEST_NO_KEYCHAIN").is_some() {
-        Err(anyhow::anyhow!("no default keychain (CMUX_CODEROUTER_TEST_NO_KEYCHAIN)"))
-    } else {
-        probe_keychain()
-    };
-    #[cfg(not(debug_assertions))]
-    let loaded = probe_keychain();
-    match loaded {
-        Ok(()) => Ok((Arc::new(keychain), INSTALL_SECRET_KEYCHAIN)),
-        Err(e) => {
-            // stderr (the router installs no log subscriber); the error text
-            // only, the secret itself never reaches a log.
-            eprintln!(
-                "cmux-coderouter: warning: the Keychain install secret is unavailable ({e:#}); this router run uses a random in-memory secret"
-            );
-            Ok((Arc::new(RandomInstallSecretStore::new("default")?), INSTALL_SECRET_EPHEMERAL))
-        }
-    }
-}
-
-/// Ask the Keychain once, on its own thread and for at most
-/// `KEYCHAIN_PROBE_LIMIT`: a lookup can block (an access prompt with no one to
-/// answer it), and the router must still start.
-#[cfg(target_os = "macos")]
-fn probe_keychain() -> anyhow::Result<()> {
-    let (sent, answer) = std::sync::mpsc::channel();
-    std::thread::Builder::new().name("keychain-probe".into()).spawn(move || {
-        let loaded = KeychainInstallSecretStore::new("default").load().map(drop);
-        let _ = sent.send(loaded.map_err(|e| format!("{e:#}")));
-    })?;
-    match answer.recv_timeout(KEYCHAIN_PROBE_LIMIT) {
-        Ok(result) => result.map_err(|e| anyhow::anyhow!(e)),
-        Err(_) => anyhow::bail!("the Keychain did not answer within {KEYCHAIN_PROBE_LIMIT:?}"),
-    }
-}
-#[cfg(target_os = "macos")]
-const KEYCHAIN_PROBE_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Start the real loopback data plane for integration tests and composition.
 pub async fn spawn_data_plane(
