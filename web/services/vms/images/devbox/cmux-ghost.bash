@@ -33,6 +33,7 @@ __cmux_ghost_prompt_text= # the prompt's last line, as drawn
 __cmux_ghost_column=0    # screen column where the painted suggestion starts
 __cmux_ghost_echoctl=2   # width of readline's ^C echo, 0 when it is off
 __cmux_ghost_file=       # private per-shell file `fc` writes its answer to
+__cmux_ghost_hold=       # set when readline's redraw ends the held update
 
 # `fc` prints its answer. A per-shell file in the user's private directory
 # carries it back without a command substitution's fork, and unlike a pipe it
@@ -117,12 +118,17 @@ __cmux_ghost_suggest() {
   __cmux_ghost_draw "$ghost"
 }
 
-# Bash clears the input line before a `bind -x` command and redraws it after,
-# so a frame drawn in between showed a blank line (flicker). Redraw the
-# prompt's last line, the input and the suggestion here instead, as one
-# synchronized update (DEC mode 2026), and leave the cursor where the clear
-# left it. Readline's own redraw then writes the same text over it. Readline
-# draws on stderr, and so does this.
+# Bash writes each `bind -x` key in three pieces: it clears the input line,
+# runs the command, then redraws the line. A frame shown between pieces is a
+# blank line or a cursor at column 0 (flicker). Every handler therefore
+# starts a synchronized update (DEC mode 2026) as its first output, and the
+# invisible readline mode string that begins readline's redraw ends it, in
+# the same write as the redrawn line, so each key shows as one frame. When
+# that mode string could not be installed, the update is ended here instead.
+#
+# This draws the prompt's last line, the input and the suggestion, and leaves
+# the cursor where the clear left it; readline then writes the same text over
+# it. Readline draws on stderr, and so does this.
 __cmux_ghost_draw() {
   local line=$READLINE_LINE ghost=$1
   # Control characters draw differently from their length; leave those
@@ -135,7 +141,8 @@ __cmux_ghost_draw() {
   column=$((end % columns))
   room=$((columns - column - 1))
   if ((room > 0)); then ghost=${ghost:0:room}; else ghost=; fi
-  out=$'\e[?2026h\r'$__cmux_ghost_prompt_text$line
+  out=$'\r'$__cmux_ghost_prompt_text$line
+  [[ $__cmux_ghost_hold ]] || out=$'\e[?2026h'$out
   if [[ $ghost ]]; then
     __cmux_ghost_shown=$ghost
     __cmux_ghost_column=$column
@@ -150,12 +157,14 @@ __cmux_ghost_draw() {
   fi
   out+=$'\r'
   if ((up > 0)); then printf -v out '%s\e[%dA' "$out" "$up"; fi
-  printf '%s\e[?2026l' "$out" >&2
+  [[ $__cmux_ghost_hold ]] || out+=$'\e[?2026l'
+  printf '%s' "$out" >&2
   return 0
 }
 
 # Printable keys: insert the character at the cursor, then suggest.
 __cmux_ghost_insert() {
+  [[ $__cmux_ghost_hold ]] && printf '\e[?2026h' >&2
   READLINE_LINE=${READLINE_LINE:0:READLINE_POINT}$1${READLINE_LINE:READLINE_POINT}
   READLINE_POINT=$((READLINE_POINT + ${#1}))
   __cmux_ghost_suggest
@@ -171,6 +180,7 @@ __cmux_ghost_current() {
 
 # Right, End, Ctrl-E, Ctrl-F: accept the suggestion, else move as usual.
 __cmux_ghost_accept() {
+  [[ $__cmux_ghost_hold ]] && printf '\e[?2026h' >&2
   if __cmux_ghost_current; then
     READLINE_LINE=$__cmux_ghost_match
     READLINE_POINT=${#READLINE_LINE}
@@ -185,6 +195,7 @@ __cmux_ghost_accept() {
 # Alt-F, Alt-Right: accept the next word of the suggestion, else move one
 # word forward the way readline's forward-word does.
 __cmux_ghost_accept_word() {
+  [[ $__cmux_ghost_hold ]] && printf '\e[?2026h' >&2
   local rest accepting=
   if __cmux_ghost_current; then
     accepting=1
@@ -203,6 +214,7 @@ __cmux_ghost_accept_word() {
 # `bind -x` redraw erases it) and forget the cached answer, since the history
 # is about to change or the line is about to be replaced.
 __cmux_ghost_clear() {
+  [[ $__cmux_ghost_hold ]] && printf '\e[?2026h' >&2
   __cmux_ghost_shown=
   __cmux_ghost_prefix=
   __cmux_ghost_match=
@@ -265,7 +277,19 @@ __cmux_ghost_bind() {
     fi
     bind -m emacs "\"$key\": \"\\e[9101~${privates[$function]}\""
   done
-  [[ $(bind -v 2>/dev/null) == *'set echo-control-characters off'* ]] && __cmux_ghost_echoctl=0
+  local variables
+  variables=$(bind -v 2>/dev/null)
+  [[ $variables == *'set echo-control-characters off'* ]] && __cmux_ghost_echoctl=0
+  # Readline prints the mode string first whenever it redraws the prompt's
+  # last line, so an invisible one ends the update each handler started.
+  # A user's own mode strings are left alone.
+  if [[ $variables == *'set show-mode-in-prompt off'* ]]; then
+    bind 'set emacs-mode-string "\1\e[?2026l\2"'
+    bind 'set vi-ins-mode-string "\1\e[?2026l\2"'
+    bind 'set vi-cmd-mode-string "\1\e[?2026l\2"'
+    bind 'set show-mode-in-prompt on'
+    __cmux_ghost_hold=1
+  fi
 
   PROMPT_COMMAND=(__cmux_ghost_prompt "${PROMPT_COMMAND[@]}")
   return 0

@@ -64,7 +64,7 @@ describe("Cloud Bash prompt", () => {
     expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash"), ghost: digest("ghost.bash") }).toEqual({
       bashrc: "af65abc0c445b03b4ee670ad28ba638d336317fcfb9a537e1977d447438d254c",
       prompt: "af6c2d4797c6c6e4ff3ec617b2bfceda66a3efa847d8c5511d6662a3656c8dde",
-      ghost: "51795a8a9e89e37891925465a0ee59dcea3978522705e75f950700837ff8682a",
+      ghost: "db9d0772c42ff57eb78f5232a76d30037cd898060a074dd80a33a63e8e9515be",
     });
   });
 

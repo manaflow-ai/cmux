@@ -357,7 +357,9 @@ def run(keys, output):
     os.write(fd, keys); expect(output + rb"[\s\S]*" + prompt)
 expect(prompt)
 # The suggestion appears after each key and is display only.
-os.write(fd, b"c"); expect(gray + rb"laude --dangerously-skip-permissions")
+# Each key draws as one held update: the handler starts it, and readline's
+# redraw ends it with the invisible mode string in the same write.
+os.write(fd, b"c"); expect(rb"\x1b\[\?2026h[^\x1b]*(\x1b\[[0-9;]*[A-Za-z]|[^\x1b])*?" + gray + rb"laude --dangerously-skip-permissions[\s\S]*\x1b\[\?2026l")
 os.write(fd, b"l"); expect(gray + rb"aude --dangerously-skip-permissions")
 os.write(fd, b"\r"); out = expect(rb"[\r\n]ran-cl\r\n[\s\S]*" + prompt)
 if b"ran-claude" in out: sys.exit("Enter ran the suggestion instead of the typed text")
