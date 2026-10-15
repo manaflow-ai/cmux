@@ -145,6 +145,7 @@ extension TerminalController {
                     organizationSlug: organizationSlug,
                     confirmPublic: confirmPublic
                 )
+                await CloudPortSharingStore.publicationsDidChange()
                 return ["publication": publication.foundationObject]
             }
         case "vm.publication_verify":
@@ -191,6 +192,7 @@ extension TerminalController {
                     teamID: access.teamID,
                     confirmPublic: confirmPublic
                 )
+                await CloudPortSharingStore.publicationsDidChange()
                 return ["publication": publication.foundationObject]
             }
         case "vm.publication_grants", "vm.publication_grant", "vm.publication_ungrant":
@@ -218,6 +220,7 @@ extension TerminalController {
             }
             return v2CloudCall(id: id, method: method, params: params) {
                 try await VMClient.shared.deletePublication(id: publicationID)
+                await CloudPortSharingStore.publicationsDidChange()
                 return ["deleted": true, "id": publicationID]
             }
         case "vm.create":

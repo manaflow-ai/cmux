@@ -3,140 +3,53 @@ import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
-/// The last publication audience read for each machine port, so a port's menu
-/// can say whether it is private, shared or public. Written only from
-/// publication reads and from the Share flow's own result.
-@MainActor
-final class CloudPortSharingCache {
-    static let shared = CloudPortSharingCache()
+/// The Cloud machine port a share control acts on.
+struct CloudPortShareContext: Equatable {
+    let machineID: String
+    let machineLabel: String
+    let port: Int
 
-    private var byMachine: [String: [Int: CloudPortSharing]] = [:]
-    private var refreshing = false
-
-    /// `nil` until this machine's publications have been read once.
-    func sharing(machineID: String, port: Int) -> CloudPortSharing? {
-        byMachine[machineID].map { $0[port] ?? CloudPortSharing.unshared }
+    /// `:3000 · vivid-newt`, the same identity the Ports row and the preview tab use.
+    var portLabel: String {
+        CloudTreePortPresentation.previewTabTitle(port: port, machineLabel: machineLabel)
     }
+}
 
-    func record(_ publications: [VMPublication]) {
-        var next: [String: [Int: [CloudPortSharing]]] = [:]
-        for publication in publications {
-            next[publication.vmID, default: [:]][publication.port, default: []]
-                .append(CloudPortSharing(accessMode: publication.accessMode.rawValue))
+extension CloudPortShareAudience {
+    /// The audience menu row ("Only you", "Team", "Anyone with the link").
+    var menuTitle: String {
+        switch self {
+        case .personal:
+            String(localized: "cloudPort.share.audience.personal", defaultValue: "Only you (sign-in required)")
+        case .team:
+            String(localized: "cloudPort.share.audience.team", defaultValue: "Your team (sign-in required)")
+        case .public:
+            String(localized: "cloudPort.share.audience.public", defaultValue: "Anyone with the link (public)")
         }
-        // Machines with no publication are known to be private.
-        for machine in byMachine.keys where next[machine] == nil { next[machine] = [:] }
-        byMachine = next.mapValues { $0.mapValues(CloudPortSharing.widest) }
     }
 
-    func markRead(machineID: String) {
-        if byMachine[machineID] == nil { byMachine[machineID] = [:] }
-    }
-
-    /// Reads publications in the background; the next menu shows the result.
-    func refresh(machineID: String) {
-        guard !refreshing, let client = VMClient.shared else { return }
-        refreshing = true
-        Task { @MainActor [self] in
-            defer { self.refreshing = false }
-            guard let publications = try? await client.listPublications() else { return }
-            self.markRead(machineID: machineID)
-            self.record(publications)
+    var symbolName: String {
+        switch self {
+        case .personal: "lock"
+        case .team: "person.2"
+        case .public: "globe"
         }
     }
 }
 
-/// What Share… does to one machine port. A port can carry several publications
-/// (a CLI publish plus a menu share, or a custom domain beside the generated
-/// one), so its status is the widest audience among all of them, and a chosen
-/// audience applies to every one: narrowing one link while another stays
-/// public would report a private port that anyone can still open.
-struct CloudPortSharePlan: Equatable {
-    /// The port's publications, widest audience first.
-    let publications: [VMPublication]
-
-    init(publications: [VMPublication], machineID: String, port: Int) {
-        self.publications = publications
-            .filter { $0.vmID == machineID && $0.port == port }
-            .enumerated()
-            .sorted {
-                let left = Self.breadth($0.element.accessMode)
-                let right = Self.breadth($1.element.accessMode)
-                return left != right ? left > right : $0.offset < $1.offset
-            }
-            .map(\.element)
-    }
-
-    private static func breadth(_ mode: VMPublicationAccessMode) -> Int {
-        switch mode {
-        case .personal: 1
-        case .team: 2
-        case .public: 3
-        }
-    }
-
-    /// The widest audience any publication of the port has; nil when it has none.
-    var current: CloudPortSharing? {
-        publications.isEmpty ? nil : CloudPortSharing.widest(publications.map { CloudPortSharing(accessMode: $0.accessMode.rawValue) })
-    }
-
-    /// The link the flow shows and copies: the widest publication's.
-    var primary: VMPublication? { publications.first }
-
-    /// Whether choosing `mode` makes the port public when it is not already.
-    func opensToPublic(_ mode: VMPublicationAccessMode) -> Bool {
-        mode == .public && current != .public
-    }
-
-    /// The publications whose audience must change to reach `mode`, widest first.
-    func updates(to mode: VMPublicationAccessMode) -> [VMPublication] {
-        publications.filter { $0.accessMode != mode }
-    }
-}
-
-/// Share… for a machine port: private by default, and public only after a
-/// second confirmation that names who will be able to open it. Uses the same
-/// publication API as `cmux cloud domains publish` / `access`. Each step is an
-/// app-modal alert so the flow reads one answer before taking the next step.
+/// Every way a port's audience changes in the app: the preview tab's share
+/// control and the Ports row's Share submenu (both built by `CloudPortShareMenu`). Private by default; public
+/// only after a second confirmation that names who will be able to open it.
+/// Writes use the same publication API, and the same `CloudPortSharePlan`, as
+/// `cmux vm share` and `cmux cloud domains publish` / `access` / `rm`.
 @MainActor
 enum CloudPortShareFlow {
-    enum Audience: CaseIterable {
-        case personal, team, everyone
-
-        var accessMode: VMPublicationAccessMode {
-            switch self {
-            case .personal: .personal
-            case .team: .team
-            case .everyone: .public
-            }
-        }
-
-        init(_ sharing: CloudPortSharing?) {
-            switch sharing {
-            case .team?: self = .team
-            case .public?: self = .everyone
-            default: self = .personal
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .personal:
-                String(localized: "cloudPort.share.audience.personal", defaultValue: "Only you (sign-in required)")
-            case .team:
-                String(localized: "cloudPort.share.audience.team", defaultValue: "Your team (sign-in required)")
-            case .everyone:
-                String(localized: "cloudPort.share.audience.public", defaultValue: "Anyone with the link (public)")
-            }
-        }
-    }
-
-    /// Ports whose Share flow is open or still writing, keyed `machine:port`.
-    /// A second Share while one runs would read the same "no publication yet"
+    /// Ports whose share change is open or still writing, keyed `machine:port`.
+    /// A second change while one runs would read the same "no publication yet"
     /// and create a second one.
     private static var inFlight: Set<String> = []
 
-    /// Starts the flow unless one is already running for this port.
+    /// Starts a flow unless one is already running for this port.
     /// - Returns: Whether a flow started.
     @discardableResult
     static func beginFlow(machineID: String, port: Int) -> Bool {
@@ -147,104 +60,79 @@ enum CloudPortShareFlow {
         inFlight.remove("\(machineID):\(port)")
     }
 
-    static func present(machineID: String, machineLabel: String, port: Int) {
+    /// One shared mutation path. Reads the port's publications fresh, asks the
+    /// public confirmation when the change opens the port to anyone, writes, then
+    /// invalidates the store so every badge and control follows.
+    static func change(_ context: CloudPortShareContext, to target: CloudPortShareTarget) {
         guard let client = VMClient.shared else {
-            showError(String(localized: "cloudPort.share.signedOut", defaultValue: "Sign in to cmux Cloud to share a port."))
+            showError(CloudPortShareError.signedOut.description)
             return
         }
-        guard beginFlow(machineID: machineID, port: port) else { return }
+        guard beginFlow(machineID: context.machineID, port: context.port) else { return }
         Task { @MainActor in
-            defer { endFlow(machineID: machineID, port: port) }
-            let plan: CloudPortSharePlan
+            defer { endFlow(machineID: context.machineID, port: context.port) }
             do {
-                let publications = try await client.listPublications()
-                CloudPortSharingCache.shared.markRead(machineID: machineID)
-                CloudPortSharingCache.shared.record(publications)
-                plan = CloudPortSharePlan(publications: publications, machineID: machineID, port: port)
+                try await run(context, target: target, client: client)
             } catch {
                 showError(String(describing: error))
-                return
             }
-            let portLabel = CloudTreePortPresentation.previewTabTitle(port: port, machineLabel: machineLabel)
-            guard let audience = chooseAudience(portLabel: portLabel, plan: plan) else { return }
-            if plan.opensToPublic(audience.accessMode), !confirmPublic(portLabel: portLabel) {
-                return
-            }
-            do {
-                let publication = try await publish(
-                    client: client, machineID: machineID, port: port, audience: audience, plan: plan
+        }
+    }
+
+    /// Copies the port's shared link (the widest publication's).
+    static func copyLink(_ context: CloudPortShareContext) {
+        guard let url = CloudPortSharingStore.shared.plan(machineID: context.machineID, port: context.port).primary?.url,
+              !url.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url, forType: .string)
+    }
+
+    private static func run(
+        _ context: CloudPortShareContext,
+        target: CloudPortShareTarget,
+        client: VMClient
+    ) async throws {
+        let store = CloudPortSharingStore.shared
+        try await store.reload()
+        let plan = store.plan(machineID: context.machineID, port: context.port)
+        if plan.requiresPublicConfirmation(target), !confirmPublic(portLabel: context.portLabel) { return }
+        let steps = plan.steps(to: target)
+        guard !steps.isEmpty else { return }
+        do {
+            try await execute(steps, context: context, client: client)
+        } catch {
+            // A partial write still changed something: show the truth, then the error.
+            store.invalidate()
+            throw error
+        }
+        store.invalidate()
+    }
+
+    /// Runs a plan's writes. Creating a public link reserves it privately first,
+    /// then opens it, like `cmux cloud domains publish --access public`, so a
+    /// failure never leaves it public.
+    static func execute(_ steps: [CloudPortShareStep], context: CloudPortShareContext, client: VMClient) async throws {
+        for step in steps {
+            switch step {
+            case .create(let audience):
+                let created = try await client.createPublication(
+                    vmID: context.machineID,
+                    port: context.port,
+                    hostname: nil,
+                    accessMode: audience == .public ? .personal : audience.accessMode,
+                    teamID: nil
                 )
-                if let publications = try? await client.listPublications() {
-                    CloudPortSharingCache.shared.record(publications)
+                if audience == .public {
+                    _ = try await client.updatePublicationAccess(id: created.id, accessMode: .public, teamID: nil, confirmPublic: true)
                 }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(publication.url, forType: .string)
-                showResult(publication: publication, portLabel: portLabel)
-            } catch {
-                showError(String(describing: error))
-            }
-        }
-    }
-
-    private static func publish(
-        client: VMClient,
-        machineID: String,
-        port: Int,
-        audience: Audience,
-        plan: CloudPortSharePlan
-    ) async throws -> VMPublication {
-        let isPublic = audience == .everyone
-        if let primary = plan.primary {
-            // Every publication of the port gets the chosen audience; the widest
-            // one's link is the one shown.
-            var shown = primary
-            for publication in plan.updates(to: audience.accessMode) {
-                let updated = try await client.updatePublicationAccess(
-                    id: publication.id, accessMode: audience.accessMode, teamID: nil, confirmPublic: isPublic
+            case .update(let id, let audience):
+                _ = try await client.updatePublicationAccess(
+                    id: id, accessMode: audience.accessMode, teamID: nil, confirmPublic: audience == .public
                 )
-                if publication.id == primary.id { shown = updated }
+            case .delete(let id):
+                try await client.deletePublication(id: id)
             }
-            return shown
         }
-        // Like `cmux cloud domains publish --access public`: reserve the name
-        // privately first, then open it, so a failure never leaves it public.
-        let created = try await client.createPublication(
-            vmID: machineID,
-            port: port,
-            hostname: nil,
-            accessMode: isPublic ? .personal : audience.accessMode,
-            teamID: nil
-        )
-        guard isPublic else { return created }
-        return try await client.updatePublicationAccess(id: created.id, accessMode: .public, teamID: nil, confirmPublic: true)
-    }
-
-    private static func chooseAudience(portLabel: String, plan: CloudPortSharePlan) -> Audience? {
-        let alert = NSAlert()
-        alert.messageText = String(
-            format: String(localized: "cloudPort.share.title", defaultValue: "Share %@"),
-            portLabel
-        )
-        let current = plan.current
-        let existing = plan.primary
-        var info = CloudTreePortPresentation.sharingStatus(current ?? CloudPortSharing.unshared)
-        for publication in plan.publications { info += "\n" + publication.url }
-        info += "\n\n" + String(
-            localized: "cloudPort.share.explain",
-            defaultValue: "Sharing gives the port an HTTPS address. The private preview keeps working either way."
-        )
-        alert.informativeText = info
-        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 26), pullsDown: false)
-        for audience in Audience.allCases { popup.addItem(withTitle: audience.title) }
-        popup.selectItem(at: Audience.allCases.firstIndex(of: Audience(current)) ?? 0)
-        alert.accessoryView = popup
-        alert.addButton(withTitle: existing == nil
-            ? String(localized: "cloudPort.share.confirm", defaultValue: "Share")
-            : String(localized: "cloudPort.share.update", defaultValue: "Update Access"))
-        alert.addButton(withTitle: String(localized: "cloudPort.share.cancel", defaultValue: "Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-        let index = popup.indexOfSelectedItem
-        return Audience.allCases.indices.contains(index) ? Audience.allCases[index] : nil
     }
 
     /// The explicit second step before anything becomes public. It names the
@@ -268,23 +156,10 @@ enum CloudPortShareFlow {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private static func showResult(publication: VMPublication, portLabel: String) {
-        let alert = NSAlert()
-        alert.messageText = String(
-            format: String(localized: "cloudPort.share.done.title", defaultValue: "%@ is shared"),
-            portLabel
-        )
-        alert.informativeText = CloudTreePortPresentation.sharingStatus(CloudPortSharing(accessMode: publication.accessMode.rawValue))
-            + "\n" + publication.url + "\n\n"
-            + String(localized: "cloudPort.share.done.copied", defaultValue: "The link is on the clipboard.")
-        alert.addButton(withTitle: String(localized: "cloudPort.share.done.ok", defaultValue: "OK"))
-        _ = alert.runModal()
-    }
-
     private static func showError(_ message: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "cloudPort.share.failed", defaultValue: "Could not share the port")
+        alert.messageText = String(localized: "cloudPort.share.changeFailed", defaultValue: "Could not change who can open the port")
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "cloudPort.share.done.ok", defaultValue: "OK"))
         _ = alert.runModal()

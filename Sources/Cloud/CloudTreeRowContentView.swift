@@ -158,9 +158,18 @@ struct CloudTreeRowContentView: View {
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
                 title: presentation.title,
-                detail: presentation.detail
+                detail: presentation.detail,
+                accessories: {
+                    // Who can open the port, from the shared publication store.
+                    if let target = presentation.shareTarget {
+                        CloudPortAudienceBadgeView(machineID: target.machineID, port: target.port, style: style)
+                    }
+                }
             )
-            if let toolTip = presentation.toolTip {
+            let sharing = presentation.shareTarget.flatMap {
+                CloudPortSharingStore.shared.sharing(machineID: $0.machineID, port: $0.port)
+            }
+            if let toolTip = presentation.toolTip(sharing: sharing) {
                 row.help(toolTip)
             } else {
                 row

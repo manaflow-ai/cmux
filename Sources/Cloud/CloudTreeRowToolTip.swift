@@ -69,8 +69,11 @@ enum CloudTreeRowToolTip {
             )
         case .port(let resource, _, _):
             let presentation = CloudTreePortPresentation(resource: resource)
+            let sharing = presentation.shareTarget.flatMap {
+                CloudPortSharingStore.shared.sharing(machineID: $0.machineID, port: $0.port)
+            }
             return .init(
-                toolTip: presentation.toolTip,
+                toolTip: presentation.toolTip(sharing: sharing),
                 accessibilityLabel: presentation.accessibilityLabel
             )
         case .resource(_, let row):
