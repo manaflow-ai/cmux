@@ -4850,6 +4850,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
+        if enginePage != nil {
+            // A Chromium page has no deferred-discard restore path: load it
+            // now (it starts even while its pane is hidden).
+            currentURL = url
+            navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false, preserveRestoredSessionHistory: true)
+            return
+        }
         currentURL = url
         shouldRenderWebView = false
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: Date(), isDeferredFirstLoad: true)
@@ -6797,6 +6804,9 @@ extension BrowserPanel {
     func fallBackToWebKit(reason: BrowserEngineUnavailableReason) {
         guard enginePage != nil else { return }
         let url = currentURL
+#if DEBUG
+        cmuxDebugLog("browser.engine.fallback panel=\(id.uuidString.prefix(5)) reason=\(reason.code) detail=\(reason.detail ?? "")")
+#endif
         closeEnginePage()
         enginePage = nil
         engineFallbackReason = reason
