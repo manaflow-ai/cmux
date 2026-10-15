@@ -190,6 +190,9 @@ extension TerminalController {
         // A non-WebKit page takes trusted keys from its engine (DevTools input
         // events), with no AppKit event and no focus change.
         if let enginePage = context.browserPanel.automationEnginePage {
+            if case let .err(code, message, data)? = v2EngineAgentRefusal(context.browserPanel, surfaceId: context.surfaceId) {
+                return .err(code: code, message: message, data: data.flatMap(JSONValue.init(foundationObject:)))
+            }
             let modifiers = v2EngineKeyModifiers(surfaceId: context.surfaceId, event: event, action: action)
             do {
                 try await BrowserPageAutomation(page: enginePage).dispatchKey(event, action: action, modifiers: modifiers)

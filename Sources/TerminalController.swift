@@ -7344,6 +7344,9 @@ class TerminalController {
         onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
         if let enginePage = v2EnginePage(browserPanel) {
+            if case .err(_, let message, _)? = v2EngineAgentRefusalOnWorker(browserPanel, surfaceId: surfaceId) {
+                return .failure(message)
+            }
             return v2RunEngineBrowserJavaScript(
                 enginePage,
                 surfaceId: surfaceId,
@@ -9229,6 +9232,9 @@ class TerminalController {
             // A non-WebKit engine delivers any key value as trusted input, so the
             // synthetic DOM-event compatibility path is WebKit-only.
             if let enginePage = v2EnginePage(ctx.browserPanel) {
+                if let refusal = v2EngineAgentRefusalOnWorker(ctx.browserPanel, surfaceId: surfaceId) {
+                    return refusal
+                }
                 let modifiers = v2MainSync {
                     v2EngineKeyModifiers(surfaceId: surfaceId, event: event, action: action)
                 }
@@ -9415,6 +9421,9 @@ class TerminalController {
 
         let timingBudget = BrowserScreenshotTimingBudget()
         if let enginePage = v2EnginePage(browserPanel) {
+            if let refusal = v2EngineAgentRefusalOnWorker(browserPanel, surfaceId: surfaceId) {
+                return refusal
+            }
             let capture: Result<Data, any Error>? = v2AwaitEnginePage(timeout: timingBudget.socketResponseTimeout) {
                 do {
                     return .success(try await BrowserPageAutomation(page: enginePage).captureViewportPNG())
@@ -11070,13 +11079,13 @@ class TerminalController {
     /// surface's engine page (Chromium keeps cookies behind DevTools).
     private enum V2BrowserCookieJar {
         case webKit(WKHTTPCookieStore)
-        case engine(any BrowserPage)
+        case engine(any BrowserPage, refusal: V2CallResult?)
     }
 
     /// Main actor only (callers read it inside `v2MainSync`).
     private func v2BrowserCookieJar(_ ctx: V2BrowserPanelContext) -> V2BrowserCookieJar {
         if let page = ctx.browserPanel.automationEnginePage {
-            return .engine(page)
+            return .engine(page, refusal: v2EngineAgentRefusal(ctx.browserPanel, surfaceId: ctx.surfaceId))
         }
         return .webKit(ctx.webView.configuration.websiteDataStore.httpCookieStore)
     }
@@ -11119,7 +11128,8 @@ class TerminalController {
     ) -> V2BrowserCookieOutcome<[HTTPCookie]> {
         let timeoutMessage = "Timed out reading cookies"
         switch jar {
-        case .engine(let page):
+        case .engine(let page, let refusal):
+            if let refusal { return .failure(refusal) }
             return v2BrowserEngineCookieOperation(page, timeout: timeout, timeoutMessage: timeoutMessage) {
                 try await $0.allCookies()
             }
@@ -11146,7 +11156,8 @@ class TerminalController {
     ) -> V2CallResult? {
         let timeoutMessage = "Timed out setting cookie"
         switch jar {
-        case .engine(let page):
+        case .engine(let page, let refusal):
+            if let refusal { return refusal }
             let outcome: V2BrowserCookieOutcome<Void> = v2BrowserEngineCookieOperation(
                 page,
                 timeout: timeout,
@@ -11177,7 +11188,8 @@ class TerminalController {
         timeout: TimeInterval = 3.0
     ) -> V2BrowserCookieOutcome<Bool> {
         switch jar {
-        case .engine(let page):
+        case .engine(let page, let refusal):
+            if let refusal { return .failure(refusal) }
             return v2BrowserEngineCookieOperation(page, timeout: timeout, timeoutMessage: "Timed out clearing cookies") {
                 try await $0.deleteCookie(cookie)
                 return true

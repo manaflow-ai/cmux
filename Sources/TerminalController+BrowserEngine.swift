@@ -64,6 +64,31 @@ extension TerminalController {
         return v2MainSync { panel.automationEnginePage }
     }
 
+    /// The refusal for scripting, input, cookies or screenshots on a page an
+    /// agent may not drive: a Chromium internal page (settings, passwords,
+    /// extensions, DevTools) the person opened in the panel. Nil when the
+    /// agent may drive it, and always for WebKit panels.
+    @MainActor
+    func v2EngineAgentRefusal(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
+        guard !panel.agentMayDriveCurrentPage else { return nil }
+        return .err(
+            code: "agent_refused",
+            message: String(
+                localized: "browser.automation.error.internalPageRefused",
+                defaultValue: "Agents can't script or send input to this browser's internal pages"
+            ),
+            data: [
+                "surface_id": surfaceId.uuidString,
+                "url": panel.currentURL?.absoluteString ?? "",
+            ]
+        )
+    }
+
+    /// `v2EngineAgentRefusal` from the socket worker.
+    nonisolated func v2EngineAgentRefusalOnWorker(_ panel: BrowserPanel, surfaceId: UUID) -> V2CallResult? {
+        v2MainSync { v2EngineAgentRefusal(panel, surfaceId: surfaceId) }
+    }
+
     /// Modifier keys automation holds down per engine surface (DevTools key
     /// events carry no keyboard state of their own).
     @MainActor private static var v2EngineHeldModifiers: [UUID: BrowserAutomationHeldModifiers] = [:]
