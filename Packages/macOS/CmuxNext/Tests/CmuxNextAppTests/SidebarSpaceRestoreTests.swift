@@ -19,7 +19,7 @@ struct SidebarSpaceRestoreTests {
         return (model, sidebar)
     }
 
-    @Test(.enabled("a slide needs motion on") { Motion.animatesMovement })
+    @Test(.enabled("a slide needs motion on") { await MainActor.run { Motion.animatesMovement } })
     func theSpaceRestoredAtLaunchShowsWithoutASlide() {
         let (model, sidebar) = sidebar()
         model.restoreActiveProfile(ProfileKey("second"))
@@ -28,7 +28,7 @@ struct SidebarSpaceRestoreTests {
         #expect(sidebar.spacePaging.snapshotView == nil, "the restored space slid in")
     }
 
-    @Test(.enabled("a slide needs motion on") { Motion.animatesMovement })
+    @Test(.enabled("a slide needs motion on") { await MainActor.run { Motion.animatesMovement } })
     func aSpaceThePersonPicksStillSlides() {
         let (model, sidebar) = sidebar()
         model.apply(.switchProfile(ProfileKey("second")))
