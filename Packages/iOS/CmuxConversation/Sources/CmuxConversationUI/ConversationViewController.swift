@@ -90,6 +90,8 @@ public final class ConversationViewController: UIViewController {
     /// pass over a long transcript is a sum instead of a walk over row models.
     private var rowMetrics: [RowMetrics] = []
     private var rowMetricsKey: (width: CGFloat, margin: CGFloat) = (0, 0)
+    /// When the layout pass in progress began (DEBUG probe; 0 when off).
+    private var layoutPrepareStart: CFTimeInterval = 0
     /// Rows whose insertion should use a specific appearance on the next update.
     var appearances: [String: ConversationTranscriptLayout.Appearance] = [:]
     /// Outgoing rows hidden while their send animation flies.
@@ -103,6 +105,8 @@ public final class ConversationViewController: UIViewController {
     /// The typer's avatar (frame in the transcript, initials) leaving with the indicator.
     var typingAvatarHandoff: (frame: CGRect, initials: String)?
     private(set) var hasPositionedInitially = false
+    /// The open is laying rows out off screen for spare cells (`warmCellPools`).
+    private var isWarmingCellPools = false
     /// Rows already prefetched (see +Prefetch); reset when rows change.
     var prefetchedRange: Range<Int> = 0..<0
     /// The reuse class each message row last dequeued its cell with.
@@ -664,6 +668,9 @@ public final class ConversationViewController: UIViewController {
     // MARK: Rows
 
     private func storeDidChange(_ change: ConversationStoreChange) {
+        let probeStart = probeClock()
+        probeChange(change)
+        defer { probeSection(.storeDidChange, since: probeStart) }
         detailsController?.storeDidChange(change)
         switch change {
         case .connection:
@@ -692,20 +699,64 @@ public final class ConversationViewController: UIViewController {
             // anything else first applies what waited, so changes keep
             // their order.
             if liveGate.hold(change) { return }
-            if let held = liveGate.release() {
-                if change == .prepended {
-                    // An older page landed while other people's changes
-                    // waited (under the finger, or behind a page being
-                    // measured). The store holds both, so neither the live
-                    // rows nor the page's splice match the rows on screen:
-                    // one full build lands them together as a page, measured
-                    // ahead, with no motion (what waited shows in place).
-                    rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, builtFrom: nil, fullBuild: true)
-                    return
-                }
-                rebuild(change: held)
+            // A page waits while the scroll indicator is scrubbed (see
+            // `ConversationPageLanding`), and pages after it join it.
+            if change == .prepended, liveGate.isHoldingPage || pageLandingWaits() {
+                liveGate.beginPageHold()
+                probeRestore("wait")
+                return
             }
-            rebuild(change: change)
+            // Anything else applying now carries a waiting page with it.
+            liveGate.endPageHold()
+            applyTranscriptChange(change)
+        }
+    }
+
+    /// Applies a transcript change, after what the live gate held.
+    private func applyTranscriptChange(_ change: ConversationStoreChange) {
+        if let held = liveGate.release() {
+            if change == .prepended {
+                // An older page landed while other people's changes
+                // waited (under the finger, or behind a page being
+                // measured). The store holds both, so neither the live
+                // rows nor the page's splice match the rows on screen:
+                // one full build lands them together as a page, measured
+                // ahead, with no motion (what waited shows in place).
+                rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, builtFrom: nil, fullBuild: true)
+                return
+            }
+            rebuild(change: held)
+        }
+        rebuild(change: change)
+    }
+
+    /// Whether a landed page waits now (see `ConversationPageLanding`).
+    func pageLandingWaits() -> Bool {
+        ConversationPageLanding.waits(
+            isTracking: collectionView.isTracking,
+            isDecelerating: collectionView.isDecelerating,
+            offsetY: collectionView.contentOffset.y,
+            topInset: collectionView.adjustedContentInset.top
+        )
+    }
+
+    /// Lands a page that waited, with what waited for it, once nothing
+    /// makes it wait: it keeps the reader's anchor as any landing does.
+    func landHeldPageIfFree() {
+        guard liveGate.isHoldingPage, !pageLandingWaits() else { return }
+        liveGate.endPageHold()
+        applyTranscriptChange(.prepended)
+    }
+
+    /// From a scroll callback: lands a waiting page on the next turn of the
+    /// main run loop, outside the scroll view's own update.
+    private func scheduleHeldPageLanding() {
+        guard liveGate.isHoldingPage, !isHeldPageLandingScheduled, !pageLandingWaits() else { return }
+        isHeldPageLandingScheduled = true
+        Task { [weak self] in
+            guard let self else { return }
+            self.isHeldPageLandingScheduled = false
+            self.landHeldPageIfFree()
         }
     }
 
@@ -742,6 +793,8 @@ public final class ConversationViewController: UIViewController {
     /// it was built (live changes held meanwhile are not in it).
     /// `fullBuild` skips the page splice (see `storeDidChange`).
     private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, builtFrom: RowsBase?, fullBuild: Bool = false) {
+        let probeStart = probeClock()
+        defer { probeSection(.rebuild, since: probeStart) }
         rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
@@ -752,6 +805,7 @@ public final class ConversationViewController: UIViewController {
         var tail: ConversationTailRows?
         let builtFrom = builtFrom ?? RowsBase(revision: store.transcriptRevision, statusMessageID: ConversationRowBuilder.statusMessageID(store: store))
         let newRows: [ConversationRow]
+        let probeBuild = probeClock()
         if let measured {
             newRows = measured
         } else if isLiveOrTyping(change), hasPositionedInitially, let base = rowsBase, rowIDs.count == rows.count,
@@ -764,7 +818,7 @@ public final class ConversationViewController: UIViewController {
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a live change differ from a full build")
             newRows = built.rows
             tail = built
-        } else if change == .prepended, hasPositionedInitially, !fullBuild, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
+        } else if change == .prepended, hasPositionedInitially, !fullBuild, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows, index: { [rowIndex] in rowIndex[$0] }) {
             // An older page: only its rows and the boundary are built.
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a landed page differ from a full build")
             newRows = built.rows
@@ -773,6 +827,7 @@ public final class ConversationViewController: UIViewController {
             newRows = ConversationRowBuilder.rows(store: store, memo: rowMemo)
             generation = rowMemo.generation
         }
+        if measured == nil { probeSection(.build, since: probeBuild) }
         if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation, builtFrom: builtFrom) { return }
         apply(newRows, change: change, splice: splice, tail: tail, generation: generation)
         rowsBase = builtFrom
@@ -801,6 +856,8 @@ public final class ConversationViewController: UIViewController {
         let width = collectionView.bounds.width
         let margin = layoutMargin
         guard hasPositionedInitially, width > 0 else { return false }
+        let probeStart = probeClock()
+        defer { probeSection(.measureAhead, since: probeStart) }
         var fresh: [MessageRowModel] = []
         // Rows taken unchanged from the transcript are not new.
         for row in newRows[..<(splice?.reused.lowerBound ?? newRows.count)] {
@@ -828,9 +885,19 @@ public final class ConversationViewController: UIViewController {
                 return MeasuredBatch(items: result)
             }.value
             guard let self else { return }
+            let probeStart = self.probeClock()
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            self.probeSection(.measured, since: probeStart)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
+            // The scrub began while the page was measured: it waits, and
+            // lands measured (`layoutCache` keeps what was measured here).
+            if self.pageLandingWaits() {
+                self.liveGate.beginPageHold()
+                _ = self.liveGate.finishMeasuring()
+                self.probeRestore("wait")
+                return
+            }
             let held = self.liveGate.finishMeasuring()
             self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, builtFrom: current ? builtFrom : nil)
             // What arrived meanwhile follows the page, with its own motion
@@ -868,6 +935,7 @@ public final class ConversationViewController: UIViewController {
     static let measureAheadMinimum = 8
     private var measureGeneration = 0
     private var liveGate = ConversationLiveChangeGate()
+    private var isHeldPageLandingScheduled = false
     private var rebuildSerial = 0
 
     private var hasConfiguredHeader = false
@@ -910,10 +978,12 @@ public final class ConversationViewController: UIViewController {
     }
 
     private func restore(_ anchor: Anchor?) {
-        guard let anchor, let index = rowIndex[anchor.rowID], let bubbleTop = bubbleTop(at: index) else { return }
+        guard let anchor else { return probeRestore("miss") }
+        guard let index = rowIndex[anchor.rowID], let bubbleTop = bubbleTop(at: index) else { return probeRestore("lost") }
         var offset = collectionView.contentOffset
         offset.y = bubbleTop - anchor.offsetFromTop
         collectionView.contentOffset = offset
+        probeRestore(String(format: "y=%.1f", collectionView.contentOffset.y))
     }
 
     /// What an update changes, in old and new row positions.
@@ -1106,6 +1176,8 @@ public final class ConversationViewController: UIViewController {
     }
 
     private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange, splice: ConversationPrependRows? = nil, tail: ConversationTailRows? = nil, generation: Int? = nil) {
+        let probeStart = probeClock()
+        defer { probeSection(.apply, since: probeStart) }
         let oldIDs = rowIDs
         prefetchedRange = 0..<0
 
@@ -1127,15 +1199,18 @@ public final class ConversationViewController: UIViewController {
                 // and leave the newest message under the composer.
                 collectionView.setContentOffset(bottomOffset, animated: false)
                 hasPositionedInitially = true
+                warmCellPools()
             }
             return
         }
 
         // Rows a memo pass copied from the pass on screen need no comparison.
         let unchanged = generation == rowMemo.generation ? rowMemo.unchangedRowIDs : []
+        let probeDiff = probeClock()
         let diff = splice.flatMap { prependDiff(newRows, splice: $0) }
             ?? tail.flatMap { tailDiff(newRows, tail: $0) }
             ?? diff(newRows, unchanged: tail == nil ? unchanged : [])
+        probeSection(.diff, since: probeDiff)
         if let tail {
             // Rows rebuilt outside a memo pass replace what the memo holds
             // (the rows from the cut on came from a pass, which the memo
@@ -1251,6 +1326,7 @@ public final class ConversationViewController: UIViewController {
         // pinned scroll, an anchor restore) is not UIKit's motion; the
         // deceleration fill is told after (see `ConversationDecelerationFill`).
         let offsetBefore = collectionView.contentOffset.y
+        let probeBatch = probeClock()
         if animateLive, sentByMe, !wasAtBottom {
             // Far from the bottom, jump there first so the send never animates
             // through unloaded history (which would flash blank frames).
@@ -1302,11 +1378,33 @@ public final class ConversationViewController: UIViewController {
             }
             glideRegrouped(from: screenBefore)
         }
+        probeSection(.batch, since: probeBatch)
         decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
         popArrivals()
         announceArrivals(newRows, inserted: inserted, isLive: animateLive)
         playQueuedEffects()
+    }
+
+    /// Leaves spare cells in the reuse queues (`ConversationCellPoolWarmUp`):
+    /// lays the transcript out at a screenful of older rows and straight
+    /// back, inside this update, so nothing at the other offset is ever
+    /// committed or shown, and the scroll callbacks ignore the round trip.
+    private func warmCellPools() {
+        let resting = collectionView.contentOffset
+        guard let y = ConversationCellPoolWarmUp.offset(
+            restingY: resting.y,
+            topY: -collectionView.adjustedContentInset.top,
+            viewport: collectionView.bounds.height
+        ) else { return }
+        isWarmingCellPools = true
+        UIView.performWithoutAnimation {
+            collectionView.contentOffset = CGPoint(x: resting.x, y: y)
+            collectionView.layoutIfNeeded()
+            collectionView.contentOffset = resting
+            collectionView.layoutIfNeeded()
+        }
+        isWarmingCellPools = false
     }
 
     private struct ScreenPlace { var rowTop: CGFloat; var bubbleTop: CGFloat }
@@ -1562,6 +1660,13 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let probeStart = probeClock()
+        let cell = makeCell(collectionView, at: indexPath)
+        if probeStart > 0 { probeCell(rows[indexPath.item], since: probeStart) }
+        return cell
+    }
+
+    private func makeCell(_ collectionView: UICollectionView, at indexPath: IndexPath) -> UICollectionViewCell {
         switch rows[indexPath.item] {
         case let .message(model):
             let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
@@ -1688,11 +1793,14 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
         // What arrived while the finger dragged applies at the lift.
         if let held = liveGate.endDragging() { rebuild(change: held) }
+        // A page that waited for a scrub lands at the lift.
+        landHeldPageIfFree()
     }
 
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         isPinnedToBottom = isNearBottom(tolerance: 44)
         trimHistoryIfResting()
+        landHeldPageIfFree()
     }
 
     /// A reader who scrolled back down and rests on the newest message bounds
@@ -1706,6 +1814,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // The open's round trip for spare cells is not the reader's scroll.
+        if isWarmingCellPools { return }
         // The finger drags the keyboard below the safe area, where the guide
         // stops reporting it; the composer follows the finger there.
         if keyboardDragLocation != nil { followKeyboardProgress() }
@@ -1718,6 +1828,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             isScrollingToTop = false
         }
         maybeLoadOlder()
+        // A finger that moved back below the top lets a waiting page land.
+        scheduleHeldPageLanding()
         prefetchAroundVisibleRows()
         // Reading follows viewing (see +CatchUp), not scroll position:
         // Messages reads the whole conversation on open.
@@ -1740,6 +1852,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     func transcriptIndex(ofItemID id: String) -> Int? { rowIndex[id] }
 
     func transcriptWillPrepare(width: CGFloat) {
+        layoutPrepareStart = probeClock()
         let margin = layoutMargin
         if rowMetricsKey.width != width || rowMetricsKey.margin != margin {
             rowMetricsKey = (width, margin)
@@ -1747,6 +1860,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         } else if rowMetrics.count != rows.count {
             invalidateRowMetrics()
         }
+    }
+
+    func transcriptDidPrepare() {
+        if layoutPrepareStart > 0 { probeSection(.layoutPrepare, since: layoutPrepareStart) }
     }
 
     func transcriptHeight(at index: Int, width: CGFloat) -> CGFloat {

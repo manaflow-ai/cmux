@@ -63,7 +63,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         view.addSubview(blur)
         wash.frame = view.bounds
         wash.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        wash.backgroundColor = UIColor {
+        wash.backgroundColor = UIColor.resolving {
             let veil = ConversationVeilBlur.details(dark: $0.userInterfaceStyle == .dark)
             return UIColor(white: veil.washWhite, alpha: veil.washAlpha)
         }

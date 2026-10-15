@@ -77,6 +77,14 @@ extension ConversationViewController {
             }).first else { return "error no failed notice" }
             presentNotUnsent(messageID: notice.messageID)
             return "ok"
+        case "info":
+            // The header's name tap: the details page.
+            openInfo()
+            return detailsController == nil ? "error no details" : "ok"
+        case "infoswitch":
+            // A tap on a details switch: `hideAlerts` or `readReceipts`.
+            guard let details = detailsController else { return "error details closed" }
+            return details.infoPage.labTapSwitch(argument)
         case "notifyanyway":
             // The Notify Anyway button under a quietly delivered message.
             guard let message = store.notifyAnywayMessage else { return "error nothing to notify" }

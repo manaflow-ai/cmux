@@ -208,7 +208,7 @@ final class AudioMessageView: UIView {
         waveform.playedColor = primary
         waveform.unplayedColor = isOutgoing
             ? UIColor.white.withAlphaComponent(0.45)
-            : UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.32) : UIColor(white: 0, alpha: 0.28) }
+            : UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.32) : UIColor(white: 0, alpha: 0.28) }
         playButton.tintColor = primary
         spinner.color = primary
         durationLabel.textColor = isOutgoing ? UIColor.white.withAlphaComponent(0.9) : ConversationTheme.secondaryText
