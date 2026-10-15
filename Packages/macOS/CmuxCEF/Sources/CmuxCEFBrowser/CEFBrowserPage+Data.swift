@@ -69,6 +69,9 @@ final class CEFBrowserPageDataBridge {
         }
         downloads.removeAll()
         choosing.removeAll()
+        for token in waitingPermissions where token < 0 {
+            _ = runtime.shim?.permissionContinue(token, 0)
+        }
         waitingPermissions.removeAll()
     }
 
@@ -111,9 +114,14 @@ final class CEFBrowserPageDataBridge {
         case .deny:
             runtime.answerPermission(token: token, allow: false)
         case .prompt:
+            // A media request (negative token) must be released: Chromium
+            // saves no media answer, so ending it unanswered is safe. A
+            // prompt request stays waiting until Chromium ends it.
+            if token < 0 { _ = runtime.shim?.permissionContinue(token, 0) }
             return
         }
-        guard outcome.isOneTime else { return }
+        // Chromium saves prompt answers, never media answers.
+        guard outcome.isOneTime, token > 0 else { return }
         for kind in kinds {
             guard let type = BrowserChromiumPermissionRequest.contentSettingType(for: kind),
                   !oneTimeAnswers.contains(where: { $0.origin == origin && $0.type == type }) else { continue }
