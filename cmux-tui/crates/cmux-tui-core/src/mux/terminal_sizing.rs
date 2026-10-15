@@ -612,9 +612,8 @@ impl Mux {
             .collect::<std::collections::BTreeMap<String, AppliedSeat>>();
         let (departed, returned) = {
             let previous = entry.applied_participants.borrow();
-            let departed = previous
-                .iter()
-                .any(|(id, seat)| seat.handheld && !present.contains_key(id));
+            let departed =
+                previous.iter().any(|(id, seat)| seat.handheld && !present.contains_key(id));
             // A phone or tablet view with a size that was not one before: a
             // handheld came (back). Its own size counts now, larger or not; a
             // hold kept for the view it replaces would cap it for the rest of
@@ -658,14 +657,19 @@ impl Mux {
 
     /// What `terminal_grid_target` changes besides its result, to put back
     /// when the resize it decided fails.
-    pub(super) fn terminal_grid_hold_snapshot(entry: &TerminalSizingEntry) -> TerminalGridHoldSnapshot {
+    pub(super) fn terminal_grid_hold_snapshot(
+        entry: &TerminalSizingEntry,
+    ) -> TerminalGridHoldSnapshot {
         TerminalGridHoldSnapshot {
             participants: entry.applied_participants.borrow().clone(),
             hold: entry.hold.get(),
         }
     }
 
-    pub(super) fn restore_terminal_grid_hold(entry: &TerminalSizingEntry, snapshot: TerminalGridHoldSnapshot) {
+    pub(super) fn restore_terminal_grid_hold(
+        entry: &TerminalSizingEntry,
+        snapshot: TerminalGridHoldSnapshot,
+    ) {
         *entry.applied_participants.borrow_mut() = snapshot.participants;
         entry.hold.set(snapshot.hold);
     }
