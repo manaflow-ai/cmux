@@ -125,7 +125,31 @@ impl crate::mux::Mux {
             json!({"sessionId": session, "msgId": message_id}),
             WITHDRAW_TIMEOUT,
         );
+        let withdrawn = Self::withdraw_answer(answer);
+        // acpmux answers a withdraw on its own daemon only, but forwards a
+        // peer's session's `_acpmux/info` and prompts: a session it still
+        // names may run the prompt, so only one it cannot name is gone.
+        let withdrawn = match withdrawn {
+            Ok(Withdrawn::NoSession) => {
+                let info = link.call("_acpmux/info", json!({"sessionId": session}), INFO_TIMEOUT);
+                match info {
+                    Ok(info) if info.get("sessionId").and_then(Value::as_str) == Some(session) => {
+                        Ok(Withdrawn::NotFound)
+                    }
+                    Ok(_) | Err(LinkError::Rpc(..)) => Ok(Withdrawn::NoSession),
+                    Err(LinkError::Closed | LinkError::Timeout | LinkError::Busy) => {
+                        Err(WithdrawError::Unavailable)
+                    }
+                }
+            }
+            other => other,
+        };
         link.close();
+        withdrawn
+    }
+
+    /// acpmux's answer to `_acpmux/prompt_withdraw`.
+    fn withdraw_answer(answer: Result<Value, LinkError>) -> Result<Withdrawn, WithdrawError> {
         match answer {
             Ok(reply) => match reply.get("outcome").and_then(Value::as_str) {
                 Some("unsent") => Ok(Withdrawn::Unsent),
@@ -136,17 +160,22 @@ impl crate::mux::Mux {
             Err(LinkError::Rpc(message, data)) => {
                 // acpmux names a refusal in `data.reason`, or before the
                 // first colon of its message (`transfer.moving: …`).
-                let reason = data.get("reason").and_then(Value::as_str).map_or_else(
-                    || message.split(':').next().unwrap_or_default().trim().to_owned(),
-                    str::to_owned,
-                );
-                if reason == "withdraw.not_found" || message.starts_with("no session matches") {
+                let reason = data
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or_else(|| message.split(':').next().unwrap_or_default())
+                    .trim();
+                if reason == "withdraw.not_found" {
                     Ok(Withdrawn::NotFound)
+                } else if message.starts_with("no session matches") {
+                    // acpmux's session lookup (`Hub::resolve`) names no
+                    // reason; its message is the stable part.
+                    Ok(Withdrawn::NoSession)
                 } else if reason.is_empty() {
                     Err(WithdrawError::Refused("withdraw.refused".to_owned()))
                 } else {
                     // The spec's limit on `error.acpmux_reason`.
-                    Err(WithdrawError::Refused(clip(&reason, ACPMUX_REASON_MAX)))
+                    Err(WithdrawError::Refused(clip(reason, ACPMUX_REASON_MAX)))
                 }
             }
             Err(LinkError::Closed | LinkError::Timeout | LinkError::Busy) => {
