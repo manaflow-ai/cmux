@@ -239,7 +239,7 @@
             "rows" : [
               "appearance.density",
               "app.uiScale",
-              "appearance.metrics.chromeFontSize",
+              "appearance.interfaceScale",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
               "appearance.metrics.titlebarHeight",
@@ -907,7 +907,6 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
-              "labs.classicHome",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -9463,14 +9462,10 @@
         "font",
         "text",
         "size",
-        "zoom",
-        "scale",
-        "bigger",
-        "smaller",
         "chromeFontSize"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "metrics",
@@ -9486,6 +9481,69 @@
       "refuses" : [
         4,
         22,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.interfaceSize",
+        "text" : "Interface Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.9,
+        1.25,
+        1.075
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.interfaceSize.help",
+        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.interfaceScale",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
+        "interfaceScale",
+        "labs"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "interfaceScale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.9,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.09999999999999998,
+        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -9971,8 +10029,7 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone",
-        "floating"
+        "two-tone"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -10032,13 +10089,6 @@
             "text" : "Two-Tone"
           },
           "value" : "two-tone"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chromeStyle.floating",
-            "text" : "Floating Panes"
-          },
-          "value" : "floating"
         }
       ],
       "consumers" : [
@@ -10071,9 +10121,7 @@
         "sidebar",
         "two-tone",
         "minimal",
-        "bare",
-        "floating",
-        "gaps"
+        "bare"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -22165,54 +22213,6 @@
         true,
         false
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.labs",
-        "text" : "Labs"
-      },
-      "help" : {
-        "key" : "settings.labs.classicHome.help",
-        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "labs.classicHome",
-      "keywords" : [
-        "home",
-        "chief",
-        "classic",
-        "dock",
-        "page"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "labs",
-        "classicHome"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.labs.classicHome",
-        "text" : "Classic Home"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23611,7 +23611,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "eee369bec6eaabcf7fa65ef80149fa808e3da7bb6bda49db8f0c72c507d555e2",
+  "schema_hash" : "8aca0ac10cf8c3292f1c8667395babe890fbd695fd1c30f7aa2fa0f65aa5fd43",
   "sections" : [
     {
       "id" : "general",
