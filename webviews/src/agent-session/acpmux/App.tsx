@@ -192,6 +192,7 @@ import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
@@ -211,6 +212,7 @@ import {
   SubagentNavContext,
   SubagentOfRow,
   SubagentPaneContext,
+  SubagentStopContext,
 } from "./subagents/SubagentGroup";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
@@ -2093,6 +2095,7 @@ function DefaultComposerChips({
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
   const addAgent = useHarnessesPage();
+  const signIn = useSignIn();
   // acpmux has answered with its harnesses: only then can the chip say none is installed.
   const harnessesListed = useHarnessesListed();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
@@ -2141,6 +2144,7 @@ function DefaultComposerChips({
       // Add harness… (the picker's last row; the chip itself with no harness): the Harnesses page,
       // in place, from this click's gesture.
       {...(addAgent ? { onAddAgent: addAgent } : {})}
+      {...(signIn ? { signIn } : {})}
       harnessesListed={harnessesListed}
       showPlan={false}
       pickerCatalog={picker.catalog}
@@ -2395,9 +2399,11 @@ function AcpmuxPane() {
       method === "harness.health" ? readHarnessHealth(params) : callNative(method, params),
     [readHarnessHealth],
   );
-  // After its Log In or Update ran in a terminal tab, coming back to the chat checks again.
+  // After its Log In ran in a terminal tab, coming back to the chat checks again; an update the
+  // host ran (`harness.update`) checks again once the chat restarts on it.
   const healthStale = useRef(false);
   const [healthRecheck, setHealthRecheck] = useState(0);
+  const recheckHealth = useCallback(() => setHealthRecheck((count) => count + 1), []);
   const healthRechecked = useRef(0);
   useEffect(() => {
     const recheck = () => {
@@ -2428,6 +2434,44 @@ function AcpmuxPane() {
       live = false;
     };
   }, [connected, healthHarness, healthLocal, healthRecheck, readHarnessHealth]);
+  // Every harness this Mac's acpmux last found signed out, for the model picker's rail (cx-ae9eb):
+  // read once the pane's direct client connects (a restored pane connects after its first render),
+  // and again when a Log In comes back.
+  const [signedOut, setSignedOut] = useState<Record<string, string>>({});
+  const signedOutRechecked = useRef(0);
+  useEffect(() => {
+    const client = directClient.current;
+    if (!connected || !client || !healthLocal) {
+      setSignedOut({});
+      return;
+    }
+    let live = true;
+    // After a Log In, acpmux checks again: its last rows would still say signed out.
+    const refresh = healthRecheck !== signedOutRechecked.current;
+    signedOutRechecked.current = healthRecheck;
+    void Promise.resolve()
+      .then(() => client.harnessHealthRows(refresh ? { refresh: true } : {}))
+      .then((rows) => live && setSignedOut(signedOutHarnesses(rows)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [connected, healthLocal, healthRecheck, catalogSource]);
+  const signIn = useMemo<SignIn>(
+    () => ({
+      signedOut,
+      logIn: (_harness, login) => {
+        healthStale.current = true;
+        void callNative("tab.open", {
+          kind: "terminal",
+          text: login,
+          ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+          run: true,
+        }).catch(() => undefined);
+      },
+    }),
+    [signedOut, snapshot.summary?.cwd],
+  );
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
@@ -2996,6 +3040,15 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
+  const stopsSubagents = snapshot.summary?.harness === "claude";
+  const stopSubagent = useMemo(
+    () =>
+      stopsSubagents
+        ? (id: string) => directClient.current?.stopSubagent(id) ?? Promise.reject(new Error())
+        : undefined,
+    [stopsSubagents],
+  );
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
   /// this pane when this is a subagent's pane or the host opens none.
   const showSubagent = useCallback((id: string, focus = true) => {
@@ -4551,47 +4604,49 @@ function AcpmuxPane() {
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
                     <SubagentPaneContext.Provider value={showSubagent}>
-                      <SubagentHarnessContext.Provider
-                        value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                      >
-                        <ChatFindScope
-                          rows={childRows ?? sourceRows}
-                          shown={childRows ? undefined : transcriptRows}
-                          openFold={openFold}
-                          findRef={findRef}
+                      <SubagentStopContext.Provider value={stopSubagent}>
+                        <SubagentHarnessContext.Provider
+                          value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                         >
-                          {(find) => (
-                            <VirtualTranscript
-                              rows={transcriptRows}
-                              working={snapshot.isWorking}
-                              // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                              jumpButton={!quick}
-                              focusComposer={() => composerHandle.current?.focus()}
-                              find={quick ? undefined : find}
-                              sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                              canLoadOlder={!childRows && snapshot.canLoadOlder}
-                              onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                              openAt={
-                                !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                  ? scrollAnchor
-                                  : undefined
-                              }
-                              anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                              onAnchor={
-                                quick || childRows || !shownSessionId
-                                  ? undefined
-                                  : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                              }
-                              expanded={expanded}
-                              registry={registry}
-                              githubRepository={githubRepository}
-                              // The Quick Composer has no room for the changes view; its file rows stay plain.
-                              onOpenDiff={quick ? undefined : openDiff}
-                              onToggleActivity={toggleActivity}
-                            />
-                          )}
-                        </ChatFindScope>
-                      </SubagentHarnessContext.Provider>
+                          <ChatFindScope
+                            rows={childRows ?? sourceRows}
+                            shown={childRows ? undefined : transcriptRows}
+                            openFold={openFold}
+                            findRef={findRef}
+                          >
+                            {(find) => (
+                              <VirtualTranscript
+                                rows={transcriptRows}
+                                working={snapshot.isWorking}
+                                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                jumpButton={!quick}
+                                focusComposer={() => composerHandle.current?.focus()}
+                                find={quick ? undefined : find}
+                                sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                                canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                openAt={
+                                  !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                    ? scrollAnchor
+                                    : undefined
+                                }
+                                anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                onAnchor={
+                                  quick || childRows || !shownSessionId
+                                    ? undefined
+                                    : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                }
+                                expanded={expanded}
+                                registry={registry}
+                                githubRepository={githubRepository}
+                                // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                onOpenDiff={quick ? undefined : openDiff}
+                                onToggleActivity={toggleActivity}
+                              />
+                            )}
+                          </ChatFindScope>
+                        </SubagentHarnessContext.Provider>
+                      </SubagentStopContext.Provider>
                     </SubagentPaneContext.Provider>
                   </SubagentNavContext.Provider>
                 </SessionCwdContext.Provider>
@@ -4725,6 +4780,9 @@ function AcpmuxPane() {
             healthStale.current = true;
             void callNative("tab.open", params).catch(() => undefined);
           }}
+          native={callNative}
+          turnRunning={snapshot.isWorking}
+          onUpdated={recheckHealth}
         />
       )}
       {folderNeeded && !snapshot.sessionId && (
@@ -5039,7 +5097,7 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
-  return (
+  const pane = (
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
@@ -5185,6 +5243,7 @@ function AcpmuxPane() {
                     {preview && (
                       <span
                         className="acpmux-session-coverage"
+                        // tooltip-allow: the policy's enforcement detail, shown nowhere else
                         title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
                       >
                         {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
@@ -5380,4 +5439,5 @@ function AcpmuxPane() {
       </section>
     </ShortcutsContext.Provider>
   );
+  return <SignInContext.Provider value={signIn}>{pane}</SignInContext.Provider>;
 }

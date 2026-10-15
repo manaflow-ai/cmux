@@ -186,7 +186,7 @@ fn apply(args: &Args) -> (&'static str, String) {
             "the daemon did not stop; the new build runs after its next restart".into(),
         );
     }
-    let own_build = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    let own_build = cmux_build_identity::BUILD_IDENTITY;
     if serving(|build| build == own_build, args.daemon_pid) {
         return ("updated", format!("the daemon runs {own_build}"));
     }
@@ -286,7 +286,7 @@ fn restore(args: &Args, previous: &Path, why: &str) -> (&'static str, String) {
         // SAFETY: as above.
         unsafe { libc::kill(pid, libc::SIGTERM) };
     }
-    let new_build = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    let new_build = cmux_build_identity::BUILD_IDENTITY;
     if serving(|build| build != new_build, args.daemon_pid) {
         ("rolled_back", format!("{why}; the previous binary serves again"))
     } else {

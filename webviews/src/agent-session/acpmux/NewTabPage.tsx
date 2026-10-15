@@ -442,6 +442,7 @@ export function NewTabPage({
                   aria-pressed={option === kind}
                   tabIndex={-1}
                   className={option === kind ? "acpmux-newtab-kind is-selected" : "acpmux-newtab-kind"}
+                  // tooltip-allow: the kind's keyboard shortcut
                   title={
                     hotkeys[option]
                       ? t(NEW_TAB_LABELS.editShortcut, {
