@@ -199,7 +199,8 @@ import SwiftUI
         #expect(source.toastText == "Couldn't move Swift docs.")
     }
 
-    /// The Mac: "Home's tabs stay in Home." A Home tab's menus offer no move out of it.
+    /// The Mac: "Home's tabs stay in Home." A Home tab offers no Move Tab to New Workspace;
+    /// Move Tab to Workspace… stays, as on the Mac.
     @Test func homeTabsStayInHome() async throws {
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)
@@ -207,11 +208,13 @@ import SwiftUI
         store.workspaces[index].isHome = true
         let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
         let titles = (source.pageMenu(for: zsh) + source.cardMenu(for: zsh)).flatMap { $0 }.map(\.title)
-        #expect(!titles.contains("Move Tab to Workspace…") && !titles.contains("Move Tab to New Workspace"))
+        #expect(titles.contains("Move Tab to Workspace…") && !titles.contains("Move Tab to New Workspace"))
         #expect(titles.contains("Pin Tab"))
         await source.move("t-zsh", to: nil)
         #expect(source.tabs.contains { $0.id == "t-zsh" })
         #expect(source.toastText == "Home's tabs stay in Home.")
+        await source.move("t-zsh", to: "ws-web")
+        #expect(!source.tabs.contains { $0.id == "t-zsh" })
     }
 
     @Test func pinAndUnpinTab() async throws {

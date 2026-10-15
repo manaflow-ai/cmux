@@ -627,7 +627,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func move(_ id: TabsKitTab.ID, to destinationID: String?) async {
         movingTab = nil
         guard let workspace, let creator, let tab = workspaceTab(id) else { return }
-        if workspace.isHome { return show("Home's tabs stay in Home.") }
+        if workspace.isHome, destinationID == nil { return show("Home's tabs stay in Home.") }
         let destination = destinationID.flatMap { store.workspace(id: $0) }
         if destinationID != nil, destination == nil { return show("That workspace is no longer on \(macName).") }
         do {
@@ -816,17 +816,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     /// Move Tab to Workspace… (another workspace on this Mac) and Move Tab to New Workspace.
-    /// Home's tabs stay in Home: the Mac leaves its promotions (Move Tab to New Workspace, to a
-    /// New Window) out of a Home tab's menu and refuses them (`TabPromotion`); the phone also
-    /// leaves out Move Tab to Workspace…, since moving a Home tab away is the same promotion here.
+    /// Home's tabs stay in Home: as the Mac (`TabPromotion`), a Home tab's menu leaves out the
+    /// promotion Move Tab to New Workspace, and keeps Move Tab to Workspace….
     private func moveItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
-        guard canEditTabs, workspace?.isHome != true else { return [] }
+        guard canEditTabs else { return [] }
         var items: [TabsKitMenuItem] = []
         if !otherWorkspaces.isEmpty {
             items.append(TabsKitMenuItem(title: "Move Tab to Workspace…", systemImage: "arrow.right.square") { [weak self] in
                 self?.movingTab = tab
             })
         }
+        if workspace?.isHome == true { return items }
         items.append(TabsKitMenuItem(title: "Move Tab to New Workspace", systemImage: "rectangle.portrait.and.arrow.right") { [weak self] in
             Task { await self?.move(tab.id, to: nil) }
         })
