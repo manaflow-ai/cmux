@@ -35,6 +35,9 @@ final class AgentChatTranscriptService {
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
     private var failedResolutions: Set<String> = []
+    /// Sessions with a transcript tail read in flight (see `scheduleTranscriptTailRead`).
+    var transcriptTailReadsInFlight: Set<String> = []
+    let transcriptTailReader = ClaudeTranscriptTailReader()
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
@@ -320,6 +323,15 @@ final class AgentChatTranscriptService {
             }
         case .stop, .sessionEnd:
             endProseTurn(sessionID: record.sessionID)
+        default:
+            break
+        }
+        // Claude writes its own title (`ai-title`) into the transcript during a
+        // turn; read the tail when a session starts (resume) and at each Stop so
+        // the sidebar row carries the current title.
+        switch event.hookEventName {
+        case .sessionStart, .stop:
+            scheduleTranscriptTailRead(for: record)
         default:
             break
         }
@@ -638,6 +650,14 @@ final class AgentChatTranscriptService {
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             failedResolutions.remove(record.sessionID)
         }
+        if transcriptBecameAvailable, record.state != .ended {
+            // Records seeded from the hook store at launch arrive with a
+            // transcript path but no title or prompt; the tail read fills them.
+            scheduleTranscriptTailRead(for: record)
+        }
+        if previous.map(AgentSessionSidebarDidChangeEvent.fingerprint) != AgentSessionSidebarDidChangeEvent.fingerprint(record) {
+            AgentSessionSidebarDidChangeEvent(current: record, previous: previous).post()
+        }
         if stateChanged, record.state == .ended {
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             // The transcript can no longer grow; stop any live preview loop so
@@ -674,6 +694,7 @@ final class AgentChatTranscriptService {
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         publishSidebarChange(liveChanged: true, historyChanged: false)
+        AgentSessionSidebarDidChangeEvent(current: record, previous: nil).post()
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil

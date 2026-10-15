@@ -60,6 +60,7 @@ struct SidebarAppKitRowCellTests {
             checklistTotalCount: 0,
             checklistFirstUncheckedText: nil,
             compactStatusGlyph: compactStatusGlyph
+            agentSessions: []
         )
     }
 
@@ -2259,6 +2260,7 @@ struct SidebarAppKitRowCellTests {
             \.showLog,
             \.showProgress,
             \.showAgentActivity,
+            \.showAgentSessions,
             \.showCustomMetadata,
         ]
 
@@ -2280,6 +2282,7 @@ struct SidebarAppKitRowCellTests {
             ("sidebarShowLog", \.showLog),
             ("sidebarShowProgress", \.showProgress),
             ("sidebarShowAgentActivity", \.showAgentActivity),
+            ("sidebarShowAgentSessions", \.showAgentSessions),
             ("sidebarShowStatusPills", \.showCustomMetadata),
         ]
 

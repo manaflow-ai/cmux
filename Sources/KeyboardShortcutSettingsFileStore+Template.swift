@@ -180,6 +180,7 @@ extension CmuxSettingsFileStore {
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
                     "showAgentUsage": SidebarWorkspaceDetailDefaults.showAgentUsage,
                     "showAgentActivity": SidebarWorkspaceDetailDefaults.showAgentActivity,
+                    "showAgentSessions": SidebarWorkspaceDetailDefaults.showAgentSessions,
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
                     "compactAgentStatus": SidebarWorkspaceDetailDefaults.compactAgentStatus,
                     "compactStatusIcons": [String: String](),

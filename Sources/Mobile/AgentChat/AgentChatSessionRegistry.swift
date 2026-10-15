@@ -542,6 +542,11 @@ final class AgentChatSessionRegistry {
             record.transcriptPath = transcriptPath
         }
         record.lastActivityAt = event.receivedAt
+        if event.hookEventName == .userPromptSubmit,
+           let prompt = Self.promptText(from: event) {
+            record.lastPrompt = prompt
+            record.lastPromptAt = event.receivedAt
+        }
         Self.applyChildRunEvent(&record, event: event)
 
         let previous = records[sessionID]
