@@ -45,13 +45,13 @@ import Testing
             }
         }
 
-        func sections(_ rows: SidebarMapping.RowSource? = nil) -> [SidebarSection] {
+        func sections(_ rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
             SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
                                            rowSource: SidebarLaneStatus.applying(rows, lanes: lanes, turns: turns))
         }
     }
 
-    static func activity(_ sections: [SidebarSection]) -> [String: StatusIndicatorState] {
+    static func activity(_ sections: [SidebarRowSection]) -> [String: StatusIndicatorState] {
         Dictionary(uniqueKeysWithValues: sections.flatMap(\.workspaces).map { ($0.title, $0.activity) })
     }
 
