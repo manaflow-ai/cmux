@@ -1143,4 +1143,256 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(secret.stderr.contains("hunter2"), secret.stderr)
         XCTAssertFalse(secret.stdout.contains("hunter2"), secret.stdout)
     }
+
+    // MARK: - Warm starts and waking
+
+    /// A repository's warm start, written the way `vm clone --save-warm` records it.
+    private func writeVMCloneWarmStart(projectKey: String, snapshot: String, machine: String, savedSecondsAgo: Int, home: URL) throws {
+        let store: [String: Any] = [projectKey: [
+            "snapshot_id": snapshot,
+            "machine": machine,
+            "created_at_unix": Int(Date().timeIntervalSince1970) - savedSecondsAgo,
+            "name": "cmux warm start \(projectKey)",
+        ]]
+        let url = home.appendingPathComponent(".cmuxterm/vm-warm-starts.json")
+        try JSONSerialization.data(withJSONObject: store).write(to: url)
+    }
+
+    private func readVMCloneWarmStarts(home: URL) -> [String: [String: Any]] {
+        let url = home.appendingPathComponent(".cmuxterm/vm-warm-starts.json")
+        return ((try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: [String: Any]]) ?? [:]
+    }
+
+    func testVMCloneNewMachineStartsFromTheRepositorysWarmStart() throws {
+        let root = try vmCloneScratch("warm")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        try writeVMCloneWarmStart(projectKey: "github.com/o/r", snapshot: "snap_warm", machine: "vm-old", savedSecondsAgo: 3 * 86_400 + 3_600, home: home)
+
+        // The plan says it would start from the warm start.
+        let (plan, _) = try vmCloneDryRunPlan(["o/r", "--new"], home: home)
+        let plannedWarm = try XCTUnwrap(plan["warm_start"] as? [String: Any], "\(plan)")
+        XCTAssertEqual(plannedWarm["snapshot_id"] as? String, "snap_warm")
+
+        // `--new`: a new machine is needed, so it is restored from the snapshot instead of
+        // provisioned cold, and the existing checkout is only fetched.
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcw1",
+            arguments: ["vm", "clone", "o/r", "--new", "--no-open", "--json"],
+            home: home
+        ) { method, params in
+            switch method {
+            case "vm.restore": return ["id": "vm-warm", "status": "running", "image": "snap_warm"]
+            case "vm.status": return ["id": "vm-warm", "status": "running"]
+            case "vm.rename": return ["id": "vm-warm"]
+            case "vm.secrets_sync": return ["sent": [], "removed": [], "noop": true]
+            case "vm.exec":
+                let command = (params["command"] as? String) ?? ""
+                if command.contains("cmux-clone=") {
+                    return ["exit_code": 0, "stdout": "cmux-clone=updated\ncmux-clone-path=/home/cmux/work/r\n", "stderr": ""]
+                }
+                return ["exit_code": 0, "stdout": "", "stderr": ""]
+            case "vm.workspace_new": return ["remote_workspace_id": "ws_r", "existing": true, "opened": false]
+            default: return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertFalse(log.methods.contains("vm.create"), "no cold machine: \(log.methods)")
+        XCTAssertEqual(log.params(ofFirst: "vm.restore")?["snapshot_id"] as? String, "snap_warm")
+        XCTAssertNotNil(log.params(ofFirst: "vm.restore")?["idempotency_key"] as? String)
+        XCTAssertFalse(log.methods.contains("vm.workspace_rename"), "the restored machine already has the repository's workspace: \(log.methods)")
+        // The snapshot's machine env is cleared before Cloud Secrets deliver this machine's own.
+        let execs = log.snapshot().filter { ($0["method"] as? String) == "vm.exec" }.compactMap { $0["params"] as? [String: Any] }
+        XCTAssertTrue(execs.allSatisfy { $0["id"] as? String == "vm-warm" }, "\(execs)")
+        let clearIndex = try XCTUnwrap(execs.firstIndex { ($0["command"] as? String)?.contains(".config/cmux/env") == true }, "\(execs)")
+        let cloneIndex = try XCTUnwrap(execs.firstIndex { ($0["command"] as? String)?.contains("cmux-clone=") == true }, "\(execs)")
+        XCTAssertLessThan(clearIndex, cloneIndex)
+        let methods = log.methods
+        XCTAssertLessThan(try XCTUnwrap(methods.firstIndex(of: "vm.restore")), try XCTUnwrap(methods.firstIndex(of: "vm.secrets_sync")))
+        XCTAssertTrue(result.stderr.contains("Warm start from snapshot (saved 3 days ago) "), result.stderr)
+        let payload = try XCTUnwrap(result.stdout.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any], result.stdout)
+        XCTAssertEqual(payload["machine"] as? String, "vm-warm")
+        XCTAssertEqual(payload["created"] as? Bool, true)
+        XCTAssertEqual(payload["result"] as? String, "updated")
+        let warm = try XCTUnwrap(payload["warm_start"] as? [String: Any], "\(payload)")
+        XCTAssertEqual(warm["snapshot_id"] as? String, "snap_warm")
+        XCTAssertEqual(warm["status"] as? String, "restored")
+        // The restored machine joins the pool, like a machine the router provisioned.
+        let pool = (try? Data(contentsOf: home.appendingPathComponent(".cmuxterm/vm-run-pool.json")))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        XCTAssertEqual(pool?["machines"] as? [String], ["vm-warm"])
+    }
+
+    func testVMCloneFallsBackToAColdMachineWhenTheWarmStartCannotRestore() throws {
+        let root = try vmCloneScratch("warmfail")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        try writeVMCloneWarmStart(projectKey: "github.com/o/r", snapshot: "snap_gone", machine: "vm-old", savedSecondsAgo: 600, home: home)
+        let socketPath = makeSocketPath("vcw2")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMCloneRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            log.append(request)
+            let result: [String: Any]?
+            switch method {
+            case "vm.restore":
+                return self.v2Response(id: id, ok: false, error: [
+                    "code": "internal_error",
+                    "message": "Snapshot snap_gone was not found.",
+                    "data": ["http_status": 404, "backend_code": "vm_snapshot_not_found"],
+                ])
+            case "vm.create": result = ["id": "vm-cold", "status": "running"]
+            case "vm.rename": result = ["id": "vm-cold"]
+            case "vm.status": result = ["id": "vm-cold", "status": "running"]
+            case "vm.secrets_sync": result = ["sent": [], "removed": [], "noop": true]
+            case "vm.exec": result = ["exit_code": 0, "stdout": "cmux-clone=cloned\n", "stderr": ""]
+            case "vm.workspace_new": result = ["remote_workspace_id": "ws_c", "existing": false, "opened": false]
+            default: result = nil
+            }
+            guard let result else {
+                return self.v2Response(id: id, ok: false, error: ["code": "method_not_found", "message": "Unknown method"])
+            }
+            return self.v2Response(id: id, ok: true, result: result)
+        }
+        let result = try runVMCloneCLI(arguments: ["vm", "clone", "o/r", "--new", "--no-open", "--json"], home: home, socketPath: socketPath)
+        wait(for: [handled], timeout: 60)
+        XCTAssertEqual(result.status, 0, "a bad snapshot never blocks the clone: stdout=\(result.stdout) stderr=\(result.stderr)")
+        let methods = log.methods
+        XCTAssertLessThan(try XCTUnwrap(methods.firstIndex(of: "vm.restore")), try XCTUnwrap(methods.firstIndex(of: "vm.create")), methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.exec")?["id"] as? String, "vm-cold")
+        XCTAssertTrue(result.stderr.contains("Warm start from snapshot snap_gone failed"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("cloning on a fresh machine instead"), result.stderr)
+        // A snapshot that is gone is forgotten, so the next clone does not try it again.
+        XCTAssertNil(readVMCloneWarmStarts(home: home)["github.com/o/r"], "\(readVMCloneWarmStarts(home: home))")
+        let payload = try XCTUnwrap(result.stdout.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any], result.stdout)
+        XCTAssertEqual(payload["machine"] as? String, "vm-cold")
+        let warm = try XCTUnwrap(payload["warm_start"] as? [String: Any], "\(payload)")
+        XCTAssertEqual(warm["status"] as? String, "failed")
+        XCTAssertEqual(warm["snapshot_id"] as? String, "snap_gone")
+    }
+
+    func testVMCloneColdSkipsTheWarmStart() throws {
+        let root = try vmCloneScratch("cold")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        try writeVMCloneWarmStart(projectKey: "github.com/o/r", snapshot: "snap_warm", machine: "vm-old", savedSecondsAgo: 60, home: home)
+        let (plan, _) = try vmCloneDryRunPlan(["o/r", "--new", "--cold"], home: home)
+        XCTAssertTrue(plan["warm_start"] is NSNull, "\(plan)")
+        // A pinned machine never restores: the warm start only replaces a new machine.
+        let (pinned, _) = try vmCloneDryRunPlan(["o/r", "--machine", "brave-otter"], home: home)
+        XCTAssertTrue(pinned["warm_start"] is NSNull, "\(pinned)")
+    }
+
+    func testVMCloneSaveWarmSnapshotsAfterSetupBeforeTheAgent() throws {
+        let root = try vmCloneScratch("savewarm")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        try writeVMCloneWarmStart(projectKey: "github.com/acme/api", snapshot: "snap_previous", machine: "vm-old", savedSecondsAgo: 86_400, home: home)
+        let output = "[cmux setup 1/2] exit 0\r\n[cmux setup 2/2] exit 0\r\n[cmux setup] done\r\n"
+        let base = Self.vmCloneSetupResponder(setupOutput: output)
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcw3",
+            arguments: ["vm", "clone", "acme/api", "--machine", "brave-otter", "--no-open", "--json", "--setup", "--save-warm", "--agent", "claude"],
+            home: home
+        ) { method, params in
+            switch method {
+            case "vm.snapshot": return ["id": "snap_new", "snapshot_id": "snap_new", "name": params["name"] ?? NSNull(), "created_at": 0]
+            case "vm.snapshot_delete": return ["machine": "vm-old", "snapshot_id": "snap_previous", "deleted": true]
+            default: return base(method, params)
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        let methods = log.methods
+        let snapshotIndex = try XCTUnwrap(methods.firstIndex(of: "vm.snapshot"), methods.description)
+        let setupWait = try XCTUnwrap(methods.firstIndex(of: "vm.terminal_wait"), methods.description)
+        let agentIndex = try XCTUnwrap(methods.lastIndex(of: "surface.new_terminal"), methods.description)
+        XCTAssertLessThan(setupWait, snapshotIndex, "saved after setup")
+        XCTAssertLessThan(snapshotIndex, agentIndex, "saved before the agent starts")
+        let snapshot = try XCTUnwrap(log.params(ofFirst: "vm.snapshot"))
+        XCTAssertEqual(snapshot["id"] as? String, "brave-otter")
+        XCTAssertEqual(snapshot["name"] as? String, "cmux warm start github.com/acme/api")
+        // The previous warm start of this repository is replaced and deleted.
+        let deleted = try XCTUnwrap(log.params(ofFirst: "vm.snapshot_delete"), methods.description)
+        XCTAssertEqual(deleted["id"] as? String, "vm-old")
+        XCTAssertEqual(deleted["snapshot_id"] as? String, "snap_previous")
+        let stored = try XCTUnwrap(readVMCloneWarmStarts(home: home)["github.com/acme/api"])
+        XCTAssertEqual(stored["snapshot_id"] as? String, "snap_new")
+        XCTAssertEqual(stored["machine"] as? String, "brave-otter")
+        let payload = try XCTUnwrap(result.stdout.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any], result.stdout)
+        XCTAssertEqual((payload["warm_saved"] as? [String: Any])?["snapshot_id"] as? String, "snap_new")
+        XCTAssertNotNil((payload["timings"] as? [String: Any])?["warm_save"], "\(payload)")
+    }
+
+    func testVMCloneSavesAWarmStartWhenTheManifestAsksForOne() throws {
+        let root = try vmCloneScratch("autowarm")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let manifest = #"{"setup": ["bun install"], "warm": true}"#
+        let output = "[cmux setup 1/1] exit 0\r\n[cmux setup] done\r\n"
+        let base = Self.vmCloneSetupResponder(setupOutput: output)
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcw4",
+            arguments: ["vm", "clone", "acme/api", "--machine", "brave-otter", "--no-open", "--setup"],
+            home: home
+        ) { method, params in
+            switch method {
+            case "vm.exec": return ["exit_code": 0, "stdout": Self.vmCloneOutput(withCloudJSON: manifest), "stderr": ""]
+            case "vm.snapshot": return ["id": "snap_auto", "snapshot_id": "snap_auto", "created_at": 0]
+            default: return base(method, params)
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods.filter { $0 == "vm.snapshot" }.count, 1, log.methods.description)
+        XCTAssertEqual(readVMCloneWarmStarts(home: home)["github.com/acme/api"]?["snapshot_id"] as? String, "snap_auto")
+
+        // Without "warm": true (and without --save-warm) nothing is saved.
+        let plainRoot = try vmCloneScratch("nowarm")
+        defer { try? FileManager.default.removeItem(at: plainRoot) }
+        let plainHome = plainRoot.appendingPathComponent("home")
+        let (plain, plainLog) = try runVMCloneAgainstMock(
+            "vcw5",
+            arguments: ["vm", "clone", "acme/api", "--machine", "brave-otter", "--no-open", "--setup"],
+            home: plainHome,
+            respond: Self.vmCloneSetupResponder(setupOutput: "[cmux setup 1/2] exit 0\r\n[cmux setup 2/2] exit 0\r\n")
+        )
+        XCTAssertEqual(plain.status, 0, "stdout=\(plain.stdout) stderr=\(plain.stderr)")
+        XCTAssertFalse(plainLog.methods.contains("vm.snapshot"), plainLog.methods.description)
+    }
+
+    func testVMCloneWakesAPausedMachineWithOneLine() throws {
+        let root = try vmCloneScratch("wake")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        try writeVMCloneBinding(projectKey: "github.com/o/r", machine: "vm-b", home: home)
+        let vms: [[String: Any]] = [["id": "vm-b", "displayName": "brave-otter", "status": "paused"]]
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcwk",
+            arguments: ["vm", "clone", "o/r", "--no-open"],
+            home: home
+        ) { method, _ in
+            switch method {
+            case "vm.list": return ["vms": vms]
+            case "vm.resume": return ["id": "vm-b", "status": "running"]
+            case "vm.secrets_sync": return ["sent": [], "removed": [], "noop": true]
+            case "vm.exec": return ["exit_code": 0, "stdout": "cmux-clone=updated\n", "stderr": ""]
+            case "vm.workspace_new": return ["remote_workspace_id": "ws_3", "existing": true, "opened": false]
+            default: return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods, ["vm.list", "vm.resume", "vm.secrets_sync", "vm.exec", "vm.workspace_new"], log.methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.resume")?["id"] as? String, "vm-b")
+        XCTAssertTrue(result.stderr.contains("Waking brave-otter\u{2026} "), result.stderr)
+    }
 }

@@ -505,4 +505,79 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(fork.stdout.contains("Usage: cmux vm fork <id> [--name <name>]"), fork.stdout)
         XCTAssertFalse(fork.stdout.contains("Usage: cmux vm <"), fork.stdout)
     }
+
+    // MARK: - Waking a paused machine
+
+    func testVMAgentAndOpenWakeAPausedMachineWithOneLine() throws {
+        let (agent, agentLog) = try runVMAgentRoutingCLI(
+            "vwk1",
+            arguments: ["vm", "agent", "--agent", "claude", "--machine", "vivid-newt", "--no-open", "--json", "--", "hi"]
+        ) { method, _ in
+            switch method {
+            case "vm.status": return .result(["id": "vivid-newt", "status": "paused"])
+            case "vm.resume": return .result(["id": "vivid-newt", "status": "running"])
+            case "vm.secrets_sync": return .result([:])
+            case "surface.new_terminal": return .result(Self.vmAgentRoutingNewTerminal)
+            default: return nil
+            }
+        }
+        XCTAssertEqual(agent.status, 0, "stdout=\(agent.stdout) stderr=\(agent.stderr)")
+        let methods = agentLog.vmMethods
+        let resume = try XCTUnwrap(methods.firstIndex(of: "vm.resume"), methods.description)
+        XCTAssertLessThan(resume, try XCTUnwrap(methods.firstIndex(of: "vm.secrets_sync"), methods.description))
+        XCTAssertLessThan(resume, try XCTUnwrap(methods.firstIndex(of: "surface.new_terminal"), methods.description))
+        XCTAssertTrue(agent.stderr.contains("Waking vivid-newt\u{2026} "), agent.stderr)
+        XCTAssertEqual(agent.stderr.components(separatedBy: "Waking").count, 2, "one line: \(agent.stderr)")
+
+        // A running machine costs one status read and no resume.
+        let (awake, awakeLog) = try runVMAgentRoutingCLI(
+            "vwk2",
+            arguments: ["vm", "agent", "--agent", "claude", "--machine", "vivid-newt", "--no-open", "--json", "--", "hi"]
+        ) { method, _ in
+            switch method {
+            case "vm.status": return .result(["id": "vivid-newt", "status": "running"])
+            case "vm.secrets_sync": return .result([:])
+            case "surface.new_terminal": return .result(Self.vmAgentRoutingNewTerminal)
+            default: return nil
+            }
+        }
+        XCTAssertEqual(awake.status, 0, "stdout=\(awake.stdout) stderr=\(awake.stderr)")
+        XCTAssertFalse(awakeLog.vmMethods.contains("vm.resume"), awakeLog.vmMethods.description)
+        XCTAssertFalse(awake.stderr.contains("Waking"), awake.stderr)
+
+        // `vm open <machine>/<ws>` wakes the machine before it reads the machine's catalog.
+        let (_, openLog) = try runVMAgentRoutingCLI(
+            "vwk3",
+            arguments: ["vm", "open", "vivid-newt/ws_1"]
+        ) { method, _ in
+            switch method {
+            case "vm.status": return .result(["id": "vivid-newt", "status": "paused"])
+            case "vm.resume": return .result(["id": "vivid-newt", "status": "running"])
+            default: return nil
+            }
+        }
+        let openMethods = openLog.vmMethods
+        XCTAssertEqual(Array(openMethods.prefix(2)), ["vm.status", "vm.resume"], openMethods.description)
+    }
+
+    func testVMWakeFailureNamesTheMachineAndStops() throws {
+        let (result, log) = try runVMAgentRoutingCLI(
+            "vwk4",
+            arguments: ["vm", "agent", "--agent", "claude", "--machine", "vivid-newt", "--no-open", "--", "hi"]
+        ) { method, _ in
+            switch method {
+            case "vm.status": return .result(["id": "vivid-newt", "status": "paused"])
+            case "vm.resume":
+                return .error([
+                    "code": "vm_error",
+                    "message": "Your plan's machine limit is reached.",
+                    "data": ["http_status": 409, "backend_code": "vm_active_limit_exceeded"],
+                ])
+            default: return nil
+            }
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("Could not wake vivid-newt: Your plan's machine limit is reached."), result.stderr)
+        XCTAssertFalse(log.vmMethods.contains("surface.new_terminal"), log.vmMethods.description)
+    }
 }
