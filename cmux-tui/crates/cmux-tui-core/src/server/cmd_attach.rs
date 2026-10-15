@@ -451,9 +451,8 @@ pub(super) fn attach_surface(
         // will show, not one at the old grid followed by a `resized` replay
         // (cnx-ios termqa D4). A host that keeps another size times out here
         // and the replay is built at the current grid.
-        surface.wait_for_hosted_viewer_size(
-            std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT,
-        );
+        surface
+            .wait_for_hosted_viewer_size(std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT);
     }
     lifecycle.set_resumes_pending_sequence(
         mux.control_clients.supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
