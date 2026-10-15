@@ -289,6 +289,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
             type="button"
             className="keys-conflict"
             aria-label={strings.format("keybindings.page.conflicts", String(binding.conflicts.length))}
+            // tooltip-allow: an icon and a count; the tooltip says what it counts
             title={strings.format("keybindings.page.conflicts", String(binding.conflicts.length))}
             onClick={(event) => {
               event.stopPropagation();
