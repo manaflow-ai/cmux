@@ -151,6 +151,8 @@ struct TabOverview<Source: TabsDataSource>: View {
     var onScrolling: (Bool) -> Void = { _ in }
     /// A card tapped during the zoom to the grid (open it once settled).
     var onQueueSelect: (String) -> Void = { _ in }
+    /// The card a long press owns changed (nil when released).
+    var onPressChanged: (String?) -> Void = { _ in }
 
     @Environment(\.tabsKitTheme) private var theme
     /// A long-pressed card: lifted, the grid dimmed, its menu showing.
@@ -211,6 +213,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                     pressed = nil
                     reorder = nil
                 }
+                .onChange(of: pressed ?? reorder?.id) { _, owner in onPressChanged(owner) }
                 .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { [scroll] origin in
                     if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
                 }
@@ -284,6 +287,12 @@ struct TabOverview<Source: TabsDataSource>: View {
             // The card the zoom is landing on stays put.
             guard gridInteractive || tab.id != hiddenTabId else { return }
             let rm = UIAccessibility.isReduceMotionEnabled
+            // A long press owns the touch (menu or reorder): the swipe never
+            // moves the card, and its release can never close it.
+            guard CardGestures.swipeAllowed(card: tab.id, pressed: pressed, reordering: reorder?.id) else {
+                if swipes.isRaised(tab.id), !swipes.isDeparting(tab.id) { swipes.cancel(tab.id, reduceMotion: rm) }
+                return
+            }
             switch phase {
             case .changed(let dx): swipes.track(tab.id, translation: dx, reduceMotion: rm)
             case .ended(_, let v):
