@@ -123,6 +123,22 @@ extension SSHService {
         return handed
     }
 
+    /// cx-3r9mt: whether an automatic update may run: the machine's acpmux does not run, or runs
+    /// no live agent and no peer session and holds no other client's person key (none, or this
+    /// app's). An unreadable status is not idle. (Move to the remote cmux-tui with the other
+    /// agent-daemon checks, cx-3r9mt move-to-Rust item.)
+    func agentDaemonIdleForUpdate(_ session: SSHMachineSession) async -> Bool {
+        guard let status = try? await SSHProcessRunner.run(
+            SSHCommandLine().command(session.host, "\(session.host.remoteBinary) acp --json daemon status </dev/null"),
+            environment: await Self.environment(), deadline: .seconds(10), label: "acpmux status \(session.host.destination)"),
+            status.status == 0,
+            let object = (try? JSONSerialization.jsonObject(with: Data(status.stdout.utf8))) as? [String: Any] else { return false }
+        if object["running"] as? Bool == false { return true }
+        let ours = AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID)
+        let otherKey = object["personKey"] as? Bool == true && object["personInstance"] as? String != ours
+        return object["liveAgents"] as? Int == 0 && object["remoteSessions"] as? Int == 0 && !otherKey
+    }
+
     /// The fallback for a cmux-tui without `agent-session-start-keyed-reason-v1` (remove with
     /// `.checkStatus`; the rule lives in cmux-tui's `keyed_restart_reason`): true only for an
     /// answer that shows nothing to lose (see ``restartWithApprovalsIfIdle``).

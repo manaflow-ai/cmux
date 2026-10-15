@@ -341,7 +341,15 @@ final class SSHService {
             let probe = try? RemoteProbe.decode(String(line)) else { return }
         guard let answer = await RemoteUpdateNeed.ask(binary: binary, probe: probe) else { return }
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
-        guard answer.need == "older" else { return }
+        guard answer.need == "older" else { session.updateOffered = false; return }
+        // The keyed restart's rule (cx-3r9mt, hq-a3 2026-10-15): by itself only on an idle machine;
+        // else the person decides (Update available, then Update).
+        guard await agentDaemonIdleForUpdate(session) else {
+            logger.info("update of \(session.host.destination.description, privacy: .public) offered: the machine is not idle")
+            session.updateOffered = true
+            autoUpdated[tried] = .some(nil)
+            return
+        }
         autoUpdated[tried] = .some(nil)
         do { try await install(session, automatic: probe.buildIdentity ?? "") } catch {
             autoUpdated[tried] = .some(ContinuousClock.now.advanced(by: .seconds(120)))
@@ -398,6 +406,7 @@ final class SSHService {
             }
             session.installPhase = nil
             logger.info("installed cmux-tui \(plan.commit, privacy: .public) on \(host.destination.description, privacy: .public)")
+            session.updateOffered = false
             if automatic == nil { await link.handle(.installFinished(.success)) }
             // The machine's agent daemon still runs the replaced binary (cx-brq9m): hand it over to
             // the new one, keeping its agents, before the next chat needs it.

@@ -14,7 +14,9 @@ use serde::Serialize;
 pub struct BuildFacts {
     /// `build_identity`: the source commit (or a dirty-tree hash).
     pub commit: Option<String>,
-    /// `build_time`: unix seconds of the source commit; 0 when unknown.
+    /// `build_time`: unix seconds of the commit the binary was built from;
+    /// with the fleet's cmux-tui cache, the first build of that source tree
+    /// (never the app's own commit time); 0 when unknown.
     pub time: u64,
     /// `daemon_capabilities`: the daemon capabilities the build always
     /// serves on any platform; None for a build before cx-3r9mt.
