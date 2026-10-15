@@ -20,6 +20,13 @@ import { ACTIVITY_MAX, DELTA_MAX, type LiveFrame } from "./contract.ts"
  */
 const BATCH_MS = 40
 const BATCH_DELTAS = 64
+/** One send on the chain waits at most this long, so a hung RPC never holds back later frames for good. */
+const SEND_MS = 10_000
+
+const bounded = (p: Promise<void>): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([p, new Promise<void>((r) => (timer = setTimeout(r, SEND_MS)))]).finally(() => clearTimeout(timer))
+}
 
 type Kind = "talk" | "thought"
 interface LiveStep {
@@ -99,7 +106,7 @@ export class BrainStream {
 
   /** Runs `send` after every live frame queued so far (run changes go out behind the deltas they end). */
   after(send: () => Promise<void>): Promise<void> {
-    const next = this.chain.then(send).catch(() => undefined)
+    const next = this.chain.then(() => bounded(send())).catch(() => undefined)
     this.chain = next
     return next
   }
@@ -167,7 +174,7 @@ export class BrainStream {
     if (!t.run || !t.conversation || !t.agent || t.run !== this.run) return
     const full = { ...frame, conversation: t.conversation, run: t.run } as LiveFrame
     const [conversation, agent] = [t.conversation, t.agent]
-    this.chain = this.chain.then(() => this.send(conversation, agent, full)).catch(() => undefined)
+    this.chain = this.chain.then(() => bounded(this.send(conversation, agent, full))).catch(() => undefined)
   }
 }
 
