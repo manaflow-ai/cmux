@@ -195,14 +195,11 @@ public struct DaemonCapabilities: Sendable {
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     public let conversationDraftEvents = "conversation-draft-events-v1"
-    /// A Chief's live run frames (`conversation-live` events and command): the reply's text
-    /// so far in the Chief's bubble and its "working on" line under the transcript.
+    /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
+    /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
     public let chiefLive = "chief-live-v1"
-    /// `cloud-conversation-live`: a Cloud Chief's `run.live` snapshot through the daemon.
     public let cloudChiefLive = "cloud-chief-live-v1"
-    /// `conversation-run-changed` events: a run's end ends its live text.
     public let conversationRuns = "conversation-runs-v1"
-    /// `cloud-conversation-run-changed` events: a Cloud Chief's run end and its reply key.
     public let cloudConversationRuns = "cloud-conversation-runs-v1"
     /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
     public let workspaceKind = "workspace-kind-v1"
