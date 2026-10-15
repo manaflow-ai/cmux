@@ -487,10 +487,50 @@ struct ChatComposer: View {
 struct QueuedPromptsView: View {
     let store: AgentChatStore
     @Binding var text: String
+    /// Edit queued prompt: which one, and its text while editing.
+    @State private var editing: QueuedPrompt?
+    @State private var editText = ""
 
     var body: some View {
         VStack(spacing: 4) {
-            ForEach(store.queue) { item in
+            ForEach(Array(store.queue.enumerated()), id: \.element.id) { index, item in
+                row(item)
+                    // The agent pane's queue actions (its wording), on a long press.
+                    .contextMenu {
+                        Button("Send now", systemImage: "arrow.up.circle") { store.sendQueuedNow(item.id) }
+                        Button("Edit queued prompt", systemImage: "pencil") {
+                            editText = item.text
+                            editing = item
+                        }
+                        if store.queue.count > 1 {
+                            Button("Move up", systemImage: "arrow.up") { store.moveQueued(item.id, by: -1) }
+                                .disabled(index == 0)
+                            Button("Move down", systemImage: "arrow.down") { store.moveQueued(item.id, by: 1) }
+                                .disabled(index == store.queue.count - 1)
+                        }
+                        Button("Remove queued prompt", systemImage: "xmark", role: .destructive) { store.removeQueued(item.id) }
+                    }
+                    .accessibilityActions {
+                        Button("Send now") { store.sendQueuedNow(item.id) }
+                        Button("Edit queued prompt") {
+                            editText = item.text
+                            editing = item
+                        }
+                    }
+            }
+        }
+        .padding(.horizontal, 20)
+        .alert("Edit queued prompt", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
+               presenting: editing) { item in
+            TextField("Message", text: $editText, axis: .vertical)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { store.editQueued(item.id, text: editText) }
+                .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func row(_ item: QueuedPrompt) -> some View {
+        Group {
                 HStack(spacing: 8) {
                     Image(systemName: "clock").font(.footnote).foregroundStyle(.secondary)
                     Text(item.text).font(.subheadline).lineLimit(1)
@@ -510,9 +550,8 @@ struct QueuedPromptsView: View {
                 .padding(.horizontal, 14)
                 .frame(height: 40)
                 .glassEffect(.regular, in: .capsule)
-            }
         }
-        .padding(.horizontal, 20)
+        .accessibilityIdentifier("chat.queued")
     }
 
 }

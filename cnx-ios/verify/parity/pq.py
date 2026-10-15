@@ -22,13 +22,14 @@ from sim import Sim  # noqa: E402
 import journey as journey_mod  # noqa: E402
 from journey import Journey, Fail, check  # noqa: E402
 
-STATE = os.path.expanduser("~/cnx-ios-e2e/parity-state.json")
-RAW = os.path.expanduser("~/cnx-ios-e2e/parity-raw")
+# PQ_SIM / PQ_STATE / PQ_RAW: one simulator, state file and video folder per agent.
+STATE = os.path.expanduser(os.environ.get("PQ_STATE", "~/cnx-ios-e2e/parity-state.json"))
+RAW = os.path.expanduser(os.environ.get("PQ_RAW", "~/cnx-ios-e2e/parity-raw"))
 ART = os.path.join(HERE, "artifacts")
 HOST = os.environ.get("PQ_HOST", "mini-cmux11s-mac-mini")
-RBASE = "~/cnx-ios-e2e/parity"
+RBASE = os.environ.get("PQ_RBASE", "~/cnx-ios-e2e/parity")
 BUNDLE = journey_mod.BUNDLE
-SIM_NAME = "cnx-parity-1"
+SIM_NAME = os.environ.get("PQ_SIM", "cnx-parity-1")
 DEVICE = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"
 RUNTIME = "com.apple.CoreSimulator.SimRuntime.iOS-26-5"
 
@@ -47,6 +48,10 @@ def log(msg):
 
 
 def rsh(cmd, timeout=180):
+    if HOST == "local":
+        # The rig Mac on this machine (PQ_HOST=local): the same commands, no ssh.
+        return subprocess.run(["/bin/bash", "-c", cmd.replace("~/", os.path.expanduser("~") + "/", 1) if cmd.startswith("cd ~/") else cmd],
+                              capture_output=True, text=True, timeout=timeout)
     return subprocess.run(["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", HOST, cmd],
                           capture_output=True, text=True, timeout=timeout)
 
@@ -111,7 +116,7 @@ def setup(app_path=os.path.expanduser("~/cnx-ios-e2e/parity/CnxApp.app")):
     save(st)
     sim, mac, j = ctx()
     # A workspace in a project folder, so the phone has a folder to start agent chats in.
-    proj = "~/cnx-ios-e2e/parity/proj"
+    proj = f"{RBASE}/proj"
     rsh(f"mkdir -p {proj} && printf '# parity\\n' > {proj}/README.md")
     created = mac.cmux("workspace", "create", "--name", st["ws_name"], "--cwd",
                        rsh(f"cd {proj} && pwd").stdout.strip(), json_out=True)
@@ -271,11 +276,16 @@ def chat_prompt(j, prompt, expect, timeout=180):
     s.tap_el(f); time.sleep(0.6)
     type_text(prompt)
     time.sleep(0.5)
-    x, y, w, h = f.frame
-    s.tap(363, y + h + 25 if h < 60 else y + h - 10)
+    send = s.find(label="Send", kind="Button")
+    if send:
+        s.tap_el(send[0])
+    else:
+        x, y, w, h = f.frame
+        s.tap(363, y + h + 25 if h < 60 else y + h - 10)
     t = time.time()
     while time.time() - t < timeout:
-        hits = [e for e in s.find(contains=expect) if prompt not in (e.label or "")]
+        hits = [e for e in s.find(contains=expect) if prompt not in (e.label or "")
+                and e.kind not in ("TextView", "TextField") and prompt not in (e.value or "")]
         if hits:
             return time.time() - t, hits[0].label
         if s.find(contains="Agent stopped"):

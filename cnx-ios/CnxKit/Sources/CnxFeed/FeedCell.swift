@@ -499,5 +499,7 @@ public final class FeedRouting {
     var sendPrompt: ((FeedItem, String) -> Void)?
     /// Opens a terminal agent's tab on the Workspaces tab (set by the shell).
     public var openTerminal: ((FeedItem) -> Void)?
+    /// Clear All Notifications on the linked Mac (nil: no Mac can clear now).
+    public var clearAllNotifications: (() async throws -> Void)?
 }
 #endif

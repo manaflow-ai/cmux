@@ -25,6 +25,8 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "list-tab-groups",
         "list-saved-tab-groups",
         "list-notifications",
+        // The person's own sidebar order (`profiles-v1`): read only.
+        "list-personal",
         "list-agents",
         "list-terminals",
         "resolve-terminal",
@@ -71,6 +73,9 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "delete-workspace-group",
         "move-workspace-group",
         "move-workspace-to-group",
+        // The person's own sidebar order: a workspace's place only
+        // (`PERSONAL_WORKSPACE_FIELDS`).
+        "set-personal-workspace",
         "create-terminal",
         "new-tab",
         "new-screen",
@@ -119,6 +124,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "reopen-saved-tab-group",
         "ack-tab-notifications",
         "notify",
+        // Restart Shell: a dead terminal tab of the person's gets its shell
+        // again, on this Mac, under the same terminal id; the surface only
+        // (`creation_fields`). Verified live (cnx-ios/SECURITY.md "Restart Shell").
+        "restart-tab",
         // Agent chat tabs: only an acpmux session tab of this Mac's own
         // acpmux, checked below (`agent_tab_verdict`).
         "new-conversation-tab",
@@ -145,6 +154,29 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
     .collect()
 });
 
+/// Fields a phone may set on `set-personal-workspace`: which of the person's
+/// workspaces and its place in their sidebar. Never its `group`, browser
+/// profile, `theme` or `remote_localhost` (which opens the Mac's loopback to a
+/// remote workspace's browser).
+const PERSONAL_WORKSPACE_FIELDS: &[&str] = &["session_id", "workspace_key", "index"];
+
+/// `cmux.protocol/2` operations a phone may send on the daemon lane, each with
+/// the params it may carry. Deny by default: every other operation (the
+/// daemon's whole resource API) is refused before it reaches the socket.
+/// - `notification.clear`: Clear All Notifications, the Mac's own action, on
+///   this session's ledger only (no `terminal_id`, no revision guard).
+/// - `sidebar_layout.get`: the person's sidebar layout, to show their pins.
+/// - `sidebar_layout.update`: Unpin Workspace only, an `item.remove` of a
+///   pinned item the Mac minted (`itm_` + 16 base32 characters); never a
+///   built-in item, a section, a reset or an added item.
+const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
+    ("notification.clear", &["machine", "session"]),
+    ("sidebar_layout.get", &["machine", "session"]),
+    ("sidebar_layout.update", &["machine", "session", "op"]),
+];
+/// Envelope members a phone may send (never `origin` or `credential`).
+const RESOURCE_FIELDS: &[&str] = &["protocol", "type", "id", "operation", "params", "idempotency_key"];
+
 /// Fields a phone may set on commands that start a terminal program. The
 /// phone never chooses the program (`argv`, `command`), its directory
 /// (`cwd`), its environment (`env`) or a terminal host id.
@@ -153,6 +185,8 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         ["origin", "mutation_id", "expected_generation", "expected_revision", "expected_terminal_revision"];
     let size = ["cols", "rows"];
     let extra: &[&'static str] = match command {
+        // The tab's recorded launch on this Mac; the phone names only the tab.
+        "restart-tab" => return Some(["surface"].into_iter().collect()),
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -218,6 +252,9 @@ impl DaemonPolicy {
         let Ok(Value::Object(object)) = serde_json::from_slice::<Value>(line) else {
             return Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object"));
         };
+        if object.contains_key("protocol") {
+            return resource_verdict(object);
+        }
         let id = object.get("id");
         let Some(command) = object.get("cmd").and_then(Value::as_str) else {
             return Verdict::Refuse(error_line(id, "bad_request", "missing cmd"));
@@ -243,6 +280,11 @@ impl DaemonPolicy {
                     &format!("{command} does not take {names} from a phone"),
                 ));
             }
+        }
+        if command == "set-personal-workspace"
+            && let Err(why) = personal_workspace(&object)
+        {
+            return Verdict::Refuse(error_line(id, "forbidden", &why));
         }
         if (command == "new-browser-tab" || command == "browser-navigate")
             && let Some(url) = object.get("url")
@@ -332,6 +374,181 @@ impl DaemonPolicy {
             &format!("phones may only use the personal projection {}", self.projection_subject),
         ))
     }
+}
+
+/// `set-personal-workspace` from a phone: a short session id, a workspace key
+/// and a place, nothing else.
+fn personal_workspace(object: &Map<String, Value>) -> Result<(), String> {
+    if let Some(key) = object
+        .keys()
+        .find(|key| !PERSONAL_WORKSPACE_FIELDS.contains(&key.as_str()) && *key != "id" && *key != "cmd")
+    {
+        return Err(format!("set-personal-workspace does not take {key} from a phone"));
+    }
+    let short = |key: &str| {
+        object.get(key).and_then(Value::as_str).is_some_and(|text| {
+            (1..=128).contains(&text.len())
+                && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
+        })
+    };
+    if !short("session_id") || !short("workspace_key") {
+        return Err("set-personal-workspace needs a session_id and a workspace_key".into());
+    }
+    if object.get("index").is_some_and(|index| !index.is_u64()) {
+        return Err("set-personal-workspace index is a place in the list".into());
+    }
+    Ok(())
+}
+
+/// A `cmux.protocol/2` request from a phone: one of
+/// [`ALLOWED_RESOURCE_OPERATIONS`] with only its params, on this Mac's current
+/// session. Sent on as the object checked here, serialized again, so a
+/// duplicate key cannot mean one thing to this filter and another to the daemon.
+fn resource_verdict(object: Map<String, Value>) -> Verdict {
+    let id = object.get("id").cloned();
+    match check_resource(&object) {
+        Ok(()) => match serde_json::to_vec(&Value::Object(object)) {
+            Ok(line) => Verdict::Rewrite(line),
+            Err(_) => Verdict::Refuse(resource_refusal(id.as_ref(), "request is not a JSON object")),
+        },
+        Err(why) => Verdict::Refuse(resource_refusal(id.as_ref(), &why)),
+    }
+}
+
+fn check_resource(object: &Map<String, Value>) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !RESOURCE_FIELDS.contains(&key.as_str())) {
+        return Err(format!("a phone may not send {key}"));
+    }
+    if object.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/2")
+        || object.get("type").and_then(Value::as_str) != Some("request")
+        || !object.get("id").is_some_and(Value::is_string)
+    {
+        return Err("only cmux.protocol/2 requests".into());
+    }
+    let operation = object.get("operation").and_then(Value::as_str).unwrap_or_default();
+    let Some((_, allowed)) = ALLOWED_RESOURCE_OPERATIONS.iter().find(|(name, _)| *name == operation) else {
+        return Err(format!("{operation} is not available to a phone"));
+    };
+    let Some(Value::Object(params)) = object.get("params") else {
+        return Err("params is not an object".into());
+    };
+    if let Some(key) = params.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("{operation} does not take {key} from a phone"));
+    }
+    for key in ["machine", "session"] {
+        if params.get(key).is_some_and(|value| value.as_str() != Some("current")) {
+            return Err(format!("{key} must be current"));
+        }
+    }
+    if operation != "sidebar_layout.get" {
+        let key = object.get("idempotency_key").and_then(Value::as_str).unwrap_or_default();
+        if !(1..=128).contains(&key.len()) || key.chars().any(char::is_control) {
+            return Err(format!("{operation} needs an idempotency_key"));
+        }
+    }
+    if operation == "sidebar_layout.update" {
+        let unpin = params.get("op").and_then(Value::as_object).is_some_and(|op| {
+            op.len() == 2
+                && op.get("kind").and_then(Value::as_str) == Some("item.remove")
+                && op.get("id").and_then(Value::as_str).is_some_and(minted_item)
+        });
+        if !unpin {
+            return Err("a phone may only unpin a workspace from the sidebar".into());
+        }
+    }
+    Ok(())
+}
+
+/// An item id the Mac app minted (`LayoutItemID.mint()`: `itm_` and 16
+/// characters of `a-z2-7`), not a built-in item (`itm_home`, `itm_account`).
+fn minted_item(id: &str) -> bool {
+    id.strip_prefix("itm_").is_some_and(|rest| {
+        rest.len() == 16 && rest.bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+    })
+}
+
+/// What the daemon must confirm before a line the policy forwarded reaches it:
+/// the phone's objects are checked against the Mac's own state, read on a
+/// separate connection by the splice (`services::owned_check`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ownership {
+    /// `set-personal-workspace`: a live workspace of this session
+    /// (`list-workspaces`: `registry_id` and a workspace `key`).
+    PersonalWorkspace { session: String, key: String },
+    /// Unpin: an item of the pinned section that shows a workspace (`sidebar_layout.get`).
+    PinnedWorkspaceTile { item: String },
+}
+
+/// The check a forwarded line needs, or None (any other line).
+pub fn ownership(line: &[u8]) -> Option<Ownership> {
+    let Value::Object(object) = serde_json::from_slice::<Value>(line).ok()? else { return None };
+    if object.get("cmd").and_then(Value::as_str) == Some("set-personal-workspace") {
+        let text = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_string);
+        return Some(Ownership::PersonalWorkspace {
+            session: text("session_id")?,
+            key: text("workspace_key")?,
+        });
+    }
+    if object.get("operation").and_then(Value::as_str) == Some("sidebar_layout.update") {
+        let item = object.get("params")?.get("op")?.get("id")?.as_str()?.to_string();
+        return Some(Ownership::PinnedWorkspaceTile { item });
+    }
+    None
+}
+
+/// Whether `list-workspaces` (`reply`) lists workspace `key` of session `session`.
+pub fn owns_personal_workspace(reply: &Value, session: &str, key: &str) -> bool {
+    let data = reply.get("data").unwrap_or(reply);
+    data.get("registry_id").and_then(Value::as_str) == Some(session)
+        && data
+            .get("workspaces")
+            .and_then(Value::as_array)
+            .is_some_and(|list| list.iter().any(|ws| ws.get("key").and_then(Value::as_str) == Some(key)))
+}
+
+/// Whether `sidebar_layout.get` (`reply`, its `result`) has `item` in the pinned
+/// section with a workspace ref: a pinned workspace tile, nothing else.
+pub fn is_pinned_workspace_tile(reply: &Value, item: &str) -> bool {
+    let snapshot = reply.get("result").unwrap_or(reply);
+    snapshot.get("sections").and_then(Value::as_array).is_some_and(|sections| {
+        sections.iter().filter(|section| section.get("id").and_then(Value::as_str) == Some("sec_pinned")).any(
+            |section| {
+                section.get("items").and_then(Value::as_array).is_some_and(|items| {
+                    items.iter().any(|entry| {
+                        entry.get("id").and_then(Value::as_str) == Some(item)
+                            && entry.get("ref").and_then(|r| r.get("kind")).and_then(Value::as_str)
+                                == Some("workspace")
+                    })
+                })
+            },
+        )
+    })
+}
+
+/// The refusal for a line whose object the Mac does not confirm: a v12 error
+/// line for a command, a v2 failure response for a resource request.
+pub fn not_owned(line: &[u8], what: &Ownership) -> String {
+    let id = serde_json::from_slice::<Value>(line).ok().and_then(|v| v.get("id").cloned());
+    match what {
+        Ownership::PersonalWorkspace { .. } => {
+            error_line(id.as_ref(), "forbidden", "set-personal-workspace takes only a workspace of this Mac")
+        }
+        Ownership::PinnedWorkspaceTile { .. } => {
+            resource_refusal(id.as_ref(), "a phone may only unpin a pinned workspace")
+        }
+    }
+}
+
+/// A v2 failure response, so the phone's resource client reads it as one.
+fn resource_refusal(id: Option<&Value>, why: &str) -> String {
+    json!({
+        "error": {"code": "origin.forbidden", "details": {"reason": "phone_policy"}, "message": why, "retryable": false},
+        "id": id.cloned().unwrap_or(Value::Null),
+        "ok": false,
+        "protocol": "cmux.protocol/2",
+        "type": "response",
+    })
+    .to_string()
 }
 
 /// A web page a phone may open in the Mac's browser: `http(s)://…` or `about:blank`,
@@ -462,6 +679,30 @@ mod tests {
         }
     }
 
+    /// Restart Shell: the dead tab's own shell again, on this Mac; the phone
+    /// names the tab and nothing else (no program, folder, env or alias).
+    #[test]
+    fn restart_shell_takes_only_the_tab() {
+        assert_eq!(policy().evaluate(br#"{"id":1,"cmd":"restart-tab","surface":12}"#), Verdict::Forward);
+        assert_eq!(
+            policy().evaluate(br#"{"id":1,"cmd":"restart-tab","surface":"tab_01J"}"#),
+            Verdict::Forward
+        );
+        for line in [
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"command":"id"}"#.as_slice(),
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"argv":["sh"]}"#,
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"cwd":"/"}"#,
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"env":{"BASH_ENV":"/tmp/x"}}"#,
+            br#"{"id":1,"cmd":"restart-tab","tab":12}"#,
+            br#"{"id":1,"cmd":"restart-tab","surface":12,"initial_command":"id"}"#,
+        ] {
+            let Verdict::Refuse(answer) = policy().evaluate(line) else {
+                panic!("forwarded {}", String::from_utf8_lossy(line));
+            };
+            assert!(answer.contains("forbidden"), "{answer}");
+        }
+    }
+
     #[test]
     fn bad_json_and_missing_cmd() {
         let Verdict::Refuse(answer) = policy().evaluate(b"not json") else { panic!() };
@@ -555,6 +796,191 @@ mod tests {
         }
     }
 
+    fn resource(operation: &str, params: Value, key: Option<&str>) -> Vec<u8> {
+        let mut object = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "r7", "operation": operation, "params": params});
+        if let Some(key) = key {
+            object["idempotency_key"] = key.into();
+        }
+        serde_json::to_vec(&object).unwrap()
+    }
+
+    fn refused(line: &[u8]) -> Value {
+        let Verdict::Refuse(answer) = policy().evaluate(line) else {
+            panic!("forwarded {}", String::from_utf8_lossy(line));
+        };
+        serde_json::from_str(&answer).unwrap()
+    }
+
+    /// Clear All Notifications, the person's pins and Unpin Workspace: the exact
+    /// lines the iOS app sends (CnxLive), on this Mac's current session.
+    #[test]
+    fn allows_the_workspace_resource_ops() {
+        let current = json!({"machine": "current", "session": "current"});
+        for line in [
+            resource("notification.clear", current.clone(), Some("cnx-ios-notification-clear-1")),
+            resource("sidebar_layout.get", current, None),
+            resource(
+                "sidebar_layout.update",
+                json!({"machine": "current", "session": "current", "op": {"kind": "item.remove", "id": "itm_abcdefgh234567ab"}}),
+                Some("cnx-ios-unpin-1"),
+            ),
+        ] {
+            let Verdict::Rewrite(sent) = policy().evaluate(&line) else {
+                panic!("not forwarded {}", String::from_utf8_lossy(&line));
+            };
+            assert_eq!(
+                serde_json::from_slice::<Value>(&sent).unwrap(),
+                serde_json::from_slice::<Value>(&line).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn refuses_other_resource_ops_and_params() {
+        let current = json!({"machine": "current", "session": "current"});
+        for line in [
+            // Any other operation, read or write.
+            resource("notification.list", current.clone(), None),
+            resource("notification.create", current.clone(), Some("k")),
+            resource("pane.run", current.clone(), Some("k")),
+            resource("workspace.agent_folder.set", current.clone(), Some("k")),
+            // Another machine or session, or a narrower clear the Mac never sends from a phone.
+            resource("notification.clear", json!({"machine": "other", "session": "current"}), Some("k")),
+            resource("notification.clear", json!({"machine": "current", "session": "s2"}), Some("k")),
+            resource(
+                "notification.clear",
+                json!({"machine": "current", "session": "current", "terminal_id": "term_1"}),
+                Some("k"),
+            ),
+            // A mutation without its idempotency key.
+            resource("notification.clear", current.clone(), None),
+            // Layout edits other than unpinning a minted item.
+            resource("sidebar_layout.update", json!({"op": {"kind": "layout.reset"}}), Some("k")),
+            resource(
+                "sidebar_layout.update",
+                json!({"op": {"kind": "item.remove", "id": "itm_account"}}),
+                Some("k"),
+            ),
+            resource(
+                "sidebar_layout.update",
+                json!({"op": {"kind": "item.remove", "id": "itm_ABCDEFGH234567AB"}}),
+                Some("k"),
+            ),
+            resource(
+                "sidebar_layout.update",
+                json!({"op": {"kind": "item.remove", "id": "itm_abcdefgh234567ab", "x": 1}}),
+                Some("k"),
+            ),
+            resource(
+                "sidebar_layout.update",
+                json!({"op": {"kind": "section.remove", "id": "sec_pinned"}}),
+                Some("k"),
+            ),
+            resource(
+                "sidebar_layout.update",
+                json!({"op": {"kind": "item.add", "section": "sec_pinned", "index": 0,
+                "item": {"id": "itm_abcdefgh234567ab", "ref": {"kind": "app", "value": "x"}}}}),
+                Some("k"),
+            ),
+        ] {
+            let answer = refused(&line);
+            assert_eq!(answer["ok"], false, "{}", String::from_utf8_lossy(&line));
+            assert_eq!(answer["type"], "response");
+            assert_eq!(answer["id"], "r7");
+        }
+        // Envelope members a phone never sends: an origin claim or a credential.
+        for extra in [json!({"origin": {"claim": "user"}}), json!({"credential": "x"})] {
+            let mut object: Value =
+                serde_json::from_slice(&resource("notification.clear", current.clone(), Some("k"))).unwrap();
+            object.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            refused(&serde_json::to_vec(&object).unwrap());
+        }
+        refused(br#"{"protocol":"cmux.protocol/1","type":"request","id":"r1","operation":"notification.clear","params":{},"idempotency_key":"k"}"#);
+    }
+
+    /// The Mac's own state confirms the phone's objects: a live workspace of this
+    /// session for the sidebar order, a pinned workspace tile for Unpin.
+    #[test]
+    fn ownership_is_checked_against_the_macs_state() {
+        let personal = br#"{"cmd":"set-personal-workspace","id":"m1","session_id":"reg","workspace_key":"k1","index":2}"#;
+        let what = ownership(personal).unwrap();
+        assert_eq!(what, Ownership::PersonalWorkspace { session: "reg".into(), key: "k1".into() });
+        let tree =
+            json!({"ok": true, "data": {"registry_id": "reg", "workspaces": [{"key": "k1"}, {"key": "k2"}]}});
+        assert!(owns_personal_workspace(&tree, "reg", "k1"));
+        assert!(!owns_personal_workspace(&tree, "reg", "k9"), "a key the Mac does not list");
+        assert!(!owns_personal_workspace(&tree, "other", "k1"), "another session's row");
+        assert!(not_owned(personal, &what).contains("forbidden"));
+
+        let unpin = resource(
+            "sidebar_layout.update",
+            json!({"op": {"kind": "item.remove", "id": "itm_abcdefgh234567ab"}}),
+            Some("k"),
+        );
+        let what = ownership(&unpin).unwrap();
+        assert_eq!(what, Ownership::PinnedWorkspaceTile { item: "itm_abcdefgh234567ab".into() });
+        let layout = |section: &str, kind: &str| {
+            json!({"ok": true, "result": {"sections": [
+                {"id": "sec_top", "items": [{"id": "itm_home", "ref": {"kind": "app", "value": "cmux/home"}}]},
+                {"id": section, "items": [{"id": "itm_abcdefgh234567ab", "ref": {"kind": kind, "value": "reg:ws_1"}}]},
+            ]}})
+        };
+        assert!(is_pinned_workspace_tile(&layout("sec_pinned", "workspace"), "itm_abcdefgh234567ab"));
+        assert!(
+            !is_pinned_workspace_tile(&layout("sec_custom", "workspace"), "itm_abcdefgh234567ab"),
+            "another section"
+        );
+        assert!(
+            !is_pinned_workspace_tile(&layout("sec_pinned", "link"), "itm_abcdefgh234567ab"),
+            "a link tile"
+        );
+        assert!(
+            !is_pinned_workspace_tile(&layout("sec_pinned", "workspace"), "itm_zzzzzzzzzzzzzzzz"),
+            "an unknown item"
+        );
+        assert_eq!(serde_json::from_str::<Value>(&not_owned(&unpin, &what)).unwrap()["type"], "response");
+        assert_eq!(ownership(br#"{"cmd":"list-personal","id":1}"#), None);
+    }
+
+    /// A duplicate key reaches the daemon as one value: the object checked here.
+    #[test]
+    fn duplicate_keys_are_sent_as_checked() {
+        let line = br#"{"protocol":"cmux.protocol/2","type":"request","id":"r1","operation":"sidebar_layout.get","operation":"pane.run","params":{"machine":"current","session":"current"}}"#;
+        // serde keeps the last duplicate, so the policy judges `pane.run` and refuses it.
+        assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
+        let line = br#"{"protocol":"cmux.protocol/2","type":"request","id":"r1","operation":"pane.run","operation":"sidebar_layout.get","params":{"machine":"current","session":"current"}}"#;
+        let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
+        let text = String::from_utf8(sent).unwrap();
+        assert_eq!(text.matches("\"operation\"").count(), 1, "{text}");
+        assert!(text.contains("sidebar_layout.get") && !text.contains("pane.run"), "{text}");
+    }
+
+    /// Move Workspace Up / Down in the person's own sidebar order.
+    #[test]
+    fn personal_order_is_a_place_only() {
+        for line in [
+            br#"{"cmd":"list-personal","id":"m1"}"#.as_slice(),
+            br#"{"cmd":"set-personal-workspace","id":"m2","session_id":"reg_01abc","workspace_key":"0b8f6c2e-1d2a-4f00-9a7b-1c2d3e4f5a6b","index":3}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        for line in [
+            br#"{"cmd":"set-personal-workspace","id":1,"session_id":"s","workspace_key":"k","index":1,"remote_localhost":true}"#.as_slice(),
+            br#"{"cmd":"set-personal-workspace","id":1,"session_id":"s","workspace_key":"k","group":"g"}"#,
+            br#"{"cmd":"set-personal-workspace","id":1,"session_id":"s","workspace_key":"k","theme":"x"}"#,
+            br#"{"cmd":"set-personal-workspace","id":1,"session_id":"s","workspace_key":"k","browser_profile_id":"p"}"#,
+            br#"{"cmd":"set-personal-workspace","id":1,"session_id":"s","workspace_key":"k","index":-1}"#,
+            br#"{"cmd":"set-personal-workspace","id":1,"workspace_key":"k","index":1}"#,
+            br#"{"cmd":"set-personal-workspace","id":1,"session_id":"a b","workspace_key":"k"}"#,
+            br#"{"cmd":"set-personal-terminal","id":1,"session_id":"s","terminal_key":"t","theme":"x"}"#,
+        ] {
+            let Verdict::Refuse(answer) = policy().evaluate(line) else {
+                panic!("forwarded {}", String::from_utf8_lossy(line));
+            };
+            assert!(answer.contains("forbidden"), "{answer}");
+        }
+    }
+
     #[test]
     fn mirrors_the_swift_allowlist() {
         let swift = include_str!(
@@ -565,5 +991,23 @@ mod tests {
         let swift_commands: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
         let rust_commands: HashSet<&str> = ALLOWED_COMMANDS.iter().copied().collect();
         assert_eq!(swift_commands, rust_commands);
+        let start = swift
+            .find("allowedResourceOperations: [String: Set<String>] = [")
+            .expect("resource ops in Swift");
+        let end = start + swift[start..].find("]\n").expect("end of resource ops");
+        let swift_ops: Vec<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
+        let rust_ops: Vec<&str> = ALLOWED_RESOURCE_OPERATIONS
+            .iter()
+            .flat_map(|(name, params)| std::iter::once(*name).chain(params.iter().copied()))
+            .collect();
+        assert_eq!(swift_ops, rust_ops);
+        let start = swift.find("personalWorkspaceFields: [String] = [").expect("personal fields in Swift");
+        let end = start + swift[start..].find("]\n").expect("end of personal fields");
+        let swift_fields: Vec<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
+        assert_eq!(swift_fields, PERSONAL_WORKSPACE_FIELDS);
+        let start = swift.find("resourceFields: Set<String> = [").expect("resource fields in Swift");
+        let end = start + swift[start..].find("]\n").expect("end of resource fields");
+        let swift_envelope: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
+        assert_eq!(swift_envelope, RESOURCE_FIELDS.iter().copied().collect::<HashSet<_>>());
     }
 }

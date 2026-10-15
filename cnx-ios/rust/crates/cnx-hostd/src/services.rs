@@ -332,6 +332,14 @@ async fn splice(
                 if let Some(canonical) = canonical {
                     line = canonical;
                 }
+                // The daemon lane: the phone's objects confirmed by the Mac's own state.
+                let verdict = match (&terminal_folders, verdict) {
+                    (Some(path), Verdict::Forward) => owned_check(path, line.clone(), Verdict::Forward).await,
+                    (Some(path), Verdict::Rewrite(checked)) => {
+                        owned_check(path, checked.clone(), Verdict::Rewrite(checked)).await
+                    }
+                    (_, verdict) => verdict,
+                };
                 match verdict {
                     Verdict::Forward => {
                         if let Some(path) = &terminal_folders {
@@ -475,11 +483,31 @@ async fn acpmux(
     };
     let (mut ws_sink, mut ws_source) = socket.split();
     let mut message = MessageAssembler::default();
+    // A second connection of hostd's own, for `_acpmux/info` (the mode check).
+    let mut side: Option<AcpmuxSocket> = None;
     loop {
         tokio::select! {
             event = receiver.recv() => match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
+                    // An agent a phone drives stays in a mode that asks
+                    // (`acpmux_policy`): a refused mode set is answered here.
+                    let refused = match crate::acpmux_policy::refusal(&text) {
+                        Some(answer) => Some(answer),
+                        None => match crate::acpmux_policy::controlled_session(&text) {
+                            Some((id, session)) => {
+                                let mode = current_mode(&config.acpmux, &mut side, &session).await;
+                                crate::acpmux_policy::mode_refusal(&id, mode.as_deref())
+                            }
+                            None => None,
+                        },
+                    };
+                    if let Some(answer) = refused {
+                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
                     if ws_sink.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }
@@ -504,6 +532,44 @@ async fn acpmux(
     }
     let _ = ws_sink.close().await;
     Ok(())
+}
+
+/// A session's current mode (`_acpmux/info` `currentModeId`) over hostd's own
+/// side connection, opened on first use; None when acpmux does not say in 5 s
+/// (acpmux's own remote guard then decides alone).
+async fn current_mode(
+    target: &AcpmuxTarget,
+    side: &mut Option<AcpmuxSocket>,
+    session: &str,
+) -> Option<String> {
+    let ask = async {
+        if side.is_none() {
+            *side = Some(connect_acpmux(target).await.ok()?);
+        }
+        let socket = side.as_mut()?;
+        let request = serde_json::json!({"jsonrpc": "2.0", "id": "cnx-mode", "method": "_acpmux/info", "params": {"sessionId": session}});
+        socket.send(Message::Text(request.to_string().into())).await.ok()?;
+        while let Some(Ok(frame)) = socket.next().await {
+            let Message::Text(text) = frame else { continue };
+            let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
+            if reply.get("id") != Some(&serde_json::json!("cnx-mode")) {
+                continue;
+            }
+            let result = reply.get("result")?;
+            return result
+                .get("currentModeId")
+                .or_else(|| result.pointer("/modes/currentModeId"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+        }
+        None
+    };
+    let mode = tokio::time::timeout(std::time::Duration::from_secs(5), ask).await.ok().flatten();
+    if mode.is_none() {
+        // A broken or slow side connection is opened again next time.
+        *side = None;
+    }
+    mode
 }
 
 /// The largest acpmux message a phone may send (a prompt with images).
@@ -677,14 +743,36 @@ async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal>
 
 /// The daemon at `path`'s `list-workspaces` reply (at most 5 s).
 async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
+    daemon_query(path, b"{\"cmd\":\"list-workspaces\",\"id\":\"cnx-upload\"}\n", "cnx-upload").await
+}
+
+/// The verdict for a line the policy let through, once the Mac's own state
+/// (read on a separate connection) confirms the phone's object
+/// (`policy::ownership`); a refusal otherwise, or when the Mac cannot answer.
+async fn owned_check(path: &Path, line: Vec<u8>, verdict: Verdict) -> Verdict {
+    use crate::policy::{Ownership, is_pinned_workspace_tile, not_owned, ownership, owns_personal_workspace};
+    let Some(what) = ownership(&line) else { return verdict };
+    let owned = match &what {
+        Ownership::PersonalWorkspace { session, key } => {
+            list_workspaces(path).await.is_ok_and(|reply| owns_personal_workspace(&reply, session, key))
+        }
+        Ownership::PinnedWorkspaceTile { item } => {
+            let request = b"{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"cnx-layout\",\"operation\":\"sidebar_layout.get\",\"params\":{\"machine\":\"current\",\"session\":\"current\"}}\n";
+            daemon_query(path, request, "cnx-layout")
+                .await
+                .is_ok_and(|reply| is_pinned_workspace_tile(&reply, item))
+        }
+    };
+    if owned { verdict } else { Verdict::Refuse(not_owned(&line, &what)) }
+}
+
+/// One request on a fresh connection to the daemon socket, its reply (`id` matched).
+async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
     let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
     let read = async {
         let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
         let (read, mut write) = socket.into_split();
-        write
-            .write_all(b"{\"cmd\":\"list-workspaces\",\"id\":\"cnx-upload\"}\n")
-            .await
-            .map_err(|e| unavailable(&e))?;
+        write.write_all(request).await.map_err(|e| unavailable(&e))?;
         let mut reader = BufReader::new(read);
         loop {
             let mut line = Vec::new();
@@ -692,7 +780,7 @@ async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
                 return Err(unavailable(&"closed"));
             }
             let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
-            if value.get("id").and_then(Value::as_str) == Some("cnx-upload") {
+            if value.get("id").and_then(Value::as_str) == Some(id) {
                 return Ok(value);
             }
         }

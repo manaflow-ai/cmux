@@ -252,7 +252,14 @@ pub struct PersonGate {
     /// there too (`remote_guard::web_roots`, which drops `/`, home and its
     /// ancestors and resolves symlinks).
     pub workspace_roots: StdMutex<Vec<String>>,
+    /// The agent and model the person's app picked last for a new chat
+    /// (`_acpmux/new_chat_picks_set`, memory only), shown in
+    /// `_acpmux/harnesses` as `lastPicks`.
+    pub new_chat_picks: StdMutex<Option<Value>>,
 }
+
+/// At most this many folders in the new-chat picks (the app keeps 50).
+pub const MAX_PICK_FOLDERS: usize = 64;
 
 /// At most this many workspace roots.
 pub const MAX_WORKSPACE_ROOTS: usize = 256;
@@ -283,6 +290,59 @@ impl PersonGate {
         let count = roots.len();
         *self.workspace_roots.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = roots;
         Ok(serde_json::json!({"count": count}))
+    }
+
+    /// `_acpmux/new_chat_picks_set {lastAgent?, global?: {harness, model},
+    /// folders?: [{folder, harness, model}]}` (the person only): replaces the
+    /// app's last picks. Short identifiers and absolute folders only; a
+    /// malformed entry refuses the whole set.
+    pub fn set_new_chat_picks(&self, params: &Value) -> Result<Value, RpcError> {
+        let bad = |what: &str| RpcError::invalid_params(format!("new chat picks: {what}"));
+        let ident = |v: Option<&Value>, max: usize| {
+            v.and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= max && !s.chars().any(char::is_control))
+                .map(str::to_owned)
+        };
+        let pick = |v: &Value| -> Option<Value> {
+            Some(serde_json::json!({
+                "harness": ident(v.get("harness"), 128)?,
+                "model": ident(v.get("model"), 256)?,
+            }))
+        };
+        let mut out = serde_json::Map::new();
+        if let Some(agent) = params.get("lastAgent").filter(|v| !v.is_null()) {
+            out.insert(
+                "lastAgent".into(),
+                ident(Some(agent), 128).ok_or_else(|| bad("lastAgent"))?.into(),
+            );
+        }
+        if let Some(global) = params.get("global").filter(|v| !v.is_null()) {
+            out.insert("global".into(), pick(global).ok_or_else(|| bad("global"))?);
+        }
+        let folders = params.get("folders").and_then(Value::as_array).cloned().unwrap_or_default();
+        if folders.len() > MAX_PICK_FOLDERS {
+            return Err(bad(&format!("at most {MAX_PICK_FOLDERS} folders")));
+        }
+        let mut kept = Vec::with_capacity(folders.len());
+        for f in &folders {
+            let folder = ident(f.get("folder"), 4096)
+                .filter(|p| p.starts_with('/'))
+                .ok_or_else(|| bad("each folder is absolute"))?;
+            let mut row =
+                pick(f).ok_or_else(|| bad("each folder pick names a harness and a model"))?;
+            row["folder"] = folder.into();
+            kept.push(row);
+        }
+        out.insert("folders".into(), Value::Array(kept));
+        let count = out.get("folders").and_then(Value::as_array).map_or(0, Vec::len);
+        *self.new_chat_picks.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(Value::Object(out));
+        Ok(serde_json::json!({"count": count}))
+    }
+
+    /// The new-chat picks the person's app last set.
+    pub fn new_chat_picks(&self) -> Option<Value> {
+        self.new_chat_picks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// The workspace folders the person's app last set.
@@ -638,6 +698,7 @@ impl Hub {
             method::MUX_WORKSPACE_ROOTS_SET => {
                 Err(person_required("changing the workspace folders"))
             }
+            method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
             method::MUX_PERMISSION_RESPOND => {
                 let option = params.get("optionId").filter(|v| !v.is_null());
                 // A phone's signed allow or answer (`approvers.rs`). Never

@@ -118,7 +118,12 @@ public struct WorkspaceInbox: Hashable, Sendable {
 
     public var scope: MacScope
     public var needsYou: [Workspace]
+    /// Pinned on the Mac (its pinned section), in its pin order.
+    public var pinned: [Workspace]
+    /// The rest: in the Mac's sidebar order when the phone knows it, else newest first.
     public var recent: [Workspace]
+    /// `recent` follows the Mac's sidebar order (a live Mac told it).
+    public var isMacOrder: Bool
     public var folds: [Fold]
     public var statuses: [String: WorkspaceStatus]
     /// Recent mixes several Macs, so idle rows name their Mac.
@@ -170,7 +175,10 @@ public struct WorkspaceInbox: Hashable, Sendable {
             }
         }
         needsYou = sorted(live.filter { statuses[$0.id] == .needsYou })
-        recent = sorted(live.filter { statuses[$0.id] != .needsYou })
+        pinned = live.filter { statuses[$0.id] != .needsYou && $0.isPinned }
+            .sorted { ($0.pinIndex ?? .max, order[$0.id] ?? 0) < ($1.pinIndex ?? .max, order[$1.id] ?? 0) }
+        recent = sorted(live.filter { statuses[$0.id] != .needsYou && !$0.isPinned })
+        isMacOrder = recent.contains { $0.sidebarIndex != nil }
         let online = scoped.filter(\.isOnline)
         let asleep = scope == .all && !scoped.isEmpty && online.isEmpty
         allAsleep = asleep
@@ -197,7 +205,7 @@ public struct WorkspaceInbox: Hashable, Sendable {
             default: return false
             }
         }
-        isLoading = isUpdating && needsYou.isEmpty && recent.isEmpty && !searching
+        isLoading = isUpdating && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && !searching
         showsMacNames = scope == .all && Set(recent.map(\.macID)).count > 1
         self.statuses = statuses
     }
@@ -205,7 +213,15 @@ public struct WorkspaceInbox: Hashable, Sendable {
     /// Newest activity first. A row with no known activity time (live: no
     /// event since the phone connected) goes after every row with one, in
     /// the Mac's focus order, then the Mac's own order.
+    /// Rows whose Mac told its sidebar order come first, Mac by Mac in that
+    /// order (never interleaved across Macs); the rest newest activity first.
     static func isNewer(_ a: Workspace, _ b: Workspace, order: [String: Int]) -> Bool {
+        switch (a.sidebarIndex, b.sidebarIndex) {
+        case let (x?, y?): return (a.macID, x) == (b.macID, y) ? (order[a.id] ?? 0) < (order[b.id] ?? 0) : (a.macID, x) < (b.macID, y)
+        case (.some, nil): return true
+        case (nil, .some): return false
+        case (nil, nil): break
+        }
         if a.hasActivityTime != b.hasActivityTime { return a.hasActivityTime }
         if a.hasActivityTime, a.lastActivityAt != b.lastActivityAt { return a.lastActivityAt > b.lastActivityAt }
         if a.focusOrder != b.focusOrder { return a.focusOrder > b.focusOrder }
@@ -223,7 +239,26 @@ public struct WorkspaceInbox: Hashable, Sendable {
         return fields.contains { $0.localizedStandardContains(query) }
     }
 
-    public var isEmpty: Bool { needsYou.isEmpty && recent.isEmpty && folds.isEmpty }
+    public var isEmpty: Bool { needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && folds.isEmpty }
+
+    /// The rows Move Up / Down moves among: the unpinned rows of the workspace's
+    /// Mac, in its order. None for a pinned workspace: the Mac orders its pinned
+    /// tiles with a layout move a phone may not send.
+    public func macOrder(of workspace: Workspace) -> [Workspace] {
+        guard !workspace.isPinned else { return [] }
+        return recent.filter { $0.macID == workspace.macID && status($0) != .needsYou }
+    }
+
+    /// One Mac's live rows as its sidebar shows them (pinned first, then the
+    /// rest in its order), for Close Other / Above / Below.
+    public func macSidebar(_ macID: String) -> [Workspace] {
+        (needsYou + pinned + recent).filter { $0.macID == macID && status($0) != .creating }
+            .sorted { a, b in
+                if a.isPinned != b.isPinned { return a.isPinned }
+                if a.isPinned { return (a.pinIndex ?? .max) < (b.pinIndex ?? .max) }
+                return Self.isNewer(a, b, order: [:])
+            }
+    }
 
     public func status(_ workspace: Workspace) -> WorkspaceStatus { statuses[workspace.id] ?? .idle }
 
