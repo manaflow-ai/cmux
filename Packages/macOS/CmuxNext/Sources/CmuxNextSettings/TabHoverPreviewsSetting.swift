@@ -2,8 +2,8 @@ public import CmuxNextDesign
 
 /// `tabs.hoverPreviews` in cmux.json (`TabHoverPreviews`): "full" (the
 /// default) shows a tab's card with its thumbnail, "compact" the card without
-/// it, "off" none. A missing key is the default; a bad value is the default
-/// plus a diagnostic.
+/// it. Turning cards off is `sidebar.hoverCards.enabled`. A missing key is the
+/// default; a bad value is the default plus a diagnostic.
 public nonisolated struct TabHoverPreviewsSetting: Sendable {
     public static let configPath = ["tabs", "hoverPreviews"]
     public static let fallback: TabHoverPreviews = .full
@@ -28,7 +28,6 @@ public nonisolated struct TabHoverPreviewsSetting: Sendable {
             help: SettingsText.keyed("settings.tabs.hoverPreviews.help",
                                      "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full."),
             kind: .choice([
-                SettingChoice(TabHoverPreviews.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                 SettingChoice(TabHoverPreviews.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
                 SettingChoice(TabHoverPreviews.full.rawValue, SettingsText.keyed("settings.choice.hoverPreviews.full", "Full")),
             ]),

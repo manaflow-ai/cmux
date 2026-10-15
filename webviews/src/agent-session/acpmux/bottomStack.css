@@ -19,8 +19,11 @@
 .acpmux-main > .acpmux-composer > * {
   flex: none;
 }
+/* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
+   keeps, so the composer card stays in view. */
 .acpmux-main > .acpmux-composer > .acpmux-composer-queue,
-.acpmux-main > .acpmux-pr-dock {
+.acpmux-main > .acpmux-pr-dock,
+.acpmux-main > .acpmux-asks-stack {
   flex: 0 1 auto;
   min-height: var(--acpmux-stack-row-min, 34px);
   overflow-y: auto;

@@ -64,6 +64,13 @@ public final class HoverCardCoordinator {
     /// Cards show only while the app is active (always in a no-activate
     /// test run, which is never active); tests inject one.
     public var appIsActive: () -> Bool = { NSApp.isActive || WindowPlacement.noActivate }
+    /// `sidebar.hoverCards.enabled`: off, the pointer gives no target a card
+    /// (a row's, a tab's or a user's custom one); Show Resource Usage still
+    /// pins one. Tests inject one.
+    public var hoverCardsEnabled: () -> Bool = { DesignSettings.shared.hoverCardsEnabled }
+    /// A mouse button is down (a press, a drag, a selection): the pointer
+    /// gives no target a card, as in Chrome. Tests inject one.
+    public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
     public init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
@@ -75,6 +82,9 @@ public final class HoverCardCoordinator {
     private func installObserversIfNeeded() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: DesignSettings.hoverCardsDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.hoverCardsSettingChanged() } // main-proof: observer on queue: .main
+        })
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) } } // main-proof: observer on queue: .main
         })
@@ -133,9 +143,10 @@ public final class HoverCardCoordinator {
         // On the card the pointer is on no target (the card ignores the mouse,
         // so the window under it hit-tests): it holds the card.
         let onCard = card?.contains(now) == true
-        let hit = onCard ? nil : hitTest()
+        // A held mouse button (a press, a drag, a selection) gives no target a card, as in Chrome.
+        let hit = onCard || mouseButtonDown() ? nil : hitTest()
         // Between a source's targets (not on the card): a card that hides on leave waits for the next.
-        let bridging = !onCard && hit == nil && bridges(at: now)
+        let bridging = !onCard && hit == nil && !mouseButtonDown() && bridges(at: now)
         send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
     }
 
@@ -159,6 +170,9 @@ public final class HoverCardCoordinator {
 
     private func geometryChanged(in window: NSWindow?, liveResizeEnded: Bool) {
         if !liveResizeEnded, window?.inLiveResize == true { return }
+        // Content moving under a held button (a click's relayout, a drag) changes nothing: a hit
+        // of nil here would end the click's quiet, and the card would come back on release.
+        if mouseButtonDown() { followShownTarget(); return }
         if machine.phase == .idle, machine.lastHit == nil {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
@@ -172,10 +186,19 @@ public final class HoverCardCoordinator {
     }
 
     public func dismiss(_ reason: HoverDismissal) { send(.dismiss(reason)) }
+
+    /// Hover cards were turned off: a pending or shown card goes now, a
+    /// pinned one (Show Resource Usage) too, since the user just asked for no
+    /// cards. Turned on: the next pointer move starts one.
+    private func hoverCardsSettingChanged() {
+        guard !hoverCardsEnabled(), machine.activeTarget != nil else { return }
+        dismiss(.action)
+    }
     public func suppress(_ reason: HoverSuppression) { send(.suppress(reason)) }
 
     public func unsuppress(_ reason: HoverSuppression) {
         send(.unsuppress(reason))
+        guard !mouseButtonDown() else { return }
         send(.hit(pointerIsOnCard() ? nil : hitTest()?.target, moved: false))
     }
 
@@ -308,7 +331,7 @@ public final class HoverCardCoordinator {
     /// The target under the pointer now, from the sources of the window
     /// on top at that point.
     private func hitTest() -> HoverCardHit? {
-        guard appIsActive() else { return nil }
+        guard appIsActive(), hoverCardsEnabled() else { return nil }
         let point = currentPointer()
         let top = topWindowNumber(at: point)
         for entry in sources.values {
@@ -322,7 +345,7 @@ public final class HoverCardCoordinator {
 
     /// Whether `point` is between the targets of a source in the window on top there.
     private func bridges(at point: CGPoint) -> Bool {
-        guard appIsActive() else { return false }
+        guard appIsActive(), hoverCardsEnabled() else { return false }
         let top = topWindowNumber(at: point)
         return sources.values.contains { entry in
             guard let source = entry.source, source.hoverCardWindow?.windowNumber == top else { return false }
@@ -353,6 +376,10 @@ public final class HoverCardCoordinator {
 
     // MARK: Verification
 
+    private static func milliseconds(_ duration: Duration) -> Int {
+        Int(duration.components.seconds) * 1_000 + Int(duration.components.attoseconds / 1_000_000_000_000_000)
+    }
+
     /// The single-card invariant, checked live in debug builds
     /// (`debug.desync`): at most one card window exists and shows, and it
     /// shows what the machine says.
@@ -371,6 +398,10 @@ public final class HoverCardCoordinator {
             "phase": "\(machine.phase)",
             "last_hit": machine.lastHit?.id.rawValue ?? "-",
             "suppressions": machine.suppressions.map(\.rawValue).sorted().joined(separator: ","),
+            "enabled": "\(hoverCardsEnabled())",
+            "delay_ms": "\(Self.milliseconds(DesignSettings.shared.hoverCardDelay))",
+            "pending_target": { if case .pending(let target, _) = machine.phase { target.id.rawValue } else { "-" } }(),
+            "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
             "card_windows": "\(HoverCardPanel.liveInstances)",
             "card_showing": "\(panel?.isShowingCard == true)",

@@ -31,14 +31,14 @@ final class TabHoverCardController: HoverCardSource {
     /// Samples CPU and memory of the hovered tab while its card shows (first
     /// sample when it shows: a sweep across tabs samples none), never otherwise.
     let resources = ResourceCardSampler(source: nil)
-    /// Timing; read fresh on each hover so Debug Settings changes apply at
-    /// once, unless a caller pinned one.
-    var policy: HoverCardPolicy {
-        get { pinnedPolicy ?? HoverCardPolicy() }
-        set { pinnedPolicy = newValue }
-    }
-    private var pinnedPolicy: HoverCardPolicy?
-    var metrics = TabStripMetrics.standard
+    /// Pointer rest before a tab's card opens: Chrome's tab hover card delay
+    /// (`HoverCardTiming.chromeDelay`), or `sidebar.hoverCards.delay`; read on
+    /// each hover so a Settings change applies at once. Every tab waits the
+    /// same, as a sidebar row does (no width scaling, cx-23e1f).
+    var delay: Duration { DesignSettings.shared.hoverCardDelay }
+    /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
+    /// and another tab reached within Chrome's reshow window shows its card at once.
+    var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {
         didSet {
@@ -114,12 +114,12 @@ final class TabHoverCardController: HoverCardSource {
     var hoverCardWindow: NSWindow? { strip?.window }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
-        guard DesignSettings.shared.tabHoverPreviews != .off, let strip, let window = strip.window,
+        guard let strip, let window = strip.window,
               let target = strip.hoverCardTarget(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
-                                delay: policy.showDelay(tabWidth: target.width, metrics: metrics), leave: policy.leave),
+                                delay: delay, leave: leave),
             anchor: target.anchor
         )
     }

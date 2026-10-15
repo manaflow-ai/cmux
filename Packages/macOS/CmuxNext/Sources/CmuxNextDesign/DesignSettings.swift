@@ -28,9 +28,19 @@ public final class DesignSettings {
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
     public var density: Density = .compact
-    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
+    /// `appearance.interfaceScale`: the opt-in multiplier for the app chrome. A single token
+    /// multiplier drives type, spacing and control heights across native surfaces.
+    public var interfaceScale: CGFloat = 1
+    /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
+    /// default (and always off in Release, where the tunable store is inert).
+    public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
+    /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
+    public var interfaceScaleScript: String {
+        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+    }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
@@ -63,6 +73,17 @@ public final class DesignSettings {
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults
+    /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
+    /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
+    public var hoverCardsEnabled = true {
+        didSet {
+            guard hoverCardsEnabled != oldValue else { return }
+            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
+        }
+    }
+    /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
+    /// Chrome's tab hover card delay at its default tab width (`HoverCardTiming.chromeDelay`).
+    public var hoverCardDelay: Duration = HoverCardTiming.chromeDelay
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
@@ -152,7 +173,7 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
-    /// `tabs.hoverPreviews`: none, the facts card, or the card with a thumbnail.
+    /// `tabs.hoverPreviews`: the facts card, or the card with a thumbnail.
     public var tabHoverPreviews: TabHoverPreviews = .full
 
     public init() {}
@@ -188,5 +209,9 @@ public final class DesignSettings {
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
         min(max(value, 0.85), 1.5)
+    }
+
+    public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0.9), 1.25)
     }
 }

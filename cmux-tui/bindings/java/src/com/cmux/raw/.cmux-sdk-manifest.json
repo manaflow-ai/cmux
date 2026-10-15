@@ -642,8 +642,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "5906d93bc2b54f4f2810f7a8116b539617643ea756024c3a8c10046ff22b588a",
-      "size": 73295
+      "sha256": "a2e91a88f71a07273715218c944abeb44baebceab05f95b7dc08bce1f8d216d7",
+      "size": 73510
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1267,8 +1267,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "118e1e7ceeafd131afcb6290c0af97b26414052df9d23e832860df6d89de0961",
-      "size": 63923
+      "sha256": "50db7029ee44f64df16588b5cbcdf96bb8fc9d895986093f8e64af2225ff9aa8",
+      "size": 64111
     },
     {
       "path": "GetBlobRequest.java",
@@ -1364,6 +1364,31 @@
       "path": "HistorySearchResult.java",
       "sha256": "61d370af04439a5befc4a5aad910a5914b4aa712bb793e0d7291ceeb003169b3",
       "size": 2701
+    },
+    {
+      "path": "HomeChiefState.java",
+      "sha256": "003f820bb92d86adb718e38ad94e75b45cb679f2e8e8464634e8328900377e9a",
+      "size": 916
+    },
+    {
+      "path": "HomeInboxKind.java",
+      "sha256": "5b794f59f6d9513fb3952cec20d973a91ffa800b1b10cd7f84d2d8a8c10c2525",
+      "size": 931
+    },
+    {
+      "path": "HomeInboxRequest.java",
+      "sha256": "6e354fb6415c4cdd1aa0ee3fc6c8a13752a41cc122c29f4aced793a750551257",
+      "size": 1336
+    },
+    {
+      "path": "HomeInboxResult.java",
+      "sha256": "6ae71cc71601e5c7ac53224597ac6ce8aebceca29ac0dffe14f8cb8d15dc25a3",
+      "size": 2544
+    },
+    {
+      "path": "HomeInboxRow.java",
+      "sha256": "edfb6087270acbbec67eec03a7e01029d530f040d8db947c0ee26c7ac05e1292",
+      "size": 9135
     },
     {
       "path": "IdMapping.java",
@@ -1952,7 +1977,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4ed4b170c0590f4a9899d708e35056c5f159bc227155670aed66b5d4781b3405",
+      "sha256": "4d7f5a325c213bfe633be39ed6964e3d79cfa145073f6e9298c5d3125b5dbddf",
       "size": 6943
     },
     {
@@ -3212,7 +3237,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442",
+  "ir_sha256": "09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

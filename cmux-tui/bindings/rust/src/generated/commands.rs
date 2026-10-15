@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442.
+// cmux-tui mux protocol 12, IR 09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1744,6 +1744,18 @@ pub struct HistorySearchRequest {
 pub struct HistorySearchResult {
     pub hits: Vec<T::HistorySearchHit>,
     pub took_us: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HomeInboxRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HomeInboxResult {
+    pub me: String,
+    pub rows: Vec<T::HomeInboxRow>,
 }
 
 #[rustfmt::skip]
@@ -4462,6 +4474,10 @@ impl CmuxClient {
 
     pub fn history_search(&mut self, request: HistorySearchRequest) -> Result<HistorySearchResult> {
         self.execute(&HISTORY_SEARCH_METADATA, &request)
+    }
+
+    pub fn home_inbox(&mut self, request: HomeInboxRequest) -> Result<HomeInboxResult> {
+        self.execute(&HOME_INBOX_METADATA, &request)
     }
 
     pub fn identify(&mut self, request: IdentifyRequest) -> Result<T::IdentifyResult> {

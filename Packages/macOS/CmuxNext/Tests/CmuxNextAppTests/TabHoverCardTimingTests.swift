@@ -4,11 +4,11 @@ import CmuxNextResources
 @testable import CmuxNextTabs
 import Testing
 
-/// Leo 2026-10-14: tab previews behave like a browser's. A card opens after about 600 ms on a
-/// tab; with one open, another tab takes it over at once; leaving the tab hides it at once,
-/// also onto the card's own area (nothing on the card takes the pointer); a tab reached within
-/// a short grace (about 300 ms, a gap between tabs) shows its card at once. The delays run on
-/// a manual clock the test moves.
+/// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
+/// (`sidebar.hoverCards.delay`, Chrome's by default, cx-23e1f) on a tab; with one open, another
+/// tab takes it over at once; leaving the tab hides it at once, also onto the card's own area
+/// (nothing on the card takes the pointer); a tab reached within Chrome's reshow window (a gap
+/// between tabs) shows its card at once. The delays run on a manual clock the test moves.
 @MainActor @Suite(.serialized) struct TabHoverCardTimingTests {
     private struct Strip {
         let strip: TabStripView
@@ -55,6 +55,8 @@ import Testing
         let clock = ManualClock()
         let coordinator = HoverCardCoordinator(clock: clock)
         coordinator.appIsActive = { true }
+        coordinator.hoverCardsEnabled = { true }
+        coordinator.mouseButtonDown = { false }
         coordinator.windowNumberAt = { [weak window] _ in window?.windowNumber }
         // A still real mouse: the coordinator takes each pointer event's own point.
         coordinator.pointerLocation = { .zero }
@@ -69,6 +71,9 @@ import Testing
         return Strip(strip: strip, window: window, coordinator: coordinator, clock: clock)
     }
 
+    /// The pointer rest before a tab's card opens, as Settings has it.
+    private static var delay: Duration { DesignSettings.shared.hoverCardDelay }
+
     /// Lets a deadline the clock reached reach the coordinator (the timer wakes off the main
     /// actor and hops back). With `done`, waits for it (bounded).
     private static func settle(until done: (() -> Bool)? = nil) async throws {
@@ -80,23 +85,23 @@ import Testing
     private static func open(_ id: String, _ s: Strip) async throws {
         s.move(to: try s.center(id))
         try await s.clock.waitForSleeper()
-        s.clock.advance(by: .milliseconds(700))
+        s.clock.advance(by: delay + .milliseconds(100))
         try await settle(until: { s.shows(id) })
         try #require(s.shows(id), "resting on tab \(id) showed no card")
     }
 
-    @Test func aCardOpensAfterAboutSixHundredMilliseconds() async throws {
+    @Test func aCardOpensAfterTheHoverCardDelay() async throws {
         let s = Self.strip()
         defer { s.tearDown() }
         s.move(to: try s.center("b"))
         #expect(!s.showsAny, "the card showed on the first frame")
         try await s.clock.waitForSleeper()
-        s.clock.advance(by: .milliseconds(450))
+        s.clock.advance(by: Self.delay - .milliseconds(150))
         try await Self.settle()
         #expect(!s.showsAny, "the card showed before the delay")
         s.clock.advance(by: .milliseconds(250))
         try await Self.settle(until: { s.shows("b") })
-        #expect(s.shows("b"), "no card after 700 ms on the tab")
+        #expect(s.shows("b"), "no card after the delay on the tab")
     }
 
     @Test func withACardOpenAnotherTabTakesItOverAtOnce() async throws {
@@ -141,7 +146,7 @@ import Testing
         #expect(!s.showsAny, "the click did not end the card")
         let a = try s.center("a")
         s.move(to: CGPoint(x: a.x + 1, y: a.y))
-        s.clock.advance(by: .milliseconds(1000))
+        s.clock.advance(by: Self.delay + .milliseconds(300))
         try await Self.settle()
         #expect(!s.showsAny, "a 1-px move on the clicked tab brought its card back")
         // Away from the tab and back: its card waits the delay again.
@@ -177,7 +182,7 @@ import Testing
         for id in ["a", "b", "c"] { s.move(to: try s.center(id)) }
         #expect(!s.strip.hoverCard.resources.isOpen, "a pending card sampled its tab")
         try await s.clock.waitForSleeper()
-        s.clock.advance(by: .milliseconds(700))
+        s.clock.advance(by: Self.delay + .milliseconds(100))
         try await Self.settle(until: { s.shows("c") })
         #expect(s.strip.hoverCard.resources.target == .tab("c"), "the shown card did not sample its tab")
     }

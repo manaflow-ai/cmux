@@ -55,7 +55,7 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     /// instant card, so content passing under it flashes none.
     public var stillPointerDelay: Duration
 
-    public init(reshowWindow: Duration = .milliseconds(700), pinLifetime: Duration = .seconds(10),
+    public init(reshowWindow: Duration = HoverCardTiming.reshowWindow, pinLifetime: Duration = .seconds(10),
                 leaveWindow: Duration = HoverIntentTiming.standard.cardGrace, aimWindow: Duration = HoverIntentTiming.standard.cardAim,
                 stillPointerDelay: Duration = .milliseconds(300)) {
         self.reshowWindow = reshowWindow
@@ -279,7 +279,7 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     private mutating func arm(_ target: HoverTarget, moved: Bool) -> [HoverCardEffect] {
         // A target with no delay: a moving pointer's card shows on this
         // hit; content moving under a still pointer waits a moment. Targets
-        // with a delay (the workspace card's `motion.hoverCard.dwell`) wait it.
+        // with a delay (`sidebar.hoverCards.delay`, Chrome's by default) wait it.
         if target.delay <= .zero, moved {
             let hadTimer = armedToken != nil
             phase = .shown(target)
