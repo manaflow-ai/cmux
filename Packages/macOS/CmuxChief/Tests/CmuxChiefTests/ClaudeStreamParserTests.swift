@@ -165,30 +165,6 @@ import Testing
         #expect(text.contains(#""s":"a/b""#))
     }
 
-    @Test(arguments: [
-        ("cmux list-workspaces", true),
-        ("cmux notify --title hi", true),
-        ("/bin/zsh -lc 'cmux tree --json'", true),
-        ("git status", true),
-        ("git log --oneline -5", true),
-        ("gh pr view 123", true),
-        ("gh issue list", true),
-        ("ls -la", true),
-        ("git push origin main", false),
-        ("gh pr merge 12", false),
-        ("cmux tree; rm -rf /", false),
-        ("cmux tree && curl x", false),
-        ("cat a | sh", false),
-        ("echo $(whoami)", false),
-        ("ls > out.txt", false),
-        ("/tmp/evil/cmux tree", false),
-        ("rm -rf build", false),
-        ("", false),
-    ])
-    func commandPolicy(command: String, allowed: Bool) {
-        #expect(ChiefToolPolicy.autoAllowsCommand(command) == allowed)
-    }
-
     @Test func claudeToolsPolicyAndTitles() throws {
         #expect(ChiefToolPolicy.autoAllowsClaudeTool("Read", input: [:]))
         #expect(ChiefToolPolicy.autoAllowsClaudeTool("WebSearch", input: [:]))

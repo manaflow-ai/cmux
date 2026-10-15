@@ -89,6 +89,17 @@ import Testing
         #expect(prompt.contains("`--here`"))
     }
 
+    @Test func teachesQuietBatchedJSONReadsAndShortReplies() {
+        let prompt = ChiefSystemPrompt.build(context: context())
+        for rule in [
+            "one to three short, plain sentences", "No Markdown headers or tables", "Don't narrate tool use",
+            "Prefer plain `cmux` commands with `--json`", "cmux tree --all --json", "Batch what you need",
+            "approval card",
+        ] {
+            #expect(prompt.contains(rule), "missing \(rule)")
+        }
+    }
+
     @Test func snapshotFeedsTheContext() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("chief-prompt-\(UUID().uuidString)", isDirectory: true)

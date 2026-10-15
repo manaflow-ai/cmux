@@ -1,0 +1,239 @@
+#if DEBUG
+public import CmuxHomeCore
+import Foundation
+
+/// A DEBUG-only ``ChiefBrain`` that replays a fixed, realistic turn so
+/// dogfood tours and screenshots reach every transcript state without model
+/// credentials or a network.
+///
+/// Every turn types, streams a short first segment, runs one tool call
+/// (running, then done) and streams an answer. The user's text picks a
+/// variant (case-insensitive):
+///
+/// - contains `approve`: after the first segment the turn asks for approval
+///   and waits for ``respond(toApproval:choice:conversation:)``; `Allow` runs
+///   the command, anything else declines.
+/// - contains `error`: the tool call fails and the turn fails.
+/// - otherwise: the answer, which alternates between turns so each turn's
+///   last bubble has text no earlier turn had.
+///
+/// Pacing goes through the injected clock: a real clock gives the timing a
+/// person sees, a test clock runs the script at once.
+public final class ChiefScriptedBrain: ChiefBrain {
+    /// One thing the script does.
+    public enum Step: Sendable, Equatable {
+        /// Waits before the next step (intentional pacing, not synchronization).
+        case pause(Duration)
+        /// Reports an event.
+        case event(ChiefTurnEvent)
+        /// Asks for approval `id` and continues with `allowed` or `denied`.
+        indirect case approval(id: String, prompt: String, allowed: [Step], denied: [Step])
+    }
+
+    /// The approval options the script offers.
+    public static let approvalOptions = ["Allow", "Deny"]
+    /// The command the scripted tool call shows.
+    public static let treeCommand = "cmux tree --all --json"
+    /// The command the approval asks to run.
+    public static let approvalCommand = "cmux new-workspace --name Scratch"
+
+    private let clock: any Clock<Duration>
+    private let state = ScriptedBrainState()
+
+    /// - Parameter clock: Paces the script; tests pass a clock that returns at once.
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+    }
+
+    // MARK: Script
+
+    /// The steps of one turn.
+    ///
+    /// - Parameters:
+    ///   - userText: The user's message.
+    ///   - turn: The brain's turn number, from 1.
+    ///   - approval: The approval number for an approval turn, from 1 (its id
+    ///     is `scripted-approval-<n>`).
+    public static func script(for userText: String, turn: Int, approval: Int) -> [Step] {
+        let text = userText.lowercased()
+        let tool = "scripted-tool-\(turn)"
+        var steps: [Step] = [.pause(.milliseconds(900))]
+        if text.contains("approve") {
+            steps += stream("On it. That needs a new workspace, so I'll ask first.")
+            steps.append(.pause(.milliseconds(300)))
+            let run = "scripted-tool-\(turn)-run"
+            let allowed: [Step] = [
+                .event(.toolStarted(id: run, title: approvalCommand, detail: nil)),
+                .pause(.milliseconds(1200)),
+                .event(.toolFinished(id: run, ok: true, preview: "Created workspace Scratch")),
+                .pause(.milliseconds(400)),
+            ] + stream("Done. Scratch is open as a new workspace.") + [.event(.finished)]
+            let denied: [Step] = stream("Okay, I left everything as it was.") + [.event(.finished)]
+            steps.append(.approval(id: "scripted-approval-\(approval)",
+                                   prompt: "Allow Chief to run `\(approvalCommand)`?",
+                                   allowed: allowed, denied: denied))
+            return steps
+        }
+        steps += stream("On it. Let me look at what's running.")
+        steps += [
+            .pause(.milliseconds(300)),
+            .event(.toolStarted(id: tool, title: treeCommand, detail: "Reading every window, workspace and pane")),
+            .pause(.milliseconds(1600)),
+        ]
+        if text.contains("error") {
+            steps += [
+                .event(.toolFinished(id: tool, ok: false, preview: "The control socket closed")),
+                .pause(.milliseconds(300)),
+                .event(.failed("The cmux control socket closed before the tree came back.")),
+            ]
+            return steps
+        }
+        steps += [
+            .event(.toolFinished(id: tool, ok: true, preview: "3 workspaces, 4 panes, 2 agents")),
+            .pause(.milliseconds(500)),
+        ]
+        steps += stream(answer(turn: turn))
+        steps.append(.event(.finished))
+        return steps
+    }
+
+    /// The last segment's text; odd and even turns differ.
+    static func answer(turn: Int) -> String {
+        if turn % 2 == 1 {
+            return "Here's the picture: Build has Claude Code finishing a test run, Docs has Codex waiting on your review, "
+                + "and Scratch is idle. Want me to nudge the one that's waiting?"
+        }
+        return "Noted. Nothing else needs you right now, and I'll ping you when Docs finishes its review."
+    }
+
+    /// One text segment streamed a word at a time.
+    static func stream(_ text: String) -> [Step] {
+        var steps: [Step] = []
+        for (index, word) in words(text).enumerated() {
+            if index > 0 { steps.append(.pause(.milliseconds(60))) }
+            steps.append(.event(.textDelta(word)))
+        }
+        steps.append(.event(.textSegmentEnd))
+        return steps
+    }
+
+    /// `text` in chunks that join back to it: each word with the space before it.
+    static func words(_ text: String) -> [String] {
+        var chunks: [String] = []
+        for (index, word) in text.split(separator: " ", omittingEmptySubsequences: false).enumerated() {
+            chunks.append(index == 0 ? String(word) : " " + word)
+        }
+        return chunks
+    }
+
+    // MARK: ChiefBrain
+
+    public func run(_ request: ChiefTurnRequest) -> AsyncThrowingStream<ChiefTurnEvent, any Error> {
+        let clock = clock
+        let state = state
+        return AsyncThrowingStream { continuation in
+            // task-owner: one scripted turn; cancelled by the stream's termination (Stop)
+            let task = Task {
+                let numbers = await state.nextTurn(request.conversation,
+                                                   isApproval: request.userText.lowercased().contains("approve"))
+                let steps = Self.script(for: request.userText, turn: numbers.turn, approval: numbers.approval)
+                do {
+                    try await Self.play(steps, conversation: request.conversation, clock: clock, state: state,
+                                        continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func play(_ steps: [Step], conversation: ConversationID, clock: any Clock<Duration>,
+                             state: ScriptedBrainState,
+                             continuation: AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation) async throws {
+        for step in steps {
+            try Task.checkCancellation()
+            switch step {
+            case .pause(let duration):
+                try await clock.sleep(for: duration)
+            case .event(let event):
+                continuation.yield(event)
+            case .approval(let id, let prompt, let allowed, let denied):
+                continuation.yield(.approvalRequested(id: id, prompt: prompt, options: approvalOptions))
+                let choice = await withTaskCancellationHandler {
+                    await state.awaitChoice(id: id, conversation: conversation)
+                } onCancel: {
+                    // task-owner: one hop to release a waiting approval; ends at once
+                    Task { await state.cancel(conversation: conversation) }
+                }
+                guard let choice else { throw CancellationError() }
+                let next = choice.caseInsensitiveCompare("Allow") == .orderedSame ? allowed : denied
+                try await play(next, conversation: conversation, clock: clock, state: state, continuation: continuation)
+            }
+        }
+    }
+
+    public func respond(toApproval id: String, choice: String, conversation: ConversationID) async {
+        await state.answer(id: id, choice: choice)
+    }
+
+    public func interrupt(conversation: ConversationID) async {
+        await state.cancel(conversation: conversation)
+    }
+
+    public func shutdown() async {
+        await state.cancelAll()
+    }
+}
+
+/// The scripted brain's counters and the approvals it waits on.
+private actor ScriptedBrainState {
+    private var turns = 0
+    private var approvals = 0
+    /// Answers that arrived before the turn started waiting.
+    private var early: [String: String] = [:]
+    /// Conversations interrupted while not waiting; their running turn stops at its approval.
+    private var interrupted: Set<ConversationID> = []
+    private var waiting: [ConversationID: (id: String, continuation: CheckedContinuation<String?, Never>)] = [:]
+
+    func nextTurn(_ conversation: ConversationID, isApproval: Bool) -> (turn: Int, approval: Int) {
+        interrupted.remove(conversation)
+        turns += 1
+        if isApproval { approvals += 1 }
+        return (turns, approvals)
+    }
+
+    func awaitChoice(id: String, conversation: ConversationID) async -> String? {
+        if let choice = early.removeValue(forKey: id) { return choice }
+        if Task.isCancelled || interrupted.remove(conversation) != nil { return nil }
+        return await withCheckedContinuation { continuation in
+            waiting[conversation]?.continuation.resume(returning: nil)
+            waiting[conversation] = (id, continuation)
+        }
+    }
+
+    func answer(id: String, choice: String) {
+        guard let entry = waiting.first(where: { $0.value.id == id }) else {
+            early[id] = choice
+            return
+        }
+        waiting[entry.key] = nil
+        entry.value.continuation.resume(returning: choice)
+    }
+
+    func cancel(conversation: ConversationID) {
+        guard let entry = waiting.removeValue(forKey: conversation) else {
+            interrupted.insert(conversation)
+            return
+        }
+        entry.continuation.resume(returning: nil)
+    }
+
+    func cancelAll() {
+        let all = waiting.values
+        waiting.removeAll()
+        for entry in all { entry.continuation.resume(returning: nil) }
+    }
+}
+#endif

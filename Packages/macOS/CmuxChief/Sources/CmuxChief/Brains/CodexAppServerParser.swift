@@ -112,7 +112,7 @@ struct CodexAppServerParser: Sendable {
             return [.approval(requestID: id, kind: .fileChange, command: nil,
                               prompt: Self.reasonPrompt(params, fallback: "Allow these file changes?"))]
         case "execCommandApproval":
-            let command = (params["command"]?.array ?? []).compactMap(\.string).joined(separator: " ")
+            let command = ChiefToolPolicy.shellJoin((params["command"]?.array ?? []).compactMap(\.string))
             return [.approval(requestID: id, kind: .legacyCommand, command: command,
                               prompt: "Run `\(ChiefToolPolicy.truncate(ChiefToolPolicy.unwrapShell(command), to: 300))`?")]
         case "applyPatchApproval":
