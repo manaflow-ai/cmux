@@ -319,9 +319,9 @@ final class BlockLayout: @unchecked Sendable {
             var range = NSRange(location: start, length: n)
             let endsNL = tail.character(at: start + n - 1) == 10
             if endsNL { range.length -= 1 }
-            let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
             lines.append(NSRange(location: range.location + from, length: range.length))
-            widths.append(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+            // A blank line is 0 pt (length 0 would lay out the whole rest of the text: TextLayout.make).
+            widths.append(range.length > 0 ? CGFloat(CTLineGetTypographicBounds(CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length)), nil, nil, nil)) : 0)
             start += n
             if start == len && endsNL && final { lines.append(NSRange(location: len + from, length: 0)); widths.append(0) }
         }

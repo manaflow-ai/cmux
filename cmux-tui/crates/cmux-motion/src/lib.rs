@@ -30,24 +30,35 @@
 //! `ui.animations.newWorkspace` turn one kind on (`MotionPolicy::animates`;
 //! newTab on by default, the others off). The host passes these settings
 //! in (`set_animation_switches` or `MotionPolicy::with_animations`).
+//!
+//! The tab strip moves like Chrome's: `Tween`s (`MotionTween`, 200 ms
+//! `ease_out_quad`) that restart from the value on screen on a new target,
+//! with the strip geometry in `TabStripGeometry` (design-tokens.json
+//! `motion.tweens`, `motion.tabStrip`).
 
 mod clock;
+mod color;
 mod fade;
 mod marquee;
 mod policy;
 #[cfg(feature = "settings")]
 mod settings;
 mod spring;
+mod tab_strip;
 mod tokens;
+mod tween;
 // The Reduce Motion reading off macOS (macOS asks NSWorkspace in settings.rs).
 #[cfg(all(feature = "settings", not(target_os = "macos")))]
 mod system;
 
 pub use clock::*;
+pub use color::*;
 pub use fade::*;
 pub use marquee::*;
 pub use policy::*;
 #[cfg(feature = "settings")]
 pub use settings::*;
 pub use spring::*;
+pub use tab_strip::*;
 pub use tokens::*;
+pub use tween::*;

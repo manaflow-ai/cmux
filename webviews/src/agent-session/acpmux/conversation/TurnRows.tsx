@@ -51,8 +51,9 @@ export function WorkedFor({
   );
 }
 
-/// One entry of a run: a group, a message card, a lone call or a thought.
-function groupNode(group: ToolGroup, index: number): ReactNode {
+/// One entry of a run: a group, a message card, a lone call or a thought. `live`: the entry is the
+/// last of the live turn's latest row, so a thought there may still stream.
+function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean): ReactNode {
   switch (group.type) {
     case "group":
       return <ToolGroupRow key={group.items[0]!.tool!.id || index} kind={group.kind} items={group.items} />;
@@ -62,18 +63,23 @@ function groupNode(group: ToolGroup, index: number): ReactNode {
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <ThoughtRow key={index} item={group.item} />
+        <ThoughtRow key={index} id={`${rowId}:${index}`} item={group.item} streaming={live} />
       );
   }
 }
 
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
 /// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each.
+/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each,
+/// unless the Codex-style runs (Debug toggle) settle it (`settled`) or show its newest entry (`inFlight`).
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  const nodes = groups.map(groupNode);
+  // A run in flight (Debug toggle) shows its newest entry alone: one line that replaces itself.
+  const first = row.inFlight ? Math.max(0, groups.length - 1) : 0;
+  const nodes = groups
+    .slice(first)
+    .map((group, at) => groupNode(group, first + at, row.id, row.live === true && first + at === groups.length - 1));
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   return (

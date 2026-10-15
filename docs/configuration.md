@@ -149,26 +149,18 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 }
 ```
 
-- `false` (default): Cmd-T follows the focused pane's tab bar (`tabs.tabBar`). In a pane that shows it (a terminal, a browser tab, the New Tab page) it opens a tab there. In a pane that hides it (an agent chat alone in its column, by default) it opens a workspace in the current group. Cmd-N opens a workspace.
+- `false` (default): Cmd-T opens a tab in the focused pane. Cmd-N opens a workspace.
 - `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
 
-## `tabs.tabBar`
+## Tab bar (removed: `tabs.tabBar`)
 
-Whether a pane shows its horizontal tab bar, by what the pane holds. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
 
-```json
-{
-  "tabs": { "tabBar": { "terminal": "auto", "browser": "auto", "agent": "always" } }
-}
-```
+The only way to hide one pane's tab bar is **Hide Tab Bar** in the command palette (Cmd-Shift-P) or the pane's right-click menu. While the bar is hidden, the same entry reads **Show Tab Bar**. The CLI keeps `cmux pane toggle-tab-bar`. Cmd-T always opens a tab in the current workspace, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
-- `terminal`: panes with terminals, or a mix of kinds. `browser`: panes with only browser tabs. `agent`: panes with only agent chats. New Tab pages count as neither.
-- `"auto"` (default): terminal and browser panes show the tab bar. An agent chat alone in its column, or in the chat dock, hides it until the pane holds two tabs.
-- `"always"` shows it, and `"never"` hides it.
-
-**Show Tab Bar** in the command palette or a pane's right-click menu shows or hides one pane's tab bar, whatever its kind's value. Cmd-T always opens a tab in the current workspace, like a browser, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
+The `tabs.tabBar.terminal`, `tabs.tabBar.browser` and `tabs.tabBar.agent` settings were removed. A cmux.json that still sets them (`"auto"`, `"always"` or `"never"`) loads without an error, and the value is ignored: the tab bar shows. `cmux settings set` refuses them as removed.
 
 ## `tabs.newTabPosition`
 
@@ -760,11 +752,12 @@ shows the same keys.
       "inlineAutocomplete": true,
       "maxRows": 8,
       "calculator": true,
-      "glass": "transparent",
+      "glass": "off",
       "glassTint": "background",
       "glassTintStrength": 0.35,
       "cornerRadius": "theme",
-      "shadow": false
+      "shadow": false,
+      "backgroundOpacity": 0
     }
   }
 }
@@ -788,11 +781,13 @@ shows the same keys.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
-- `omnibar.glass`: the address bar's material. `transparent` (default) draws no fill: the toolbar
-  shows through, and only the hover lift, the focus ring and the suggestion card draw. `regular`
-  is Liquid Glass on macOS 26 and later and a blur before it; `clear` is glass that shows more of
-  what is behind the bar; `off` draws the flat theme color. With Reduce Transparency the glass
-  looks draw the flat color. Browser tabs and the New Tab page use the same bar.
+- `omnibar.glass`: the address bar's material. `off` (default) draws the flat theme color: a
+  step of the theme's text color over the toolbar, stronger on hover; while you edit, the bar
+  is the suggestion card's color with a neutral focus ring. `transparent` draws no fill: the
+  toolbar shows through, and only the hover lift, the focus ring and the suggestion card draw.
+  `regular` is Liquid Glass on macOS 26 and later and a blur before it; `clear` is glass that
+  shows more of what is behind the bar. With Reduce Transparency the glass looks draw the flat
+  color. Browser tabs and the New Tab page use the same bar.
 - `omnibar.glassTint`: the color over the glass (`regular` and `clear` only), from the terminal theme. `background`
   (default) is the theme's background; `accent` is the theme's own accent color, or its
   focus gray when the theme names none; `none` leaves the glass untinted.
@@ -800,9 +795,15 @@ shows the same keys.
 - `omnibar.cornerRadius`: `theme` (default, the standard 8 pt bar radius), `capsule` (fully
   round ends), or points from `0` to `16`.
 - `omnibar.shadow`: a soft shadow under the glass bar. Default: `false`.
+- `omnibar.backgroundOpacity`: how much the flat bar covers a see-through window
+  (`background-opacity` below `1`, a background image or window glass), `0` to `1`. At `0`
+  (default) the bar is as see-through as the window and only shifts its tone; cmux raises it
+  only as far as the bar's text needs to stay readable (4.5:1 over a black or a white desktop).
+  `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
+  value.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator` and the look
-keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`); the search
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`

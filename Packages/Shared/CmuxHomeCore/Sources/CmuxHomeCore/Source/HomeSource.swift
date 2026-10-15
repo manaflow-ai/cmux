@@ -49,6 +49,9 @@ public enum HomeEvent: Hashable, Sendable {
     /// An agent's running reply (ephemeral, never stored): Home grows it in
     /// the agent's bubble until the reply is posted.
     case draft(HomeDraftUpdate)
+    /// A Chief's live run frame (`chief-live-v1`, ephemeral, never stored):
+    /// the reply's text so far and the run's "working on" line.
+    case live(HomeLiveEvent)
 }
 
 /// One search hit over Home messages.
@@ -144,11 +147,27 @@ public protocol HomeSource: Sendable {
     /// Whether the owner of `conversation` takes `link_preview` parts. A
     /// sender sends plain text to an owner that does not (an older daemon).
     func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool
+
+    /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
+    /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
+    func requestLive(of conversation: ConversationID) async
+
+    /// The talk steps of a running run as its rows hold them (id, text), for reply
+    /// segments the owner's live buffer already freed (a mid-run join). nil: no read.
+    func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]?
 }
 
 extension HomeSource {
     /// Sources that keep no per-transcript state ignore it.
     public func close(_ conversation: ConversationID) {}
+
+    /// Default: an owner without live frames.
+    public func requestLive(of conversation: ConversationID) async {}
+
+    /// Default: an owner without run reads.
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        nil
+    }
 
     /// Default: no link preview parts (send plain text).
     public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { false }

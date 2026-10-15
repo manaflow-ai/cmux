@@ -600,6 +600,102 @@
       "title" : "Window Style",
       "type" : "string"
     },
+    "appearance.colorTransition.bezierX1" : {
+      "default" : 0.42,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Bezier X1",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierX2" : {
+      "default" : 0.58,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Bezier X2",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierY1" : {
+      "default" : 0,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 2,
+      "minimum" : -1,
+      "title" : "Bezier Y1",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierY2" : {
+      "default" : 1,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 2,
+      "minimum" : -1,
+      "title" : "Bezier Y2",
+      "type" : "number"
+    },
+    "appearance.colorTransition.colorSpace" : {
+      "default" : "oklab",
+      "description" : "OKLab blends with even lightness. sRGB mixes the red, green and blue channels.",
+      "enum" : [
+        "oklab",
+        "srgb"
+      ],
+      "title" : "Color Blend Space",
+      "type" : "string"
+    },
+    "appearance.colorTransition.curve" : {
+      "default" : "easeOut",
+      "description" : "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values.",
+      "enum" : [
+        "easeOut",
+        "easeInOut",
+        "linear",
+        "spring",
+        "cubicBezier"
+      ],
+      "title" : "Color Change Curve",
+      "type" : "string"
+    },
+    "appearance.colorTransition.duration" : {
+      "default" : 200,
+      "description" : "How long a color change takes. 0 changes colors at once.",
+      "maximum" : 2000,
+      "minimum" : 0,
+      "title" : "Color Change Duration",
+      "type" : "number"
+    },
+    "appearance.colorTransition.enabled" : {
+      "default" : true,
+      "description" : "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once.",
+      "title" : "Animate Color Changes",
+      "type" : "boolean"
+    },
+    "appearance.colorTransition.reduceMotion" : {
+      "default" : "crossfade",
+      "description" : "What color changes do while Reduce Motion is on in macOS.",
+      "enum" : [
+        "crossfade",
+        "instant",
+        "full"
+      ],
+      "title" : "With Reduce Motion",
+      "type" : "string"
+    },
+    "appearance.colorTransition.springDamping" : {
+      "default" : 1,
+      "description" : "1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner.",
+      "maximum" : 2,
+      "minimum" : 0.1,
+      "title" : "Spring Damping",
+      "type" : "number"
+    },
+    "appearance.colorTransition.springResponse" : {
+      "default" : 0.3,
+      "description" : "Seconds a spring color change takes to reach its new colors.",
+      "maximum" : 2,
+      "minimum" : 0.05,
+      "title" : "Spring Response",
+      "type" : "number"
+    },
     "appearance.density" : {
       "default" : "compact",
       "description" : "appearance.density",
@@ -642,6 +738,13 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Hue",
+      "type" : "number"
+    },
+    "appearance.interfaceScale" : {
+      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "maximum" : 1.25,
+      "minimum" : 0.9,
+      "title" : "Interface Size",
       "type" : "number"
     },
     "appearance.metrics.chromeFontSize" : {
@@ -926,6 +1029,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "browser.builtInAdBlocker" : {
+      "default" : true,
+      "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
+      "title" : "Built-in uBlock Origin",
+      "type" : "boolean"
+    },
     "browser.customSearchEngine.search" : {
       "default" : "",
       "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
@@ -1058,6 +1167,14 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
+    "browser.omnibar.backgroundOpacity" : {
+      "default" : 0,
+      "description" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Address Bar Opacity",
+      "type" : "number"
+    },
     "browser.omnibar.calculator" : {
       "default" : true,
       "description" : "Shows the answer to arithmetic you type. Return copies it.",
@@ -1075,7 +1192,7 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "transparent",
+      "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
         "transparent",
@@ -1459,6 +1576,12 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
+    "home.channelsEnabled" : {
+      "default" : false,
+      "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
+      "title" : "Channels",
       "type" : "boolean"
     },
     "labs.classicHome" : {
@@ -2117,6 +2240,20 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.hoverCards.delay" : {
+      "default" : 1300,
+      "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
+      "maximum" : 5000,
+      "minimum" : 0,
+      "title" : "Hover Card Delay",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.enabled" : {
+      "default" : true,
+      "description" : "A card with details opens when the pointer rests on a workspace or a tab.",
+      "title" : "Show Hover Cards",
+      "type" : "boolean"
+    },
     "sidebar.minimal" : {
       "default" : false,
       "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
@@ -2773,39 +2910,6 @@
       "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
-    },
-    "tabs.tabBar.agent" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Agent Chats",
-      "type" : "string"
-    },
-    "tabs.tabBar.browser" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Browser Panes",
-      "type" : "string"
-    },
-    "tabs.tabBar.terminal" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Terminal Panes",
-      "type" : "string"
     },
     "tabs.toolbarButtons" : {
       "default" : [

@@ -11,7 +11,9 @@
 //! (plans/cmux-next/mcp.md).
 
 mod action_tools;
+mod agent_events_tool;
 mod agent_tools;
+mod agent_wait_tool;
 mod browser_tools;
 mod config;
 mod keybinding_tools;
@@ -26,7 +28,7 @@ mod watch;
 
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
@@ -132,6 +134,19 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// Holds the session daemon's `session.events` stream open until
+    /// `deadline` and calls `on_wake` with each item (the initial snapshot
+    /// first, or with `cursor` the journal batches after it), and with
+    /// `None` after each `tick` without one, until it returns `true`. An
+    /// error means no stream opened.
+    fn session_events(
+        &self,
+        session: Option<&str>,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure>;
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -139,13 +154,9 @@ struct LiveBackend {
     global: GlobalArgs,
 }
 
-impl Backend for LiveBackend {
-    fn resource(
-        &self,
-        session: Option<&str>,
-        plan: RequestPlan,
-        prefixes: &[Prefix],
-    ) -> Result<Value, CallFailure> {
+impl LiveBackend {
+    /// The global options with the call's session.
+    fn routed(&self, session: Option<&str>) -> Result<GlobalArgs, CallFailure> {
         let mut global = self.global.clone();
         if let Some(session) = session
             && global.session.as_deref() != Some(session)
@@ -159,7 +170,29 @@ impl Backend for LiveBackend {
             }
             global.session = Some(session.to_owned());
         }
-        transport::resource(&global, plan, prefixes)
+        Ok(global)
+    }
+}
+
+impl Backend for LiveBackend {
+    fn resource(
+        &self,
+        session: Option<&str>,
+        plan: RequestPlan,
+        prefixes: &[Prefix],
+    ) -> Result<Value, CallFailure> {
+        transport::resource(&self.routed(session)?, plan, prefixes)
+    }
+
+    fn session_events(
+        &self,
+        session: Option<&str>,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        transport::session_events(&self.routed(session)?, cursor, deadline, tick, on_wake)
     }
 
     fn app(
@@ -308,6 +341,8 @@ pub(super) struct Server<B> {
     list_changed: bool,
     /// The client sent `notifications/initialized`.
     initialized: bool,
+    /// Where `run` writes, for a call's `notifications/progress`.
+    notes: Option<watch::Output>,
 }
 
 impl<B: Backend> Server<B> {
@@ -320,11 +355,13 @@ impl<B: Backend> Server<B> {
             actions_loaded: false,
             list_changed: false,
             initialized: false,
+            notes: None,
         }
     }
 
     /// Answers each line of `input` on `output` until stdin closes.
     pub(super) fn run(&mut self, mut input: impl BufRead, output: &watch::Output) -> i32 {
+        self.notes = Some(output.clone());
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -392,7 +429,7 @@ impl<B: Backend> Server<B> {
     }
 
     /// Every tool: the daemon operations, the browser host's REPL ops,
-    /// `window_list`, `agents_snapshot`, `render`, and the app's CLI actions
+    /// `window_list`, `agents_snapshot`, `agents_doctor`, `render`, and the app's CLI actions
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
@@ -403,6 +440,9 @@ impl<B: Backend> Server<B> {
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
+        tools.push(super::agents_doctor::mcp_tool());
+        tools.push(agent_wait_tool::descriptor());
+        tools.push(agent_events_tool::descriptor());
         tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
@@ -515,8 +555,33 @@ impl<B: Backend> Server<B> {
             }
             return Ok(success(super::agents::snapshot_page(snapshot, offset, limit), false));
         }
+        if name == super::agents_doctor::MCP_TOOL {
+            // Read-only: the CLI's checks, and at most one app read.
+            let app_status = || {
+                self.backend
+                    .app(
+                        super::agents_doctor::STATUS_METHOD,
+                        json!({}),
+                        super::app::READ_TIMEOUT,
+                        None,
+                        false,
+                    )
+                    .map_err(agent_failure_value)
+            };
+            return Ok(match super::agents_doctor::mcp_findings(&arguments, app_status) {
+                Ok(report) => success(report, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
+        }
         if let Some(tool) = agent_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
+        }
+        if name == agent_wait_tool::NAME {
+            let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
+            return Ok(agent_wait_tool::call(&self.backend, &arguments, progress));
+        }
+        if name == agent_events_tool::NAME {
+            return Ok(agent_events_tool::call(&self.backend, &arguments));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments) {

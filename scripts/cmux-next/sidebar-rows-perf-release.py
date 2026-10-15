@@ -32,8 +32,30 @@ parser.add_argument("--notches", type=int, default=4, help="line notches per whe
 parser.add_argument("--profile-runs", type=int, default=2, help="per mode: export the Time Profiler of this many runs")
 parser.add_argument("--b-fleet-job", help="A/B in one job: the fleet build job of the second app (installed here)")
 parser.add_argument("--b-tag", help="the second app's tag")
+parser.add_argument("--b-app", help="A/B: the second app's installed bundle (instead of --b-fleet-job)")
 parser.add_argument("--b-label", default="b")
+parser.add_argument("--clean", action="store_true",
+                    help="one app at a time in the same frame: each run launches the app, records, and quits it (the others are"
+                         " not running); the order of the apps and modes alternates each round")
+parser.add_argument("--frame", default="40,40,1100,820", help="--clean: the window frame (points, top-left, last screen) of every app")
+parser.add_argument("--floors", default="plain",
+                    help="--clean: host floor variants (scripts/cmux-next/sidebar-scroll-floor.swift), comma list of plain, vib"
+                         " (behind-window sidebar material), vibfade (material + edge-fade mask), fade (edge-fade mask), optout"
+                         " (scrollWheel override: no responsive scrolling), optoutfade; empty = none")
+parser.add_argument("--warmup", action="store_true",
+                    help="--clean: one unrecorded floor gesture first (the first run after host jobs end read high in round 5)")
+parser.add_argument("--floor-first", action="store_true", help="--clean: the floors run before the apps in even rounds")
+parser.add_argument("--modes", default="noticks,ticks", help="--clean: the modes each cmux run records")
+parser.add_argument("--round-offset", type=int, default=0,
+                    help="--clean: the first round's number (an odd offset starts with the reversed order, for a second job)")
+parser.add_argument("--variants", default="",
+                    help="--clean: more runs of the first app with extra launch env, 'label:KEY=V,KEY2=V;label2:KEY=V'"
+                         " (each variant is one more app in the rotation; it shares the tag's workspaces)")
+parser.add_argument("--floor-frames", default="",
+                    help="--clean: extra frames for the plain floor (a window position probe), separated by ';'")
 opts = parser.parse_args()
+if opts.b_app and not opts.b_tag:
+    parser.error("--b-app needs --b-tag")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP, TAG, STOP = os.environ.get("NX_APP"), os.environ.get("NX_APP_TAG", ""), os.environ.get("NX_APP_STOP")
@@ -141,7 +163,7 @@ def launch(frame="40,40,1100,820"):
         print(f"quit a leftover {TAG} app", flush=True)
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
-    env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
+    env = [*EXTRA_ENV, "CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
            f"CMUX_NEXT_CONFIG_FILE={CONFIG}", f"CMUX_NEXT_GHOSTTY_CONFIG={GHOSTTY}", f"CMUX_NEXT_TEST_WINDOW_FRAME={frame}"]
     subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
     if not wait(lambda: os.path.exists(SOCKET) and cli("--json", "workspace", "list").returncode == 0, 120):
@@ -207,9 +229,11 @@ class Target:
     scale = 1.0
     point = screen_point = (0, 0)
 
+    bounds = None
+
     @classmethod
-    def find(cls):
-        pid = app_pid()
+    def find(cls, pid=None):
+        pid = pid or app_pid()
         if not pid:
             sys.exit(f"FAIL no process for the tagged app (socket {SOCKET})")
         started = cua("start_session", {})
@@ -224,7 +248,7 @@ class Target:
         shot = os.path.join(SCRATCH, "window.png")
         cua("get_window_state", {"pid": pid, "window_id": main["window_id"], "screenshot_out_file": shot}, timeout=120)
         width = int.from_bytes(open(shot, "rb").read()[16:20], "big") if os.path.exists(shot) else 0
-        cls.pid, cls.window_id = pid, main["window_id"]
+        cls.pid, cls.window_id, cls.bounds = pid, main["window_id"], main["bounds"]
         cls.scale = width / main["bounds"]["width"] if width else 1.0
         # The sidebar's row list: left column, below the window chrome.
         cls.point = (110 * cls.scale, 430 * cls.scale)
@@ -382,6 +406,11 @@ GENERIC = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNe
 def main_thread_profile(trace):
     """Main-thread Time Profiler samples of the trace: top inclusive and leaf frames."""
     inclusive, leaf, total = {}, {}, 0
+    # Below -[NSViewBackingLayer display] (AppKit's drawRect/updateLayer) and CA's layer display: what draws.
+    under = {"-[NSViewBackingLayer display]": {}, "CA::Layer::display_if_needed(CA::Transaction*)": {},
+             "-[NSView translateOriginToPoint:]": {}, "-[NSView _postBoundsChangeNotification]": {}, "FrameBatcher.drain()": {},
+             "-[NSView layoutSubtreeIfNeeded]": {}, "CA::Context::commit_transaction(CA::Transaction*, double, double*)": {}}
+    under_total = dict.fromkeys(under, 0)
     try:
         for cells, ids in export_table(trace, "time-profile"):
             thread = next((n for t, n in cells if t == "thread"), None)
@@ -396,6 +425,11 @@ def main_thread_profile(trace):
                 leaf[frames[0]] = leaf.get(frames[0], 0) + 1
             for name in set(frames):
                 inclusive[name] = inclusive.get(name, 0) + 1
+            for root, counter in under.items():
+                if root in frames:
+                    under_total[root] += 1
+                    for name in set(frames[:frames.index(root)]):
+                        counter[name] = counter.get(name, 0) + 1
     except Exception as error:  # noqa: BLE001
         return {"error": f"export: {error}"}
 
@@ -403,7 +437,27 @@ def main_thread_profile(trace):
         return [{"frame": n[:200], "samples": c, "pct": round(100.0 * c / total, 1) if total else 0}
                 for n, c in sorted(counter.items(), key=lambda kv: -kv[1]) if not n.startswith(GENERIC)][:limit]
 
-    return {"main_samples": total, "top_inclusive": top(inclusive, 60), "top_leaf": top(leaf, 30)}
+    return {"main_samples": total, "top_inclusive": top(inclusive, 60), "top_leaf": top(leaf, 30),
+            "under": {root: {"samples": under_total[root],
+                             "top": [{"frame": n[:200], "samples": c} for n, c in sorted(counter.items(), key=lambda kv: -kv[1])][:50]}
+                      for root, counter in under.items()}}
+
+
+def hitch_details(trace, pid, limit=12):
+    """The trace's table schemas and every column of the longest hitches of `pid` (what kind of frame was late)."""
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], capture_output=True, text=True).stdout
+    schemas = sorted(set(re.findall(r'schema="([^"]+)"', toc)))
+    rows = []
+    try:
+        for cells, _ in export_table(trace, "hitches"):
+            process = next((n for t, n in cells if t == "process"), None)
+            if process is None or f"({pid})" not in (process.get("fmt") or ""):
+                continue
+            rows.append({t: (n.get("fmt") or n.text or "")[:120] for t, n in cells})
+    except Exception as error:  # noqa: BLE001
+        return {"schemas": schemas, "error": f"export: {error}"}
+    rows.sort(key=lambda r: -float(re.sub(r"[^0-9.]", "", r.get("duration", "0")) or 0))
+    return {"schemas": schemas, "longest": rows[:limit]}
 
 
 def record(name, ticks, terms, profile):
@@ -428,6 +482,7 @@ def record(name, ticks, terms, profile):
     held = subprocess.run(["lsof", "-p", str(proc.pid), "-Fn"], capture_output=True, text=True).stdout.splitlines()
     mine = {line[1:] for line in held if line.startswith("n") and os.path.basename(line[1:]).startswith("instruments")
             and line.endswith(".ktrace")}
+    load_before = [round(x, 2) for x in os.getloadavg()]  # host load (other lanes' jobs run beside an input job)
     began = time.monotonic()
     bad = sweep("down") + sweep("up")
     gesture_s = round(time.monotonic() - began, 2)
@@ -438,7 +493,8 @@ def record(name, ticks, terms, profile):
     except subprocess.TimeoutExpired:
         proc.terminate()
         out = "timeout"
-    result = {"name": name, "gesture_s": gesture_s, "wheel_errors": [json.dumps(b)[:200] for b in bad[:3]],
+    result = {"name": name, "gesture_s": gesture_s, "bounds": Target.bounds, "load_before": load_before,
+              "load_after": [round(x, 2) for x in os.getloadavg()], "wheel_errors": [json.dumps(b)[:200] for b in bad[:3]],
               "xctrace_exit": proc.returncode}
     if not os.path.exists(path):
         shutil.rmtree(xct_tmp, ignore_errors=True)
@@ -447,6 +503,7 @@ def record(name, ticks, terms, profile):
     result.update(hitches(path, Target.pid))
     if profile:
         result["profile"] = main_thread_profile(path)
+        result["hitch_details"] = hitch_details(path, Target.pid)
     # Remove this recording's own ktrace intermediates (attributed above by the recorder's open files), once closed.
     removed = 0
     for path_k in mine:
@@ -466,9 +523,13 @@ def record(name, ticks, terms, profile):
     return result
 
 
+EXTRA_ENV = []
+
+
 def use(app):
-    """Points the module's app globals (APP, TAG, SOCKET, CLI, Target) at `app`."""
-    global APP, TAG, SOCKET, CLI
+    """Points the module's app globals (APP, TAG, SOCKET, CLI, Target, EXTRA_ENV) at `app`."""
+    global APP, TAG, SOCKET, CLI, EXTRA_ENV
+    EXTRA_ENV = list(app.get("env") or [])
     APP, TAG, SOCKET, CLI = app["app"], app["tag"], app["socket"], app["cli"]
     if app.get("target"):
         Target.pid, Target.window_id, Target.scale, Target.point, Target.screen_point = app["target"]
@@ -556,6 +617,131 @@ def pty_count():
     return len([n for n in os.listdir("/dev") if n.startswith("ttys")])
 
 
+def build_floor():
+    """The host floor app (no cmux code), compiled here from scripts/cmux-next/sidebar-scroll-floor.swift."""
+    exe = os.path.join(SCRATCH, "sidebar-scroll-floor")
+    built = subprocess.run(["xcrun", "swiftc", "-O", "-o", exe, os.path.join(HERE, "sidebar-scroll-floor.swift")],
+                           capture_output=True, text=True, timeout=900)
+    if built.returncode != 0:
+        sys.exit(f"FAIL floor build: {built.stderr[-400:]}")
+    return exe
+
+
+def floor_run(exe, variant, frame, label, i):
+    """One plain-scroll gesture over the floor app in `frame`; the app quits after it."""
+    flags = {"plain": [], "vib": ["--vibrancy"], "vibfade": ["--vibrancy", "--fade"], "fade": ["--fade"],
+             "optout": ["--opt-out"], "optoutfade": ["--opt-out", "--fade"]}[variant]
+    proc = subprocess.Popen([exe, "--frame", frame, "--screen", "last", "--rows", str(opts.count), *flags],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        ready = proc.stdout.readline().strip()
+        if not ready.startswith("ready"):
+            return {"name": f"{label}-noticks-{i}", "error": f"floor did not start: {ready!r}"}
+        Target.find(proc.pid)
+        quiet = wait_quiet(proc.pid)
+        point_x, point_y = Target.bounds["x"] + 110, Target.bounds["y"] + 430
+        Target.point, Target.screen_point = (110 * Target.scale, 430 * Target.scale), (point_x, point_y)
+        time.sleep(2)  # harness: the window is on screen and idle before the recorder attaches
+        result = record(f"{label}-noticks-{i}", False, [], False)
+        result["quiet"] = quiet
+        return result
+    finally:
+        proc.stdin.close()  # the floor quits when its stdin ends
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.terminate()  # our own child process (exact pid)
+            proc.wait(timeout=30)
+
+
+def wait_quiet(pid, below_pct=4.0, limit_s=120):
+    """Waits until the app's CPU stays under `below_pct` for 2 one-second windows in a row (startup, state load and
+    workspace churn done), at most `limit_s`. Returns the seconds waited and the last window's CPU %."""
+    started, calm, pct = time.monotonic(), 0, None
+    while time.monotonic() - started < limit_s and calm < 2:  # harness: bounded wait for an idle app
+        c0, t0 = cpu_ns(pid), time.monotonic()
+        time.sleep(1)
+        c1 = cpu_ns(pid)
+        if c0 is None or c1 is None:
+            break
+        pct = round((c1 - c0) / 1e9 / (time.monotonic() - t0) * 100, 1)
+        calm = calm + 1 if pct < below_pct else 0
+    return {"seconds": round(time.monotonic() - started, 1), "cpu_pct": pct, "quiet": calm >= 2}
+
+
+def cmux_runs(app, i, first):
+    """Launches `app` in --frame, records both modes (order flipped by round), quits it."""
+    use(app)
+    launch(opts.frame)
+    make_workspaces()
+    Target.find()
+    app["terms"] = ticking_terminals()
+    note(len(app["terms"]) >= opts.ticking, f"{app['label']} round {i}: {len(app['terms'])} ticking terminals")
+    WHEEL.clear()
+    WHEEL.update({"hid": True})
+    out = {}
+    if first and "ticks" in opts.modes.split(","):
+        cpu0, t0 = cpu_ns(Target.pid), time.monotonic()
+        ticks = start_ticks(app["terms"], 10)
+        time.sleep(11)  # harness: the measured tick window (no input)
+        cpu1 = cpu_ns(Target.pid)
+        app["tick_window"] = {"ticks": ticks, "app_cpu_us_per_tick": round((cpu1 - cpu0) / 1000 / ticks, 1)
+                              if cpu0 and cpu1 and ticks else None}
+        print(f"{app['label']} tick window: {app['tick_window']}", flush=True)
+    modes = [m for m in opts.modes.split(",") if m]
+    for mode in (modes if i % 2 == 0 else modes[::-1]):
+        quiet = wait_quiet(Target.pid)
+        print(f"{app['label']} {mode} {i}: quiet {quiet}", flush=True)
+        out[mode] = record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i - opts.round_offset < opts.profile_runs)
+        out[mode]["quiet"] = quiet
+        time.sleep(2)  # harness: settle between runs
+    stop_b(app)
+    note(app_pid() is None, f"{app['label']} round {i}: the app quit")
+    return out
+
+
+def run_clean(apps):
+    """One app on screen at a time, all in the same frame; floors (no cmux code) in the same frame too."""
+    floors = [v for v in opts.floors.split(",") if v]
+    extra = [f for f in opts.floor_frames.split(";") if f]
+    exe = build_floor() if floors or extra else None
+    items = [("cmux", app) for app in apps] + [("floor", (v, opts.frame, f"floor-{v}")) for v in floors]
+    items += [("floor", ("plain", f, "floor-at-" + f.replace(",", "_"))) for f in extra]
+    if opts.floor_first:
+        items = [it for it in items if it[0] == "floor"] + [it for it in items if it[0] == "cmux"]
+    runs = {}
+    if opts.warmup and exe:
+        summary["warmup"] = floor_run(exe, "plain", opts.frame, "warmup", 0)
+    for i in range(opts.round_offset, opts.round_offset + opts.repeats):
+        order = items if i % 2 == 0 else items[::-1]
+        print(f"round {i}: {[it[1]['label'] if it[0] == 'cmux' else it[1][2] for it in order]}", flush=True)
+        for kind, item in order:
+            if kind == "cmux":
+                for mode, result in cmux_runs(item, i, i == opts.round_offset).items():
+                    runs.setdefault(item["label"], {}).setdefault(mode, []).append(result)
+            else:
+                variant, frame, label = item
+                runs.setdefault(label, {}).setdefault("noticks", []).append(floor_run(exe, variant, frame, label, i))
+            time.sleep(2)  # harness: settle between apps
+    return runs
+
+
+def summarize(runs, apps):
+    for label, modes in runs.items():
+        app = next((a for a in apps if a["label"] == label), {})
+        out = summary.setdefault("apps", {}).setdefault(label, {"tag": app.get("tag"), "tick_window": app.get("tick_window")})
+        for mode, rs in modes.items():
+            valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
+                     and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
+            totals = [r["total_ms"] for r in valid]
+            out[mode] = {"valid": len(valid), "hitch_total_ms": totals, "hitches": [r.get("hitches") for r in valid],
+                         "median_ms": statistics.median(totals) if totals else None,
+                         "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
+                         "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0]),
+                         "bounds": sorted({json.dumps(r.get("bounds"), sort_keys=True) for r in rs})}
+            print(f"{label} {mode}: {out[mode]}", flush=True)
+
+
 import signal
 signal.signal(signal.SIGTERM, lambda *_: sys.exit("FAIL ended by SIGTERM (job cancel or input cap)"))
 summary["ptys_before"] = pty_count()
@@ -564,32 +750,47 @@ A = {"label": opts.label, "app": APP, "tag": TAG, "socket": SOCKET, "cli": CLI,
      "frame": "10,40,740,820" if opts.b_fleet_job else "40,40,1100,820"}
 apps = [A]
 try:
-    if opts.b_fleet_job:
+    if opts.b_app:
+        apps.append({"label": opts.b_label, "app": opts.b_app, "tag": opts.b_tag, "socket": f"/tmp/cmux-debug-{opts.b_tag}.sock",
+                     "cli": os.path.join(opts.b_app, "Contents/Resources/bin/cmux"), "frame": opts.frame})
+    elif opts.b_fleet_job:
         apps.append(install_b())
-    for app in apps:
-        prepare(app)
-    runs = {app["label"]: {"noticks": [], "ticks": []} for app in apps}
-    for i in range(opts.repeats):
-        # Interleaved, the order flipped each round, so host drift lands on both apps alike.
-        for app in (apps if i % 2 == 0 else apps[::-1]):
-            use(app)
-            cua("bring_to_front", {"pid": Target.pid})
-            time.sleep(1)  # harness: the window is in front before the recorder attaches
-            for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
-                runs[app["label"]][mode].append(record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i < opts.profile_runs))
-                time.sleep(2)  # harness: settle between runs
-    summary["runs"] = runs
-    for app in apps:
-        out = summary.setdefault("apps", {}).setdefault(app["label"], {"tag": app["tag"], "tick_window": app.get("tick_window")})
-        for mode, rs in runs[app["label"]].items():
-            valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
-                     and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
-            totals = [r["total_ms"] for r in valid]
-            out[mode] = {"valid": len(valid), "hitch_total_ms": totals,
-                         "median_ms": statistics.median(totals) if totals else None,
-                         "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
-                         "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0])}
-            print(f"{app['label']} {mode}: {out[mode]}", flush=True)
+    if opts.clean:
+        A["frame"] = opts.frame
+        for app in apps[1:]:
+            app["frame"] = opts.frame
+        for spec in [v for v in opts.variants.split(";") if v.strip()]:
+            name, _, env = spec.partition(":")
+            apps.append(dict(A, label=name.strip(), env=[e for e in env.split(",") if e]))
+        summary["method"] = {"clean": True, "variants": opts.variants, "frame": opts.frame, "floors": opts.floors, "floor_frames": opts.floor_frames}
+        runs = run_clean(apps)
+        summary["runs"] = runs
+        summarize(runs, apps)
+    else:
+        for app in apps:
+            prepare(app)
+        runs = {app["label"]: {"noticks": [], "ticks": []} for app in apps}
+        for i in range(opts.repeats):
+            # Interleaved, the order flipped each round, so host drift lands on both apps alike.
+            for app in (apps if i % 2 == 0 else apps[::-1]):
+                use(app)
+                cua("bring_to_front", {"pid": Target.pid})
+                time.sleep(1)  # harness: the window is in front before the recorder attaches
+                for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
+                    runs[app["label"]][mode].append(record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i < opts.profile_runs))
+                    time.sleep(2)  # harness: settle between runs
+        summary["runs"] = runs
+        for app in apps:
+            out = summary.setdefault("apps", {}).setdefault(app["label"], {"tag": app["tag"], "tick_window": app.get("tick_window")})
+            for mode, rs in runs[app["label"]].items():
+                valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
+                         and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
+                totals = [r["total_ms"] for r in valid]
+                out[mode] = {"valid": len(valid), "hitch_total_ms": totals,
+                             "median_ms": statistics.median(totals) if totals else None,
+                             "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
+                             "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0])}
+                print(f"{app['label']} {mode}: {out[mode]}", flush=True)
 finally:
     summary["failures"] = failures
     with open(os.path.join(opts.out, f"release-{opts.label}.json"), "w") as fh:

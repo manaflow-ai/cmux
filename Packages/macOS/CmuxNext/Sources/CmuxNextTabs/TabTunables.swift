@@ -57,17 +57,17 @@ public nonisolated enum TabTunables {
     public static let autoscrollGain = Tunable<CGFloat>.number(
         "tabs.autoscrollGain", .tabDrag, "Drag autoscroll speed", help: "Points per second per point the dragged tab sits inside the edge fade.",
         default: 14, range: 1...60, step: 1, unit: .multiplier, code: "TabTunables.autoscrollGain")
-    public static let hoverCardMinimumDelay = Tunable<Double>.number(
-        "tabs.hoverCard.minimumDelay", .hover, "Hover card delay (narrow tabs)", help: "Delay over the narrowest tabs.",
-        default: 0, range: 0...2, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMinimumDelay")
-    public static let hoverCardMaximumDelay = Tunable<Double>.number(
-        "tabs.hoverCard.maximumDelay", .hover, "Hover card delay (wide tabs)", help: "Delay over full-width tabs.",
-        default: 0, range: 0...3, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMaximumDelay")
+    // @intent Leo 2026-10-14 asked for Hover Previews: Compact / Full. A tunable until the settings
+    // freeze lifts; the persisted `tabs.hoverPreviews` setting is the follow-up.
+    public static let hoverPreviews = Tunable<TabHoverPreviews>.choice(
+        "tabs.hoverPreviews", .tabs, "Tab hover previews",
+        help: "Full shows a thumbnail on a tab's hover card; Compact shows only its facts.",
+        default: .full, code: "TabTunables.hoverPreviews")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
-            + [separators.descriptor, separatorOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor]
-            + [hoverCardMinimumDelay, hoverCardMaximumDelay].map(\.descriptor)
+            + [separators.descriptor, separatorOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
+               hoverPreviews.descriptor]
     }
 }

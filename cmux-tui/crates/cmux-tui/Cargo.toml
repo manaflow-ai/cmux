@@ -69,6 +69,8 @@ unicode-width.workspace = true
 unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
+regex.workspace = true
 toml.workspace = true
 base64.workspace = true
 getrandom.workspace = true
@@ -111,6 +113,9 @@ async-trait.workspace = true
 # sockets to the cmux Cloud API. Both are already in the graph via acpmux.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# cmux NEXT's Chief home adoption copies live SQLite databases with
+# `VACUUM INTO` (build_adopt/copy.rs); already in the graph via cmux-tui-core.
+rusqlite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
