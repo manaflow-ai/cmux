@@ -113,7 +113,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public var thumbnailURL: URL? {
         switch self {
         case .art(let art): return art.thumbnailURL
-        case .system(let path): return appleWallpaper(path).map(\.thumbnail) ?? imageURL
+        case .system(let path): return appleWallpaper(path, downloads: false).map(\.thumbnail) ?? imageURL
         case .file, .desktop: return imageURL
         }
     }
@@ -192,9 +192,11 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     }
 
     /// The macOS wallpaper a `.madesktop` description names (other system files are pictures).
-    private func appleWallpaper(_ path: String) -> AppleWallpaper? {
+    /// `downloads` looks for its full picture; a thumbnail needs none.
+    private func appleWallpaper(_ path: String, downloads: Bool = true) -> AppleWallpaper? {
         guard path.lowercased().hasSuffix(".madesktop") || path.contains("/Desktop Pictures/") else { return nil }
-        return AppleWallpaper(path: path, assets: path.lowercased().hasSuffix(".madesktop") ? AppleWallpaperAssets() : .none)
+        let described = downloads && path.lowercased().hasSuffix(".madesktop")
+        return AppleWallpaper(path: path, assets: described ? .recent() : .none)
     }
 
     /// Decodes a persisted selection, accepting the legacy `backdropArt` value.

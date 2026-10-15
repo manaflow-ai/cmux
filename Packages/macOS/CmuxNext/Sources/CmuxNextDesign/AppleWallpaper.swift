@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// One macOS wallpaper as the Wallpaper pane lists it: a picture file in Desktop Pictures, or a
 /// `.madesktop` description of one that macOS downloads when the person first picks it. Read
@@ -114,4 +115,18 @@ public nonisolated struct AppleWallpaperAssets: Sendable {
 
     /// The downloaded picture named `name`, if any.
     public func file(named name: String) -> URL? { files[name] }
+
+    /// The system folders' pictures, listed again once the last list is a few seconds old: a
+    /// window reads its wallpaper several times per change and the picker once per tile, while a
+    /// download in System Settings shows up soon after.
+    public static func recent(now: Date = Date()) -> AppleWallpaperAssets {
+        recentList.withLock { last in
+            if let last, now.timeIntervalSince(last.listed) < 5, now >= last.listed { return last.assets }
+            let assets = AppleWallpaperAssets()
+            last = (now, assets)
+            return assets
+        }
+    }
+
+    private static let recentList = OSAllocatedUnfairLock<(listed: Date, assets: AppleWallpaperAssets)?>(initialState: nil)
 }
