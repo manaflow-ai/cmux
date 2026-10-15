@@ -160,13 +160,15 @@ pub(super) fn resource(
     }
 }
 
-/// Opens the session daemon's `session.events` stream and calls `on_wake`
-/// with each item (its initial snapshot first), and with `None` after each
+/// Opens the session daemon's `session.events` stream, from `cursor` when
+/// given, and calls `on_wake` with each item (its initial snapshot first, or
+/// the journal batches after `cursor`), and with `None` after each
 /// `tick` without one, until `on_wake` returns `true`, the stream ends or
 /// `deadline` passes. Blocking reads bounded by the tick; the daemon is
 /// never polled, and dropping the connection ends the stream.
 pub(super) fn session_events(
     global: &GlobalArgs,
+    cursor: Option<&Value>,
     deadline: Instant,
     tick: Duration,
     on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
@@ -182,6 +184,9 @@ pub(super) fn session_events(
         resolve: Vec::new(),
         view: ResponseView::Full,
     };
+    if let Some(cursor) = cursor {
+        plan.params["cursor"] = cursor.clone();
+    }
     resolve::apply_global_route(global, &mut plan.params)
         .map_err(|error| local("usage.invalid", error.into()))?;
     let request = wire::request_value(&plan).map_err(|error| local("usage.invalid", error.0))?;
