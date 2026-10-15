@@ -519,3 +519,100 @@ def flow_edits_artifacts():
         return out
     finally:
         pq.rec_stop()
+
+
+def pending_permission(sid):
+    r = acp("_acpmux/events", {"sessionId": sid, "after": 0, "limit": 1000})
+    ids = []
+    for e in (r.get("result") or {}).get("events", []):
+        if e.get("kind") == "permission_request":
+            ids.append(e["msg"].get("permissionId"))
+        if e.get("kind") == "permission_decision":
+            ids = [i for i in ids if i != e["msg"].get("permissionId")]
+    return ids[-1] if ids else None
+
+
+def flow_feed_permission():
+    """A permission in the Feed: only Allow once and Deny; answered on the Mac first, the
+    phone's tap closes the card as answered there (not an error)."""
+    folder = proj()
+    trust(folder)
+    before = {x.get("sessionId") for x in sessions()}
+    s, m, j = pq.ctx()
+    pq.open_workspace(j)
+    out = {}
+    pq.rec_start("feed-permission")
+    try:
+        pq.plus_menu(j, "New Agent Chat")
+        opened, toast = pq.wait_opened(j, 120)
+        check(not toast, f"start refused: {toast}")
+        type_send(j, "Use your Bash tool to run: echo p3feed > p3feed.txt. Then reply DONE-FEED")
+        sid = wait_for(lambda: next((x["sessionId"] for x in sessions() if x.get("sessionId") not in before), None), "session", 30)[0]
+        wait_for(lambda: (session(sid) or {}).get("pendingPermissions"), "the permission", 90)
+        j.back_to_list()
+        j.tab("Feed")
+        time.sleep(3)
+        pq.shot("feed-permission")
+        card = s.wait(ident="feed.permission.pending", timeout=20)
+        btns = [e.label for e in s.find(kind="Button")]
+        out["feed_buttons"] = [b for b in btns if b and any(w in b for w in ("Allow", "Deny", "Always", "session"))]
+        pid = pending_permission(sid)
+        # acpmux accepts an Allow only from the cmux app's person connection (never a script);
+        # a Deny from the Mac's own socket answers it there all the same.
+        out["mac_answer"] = json.dumps(acp("_acpmux/permission_respond", {"sessionId": sid, "permissionId": pid, "optionId": "reject_once"}))[:200]
+        wait_for(lambda: not (session(sid) or {}).get("pendingPermissions"), "the Mac's answer", 20)
+        allow = s.find(label="Allow once", kind="Button")
+        check(allow, f"no Allow once in the Feed (card {bool(card)}): {btns[:20]}")
+        s.tap_el(allow[0])
+        time.sleep(1.5)
+        face_id(True)
+        hit, took = wait_for(lambda: s.find(contains="Already answered"), "Already answered on your Mac", 20)
+        out["phone_after"] = hit[0].label
+        out["errors"] = [e.label for e in s.find() if e.label and ("rror" in e.label or "no pending" in e.label)]
+        pq.shot("feed-answered-elsewhere")
+        out["file"] = pq.rsh(f"cat {folder}/p3feed.txt").stdout.strip()
+        return out
+    finally:
+        pq.rec_stop()
+
+
+def flow_answered_on_mac_in_chat():
+    """A permission open in the phone's chat is answered on the Mac (a Deny from its socket):
+    the chat's bar must close on its own; a late tap must not error."""
+    folder = proj()
+    trust(folder)
+    before = {x.get("sessionId") for x in sessions()}
+    s, m, j = pq.ctx()
+    pq.open_workspace(j)
+    out = {}
+    pq.rec_start("answered-on-mac-chat")
+    try:
+        pq.plus_menu(j, "New Agent Chat")
+        opened, toast = pq.wait_opened(j, 120)
+        check(not toast, f"start refused: {toast}")
+        type_send(j, "Use your Bash tool to run: echo p3mac > p3mac.txt. Then reply DONE-MAC")
+        sid = wait_for(lambda: next((x["sessionId"] for x in sessions() if x.get("sessionId") not in before), None), "session", 30)[0]
+        wait_for(lambda: (session(sid) or {}).get("pendingPermissions"), "the permission", 90)
+        wait_for(lambda: s.find(label="Allow once", kind="Button"), "the bar on the phone", 20)
+        pq.shot("mac-answer-before")
+        pid = pending_permission(sid)
+        acp("_acpmux/permission_respond", {"sessionId": sid, "permissionId": pid, "optionId": "reject_once"})
+        t0 = time.time()
+        gone = None
+        while time.time() - t0 < 20:
+            if not s.find(label="Allow once", kind="Button"):
+                gone = round(time.time() - t0, 1)
+                break
+            time.sleep(0.5)
+        out["bar_closed_after_s"] = gone
+        pq.shot("mac-answer-after")
+        if gone is None:
+            s.tap_el(s.find(label="Allow once", kind="Button")[0])
+            time.sleep(1.5)
+            face_id(True)
+            time.sleep(3)
+            out["after_late_tap"] = [e.label for e in s.find() if e.label and ("nswered" in e.label or "rror" in e.label or "pending" in e.label)]
+            pq.shot("mac-answer-late-tap")
+        return out
+    finally:
+        pq.rec_stop()
