@@ -1,7 +1,7 @@
 // The New Tab page chooses its style (Leo 2026-10-13: the old template dots looked, clicked and
 // moved badly, but choosing the style was good; 10-14: the dots again, #20473, and every look he
-// compared ships as a Labs option). The switch draws one of five looks (Settings > Labs
-// `labs.newTabStyle`, sent as `styleSwitch`): round dots that name the one pointed at (the default),
+// compared is an opt-in Debug Settings look). The switch draws one of five looks (Debug Settings
+// `newTab.styleSwitch`, sent as `styleSwitch`): round dots that name the one pointed at (the default),
 // the chip dots that name a pick for a moment, those dots as they were before #20127, a strip of
 // small layout glyphs, or #20336's names. Every look is the same native radio group: arrow keys move
 // between the styles, a pick is saved as `tabs.newTabTemplate` (`newTab.setTemplate`) and shown in

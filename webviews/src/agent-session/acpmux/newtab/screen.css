@@ -271,7 +271,7 @@
   height: 24px;
 }
 /* The style switch (StyleSwitch.tsx): one quiet row under the page, its look `data-look` (Settings >
-   Labs labs.newTabStyle). Out of the flow, in the pages' bottom padding (24px), so the pages lay out
+   Debug Settings newTab.styleSwitch). Out of the flow, in the pages' bottom padding (24px), so the pages lay out
    (and scroll) as without it. Each radio fills its option's target, unseen (the pane does not load
    ui.css, and a native dot drew beside every style, cg-design-judge). */
 .nt-style{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);margin:0;padding:0;border:0;min-width:0;font-family:system-ui;-webkit-font-smoothing:antialiased}

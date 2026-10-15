@@ -195,7 +195,7 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue,
-            styleSwitch: services.settings?.snapshot.newTabStyle.rawValue
+            styleSwitch: NewTabTunables.styleSwitch.override?.rawValue
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
     }
 
@@ -207,7 +207,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue,
-            styleSwitch: services.settings?.snapshot.newTabStyle.rawValue
+            styleSwitch: NewTabTunables.styleSwitch.override?.rawValue
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
     }
 

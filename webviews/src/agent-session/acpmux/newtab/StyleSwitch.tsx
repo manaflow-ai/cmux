@@ -1,5 +1,5 @@
 // The New Tab page's style switch: choosing the page's style, in one quiet row under the page that
-// never changes size or place. Its look is Settings > Labs `labs.newTabStyle` (Leo 2026-10-14: every
+// never changes size or place. Its look is Debug Settings `newTab.styleSwitch` (Leo 2026-10-14: every
 // look ships as an opt-in; templates.ts STYLE_SWITCHES):
 // - round (the default, #20473): one small round dot per style, the current one in the accent (a dot
 //   that slides to a new pick) and the rest dim; a pointer over a dot shows its name over it, and a

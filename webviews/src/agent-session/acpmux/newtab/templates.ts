@@ -56,7 +56,7 @@ export function pageStyle(template: NewTabTemplate): PageStyle {
   return template === "terminal" ? "default" : template;
 }
 
-/// The style switch's looks (Settings > Labs `labs.newTabStyle`, sent as `styleSwitch`): round
+/// The style switch's looks (Debug Settings `newTab.styleSwitch`, sent as `styleSwitch`): round
 /// dots that name the one pointed at (#20473, the default), the chip dots that name a pick for a
 /// moment, the dots as they were before #20127, a strip of small layout glyphs, and the style
 /// names of #20336.
