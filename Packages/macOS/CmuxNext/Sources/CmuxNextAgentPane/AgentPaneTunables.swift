@@ -62,6 +62,14 @@ public nonisolated struct AgentPaneTunables {
         }
     }
 
+    /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
+    /// beside it.
+    /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
+    public static let sideSessions = Tunable<Bool>.toggle(
+        "agentPane.debug.sideSessions", PageTunables.section, "Side sessions (/btw)",
+        help: "The composer's /btw opens a read-only side session beside the chat.",
+        default: false, code: "AgentPaneTunables.sideSessions")
+
     /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
     /// the transcript's view folds to one line that opens to its text. Off keeps every thought in
     /// full (Leo 2026-10-13, #20330) until Leo picks the default. New agent tabs read it.
@@ -127,5 +135,13 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor] }
+    /// The composer's reasoning menu draws a stepped slider from Faster to Smarter instead of its
+    /// list of levels (an opt-in look, off by default). Unlike the fold above it applies live: it reaches every
+    /// agent page as the `composer` event's `reasoningSlider` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let reasoningSlider = Tunable<Bool>.toggle(
+        "agent.reasoningSlider", PageTunables.section, "Reasoning slider in the composer",
+        help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
+        default: false, code: "AgentPaneTunables.reasoningSlider")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }

@@ -106,7 +106,7 @@ public final class SidebarView: NSView {
             for token in clipObservers { NotificationCenter.default.removeObserver(token) }
         }
     }
-    override public var isFlipped: Bool { true }
+    nonisolated override public var isFlipped: Bool { true }
     // MARK: Public API
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.

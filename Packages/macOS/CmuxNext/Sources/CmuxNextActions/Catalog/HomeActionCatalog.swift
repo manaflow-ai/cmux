@@ -36,11 +36,12 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             // The channels Home (webviews/src/pages/home-channels) as a tab next to the native
-            // Home, over the same Home data, so both can be open at once.
+            // Home, over the same Home data, so both can be open at once. Only while Channels is
+            // enabled (hq-6d 2026-10-15): hidden from the palette and menus and refused otherwise.
             ActionDescriptor(
                 id: "home.channels", title: t("action.home.channels", "Open Channels"),
                 keywords: ["home", "channels", "threads", "direct messages", "conversations", "messages"],
-                category: .window, symbol: "number", surfaces: [.palette, .menu], cliName: "home channels",
+                category: .window, symbol: "number", surfaces: [.palette, .menu], requires: [.homeChannelsEnabled], cliName: "home channels",
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
