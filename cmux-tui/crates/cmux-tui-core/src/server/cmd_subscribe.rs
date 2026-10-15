@@ -155,6 +155,20 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A Chief change only to the person's own connection that
+                // asked for it in set-client-info (`chief-events-v1`): never
+                // to a bound agent, which chief.profile.list may refuse.
+                MuxEvent::Conversation(event)
+                    if event.is_chief()
+                        && (event_mux.conversation_principal(client)
+                            != crate::conversation_store::LOCAL_USER
+                            || !event_mux.control_clients.supports_capability(
+                                client,
+                                super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
+                            )) =>
+                {
+                    continue;
+                }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
                 MuxEvent::CloudConversation(_) if !conversation_client => {
@@ -252,7 +266,9 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "retry_after_ms": retry_after_ms,
             "reservation_id": reservation_id,
         }),
-        MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
+        MuxEvent::SurfaceExited(id, end) => {
+            json!({"event": "surface-exited", "surface": id, "end": end.as_deref()})
+        }
         MuxEvent::SizeStateChanged { surface, runtime, state } => {
             size_state_event_json(*surface, *runtime, state, None)
         }

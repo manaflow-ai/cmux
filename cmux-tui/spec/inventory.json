@@ -812,6 +812,12 @@
       ]
     },
     {
+      "name": "chief-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "personal-changed",
       "streams": [
         "subscribe"

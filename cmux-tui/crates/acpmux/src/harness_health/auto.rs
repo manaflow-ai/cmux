@@ -104,6 +104,10 @@ impl HealthService {
     /// (one at a time, each command once, and not again for the same versions),
     /// and returns the ids it ran for. Callers wait for a run already going.
     pub async fn run_auto_updates(&self) -> Vec<String> {
+        // A build session with agent launches off changes no installed CLI (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            return Vec::new();
+        }
         let _one = self.updating.lock().await;
         let mut done: BTreeMap<Vec<String>, AutoUpdateResult> = BTreeMap::new();
         let mut ran = Vec::new();
