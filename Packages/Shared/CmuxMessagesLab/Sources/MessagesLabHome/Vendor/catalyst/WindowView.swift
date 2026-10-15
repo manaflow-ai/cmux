@@ -746,6 +746,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 _ = self.layout.rebaseIfNeeded(force: true)
                 self.layout.invalidateLayout()
                 self.restore(anchor)
+                // Exact off-main measurements can change row heights after the normal
+                // engine/layout callback. Refresh host overlays from the settled geometry too;
+                // Chief's header band must cover rows that reflow under it.
+                self.onGeometryChange()
             }
         }
     }
@@ -2384,6 +2388,7 @@ extension MessagesWindowView {
         let residual = newOffset - collection.contentOffset.y
         collection.setNeedsLayout(); collection.layoutIfNeeded()
         refreshVisibleCells()
+        onGeometryChange()
         let tFold3 = CACurrentMediaTime()
         defer {
             LongTextStats.lastFoldMs = ["model": (tFold1 - tFold0) * 1000, "offset": (tFold2 - tFold1) * 1000,
@@ -2514,6 +2519,7 @@ extension MessagesWindowView {
         collection.setNeedsLayout(); collection.layoutIfNeeded()
         refreshVisibleCells()
         updateThumb()
+        onGeometryChange()
         CATransaction.commit()
     }
 }
