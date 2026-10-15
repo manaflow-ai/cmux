@@ -2194,12 +2194,17 @@ export class AcpmuxDirectClient {
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
   /// install from the Harnesses page).
   async harnessHealth(id: string, options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown> {
+    const rows = await this.harnessHealthRows(options);
+    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+  }
+  /// Every harness's health row from this Mac's acpmux (`_acpmux/harness/health`): its last check
+  /// unless `refresh`; the model picker's rail reads which ones are signed out (cx-ae9eb).
+  async harnessHealthRows(options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown[]> {
     const reply = await this.request("_acpmux/harness/health", {
       ...(options.refresh ? { refresh: true } : {}),
       ...(options.rescan ? { rescan: true } : {}),
     });
-    const rows: unknown[] = Array.isArray(reply?.harnesses) ? reply.harnesses : [];
-    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+    return Array.isArray(reply?.harnesses) ? reply.harnesses : [];
   }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
@@ -2882,6 +2887,8 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    // A terminal harness (Muse Code) runs in a terminal tab, never as a chat: no picker lists it.
+    ...(harness.kind === "terminal" ? { pickable: false } : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
