@@ -665,14 +665,20 @@ export function ModelPicker(props: ModelPickerProps) {
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
   return (
-    <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
+    <span
+      ref={root}
+      className="acpmux-picker acpmux-model"
+      style={{ position: "relative" }}
+      // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
+      {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
+    >
       <PickerButton
         ref={trigger}
         type="button"
         className="acpmux-picker-button"
         data-menu={modelText}
         aria-label={modelText}
-        title={usage ? `${chipTitle} · ${usage}` : chipTitle}
+        title={usage ? `${chipLabel} · ${usage}` : undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}

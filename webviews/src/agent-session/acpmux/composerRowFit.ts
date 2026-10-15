@@ -160,12 +160,34 @@ function show(bar: HTMLElement, step: number): void {
   if (step === 0) delete bar.dataset.fitExtra;
   else bar.dataset.fitExtra = String(step);
   const forms = fitForms(paneWidth(bar), step);
+  nameIcons(bar, forms);
   for (const unit of UNITS) {
     const name = `data-fit-${unit}`;
     const form = forms[unit];
     if (form === "full") {
       if (bar.hasAttribute(name)) bar.removeAttribute(name);
     } else if (bar.getAttribute(name) !== form) bar.setAttribute(name, form);
+  }
+}
+
+/** A control whose label the row folds to its glyph names itself in a tooltip then, and only then
+ *  (a tooltip names a control that shows no text): its wrapper's `data-fit-title`, on its button,
+ *  while its unit (`data-fit-title-unit`) is in its icon form. */
+function nameIcons(bar: HTMLElement, forms: Forms): void {
+  for (const wrapper of bar.querySelectorAll<HTMLElement>("[data-fit-title]")) {
+    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button");
+    const name = wrapper.dataset.fitTitle ?? "";
+    if (!button) continue;
+    const iconOnly = forms[wrapper.dataset.fitTitleUnit as FitUnit] === "icon";
+    // `data-fit-titled` holds the tooltip this wrote; a title the page set itself is left alone.
+    const ours = button.dataset.fitTitled;
+    if (iconOnly && name && (ours !== undefined || !button.title)) {
+      if (button.title !== name) button.title = name;
+      button.dataset.fitTitled = name;
+    } else if (ours !== undefined) {
+      if (button.title === ours) button.removeAttribute("title");
+      delete button.dataset.fitTitled;
+    }
   }
 }
 
@@ -193,7 +215,7 @@ export function useRowFit(bar: RefObject<HTMLElement | null>): void {
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ["data-label", "data-fit-forms", "aria-pressed"],
+      attributeFilter: ["data-label", "data-fit-forms", "data-fit-title", "aria-pressed"],
     });
     return () => {
       resize.disconnect();

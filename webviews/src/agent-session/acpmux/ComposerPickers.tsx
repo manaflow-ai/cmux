@@ -694,15 +694,14 @@ function AccessMenu({
     setOpen(false);
   };
   return (
-    <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
+    <span
+      className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+      // A narrow row shows the glyph alone; the row's fit names the mode in a tooltip then (composerRowFit.ts).
+      data-fit-title={currentMode?.name ?? label}
+      data-fit-title-unit="access"
+    >
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton
-          className="acpmux-picker-button acpmux-access-trigger"
-          label={label}
-          // A narrow row shows the glyph alone (composerRowFit.ts): the tooltip names the mode.
-          title={currentMode?.name ?? label}
-          aria-haspopup="menu"
-        >
+        <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
           <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
             {currentMode?.name ?? label}
