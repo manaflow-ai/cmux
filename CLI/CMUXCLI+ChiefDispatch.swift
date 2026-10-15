@@ -25,7 +25,8 @@ extension CMUXCLI {
           --worktree <repo>      First run `git -C <repo> worktree add -b <branch> <repo>-<slug>`
                                  and start the agent there. <slug> comes from the title.
           --branch <name>        The new branch for --worktree (default: <slug>).
-          --focus, --no-focus    Switch to the new workspace or stay where you are.
+          --focus, --no-focus    Switch to the new workspace, or stay where you are. By default it
+                                 switches only when a person runs the command in a terminal.
           --wait-working         Wait until the terminal shows the agent working
                                  (Codex "Working (…)", a Claude Code spinner row).
           --timeout <seconds>    How long --wait-working waits (default 60, max 600).
@@ -46,7 +47,7 @@ extension CMUXCLI {
         jsonOutput: Bool,
         windowOverride: String?
     ) throws {
-        if hasHelpRequest(beforeSeparator: args) {
+        if ChiefDispatchOptions.isHelpRequest(args) {
             print(Self.chiefDispatchUsage)
             return
         }
@@ -72,9 +73,9 @@ extension CMUXCLI {
         let prompt = try ChiefDispatchOptions.normalizedPrompt(rawPrompt)
         let title = options.title(prompt: prompt)
 
-        var directory = options.cwd.map(resolvePath)
+        var directory = options.cwd.map { resolvePath($0) }
         var worktree: (path: String, branch: String)?
-        if let repo = options.worktreeRepo.map(resolvePath) {
+        if let repo = options.worktreeRepo.map({ resolvePath($0) }) {
             let slug = ChiefDispatchPlan.slug(options.branch ?? title)
             let branch = options.branch ?? slug
             let path = ChiefDispatchPlan.worktreePath(repo: repo, slug: slug)

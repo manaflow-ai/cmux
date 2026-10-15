@@ -69,7 +69,7 @@ extension CMUXCLI {
         environment: [String: String],
         bundleIdentifier: String?
     ) throws {
-        if commandArgs.first?.lowercased() == "dispatch", hasHelpRequest(beforeSeparator: commandArgs) {
+        if commandArgs.first?.lowercased() == "dispatch", ChiefDispatchOptions.isHelpRequest(Array(commandArgs.dropFirst())) {
             print(Self.chiefDispatchUsage)
             return
         }
@@ -110,7 +110,10 @@ extension CMUXCLI {
     /// Whether `cmux chief <args>` needs the socket (the top-level dispatch
     /// routes those to ``runChiefSocketCommand(commandArgs:client:jsonOutput:windowOverride:)``).
     func chiefCommandNeedsSocket(_ commandArgs: [String]) -> Bool {
-        guard !hasHelpRequest(beforeSeparator: commandArgs), let verb = commandArgs.first?.lowercased() else { return false }
+        guard let verb = commandArgs.first?.lowercased() else { return false }
+        // A dispatch task may mention --help after `--`; only its own flags ask for help.
+        if verb == "dispatch" { return !ChiefDispatchOptions.isHelpRequest(Array(commandArgs.dropFirst())) }
+        guard !hasHelpRequest(beforeSeparator: commandArgs) else { return false }
         return Self.chiefSocketSubcommands.contains(verb)
     }
 

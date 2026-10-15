@@ -59,12 +59,15 @@ struct ChiefDispatchOptions: Equatable {
     var timeout = ChiefDispatchOptions.defaultTimeout
     var prompt: ChiefDispatchPromptSource = .words("")
 
-    /// The flags that read a value, in both `--flag value` and `--flag=value` forms.
-    static let valueFlags: Set<String> = [
-        "--agent", "--name", "--cwd", "--worktree", "--branch", "--agent-arg", "--prompt-file", "--timeout",
-    ]
+    /// Whether the arguments after `cmux chief dispatch` ask for help: `--help`
+    /// or `-h` before `--`, so a task that mentions either still dispatches.
+    static func isHelpRequest(_ args: [String]) -> Bool {
+        let flags = args.firstIndex(of: "--").map { args[..<$0] } ?? args[...]
+        return flags.contains("--help") || flags.contains("-h")
+    }
 
-    /// Parses the arguments after `cmux chief dispatch`.
+    /// Parses the arguments after `cmux chief dispatch`. Value flags take
+    /// `--flag value` or `--flag=value`; everything after `--` is the task.
     static func parse(_ args: [String]) throws -> ChiefDispatchOptions {
         var options = ChiefDispatchOptions()
         var words: [String] = []
@@ -123,7 +126,7 @@ struct ChiefDispatchOptions: Equatable {
             case "--branch":
                 options.branch = try value()
             case "--agent-arg":
-                options.agentArguments.append(try value())
+                try options.agentArguments.append(value())
             case "--prompt-file":
                 promptFile = try value()
             case "--timeout":

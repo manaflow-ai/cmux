@@ -655992,55 +655992,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown chief subcommand. Try: open, send, status, conversations, read, stop, approve, home, memory"
+            "value": "Unknown chief subcommand. Try: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unbekannter chief-Unterbefehl. Versuche: open, send, status, conversations, read, stop, approve, home, memory"
+            "value": "Unbekannter chief-Unterbefehl. Versuche: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sous-commande chief inconnue. Essayez : open, send, status, conversations, read, stop, approve, home, memory"
+            "value": "Sous-commande chief inconnue. Essayez : open, dispatch, send, status, conversations, read, stop, approve, home, memory"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أمر chief فرعي غير معروف. جرّب: open, send, status, conversations, read, stop, approve, home, memory"
+            "value": "أمر chief فرعي غير معروف. جرّب: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subcomando de chief desconocido. Prueba: open, send, status, conversations, read, stop, approve, home, memory"
+            "value": "Subcomando de chief desconocido. Prueba: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 chief 子命令。可試試：open、send、status、conversations、read、stop、approve、home、memory"
+            "value": "未知的 chief 子命令。可試試：open、dispatch、send、status、conversations、read、stop、approve、home、memory"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 chief 子命令。可尝试：open、send、status、conversations、read、stop、approve、home、memory"
+            "value": "未知的 chief 子命令。可尝试：open、dispatch、send、status、conversations、read、stop、approve、home、memory"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알 수 없는 chief 하위 명령입니다. 사용 가능: open, send, status, conversations, read, stop, approve, home, memory"
+            "value": "알 수 없는 chief 하위 명령입니다. 사용 가능: open, dispatch, send, status, conversations, read, stop, approve, home, memory"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明な chief サブコマンドです。使用できるもの: open、send、status、conversations、read、stop、approve、home、memory"
+            "value": "不明な chief サブコマンドです。使用できるもの: open、dispatch、send、status、conversations、read、stop、approve、home、memory"
           }
         }
       }
@@ -656523,55 +656523,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux chief <subcommand> [options]\n\nChief, cmux's home agent: its conversations, home directory and long-term memory.\n\nSubcommands (need a running cmux):\n  open                       Show Chief Home in this window.\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Send a message as you, like typing it in Home (- reads stdin).\n                             With --from, post it as a report from an agent named <name>;\n                             Chief answers it unless --no-reply is given.\n  status [--json]            Print the harness, model, unread count and working conversations.\n  conversations [--json]     List Chief conversations.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Print the newest messages (default 20).\n  stop [--conversation <id>] Stop Chief's running reply.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Answer Chief's approval card (default: allow the newest waiting one).\n                             DEBUG builds only; release builds answer cards in Home.\n\nSubcommands (work without a running cmux):\n  home                       Print the Chief home directory.\n  memory add <text|->        Save one fact Chief should remember (- reads stdin).\n  memory list [--json]       List saved facts, oldest first, with their ids.\n  memory forget <id>         Remove a saved fact.\n  memory path [--json]       Print the memory directory and its files\n                             (person.md, instructions.md, memory.jsonl).\n\nWithout --conversation, commands use the default Chief conversation.\nMemory never stores secrets: text that looks like a token, key or password is refused.\nThe home is $CMUX_CHIEF_HOME, else ~/.cmux/chief/<app bundle id>.\n\nExamples:\n  cmux chief send \"What are my agents doing?\"\n  cmux chief send --from \"build bot\" \"Release build finished\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Their build machine is brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Usage: cmux chief <subcommand> [options]\n\nChief, cmux's home agent: its conversations, home directory and long-term memory.\n\nSubcommands (need a running cmux):\n  open                       Show Chief Home in this window.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Start one coding agent on one task in a new workspace\n                             (`cmux chief dispatch --help` for every option).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Send a message as you, like typing it in Home (- reads stdin).\n                             With --from, post it as a report from an agent named <name>;\n                             Chief answers it unless --no-reply is given.\n  status [--json]            Print the harness, model, unread count and working conversations.\n  conversations [--json]     List Chief conversations.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Print the newest messages (default 20).\n  stop [--conversation <id>] Stop Chief's running reply.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Answer Chief's approval card (default: allow the newest waiting one).\n                             DEBUG builds only; release builds answer cards in Home.\n\nSubcommands (work without a running cmux):\n  home                       Print the Chief home directory.\n  memory add <text|->        Save one fact Chief should remember (- reads stdin).\n  memory list [--json]       List saved facts, oldest first, with their ids.\n  memory forget <id>         Remove a saved fact.\n  memory path [--json]       Print the memory directory and its files\n                             (person.md, instructions.md, memory.jsonl).\n\nWithout --conversation, commands use the default Chief conversation.\nMemory never stores secrets: text that looks like a token, key or password is refused.\nThe home is $CMUX_CHIEF_HOME, else ~/.cmux/chief/<app bundle id>.\n\nExamples:\n  cmux chief send \"What are my agents doing?\"\n  cmux chief send --from \"build bot\" \"Release build finished\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Their build machine is brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux chief <subcommand> [options]\n\nChief, der Home-Agent von cmux: seine Unterhaltungen, sein Home-Verzeichnis und sein Langzeitgedächtnis.\n\nUnterbefehle (benötigen ein laufendes cmux):\n  open                       Zeigt Chief Home in diesem Fenster.\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Sendet eine Nachricht in deinem Namen, als würdest du sie in Home eingeben (- liest stdin).\n                             Mit --from wird sie als Bericht eines Agenten namens <name> gepostet;\n                             Chief antwortet darauf, außer --no-reply ist angegeben.\n  status [--json]            Gibt Harness, Modell, Anzahl ungelesener Nachrichten und aktive Unterhaltungen aus.\n  conversations [--json]     Listet Chief-Unterhaltungen auf.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Gibt die neuesten Nachrichten aus (Standard: 20).\n  stop [--conversation <id>] Stoppt die laufende Antwort von Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Beantwortet die Freigabekarte von Chief (Standard: die neueste wartende erlauben).\n                             Nur in DEBUG-Builds; Release-Builds beantworten Karten in Home.\n\nUnterbefehle (funktionieren ohne laufendes cmux):\n  home                       Gibt das Chief-Home-Verzeichnis aus.\n  memory add <text|->        Speichert einen Fakt, den Chief sich merken soll (- liest stdin).\n  memory list [--json]       Listet gespeicherte Fakten auf, älteste zuerst, mit ihren IDs.\n  memory forget <id>         Entfernt einen gespeicherten Fakt.\n  memory path [--json]       Gibt das Gedächtnisverzeichnis und seine Dateien aus\n                             (person.md, instructions.md, memory.jsonl).\n\nOhne --conversation verwenden Befehle die Standard-Unterhaltung von Chief.\nDas Gedächtnis speichert niemals Geheimnisse: Text, der wie ein Token, Schlüssel oder Passwort aussieht, wird abgelehnt.\nDas Home ist $CMUX_CHIEF_HOME, sonst ~/.cmux/chief/<app bundle id>.\n\nBeispiele:\n  cmux chief send \"Was machen meine Agenten?\"\n  cmux chief send --from \"build bot\" \"Release-Build abgeschlossen\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Ihre Build-Maschine ist brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Verwendung: cmux chief <subcommand> [options]\n\nChief, der Home-Agent von cmux: seine Unterhaltungen, sein Home-Verzeichnis und sein Langzeitgedächtnis.\n\nUnterbefehle (benötigen ein laufendes cmux):\n  open                       Zeigt Chief Home in diesem Fenster.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Startet einen Coding-Agenten für eine Aufgabe in einem neuen Workspace\n                             (`cmux chief dispatch --help` zeigt alle Optionen).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Sendet eine Nachricht in deinem Namen, als würdest du sie in Home eingeben (- liest stdin).\n                             Mit --from wird sie als Bericht eines Agenten namens <name> gepostet;\n                             Chief antwortet darauf, außer --no-reply ist angegeben.\n  status [--json]            Gibt Harness, Modell, Anzahl ungelesener Nachrichten und aktive Unterhaltungen aus.\n  conversations [--json]     Listet Chief-Unterhaltungen auf.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Gibt die neuesten Nachrichten aus (Standard: 20).\n  stop [--conversation <id>] Stoppt die laufende Antwort von Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Beantwortet die Freigabekarte von Chief (Standard: die neueste wartende erlauben).\n                             Nur in DEBUG-Builds; Release-Builds beantworten Karten in Home.\n\nUnterbefehle (funktionieren ohne laufendes cmux):\n  home                       Gibt das Chief-Home-Verzeichnis aus.\n  memory add <text|->        Speichert einen Fakt, den Chief sich merken soll (- liest stdin).\n  memory list [--json]       Listet gespeicherte Fakten auf, älteste zuerst, mit ihren IDs.\n  memory forget <id>         Entfernt einen gespeicherten Fakt.\n  memory path [--json]       Gibt das Gedächtnisverzeichnis und seine Dateien aus\n                             (person.md, instructions.md, memory.jsonl).\n\nOhne --conversation verwenden Befehle die Standard-Unterhaltung von Chief.\nDas Gedächtnis speichert niemals Geheimnisse: Text, der wie ein Token, Schlüssel oder Passwort aussieht, wird abgelehnt.\nDas Home ist $CMUX_CHIEF_HOME, sonst ~/.cmux/chief/<app bundle id>.\n\nBeispiele:\n  cmux chief send \"Was machen meine Agenten?\"\n  cmux chief send --from \"build bot\" \"Release-Build abgeschlossen\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Ihre Build-Maschine ist brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux chief <subcommand> [options]\n\nChief, l’agent d’accueil de cmux : ses conversations, son répertoire personnel et sa mémoire à long terme.\n\nSous-commandes (nécessitent cmux en cours d’exécution) :\n  open                       Affiche l’accueil de Chief dans cette fenêtre.\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Envoie un message en votre nom, comme si vous le tapiez dans l’accueil (- lit stdin).\n                             Avec --from, le publie comme rapport d’un agent nommé <name> ;\n                             Chief y répond sauf si --no-reply est indiqué.\n  status [--json]            Affiche l’environnement, le modèle, le nombre de non-lus et les conversations en cours.\n  conversations [--json]     Liste les conversations avec Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Affiche les messages les plus récents (20 par défaut).\n  stop [--conversation <id>] Arrête la réponse en cours de Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Répond à la carte d’approbation de Chief (par défaut : autorise la plus récente en attente).\n                             Builds DEBUG uniquement ; les versions publiées répondent aux cartes dans Home.\n\nSous-commandes (fonctionnent sans cmux en cours d’exécution) :\n  home                       Affiche le répertoire personnel de Chief.\n  memory add <text|->        Enregistre un fait que Chief doit retenir (- lit stdin).\n  memory list [--json]       Liste les faits enregistrés, du plus ancien au plus récent, avec leurs identifiants.\n  memory forget <id>         Supprime un fait enregistré.\n  memory path [--json]       Affiche le répertoire de la mémoire et ses fichiers\n                             (person.md, instructions.md, memory.jsonl).\n\nSans --conversation, les commandes utilisent la conversation par défaut de Chief.\nLa mémoire ne stocke jamais de secrets : un texte qui ressemble à un jeton, une clé ou un mot de passe est refusé.\nLe répertoire personnel est $CMUX_CHIEF_HOME, sinon ~/.cmux/chief/<app bundle id>.\n\nExemples :\n  cmux chief send \"Que font mes agents ?\"\n  cmux chief send --from \"build bot\" \"Build de publication terminé\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Sa machine de build est brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Utilisation : cmux chief <subcommand> [options]\n\nChief, l’agent d’accueil de cmux : ses conversations, son répertoire personnel et sa mémoire à long terme.\n\nSous-commandes (nécessitent cmux en cours d’exécution) :\n  open                       Affiche l’accueil de Chief dans cette fenêtre.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Lance un agent de code sur une tâche dans un nouvel espace de travail\n                             (`cmux chief dispatch --help` pour toutes les options).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Envoie un message en votre nom, comme si vous le tapiez dans l’accueil (- lit stdin).\n                             Avec --from, le publie comme rapport d’un agent nommé <name> ;\n                             Chief y répond sauf si --no-reply est indiqué.\n  status [--json]            Affiche l’environnement, le modèle, le nombre de non-lus et les conversations en cours.\n  conversations [--json]     Liste les conversations avec Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Affiche les messages les plus récents (20 par défaut).\n  stop [--conversation <id>] Arrête la réponse en cours de Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Répond à la carte d’approbation de Chief (par défaut : autorise la plus récente en attente).\n                             Builds DEBUG uniquement ; les versions publiées répondent aux cartes dans Home.\n\nSous-commandes (fonctionnent sans cmux en cours d’exécution) :\n  home                       Affiche le répertoire personnel de Chief.\n  memory add <text|->        Enregistre un fait que Chief doit retenir (- lit stdin).\n  memory list [--json]       Liste les faits enregistrés, du plus ancien au plus récent, avec leurs identifiants.\n  memory forget <id>         Supprime un fait enregistré.\n  memory path [--json]       Affiche le répertoire de la mémoire et ses fichiers\n                             (person.md, instructions.md, memory.jsonl).\n\nSans --conversation, les commandes utilisent la conversation par défaut de Chief.\nLa mémoire ne stocke jamais de secrets : un texte qui ressemble à un jeton, une clé ou un mot de passe est refusé.\nLe répertoire personnel est $CMUX_CHIEF_HOME, sinon ~/.cmux/chief/<app bundle id>.\n\nExemples :\n  cmux chief send \"Que font mes agents ?\"\n  cmux chief send --from \"build bot\" \"Build de publication terminé\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Sa machine de build est brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux chief <subcommand> [options]\n\nChief، الوكيل الرئيسي في cmux: محادثاته ودليله الرئيسي وذاكرته طويلة المدى.\n\nالأوامر الفرعية (تتطلب تشغيل cmux):\n  open                       عرض الصفحة الرئيسية لـ Chief في هذه النافذة.\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             إرسال رسالة باسمك، كأنك تكتبها في الصفحة الرئيسية (- يقرأ من stdin).\n                             مع --from، تُنشر كتقرير من وكيل باسم <name>؛\n                             يرد Chief عليها ما لم يُحدَّد --no-reply.\n  status [--json]            طباعة بيئة التشغيل والنموذج وعدد غير المقروء والمحادثات الجارية.\n  conversations [--json]     عرض محادثات Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             طباعة أحدث الرسائل (الافتراضي 20).\n  stop [--conversation <id>] إيقاف الرد الجاري من Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             الرد على بطاقة موافقة Chief (الافتراضي: السماح بأحدث بطاقة منتظرة).\n                             في إصدارات DEBUG فقط؛ إصدارات النشر تجيب عن البطاقات في Home.\n\nالأوامر الفرعية (تعمل دون تشغيل cmux):\n  home                       طباعة الدليل الرئيسي لـ Chief.\n  memory add <text|->        حفظ حقيقة واحدة يجب أن يتذكرها Chief (- يقرأ من stdin).\n  memory list [--json]       عرض الحقائق المحفوظة، الأقدم أولاً، مع معرّفاتها.\n  memory forget <id>         إزالة حقيقة محفوظة.\n  memory path [--json]       طباعة دليل الذاكرة وملفاته\n                             (person.md, instructions.md, memory.jsonl).\n\nبدون --conversation، تستخدم الأوامر محادثة Chief الافتراضية.\nلا تخزّن الذاكرة الأسرار أبدًا: يُرفض النص الذي يشبه رمزًا مميزًا أو مفتاحًا أو كلمة مرور.\nالدليل الرئيسي هو $CMUX_CHIEF_HOME، وإلا ~/.cmux/chief/<app bundle id>.\n\nأمثلة:\n  cmux chief send \"ماذا يفعل وكلائي؟\"\n  cmux chief send --from \"build bot\" \"اكتمل بناء الإصدار\"\n  cmux chief read --limit 5\n  cmux chief memory add \"جهاز البناء الخاص بهم هو brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "الاستخدام: cmux chief <subcommand> [options]\n\nChief، الوكيل الرئيسي في cmux: محادثاته ودليله الرئيسي وذاكرته طويلة المدى.\n\nالأوامر الفرعية (تتطلب تشغيل cmux):\n  open                       عرض الصفحة الرئيسية لـ Chief في هذه النافذة.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             يشغّل وكيل برمجة على مهمة واحدة في مساحة عمل جديدة\n                             (‏`cmux chief dispatch --help` لكل الخيارات).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             إرسال رسالة باسمك، كأنك تكتبها في الصفحة الرئيسية (- يقرأ من stdin).\n                             مع --from، تُنشر كتقرير من وكيل باسم <name>؛\n                             يرد Chief عليها ما لم يُحدَّد --no-reply.\n  status [--json]            طباعة بيئة التشغيل والنموذج وعدد غير المقروء والمحادثات الجارية.\n  conversations [--json]     عرض محادثات Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             طباعة أحدث الرسائل (الافتراضي 20).\n  stop [--conversation <id>] إيقاف الرد الجاري من Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             الرد على بطاقة موافقة Chief (الافتراضي: السماح بأحدث بطاقة منتظرة).\n                             في إصدارات DEBUG فقط؛ إصدارات النشر تجيب عن البطاقات في Home.\n\nالأوامر الفرعية (تعمل دون تشغيل cmux):\n  home                       طباعة الدليل الرئيسي لـ Chief.\n  memory add <text|->        حفظ حقيقة واحدة يجب أن يتذكرها Chief (- يقرأ من stdin).\n  memory list [--json]       عرض الحقائق المحفوظة، الأقدم أولاً، مع معرّفاتها.\n  memory forget <id>         إزالة حقيقة محفوظة.\n  memory path [--json]       طباعة دليل الذاكرة وملفاته\n                             (person.md, instructions.md, memory.jsonl).\n\nبدون --conversation، تستخدم الأوامر محادثة Chief الافتراضية.\nلا تخزّن الذاكرة الأسرار أبدًا: يُرفض النص الذي يشبه رمزًا مميزًا أو مفتاحًا أو كلمة مرور.\nالدليل الرئيسي هو $CMUX_CHIEF_HOME، وإلا ~/.cmux/chief/<app bundle id>.\n\nأمثلة:\n  cmux chief send \"ماذا يفعل وكلائي؟\"\n  cmux chief send --from \"build bot\" \"اكتمل بناء الإصدار\"\n  cmux chief read --limit 5\n  cmux chief memory add \"جهاز البناء الخاص بهم هو brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux chief <subcommand> [options]\n\nChief, el agente de inicio de cmux: sus conversaciones, su directorio de inicio y su memoria a largo plazo.\n\nSubcomandos (requieren cmux en ejecución):\n  open                       Muestra el Inicio de Chief en esta ventana.\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Envía un mensaje en tu nombre, como si lo escribieras en Inicio (- lee stdin).\n                             Con --from, lo publica como un informe de un agente llamado <name>;\n                             Chief lo responde salvo que se indique --no-reply.\n  status [--json]            Muestra el entorno, el modelo, los no leídos y las conversaciones en curso.\n  conversations [--json]     Lista las conversaciones con Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Muestra los mensajes más recientes (20 por omisión).\n  stop [--conversation <id>] Detiene la respuesta en curso de Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Responde a la tarjeta de aprobación de Chief (por defecto: permite la más reciente en espera).\n                             Solo en compilaciones DEBUG; las versiones publicadas responden a las tarjetas en Home.\n\nSubcomandos (funcionan sin cmux en ejecución):\n  home                       Muestra el directorio de inicio de Chief.\n  memory add <text|->        Guarda un dato que Chief debe recordar (- lee stdin).\n  memory list [--json]       Lista los datos guardados, del más antiguo al más reciente, con sus ids.\n  memory forget <id>         Elimina un dato guardado.\n  memory path [--json]       Muestra el directorio de memoria y sus archivos\n                             (person.md, instructions.md, memory.jsonl).\n\nSin --conversation, los comandos usan la conversación predeterminada de Chief.\nLa memoria nunca guarda secretos: se rechaza el texto que parezca un token, una clave o una contraseña.\nEl directorio de inicio es $CMUX_CHIEF_HOME o, si no, ~/.cmux/chief/<app bundle id>.\n\nEjemplos:\n  cmux chief send \"¿Qué están haciendo mis agentes?\"\n  cmux chief send --from \"build bot\" \"Compilación de la versión terminada\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Su máquina de compilación es brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "Uso: cmux chief <subcommand> [options]\n\nChief, el agente de inicio de cmux: sus conversaciones, su directorio de inicio y su memoria a largo plazo.\n\nSubcomandos (requieren cmux en ejecución):\n  open                       Muestra el Inicio de Chief en esta ventana.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             Inicia un agente de programación con una tarea en un espacio de trabajo nuevo\n                             (`cmux chief dispatch --help` para todas las opciones).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             Envía un mensaje en tu nombre, como si lo escribieras en Inicio (- lee stdin).\n                             Con --from, lo publica como un informe de un agente llamado <name>;\n                             Chief lo responde salvo que se indique --no-reply.\n  status [--json]            Muestra el entorno, el modelo, los no leídos y las conversaciones en curso.\n  conversations [--json]     Lista las conversaciones con Chief.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             Muestra los mensajes más recientes (20 por omisión).\n  stop [--conversation <id>] Detiene la respuesta en curso de Chief.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Responde a la tarjeta de aprobación de Chief (por defecto: permite la más reciente en espera).\n                             Solo en compilaciones DEBUG; las versiones publicadas responden a las tarjetas en Home.\n\nSubcomandos (funcionan sin cmux en ejecución):\n  home                       Muestra el directorio de inicio de Chief.\n  memory add <text|->        Guarda un dato que Chief debe recordar (- lee stdin).\n  memory list [--json]       Lista los datos guardados, del más antiguo al más reciente, con sus ids.\n  memory forget <id>         Elimina un dato guardado.\n  memory path [--json]       Muestra el directorio de memoria y sus archivos\n                             (person.md, instructions.md, memory.jsonl).\n\nSin --conversation, los comandos usan la conversación predeterminada de Chief.\nLa memoria nunca guarda secretos: se rechaza el texto que parezca un token, una clave o una contraseña.\nEl directorio de inicio es $CMUX_CHIEF_HOME o, si no, ~/.cmux/chief/<app bundle id>.\n\nEjemplos:\n  cmux chief send \"¿Qué están haciendo mis agentes?\"\n  cmux chief send --from \"build bot\" \"Compilación de la versión terminada\"\n  cmux chief read --limit 5\n  cmux chief memory add \"Su máquina de compilación es brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux chief <subcommand> [options]\n\nChief 是 cmux 的首頁代理：管理它的對話、主目錄和長期記憶。\n\n子命令（需要 cmux 正在執行）：\n  open                       在此視窗中顯示 Chief 首頁。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             以你的身分傳送訊息，就像在首頁中輸入一樣（- 會讀取 stdin）。\n                             使用 --from 時，會以名為 <name> 的代理所提交的報告形式發布；\n                             除非指定 --no-reply，否則 Chief 會回覆。\n  status [--json]            顯示執行框架、模型、未讀數量和進行中的對話。\n  conversations [--json]     列出 Chief 對話。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             顯示最新的訊息（預設 20 則）。\n  stop [--conversation <id>] 停止 Chief 正在進行的回覆。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             回覆 Chief 的核准卡片（預設：允許最新一張等待中的卡片）。\n                             僅限 DEBUG 版本；正式版本請在 Home 中回覆卡片。\n\n子命令（不需要 cmux 正在執行）：\n  home                       顯示 Chief 主目錄。\n  memory add <text|->        儲存一則 Chief 應記住的事實（- 會讀取 stdin）。\n  memory list [--json]       列出已儲存的事實（由舊到新）及其 ID。\n  memory forget <id>         移除一則已儲存的事實。\n  memory path [--json]       顯示記憶目錄及其檔案\n                             （person.md、instructions.md、memory.jsonl）。\n\n未指定 --conversation 時，命令會使用預設的 Chief 對話。\n記憶絕不會儲存機密資訊：看起來像權杖、金鑰或密碼的文字會被拒絕。\n主目錄為 $CMUX_CHIEF_HOME，若未設定則為 ~/.cmux/chief/<app bundle id>。\n\n範例：\n  cmux chief send \"我的代理在做什麼？\"\n  cmux chief send --from \"build bot\" \"發行版建置完成\"\n  cmux chief read --limit 5\n  cmux chief memory add \"他們的建置機器是 brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "用法：cmux chief <subcommand> [options]\n\nChief 是 cmux 的首頁代理：管理它的對話、主目錄和長期記憶。\n\n子命令（需要 cmux 正在執行）：\n  open                       在此視窗中顯示 Chief 首頁。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             在新的工作區中啟動一個程式代理處理一項任務\n                             （所有選項請見 `cmux chief dispatch --help`）。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             以你的身分傳送訊息，就像在首頁中輸入一樣（- 會讀取 stdin）。\n                             使用 --from 時，會以名為 <name> 的代理所提交的報告形式發布；\n                             除非指定 --no-reply，否則 Chief 會回覆。\n  status [--json]            顯示執行框架、模型、未讀數量和進行中的對話。\n  conversations [--json]     列出 Chief 對話。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             顯示最新的訊息（預設 20 則）。\n  stop [--conversation <id>] 停止 Chief 正在進行的回覆。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             回覆 Chief 的核准卡片（預設：允許最新一張等待中的卡片）。\n                             僅限 DEBUG 版本；正式版本請在 Home 中回覆卡片。\n\n子命令（不需要 cmux 正在執行）：\n  home                       顯示 Chief 主目錄。\n  memory add <text|->        儲存一則 Chief 應記住的事實（- 會讀取 stdin）。\n  memory list [--json]       列出已儲存的事實（由舊到新）及其 ID。\n  memory forget <id>         移除一則已儲存的事實。\n  memory path [--json]       顯示記憶目錄及其檔案\n                             （person.md、instructions.md、memory.jsonl）。\n\n未指定 --conversation 時，命令會使用預設的 Chief 對話。\n記憶絕不會儲存機密資訊：看起來像權杖、金鑰或密碼的文字會被拒絕。\n主目錄為 $CMUX_CHIEF_HOME，若未設定則為 ~/.cmux/chief/<app bundle id>。\n\n範例：\n  cmux chief send \"我的代理在做什麼？\"\n  cmux chief send --from \"build bot\" \"發行版建置完成\"\n  cmux chief read --limit 5\n  cmux chief memory add \"他們的建置機器是 brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux chief <subcommand> [options]\n\nChief 是 cmux 的主页智能体：管理它的对话、主目录和长期记忆。\n\n子命令（需要 cmux 正在运行）：\n  open                       在此窗口中显示 Chief 主页。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             以你的身份发送消息，就像在主页中输入一样（- 读取 stdin）。\n                             使用 --from 时，以名为 <name> 的智能体所提交报告的形式发布；\n                             除非指定 --no-reply，否则 Chief 会回复。\n  status [--json]            显示运行框架、模型、未读数量和进行中的对话。\n  conversations [--json]     列出 Chief 对话。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             显示最新消息（默认 20 条）。\n  stop [--conversation <id>] 停止 Chief 正在进行的回复。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             回复 Chief 的批准卡片（默认：允许最新一张等待中的卡片）。\n                             仅限 DEBUG 版本；正式版本请在 Home 中回复卡片。\n\n子命令（无需 cmux 正在运行）：\n  home                       显示 Chief 主目录。\n  memory add <text|->        保存一条 Chief 应记住的事实（- 读取 stdin）。\n  memory list [--json]       列出已保存的事实（从旧到新）及其 ID。\n  memory forget <id>         删除一条已保存的事实。\n  memory path [--json]       显示记忆目录及其文件\n                             （person.md、instructions.md、memory.jsonl）。\n\n未指定 --conversation 时，命令使用默认的 Chief 对话。\n记忆绝不会存储机密信息：看起来像令牌、密钥或密码的文本会被拒绝。\n主目录为 $CMUX_CHIEF_HOME，未设置时为 ~/.cmux/chief/<app bundle id>。\n\n示例：\n  cmux chief send \"我的智能体在做什么？\"\n  cmux chief send --from \"build bot\" \"发布构建已完成\"\n  cmux chief read --limit 5\n  cmux chief memory add \"他们的构建机器是 brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "用法：cmux chief <subcommand> [options]\n\nChief 是 cmux 的主页智能体：管理它的对话、主目录和长期记忆。\n\n子命令（需要 cmux 正在运行）：\n  open                       在此窗口中显示 Chief 主页。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             在新的工作区中启动一个编码代理处理一项任务\n                             （所有选项请见 `cmux chief dispatch --help`）。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             以你的身份发送消息，就像在主页中输入一样（- 读取 stdin）。\n                             使用 --from 时，以名为 <name> 的智能体所提交报告的形式发布；\n                             除非指定 --no-reply，否则 Chief 会回复。\n  status [--json]            显示运行框架、模型、未读数量和进行中的对话。\n  conversations [--json]     列出 Chief 对话。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             显示最新消息（默认 20 条）。\n  stop [--conversation <id>] 停止 Chief 正在进行的回复。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             回复 Chief 的批准卡片（默认：允许最新一张等待中的卡片）。\n                             仅限 DEBUG 版本；正式版本请在 Home 中回复卡片。\n\n子命令（无需 cmux 正在运行）：\n  home                       显示 Chief 主目录。\n  memory add <text|->        保存一条 Chief 应记住的事实（- 读取 stdin）。\n  memory list [--json]       列出已保存的事实（从旧到新）及其 ID。\n  memory forget <id>         删除一条已保存的事实。\n  memory path [--json]       显示记忆目录及其文件\n                             （person.md、instructions.md、memory.jsonl）。\n\n未指定 --conversation 时，命令使用默认的 Chief 对话。\n记忆绝不会存储机密信息：看起来像令牌、密钥或密码的文本会被拒绝。\n主目录为 $CMUX_CHIEF_HOME，未设置时为 ~/.cmux/chief/<app bundle id>。\n\n示例：\n  cmux chief send \"我的智能体在做什么？\"\n  cmux chief send --from \"build bot\" \"发布构建已完成\"\n  cmux chief read --limit 5\n  cmux chief memory add \"他们的构建机器是 brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux chief <subcommand> [options]\n\nChief는 cmux의 홈 에이전트입니다. 대화, 홈 디렉터리, 장기 메모리를 관리합니다.\n\n하위 명령(실행 중인 cmux 필요):\n  open                       이 창에 Chief 홈을 표시합니다.\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             홈에서 입력하는 것처럼 내 이름으로 메시지를 보냅니다(-는 stdin에서 읽음).\n                             --from을 사용하면 <name>이라는 에이전트의 보고로 게시합니다.\n                             --no-reply를 지정하지 않으면 Chief가 답장합니다.\n  status [--json]            하네스, 모델, 읽지 않은 개수, 진행 중인 대화를 출력합니다.\n  conversations [--json]     Chief 대화 목록을 표시합니다.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             최신 메시지를 출력합니다(기본값 20).\n  stop [--conversation <id>] Chief의 진행 중인 답장을 중지합니다.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Chief의 승인 카드에 답합니다(기본값: 가장 최근 대기 중인 카드를 허용).\n                             DEBUG 빌드 전용입니다. 릴리스 빌드에서는 Home에서 카드에 답합니다.\n\n하위 명령(실행 중인 cmux 없이 동작):\n  home                       Chief 홈 디렉터리를 출력합니다.\n  memory add <text|->        Chief가 기억할 사실 하나를 저장합니다(-는 stdin에서 읽음).\n  memory list [--json]       저장된 사실을 오래된 순서로 ID와 함께 표시합니다.\n  memory forget <id>         저장된 사실을 제거합니다.\n  memory path [--json]       메모리 디렉터리와 그 파일을 출력합니다\n                             (person.md, instructions.md, memory.jsonl).\n\n--conversation을 생략하면 명령은 기본 Chief 대화를 사용합니다.\n메모리는 비밀 정보를 절대 저장하지 않습니다. 토큰, 키 또는 비밀번호처럼 보이는 텍스트는 거부됩니다.\n홈은 $CMUX_CHIEF_HOME이며, 없으면 ~/.cmux/chief/<app bundle id>입니다.\n\n예시:\n  cmux chief send \"내 에이전트들은 무엇을 하고 있어?\"\n  cmux chief send --from \"build bot\" \"릴리스 빌드 완료\"\n  cmux chief read --limit 5\n  cmux chief memory add \"이 사용자의 빌드 머신은 brave-otter다\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "사용법: cmux chief <subcommand> [options]\n\nChief는 cmux의 홈 에이전트입니다. 대화, 홈 디렉터리, 장기 메모리를 관리합니다.\n\n하위 명령(실행 중인 cmux 필요):\n  open                       이 창에 Chief 홈을 표시합니다.\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             새 워크스페이스에서 코딩 에이전트 하나를 작업 하나에 실행합니다\n                             (모든 옵션은 `cmux chief dispatch --help`).\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             홈에서 입력하는 것처럼 내 이름으로 메시지를 보냅니다(-는 stdin에서 읽음).\n                             --from을 사용하면 <name>이라는 에이전트의 보고로 게시합니다.\n                             --no-reply를 지정하지 않으면 Chief가 답장합니다.\n  status [--json]            하네스, 모델, 읽지 않은 개수, 진행 중인 대화를 출력합니다.\n  conversations [--json]     Chief 대화 목록을 표시합니다.\n  read [--conversation <id>] [--limit <n>] [--json]\n                             최신 메시지를 출력합니다(기본값 20).\n  stop [--conversation <id>] Chief의 진행 중인 답장을 중지합니다.\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Chief의 승인 카드에 답합니다(기본값: 가장 최근 대기 중인 카드를 허용).\n                             DEBUG 빌드 전용입니다. 릴리스 빌드에서는 Home에서 카드에 답합니다.\n\n하위 명령(실행 중인 cmux 없이 동작):\n  home                       Chief 홈 디렉터리를 출력합니다.\n  memory add <text|->        Chief가 기억할 사실 하나를 저장합니다(-는 stdin에서 읽음).\n  memory list [--json]       저장된 사실을 오래된 순서로 ID와 함께 표시합니다.\n  memory forget <id>         저장된 사실을 제거합니다.\n  memory path [--json]       메모리 디렉터리와 그 파일을 출력합니다\n                             (person.md, instructions.md, memory.jsonl).\n\n--conversation을 생략하면 명령은 기본 Chief 대화를 사용합니다.\n메모리는 비밀 정보를 절대 저장하지 않습니다. 토큰, 키 또는 비밀번호처럼 보이는 텍스트는 거부됩니다.\n홈은 $CMUX_CHIEF_HOME이며, 없으면 ~/.cmux/chief/<app bundle id>입니다.\n\n예시:\n  cmux chief send \"내 에이전트들은 무엇을 하고 있어?\"\n  cmux chief send --from \"build bot\" \"릴리스 빌드 완료\"\n  cmux chief read --limit 5\n  cmux chief memory add \"이 사용자의 빌드 머신은 brave-otter다\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux chief <subcommand> [options]\n\nChief は cmux のホームエージェントです。会話、ホームディレクトリ、長期メモリを扱います。\n\nサブコマンド（実行中の cmux が必要）:\n  open                       このウインドウに Chief ホームを表示します。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             ホームで入力するのと同じように、自分としてメッセージを送信します（- は stdin から読み込み）。\n                             --from を指定すると、<name> という名前のエージェントからの報告として投稿します。\n                             --no-reply を指定しない限り、Chief が返信します。\n  status [--json]            ハーネス、モデル、未読数、進行中の会話を表示します。\n  conversations [--json]     Chief の会話を一覧表示します。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             最新のメッセージを表示します（デフォルトは20件）。\n  stop [--conversation <id>] Chief の進行中の返信を停止します。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Chief の承認カードに回答します（デフォルト: 待機中の最新のカードを許可）。\n                             DEBUG ビルドのみ。リリースビルドでは Home でカードに回答します。\n\nサブコマンド（cmux が実行中でなくても動作）:\n  home                       Chief のホームディレクトリを表示します。\n  memory add <text|->        Chief に覚えておいてほしい事実を1件保存します（- は stdin から読み込み）。\n  memory list [--json]       保存された事実を古い順に ID とともに一覧表示します。\n  memory forget <id>         保存された事実を削除します。\n  memory path [--json]       メモリディレクトリとそのファイルを表示します\n                             （person.md、instructions.md、memory.jsonl）。\n\n--conversation を省略すると、コマンドはデフォルトの Chief の会話を使用します。\nメモリにシークレットは保存されません。トークン、キー、パスワードのように見えるテキストは拒否されます。\nホームは $CMUX_CHIEF_HOME、未設定の場合は ~/.cmux/chief/<app bundle id> です。\n\n例:\n  cmux chief send \"エージェントは何をしている？\"\n  cmux chief send --from \"build bot\" \"リリースビルドが完了しました\"\n  cmux chief read --limit 5\n  cmux chief memory add \"この人のビルドマシンは brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
+            "value": "使用法: cmux chief <subcommand> [options]\n\nChief は cmux のホームエージェントです。会話、ホームディレクトリ、長期メモリを扱います。\n\nサブコマンド（実行中の cmux が必要）:\n  open                       このウインドウに Chief ホームを表示します。\n  dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>] [--wait-working] -- <task>\n                             新しいワークスペースで 1 つのタスクにコーディングエージェントを起動します\n                             (すべてのオプションは `cmux chief dispatch --help`)。\n  send [--conversation <id>] [--from <name>] [--no-reply] <text|->\n                             ホームで入力するのと同じように、自分としてメッセージを送信します（- は stdin から読み込み）。\n                             --from を指定すると、<name> という名前のエージェントからの報告として投稿します。\n                             --no-reply を指定しない限り、Chief が返信します。\n  status [--json]            ハーネス、モデル、未読数、進行中の会話を表示します。\n  conversations [--json]     Chief の会話を一覧表示します。\n  read [--conversation <id>] [--limit <n>] [--json]\n                             最新のメッセージを表示します（デフォルトは20件）。\n  stop [--conversation <id>] Chief の進行中の返信を停止します。\n  approve [--deny] [--choice <option>] [--conversation <id>] [<request id>]\n                             Chief の承認カードに回答します（デフォルト: 待機中の最新のカードを許可）。\n                             DEBUG ビルドのみ。リリースビルドでは Home でカードに回答します。\n\nサブコマンド（cmux が実行中でなくても動作）:\n  home                       Chief のホームディレクトリを表示します。\n  memory add <text|->        Chief に覚えておいてほしい事実を1件保存します（- は stdin から読み込み）。\n  memory list [--json]       保存された事実を古い順に ID とともに一覧表示します。\n  memory forget <id>         保存された事実を削除します。\n  memory path [--json]       メモリディレクトリとそのファイルを表示します\n                             （person.md、instructions.md、memory.jsonl）。\n\n--conversation を省略すると、コマンドはデフォルトの Chief の会話を使用します。\nメモリにシークレットは保存されません。トークン、キー、パスワードのように見えるテキストは拒否されます。\nホームは $CMUX_CHIEF_HOME、未設定の場合は ~/.cmux/chief/<app bundle id> です。\n\n例:\n  cmux chief send \"エージェントは何をしている？\"\n  cmux chief send --from \"build bot\" \"リリースビルドが完了しました\"\n  cmux chief read --limit 5\n  cmux chief memory add \"この人のビルドマシンは brave-otter\"\n  cmux chief memory forget m-3fa9c1d2"
           }
         }
       }
@@ -665955,6 +665955,832 @@
           "stringUnit": {
             "state": "translated",
             "value": "browser.offline.set 需要 enabled: true 或 false"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                           [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                           [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                           (-- <task words...> | --prompt-file <path|->)\n\nStart one coding agent on one task in a new workspace. The workspace is titled\n--name (default: the task's first line) and has no description.\n\nThe task is passed to the agent as one argument and never through a shell, so\nquotes, $ and newlines arrive unchanged. --prompt-file - reads it from stdin.\n\nOptions:\n  --agent codex|claude   Default codex, started as `codex --yolo`; claude starts as `claude`.\n  --agent-arg <arg>      Append one argument to the agent's command (repeatable).\n  --cwd <dir>            The agent's directory (default: the app's default).\n  --worktree <repo>      First run `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         and start the agent there. <slug> comes from the title.\n  --branch <name>        The new branch for --worktree (default: <slug>).\n  --focus, --no-focus    Switch to the new workspace, or stay where you are. By default it\n                         switches only when a person runs the command in a terminal.\n  --wait-working         Wait until the terminal shows the agent working\n                         (Codex \"Working (…)\", a Claude Code spinner row).\n  --timeout <seconds>    How long --wait-working waits (default 60, max 600).\n  --json                 Print workspace_id, workspace_ref, surface_id, agent and status.\n\nstatus is working (seen working), started (not checked) or failed (with a reason:\ntimeout, trust_prompt, sign_in or agent_not_found). A failed check exits 1.\n\nExamples:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                                [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                                [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                                (-- <task words...> | --prompt-file <path|->)\n\nStartet einen Coding-Agenten für eine Aufgabe in einem neuen Workspace. Der Workspace heißt\nwie --name (Standard: die erste Zeile der Aufgabe) und hat keine Beschreibung.\n\nDie Aufgabe geht als ein Argument an den Agenten und nie durch eine Shell, daher kommen\nAnführungszeichen, $ und Zeilenumbrüche unverändert an. --prompt-file - liest sie von stdin.\n\nOptionen:\n  --agent codex|claude   Standard codex, gestartet als `codex --yolo`; claude startet als `claude`.\n  --agent-arg <arg>      Hängt ein Argument an den Befehl des Agenten an (wiederholbar).\n  --cwd <dir>            Das Verzeichnis des Agenten (Standard: der Standard der App).\n  --worktree <repo>      Führt zuerst `git -C <repo> worktree add -b <branch> <repo>-<slug>` aus\n                         und startet den Agenten dort. <slug> stammt aus dem Titel.\n  --branch <name>        Der neue Branch für --worktree (Standard: <slug>).\n  --focus, --no-focus    Wechselt zum neuen Workspace oder bleibt, wo du bist. Standardmäßig wird\n                         nur gewechselt, wenn eine Person den Befehl in einem Terminal ausführt.\n  --wait-working         Wartet, bis das Terminal zeigt, dass der Agent arbeitet\n                         (Codex „Working (…)“, eine Spinner-Zeile von Claude Code).\n  --timeout <seconds>    Wie lange --wait-working wartet (Standard 60, höchstens 600).\n  --json                 Gibt workspace_id, workspace_ref, surface_id, agent und status aus.\n\nstatus ist working (bei der Arbeit gesehen), started (nicht geprüft) oder failed (mit einem Grund:\ntimeout, trust_prompt, sign_in oder agent_not_found). Eine fehlgeschlagene Prüfung endet mit Exit-Code 1.\n\nBeispiele:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                                  [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                                  [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                                  (-- <task words...> | --prompt-file <path|->)\n\nLance un agent de code sur une tâche dans un nouvel espace de travail. L’espace prend le titre\n--name (par défaut : la première ligne de la tâche) et n’a pas de description.\n\nLa tâche est transmise à l’agent comme un seul argument, jamais via un shell : les guillemets,\n$ et les retours à la ligne arrivent intacts. --prompt-file - la lit depuis stdin.\n\nOptions :\n  --agent codex|claude   codex par défaut, lancé avec `codex --yolo` ; claude se lance avec `claude`.\n  --agent-arg <arg>      Ajoute un argument à la commande de l’agent (répétable).\n  --cwd <dir>            Le dossier de l’agent (par défaut : celui de l’app).\n  --worktree <repo>      Exécute d’abord `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         et y lance l’agent. <slug> vient du titre.\n  --branch <name>        La nouvelle branche pour --worktree (par défaut : <slug>).\n  --focus, --no-focus    Bascule vers le nouvel espace ou reste où vous êtes. Par défaut, ne bascule\n                         que si une personne lance la commande dans un terminal.\n  --wait-working         Attend que le terminal montre l’agent au travail\n                         (« Working (…) » de Codex, une ligne d’activité de Claude Code).\n  --timeout <seconds>    Durée d’attente de --wait-working (60 par défaut, 600 au maximum).\n  --json                 Affiche workspace_id, workspace_ref, surface_id, agent et status.\n\nstatus vaut working (vu au travail), started (non vérifié) ou failed (avec une raison :\ntimeout, trust_prompt, sign_in ou agent_not_found). Une vérification échouée sort avec le code 1.\n\nExemples :\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                               [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                               [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                               (-- <task words...> | --prompt-file <path|->)\n\nيشغّل وكيل برمجة واحدًا على مهمة واحدة في مساحة عمل جديدة. يكون عنوان المساحة\nقيمة --name (افتراضيًا: السطر الأول من المهمة) ولا يكون لها وصف.\n\nتُمرَّر المهمة إلى الوكيل كوسيطة واحدة ولا تمر أبدًا عبر shell، لذا تصل علامات الاقتباس\nو$ والأسطر الجديدة كما هي. ‏--prompt-file - يقرأها من stdin.\n\nالخيارات:\n  --agent codex|claude   الافتراضي codex ويُشغَّل بالأمر `codex --yolo`؛ ويُشغَّل claude بالأمر `claude`.\n  --agent-arg <arg>      يضيف وسيطة واحدة إلى أمر الوكيل (قابل للتكرار).\n  --cwd <dir>            مجلد الوكيل (افتراضيًا: الافتراضي في التطبيق).\n  --worktree <repo>      ينفّذ أولًا `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         ثم يشغّل الوكيل هناك. يُشتق <slug> من العنوان.\n  --branch <name>        الفرع الجديد لـ --worktree (افتراضيًا: <slug>).\n  --focus, --no-focus    الانتقال إلى مساحة العمل الجديدة أو البقاء حيث أنت. افتراضيًا لا ينتقل\n                         إلا عندما يشغّل شخص الأمر في طرفية.\n  --wait-working         الانتظار حتى تُظهر الطرفية أن الوكيل يعمل\n                         (\"Working (…)\" في Codex، أو سطر نشاط في Claude Code).\n  --timeout <seconds>    مدة انتظار --wait-working (الافتراضي 60، والحد الأقصى 600).\n  --json                 يطبع workspace_id وworkspace_ref وsurface_id وagent وstatus.\n\nقيمة status هي working (شوهد يعمل) أو started (لم يُتحقق) أو failed (مع سبب:\ntimeout أو trust_prompt أو sign_in أو agent_not_found). ينتهي التحقق الفاشل برمز الخروج 1.\n\nأمثلة:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\nInicia un agente de programación con una tarea en un espacio de trabajo nuevo. El espacio se titula\ncon --name (por defecto: la primera línea de la tarea) y no tiene descripción.\n\nLa tarea llega al agente como un solo argumento y nunca pasa por un shell, así que las comillas,\n$ y los saltos de línea llegan intactos. --prompt-file - la lee de stdin.\n\nOpciones:\n  --agent codex|claude   Por defecto codex, iniciado como `codex --yolo`; claude se inicia como `claude`.\n  --agent-arg <arg>      Añade un argumento al comando del agente (repetible).\n  --cwd <dir>            El directorio del agente (por defecto: el de la app).\n  --worktree <repo>      Primero ejecuta `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         e inicia el agente allí. <slug> sale del título.\n  --branch <name>        La rama nueva para --worktree (por defecto: <slug>).\n  --focus, --no-focus    Cambia al espacio nuevo o te quedas donde estás. Por defecto solo cambia\n                         cuando una persona ejecuta el comando en una terminal.\n  --wait-working         Espera hasta que la terminal muestre al agente trabajando\n                         (\"Working (…)\" de Codex, una fila de actividad de Claude Code).\n  --timeout <seconds>    Cuánto espera --wait-working (por defecto 60, máximo 600).\n  --json                 Imprime workspace_id, workspace_ref, surface_id, agent y status.\n\nstatus es working (visto trabajando), started (sin comprobar) o failed (con un motivo:\ntimeout, trust_prompt, sign_in o agent_not_found). Una comprobación fallida sale con código 1.\n\nEjemplos:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                        [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                        [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                        (-- <task words...> | --prompt-file <path|->)\n\n在新的工作區中啟動一個程式代理來處理一項任務。工作區標題為\n--name（預設：任務的第一行），且沒有描述。\n\n任務以單一參數傳給代理，從不經過 shell，因此引號、$ 和換行\n都會原樣送達。--prompt-file - 從 stdin 讀取任務。\n\n選項：\n  --agent codex|claude   預設 codex，以 `codex --yolo` 啟動；claude 以 `claude` 啟動。\n  --agent-arg <arg>      在代理的命令後加上一個參數（可重複）。\n  --cwd <dir>            代理的目錄（預設：App 的預設目錄）。\n  --worktree <repo>      先執行 `git -C <repo> worktree add -b <branch> <repo>-<slug>`，\n                         再於該處啟動代理。<slug> 取自標題。\n  --branch <name>        --worktree 使用的新分支（預設：<slug>）。\n  --focus, --no-focus    切換到新工作區，或留在原處。預設只在有人\n                         於終端機中執行此命令時切換。\n  --wait-working         等待終端機顯示代理正在工作\n                         （Codex 的 \"Working (…)\"，或 Claude Code 的活動列）。\n  --timeout <seconds>    --wait-working 的等待時間（預設 60，最多 600）。\n  --json                 輸出 workspace_id、workspace_ref、surface_id、agent 和 status。\n\nstatus 為 working（已看到在工作）、started（未檢查）或 failed（附原因：\ntimeout、trust_prompt、sign_in 或 agent_not_found）。檢查失敗時以結束代碼 1 結束。\n\n範例：\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                        [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                        [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                        (-- <task words...> | --prompt-file <path|->)\n\n在新的工作区中启动一个编码代理来处理一项任务。工作区标题为\n--name（默认：任务的第一行），且没有描述。\n\n任务作为一个参数传给代理，从不经过 shell，因此引号、$ 和换行\n都会原样送达。--prompt-file - 从 stdin 读取任务。\n\n选项：\n  --agent codex|claude   默认 codex，以 `codex --yolo` 启动；claude 以 `claude` 启动。\n  --agent-arg <arg>      向代理命令追加一个参数（可重复）。\n  --cwd <dir>            代理的目录（默认：应用的默认目录）。\n  --worktree <repo>      先运行 `git -C <repo> worktree add -b <branch> <repo>-<slug>`，\n                         再在那里启动代理。<slug> 取自标题。\n  --branch <name>        --worktree 使用的新分支（默认：<slug>）。\n  --focus, --no-focus    切换到新工作区，或留在原处。默认仅在有人\n                         于终端中运行该命令时切换。\n  --wait-working         等待终端显示代理正在工作\n                         （Codex 的 \"Working (…)\"，或 Claude Code 的活动行）。\n  --timeout <seconds>    --wait-working 的等待时长（默认 60，最多 600）。\n  --json                 输出 workspace_id、workspace_ref、surface_id、agent 和 status。\n\nstatus 为 working（已看到在工作）、started（未检查）或 failed（附原因：\ntimeout、trust_prompt、sign_in 或 agent_not_found）。检查失败时以退出码 1 结束。\n\n示例：\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\n새 워크스페이스에서 코딩 에이전트 하나를 작업 하나에 실행합니다. 워크스페이스 제목은\n--name(기본값: 작업의 첫 줄)이며 설명은 비어 있습니다.\n\n작업은 셸을 거치지 않고 에이전트에 인수 하나로 전달되므로 따옴표, $, 줄바꿈이\n그대로 전달됩니다. --prompt-file -는 stdin에서 작업을 읽습니다.\n\n옵션:\n  --agent codex|claude   기본값은 codex이며 `codex --yolo`로 시작합니다. claude는 `claude`로 시작합니다.\n  --agent-arg <arg>      에이전트 명령에 인수 하나를 덧붙입니다(반복 가능).\n  --cwd <dir>            에이전트의 디렉터리(기본값: 앱의 기본값).\n  --worktree <repo>      먼저 `git -C <repo> worktree add -b <branch> <repo>-<slug>`를 실행하고\n                         그곳에서 에이전트를 시작합니다. <slug>는 제목에서 만듭니다.\n  --branch <name>        --worktree에 쓸 새 브랜치(기본값: <slug>).\n  --focus, --no-focus    새 워크스페이스로 전환하거나 지금 위치에 머뭅니다. 기본적으로 사람이\n                         터미널에서 명령을 실행할 때만 전환합니다.\n  --wait-working         터미널에 에이전트가 작업 중으로 표시될 때까지 기다립니다\n                         (Codex의 \"Working (…)\", Claude Code의 활동 줄).\n  --timeout <seconds>    --wait-working이 기다리는 시간(기본값 60, 최대 600).\n  --json                 workspace_id, workspace_ref, surface_id, agent, status를 출력합니다.\n\nstatus는 working(작업 중 확인), started(확인 안 함) 또는 failed(사유 포함:\ntimeout, trust_prompt, sign_in, agent_not_found)입니다. 확인에 실패하면 종료 코드 1로 끝납니다.\n\n예시:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\n新しいワークスペースで、1 つのタスクに 1 つのコーディングエージェントを起動します。ワークスペースの\nタイトルは --name(既定: タスクの 1 行目)で、説明は空のままです。\n\nタスクはシェルを通さず 1 つの引数としてエージェントに渡されるため、引用符、$、改行は\nそのまま届きます。--prompt-file - は stdin からタスクを読み込みます。\n\nオプション:\n  --agent codex|claude   既定は codex で `codex --yolo` として起動します。claude は `claude` として起動します。\n  --agent-arg <arg>      エージェントのコマンドに引数を 1 つ追加します(繰り返し可)。\n  --cwd <dir>            エージェントのディレクトリ(既定: アプリの既定)。\n  --worktree <repo>      まず `git -C <repo> worktree add -b <branch> <repo>-<slug>` を実行し、\n                         そこでエージェントを起動します。<slug> はタイトルから作ります。\n  --branch <name>        --worktree で作る新しいブランチ(既定: <slug>)。\n  --focus, --no-focus    新しいワークスペースに切り替えるか、今の場所に留まります。既定では、\n                         人がターミナルでコマンドを実行したときだけ切り替えます。\n  --wait-working         ターミナルにエージェントの作業中表示が出るまで待ちます\n                         (Codex の \"Working (…)\"、Claude Code のアクティビティ行)。\n  --timeout <seconds>    --wait-working の待ち時間(既定 60、最大 600)。\n  --json                 workspace_id、workspace_ref、surface_id、agent、status を出力します。\n\nstatus は working(作業中を確認)、started(未確認)、failed(理由付き:\ntimeout、trust_prompt、sign_in、agent_not_found)のいずれかです。確認に失敗すると終了コード 1 で終わります。\n\n例:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.promptFileUnreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the task file %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aufgabendatei %@ konnte nicht gelesen werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire le fichier de tâche %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة ملف المهمة %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el archivo de la tarea %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取任務檔案 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取任务文件 %@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 파일 %@을(를) 읽을 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクファイル %@ を読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.notWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent in %@ isn't working yet (%@). Check it with: cmux read-screen --workspace %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent in %@ arbeitet noch nicht (%@). Prüfe ihn mit: cmux read-screen --workspace %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent dans %@ ne travaille pas encore (%@). Vérifiez-le avec : cmux read-screen --workspace %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكيل في %@ لا يعمل بعد (%@). تحقّق منه بالأمر: cmux read-screen --workspace %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El agente en %@ aún no está trabajando (%@). Revísalo con: cmux read-screen --workspace %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的代理尚未開始工作（%@）。請用此命令檢查：cmux read-screen --workspace %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的代理尚未开始工作（%@）。请用此命令检查：cmux read-screen --workspace %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 에이전트가 아직 작업 중이 아닙니다(%@). 다음으로 확인하세요: cmux read-screen --workspace %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のエージェントはまだ作業していません(%@)。次で確認してください: cmux read-screen --workspace %@"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.launcherFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't write the agent's launcher at %@: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Starter des Agenten konnte nicht unter %@ geschrieben werden: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’écrire le lanceur de l’agent dans %@ : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت كتابة مشغّل الوكيل في %@: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo escribir el lanzador del agente en %@: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在 %@ 寫入代理的啟動器：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在 %@ 写入代理的启动器：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 에이전트 실행기를 쓸 수 없습니다: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にエージェントの起動スクリプトを書き込めませんでした: %@"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.worktreeExists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ already exists. Pick another --name or --branch."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existiert bereits. Wähle einen anderen --name oder --branch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existe déjà. Choisissez un autre --name ou --branch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ موجود بالفعل. اختر --name أو --branch آخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ya existe. Elige otro --name u otro --branch."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已存在。請改用其他 --name 或 --branch。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已存在。请改用其他 --name 或 --branch。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 이미 있습니다. 다른 --name이나 --branch를 고르세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はすでに存在します。別の --name か --branch を選んでください。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.worktreeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git worktree add failed: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git worktree add ist fehlgeschlagen: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de git worktree add : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل git worktree add: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git worktree add falló: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git worktree add 失敗：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git worktree add 失败：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git worktree add 실패: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git worktree add に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.unknownAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown agent: %@. Use codex or claude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Agent: %@. Verwende codex oder claude."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent inconnu : %@. Utilisez codex ou claude."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل غير معروف: %@. استخدم codex أو claude."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente desconocido: %@. Usa codex o claude."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的代理：%@。請使用 codex 或 claude。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的代理：%@。请使用 codex 或 claude。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 에이전트: %@. codex 또는 claude를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なエージェント: %@。codex か claude を使ってください。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--name needs a one-line title."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--name braucht einen einzeiligen Titel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--name attend un titre sur une seule ligne."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج --name إلى عنوان من سطر واحد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--name necesita un título de una sola línea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--name 需要單行標題。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--name 需要单行标题。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--name에는 한 줄 제목이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--name には 1 行のタイトルが必要です。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.invalidTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout must be a whole number of seconds from 1 to 600."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout muss eine ganze Zahl von Sekunden zwischen 1 und 600 sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout doit être un nombre entier de secondes entre 1 et 600."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة --timeout عددًا صحيحًا من الثواني بين 1 و600."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout debe ser un número entero de segundos entre 1 y 600."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必須是 1 到 600 之間的整數秒數。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必须是 1 到 600 之间的整数秒数。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout은 1에서 600 사이의 정수 초여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout には 1〜600 の整数の秒数を指定してください。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.branchNeedsWorktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--branch only applies with --worktree."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--branch gilt nur zusammen mit --worktree."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--branch ne s’applique qu’avec --worktree."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُستخدم --branch مع --worktree فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--branch solo se aplica con --worktree."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--branch 只能與 --worktree 一起使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--branch 只能与 --worktree 一起使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--branch는 --worktree와 함께일 때만 적용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--branch は --worktree と一緒の場合にのみ使えます。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.cwdAndWorktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use --cwd or --worktree, not both: the new worktree is the agent's directory."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende --cwd oder --worktree, nicht beides: Der neue Worktree ist das Verzeichnis des Agenten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez --cwd ou --worktree, pas les deux : le nouveau worktree est le dossier de l’agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم --cwd أو --worktree وليس كليهما: شجرة العمل الجديدة هي مجلد الوكيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa --cwd o --worktree, no ambos: el worktree nuevo es el directorio del agente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用 --cwd 或 --worktree，不要同時使用：新的 worktree 就是代理的目錄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用 --cwd 或 --worktree，不要同时使用：新的 worktree 就是代理的目录。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--cwd와 --worktree 중 하나만 쓰세요. 새 worktree가 에이전트의 디렉터리입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--cwd と --worktree は同時に使えません。新しい worktree がエージェントのディレクトリになります。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.twoPrompts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Give the task once: after -- or with --prompt-file, not both."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die Aufgabe nur einmal an: nach -- oder mit --prompt-file, nicht beides."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Donnez la tâche une seule fois : après -- ou avec --prompt-file, pas les deux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتب المهمة مرة واحدة: بعد -- أو باستخدام --prompt-file، وليس الاثنين معًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la tarea una sola vez: después de -- o con --prompt-file, no ambos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任務只能提供一次：放在 -- 之後或使用 --prompt-file，不要兩者並用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务只能提供一次：放在 -- 之后或使用 --prompt-file，不要两者并用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업은 한 번만 주세요. -- 뒤에 쓰거나 --prompt-file을 쓰되, 둘 다 쓰지는 마세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクは 1 回だけ指定してください。-- の後か --prompt-file のどちらかです。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.noPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No task. Give it after --, or with --prompt-file <path|-> (- reads stdin)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Aufgabe. Gib sie nach -- an oder mit --prompt-file <path|-> (- liest von stdin)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune tâche. Donnez-la après -- ou avec --prompt-file <path|-> (- lit stdin)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مهمة. اكتبها بعد -- أو باستخدام --prompt-file <path|-> (يقرأ - من stdin)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay tarea. Indícala después de -- o con --prompt-file <path|-> (- lee de stdin)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有任務。請放在 -- 之後，或使用 --prompt-file <path|->（- 會從 stdin 讀取）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有任务。请放在 -- 之后，或使用 --prompt-file <path|->（- 从 stdin 读取）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업이 없습니다. -- 뒤에 쓰거나 --prompt-file <path|->를 쓰세요(-는 stdin에서 읽음)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクがありません。-- の後に書くか、--prompt-file <path|-> を使ってください(- は stdin から読み込みます)。"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.promptTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The task is too long (over 200,000 bytes) or contains a NUL byte. Put the details in a file and tell the agent to read it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aufgabe ist zu lang (über 200.000 Byte) oder enthält ein NUL-Byte. Lege die Details in eine Datei und sag dem Agenten, dass er sie lesen soll."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tâche est trop longue (plus de 200 000 octets) ou contient un octet NUL. Mettez les détails dans un fichier et demandez à l’agent de le lire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المهمة طويلة جدًا (أكثر من 200,000 بايت) أو تحتوي على بايت NUL. ضع التفاصيل في ملف واطلب من الوكيل قراءته."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tarea es demasiado larga (más de 200.000 bytes) o contiene un byte NUL. Pon los detalles en un archivo y pide al agente que lo lea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任務太長（超過 200,000 位元組）或含有 NUL 位元組。請把細節寫進檔案，並讓代理去讀取。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务太长（超过 200,000 字节）或包含 NUL 字节。请把细节写进文件，并让代理去读取。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업이 너무 길거나(200,000바이트 초과) NUL 바이트가 들어 있습니다. 세부 내용은 파일에 넣고 에이전트에게 읽으라고 하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクが長すぎる(200,000 バイト超)か、NUL バイトを含んでいます。詳細はファイルに書き、エージェントに読むよう伝えてください。"
           }
         }
       }

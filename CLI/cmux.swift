@@ -23504,6 +23504,10 @@ struct CMUXCLI {
             print(text)
             return true
         }
+        if command == "chief", commandArgs.first?.lowercased() == "dispatch" {
+            print(Self.chiefDispatchUsage)
+            return true
+        }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
         print("")
