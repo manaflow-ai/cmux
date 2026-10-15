@@ -11405,6 +11405,10 @@ extension SidebarDragState {
 /// open context menu). All other rows transition live.
 struct VerticalTabsSidebar: View, Equatable {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    /// Debug previews (Sources/Sidebar/Projects): Codex and Machine rail arrange
+    /// this list by machine (machineLayoutPass).
+    @AppStorage(SidebarProjectsAppHost.layoutKey) private var previewLayout = ""
+    @ObservedObject private var machineLayoutState = SidebarMachineLayoutState.shared
     // Equatable gates only parent-driven re-evaluation: closures and
     // Bindings are excluded on purpose (recreated per parent eval but
     // functionally identical), and every data source the body renders from
@@ -11854,6 +11858,10 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        /// Codex: the header-only machine sections by id. Codex and Machine rail:
+        /// rows sitting under their own machine.
+        var machineSections: [UUID: SidebarMachineLayout.Section] = [:]
+        var rowsUnderMachine: Set<UUID> = []
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -11909,6 +11917,30 @@ struct VerticalTabsSidebar: View, Equatable {
         #endif
     }
 
+    /// Codex or Machine rail, when one of those previews is the sidebar: the list
+    /// to show instead of the window's own order and groups.
+    private func machineLayoutPass() -> SidebarMachineLayout.Pass? {
+        guard SidebarProjectsAppHost.machineLayouts.contains(previewLayout),
+              CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) else {
+            return nil
+        }
+        let items = machineLayoutItems()
+        return previewLayout == "codex"
+            ? SidebarMachineLayout.codex(items, state: machineLayoutState)
+            : SidebarMachineLayout.rail(items, groups: tabManager.workspaceGroups, machine: machineLayoutState.railMachine)
+    }
+
+    private func machineLayoutItems() -> [SidebarMachineLayout.Item] {
+        tabManager.tabs.map {
+            SidebarMachineLayout.Item(id: $0.id, isPinned: $0.isPinned, place: SidebarProjectsAppHost.place($0), groupId: $0.groupId)
+        }
+    }
+
+    private func machineLayoutTabs(_ pass: SidebarMachineLayout.Pass) -> [Workspace] {
+        let byId = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
+        return pass.ids.compactMap { byId[$0] }
+    }
+
     private func deactivateSidebarInteractions() {
         workspaceSnapshotCache.prune(keeping: [])
         if pointerInteractionMonitor.isActive {
@@ -11941,9 +11973,11 @@ struct VerticalTabsSidebar: View, Equatable {
         // Retain the native table identity while hidden without continuing the
         // O(workspaces) projection pipeline. Reveal rebuilds one authoritative
         // snapshot from the current model before the controller applies again.
-        let tabs = isPresented ? tabManager.tabs : []
+        // Codex and Machine rail show the workspaces arranged or filtered by machine.
+        let machinePass = isPresented ? machineLayoutPass() : nil
+        let tabs = isPresented ? (machinePass.map(machineLayoutTabs) ?? tabManager.tabs) : []
         let workspaceCount = tabs.count
-        let canCloseWorkspace = workspaceCount > 1
+        let canCloseWorkspace = (isPresented ? tabManager.tabs.count : 0) > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
         let tabIds = tabs.map(\.id)
@@ -11967,9 +12001,9 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
+        let workspaceGroups = isPresented ? (machinePass?.groups ?? tabManager.workspaceGroups) : []
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let workspaceGroupIdByWorkspaceId = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
+        let workspaceGroupIdByWorkspaceId = machinePass?.membership ?? SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
             tabs: tabs,
             groupsById: workspaceGroupById
         )
@@ -11978,8 +12012,11 @@ struct VerticalTabsSidebar: View, Equatable {
             groupsById: workspaceGroupById,
             effectiveMembership: workspaceGroupIdByWorkspaceId
         )
+        // "Move to group" lists the real groups, even while sections or a filter show.
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+            items: (machinePass == nil ? workspaceGroups : tabManager.workspaceGroups).map {
+                WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name)
+            }
         )
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
@@ -12043,12 +12080,17 @@ struct VerticalTabsSidebar: View, Equatable {
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            machineSections: machinePass?.sections ?? [:],
+            rowsUnderMachine: machinePass?.underMachine ?? []
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
             if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
-                workspaceScrollArea(renderContext: renderContext)
+                // Debug preview: the Projects sidebar (Sources/Sidebar/Projects) in place of the list.
+                SidebarProjectsGate(tabManager: tabManager, sidebarUnread: sidebarUnread) {
+                    workspaceScrollArea(renderContext: renderContext)
+                }
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
@@ -12813,7 +12855,7 @@ struct VerticalTabsSidebar: View, Equatable {
                   let digit = input.workspaceShortcutDigit else { return nil }
             return "\(input.workspaceShortcutModifierSymbol)\(digit)"
         }()
-        let model = SidebarWorkspaceRowModel(
+        var model = SidebarWorkspaceRowModel(
             workspaceId: input.workspaceId,
             index: input.index,
             snapshot: input.workspace,
@@ -12846,6 +12888,10 @@ struct VerticalTabsSidebar: View, Equatable {
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id),
             displayAccessibility: environment.displayAccessibility
         )
+        if let groupId = input.groupId, renderContext.machineSections[groupId]?.isNested == true {
+            // Codex: a workspace on a Cloud machine sits one step in from the machine.
+            model.extraLeadingIndent = SidebarWorkspaceGroupingMetrics.memberIndent
+        }
         let commands = SidebarWorkspaceRowCommands(
             tab: tab,
             tabManager: tabManager,
@@ -14730,7 +14776,10 @@ struct VerticalTabsSidebar: View, Equatable {
                     SidebarWorkspaceReorderWorkspaceSnapshot(
                         id: $0.id,
                         isPinned: $0.isPinned,
-                        groupId: $0.groupId
+                        // Codex rows belong to their machine sections, not the real groups.
+                        groupId: renderContext.machineSections.isEmpty
+                            ? $0.groupId
+                            : (renderContext.workspaceGroupIdByWorkspaceId[$0.id] ?? nil)
                     )
                 },
                 groups: renderContext.workspaceGroups.map {
@@ -14764,6 +14813,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+        if let handled = performMachineLayoutDrop(plan) { return handled }
         switch plan.action {
         case .reorderGroup(let targetIndex):
             let groupId = plan.draggedWorkspaceId
@@ -14815,6 +14865,118 @@ struct VerticalTabsSidebar: View, Equatable {
             return didReorder
         case .crossWindow(insertionIndex: _, proposedInsertionIndex: let proposedInsertionIndex):
             return performCrossWindowWorkspaceDrop(plan: plan, proposedInsertionIndex: proposedInsertionIndex)
+        }
+    }
+
+    /// Codex and Machine rail show a rearranged list, so a drop's indices count
+    /// that list's rows. Codex moves rows within their machine's section or into
+    /// Pinned, and moves sections; Machine rail finds the same gap in the full
+    /// list. Nil when neither is showing (or for a drop from another window).
+    private func performMachineLayoutDrop(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool? {
+        guard let pass = machineLayoutPass() else { return nil }
+        let realOrder = tabManager.tabs.map(\.id)
+        switch plan.action {
+        case .crossWindow:
+            return nil
+        case .reorderGroup(let targetIndex):
+            let groupId = plan.draggedWorkspaceId
+            if let section = pass.sections[groupId] {
+                let items = machineLayoutItems()
+                let cloud = Set(items.compactMap { item -> String? in
+                    if case .cloud(let name) = item.place { return name } else { return nil }
+                })
+                let shown = pass.groups.compactMap { pass.sections[$0.id]?.title }
+                SidebarMachineLayout.moveSection(section.title, toIndex: targetIndex, among: shown, cloud: cloud, state: machineLayoutState)
+                return true
+            }
+            guard tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else { return false }
+            tabManager.moveWorkspaceGroup(
+                groupId: groupId,
+                toIndex: SidebarMachineLayout.fullIndex(
+                    gap: targetIndex,
+                    dragged: groupId,
+                    shown: pass.groups.map(\.id),
+                    full: tabManager.workspaceGroups.map(\.id)
+                )
+            )
+            return true
+        case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId):
+            let selectionBeforeReorder = selectedTabIds
+            let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
+                existingAnchorIndex: lastSidebarSelectionIndex,
+                liveWorkspaceIds: realOrder
+            )
+            let didReorder: Bool
+            if pass.membership != nil {
+                let moving = SidebarWorkspaceDragBlockResolver().movingWorkspaceIds(
+                    orderedWorkspaceIds: pass.ids,
+                    selectedIds: selectedTabIds,
+                    draggedId: plan.draggedWorkspaceId,
+                    anchorIds: []
+                )
+                guard !usesTopLevelRows || explicitGroupId != nil,
+                      let drop = SidebarMachineLayout.codexDrop(
+                        dragged: plan.draggedWorkspaceId,
+                        moving: moving,
+                        targetIndex: targetIndex,
+                        explicitSection: explicitGroupId,
+                        pass: pass,
+                        items: machineLayoutItems(),
+                        realOrder: realOrder
+                      ) else { return false }
+                let repinned = moving.filter { id in tabManager.tabs.first { $0.id == id }?.isPinned != drop.pinned }
+                if !repinned.isEmpty { tabManager.setPinned(workspaceIds: repinned, pinned: drop.pinned) }
+                if case .success = tabManager.reorderWorkspaces(orderedWorkspaceIds: drop.order) {
+                    didReorder = true
+                } else {
+                    didReorder = !repinned.isEmpty
+                }
+            } else {
+                let anchors = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
+                let movingIds = SidebarWorkspaceDragBlockResolver().movingWorkspaceIds(
+                    orderedWorkspaceIds: realOrder,
+                    selectedIds: selectedTabIds,
+                    draggedId: plan.draggedWorkspaceId,
+                    anchorIds: anchors
+                )
+                let index: Int
+                if usesTopLevelRows {
+                    let groupById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0.groupId) })
+                    let groupOf: (UUID) -> UUID? = { groupById[$0] ?? nil }
+                    let dragged = plan.draggedWorkspaceId
+                    index = SidebarMachineLayout.fullIndex(
+                        gap: targetIndex,
+                        dragged: anchors.contains(dragged) ? (groupOf(dragged) ?? dragged) : dragged,
+                        shown: SidebarMachineLayout.topLevelKeys(pass.ids, groupOf: groupOf),
+                        full: SidebarMachineLayout.topLevelKeys(realOrder, groupOf: groupOf)
+                    )
+                } else {
+                    index = SidebarMachineLayout.fullIndex(gap: targetIndex, dragged: plan.draggedWorkspaceId, shown: pass.ids, full: realOrder)
+                }
+                if movingIds.count > 1 {
+                    didReorder = tabManager.reorderSidebarWorkspaces(
+                        tabIds: movingIds,
+                        draggedTabId: plan.draggedWorkspaceId,
+                        toIndex: index,
+                        isDragOperation: true,
+                        usesTopLevelRows: usesTopLevelRows,
+                        explicitGroupId: explicitGroupId
+                    )
+                } else {
+                    didReorder = tabManager.reorderSidebarWorkspace(
+                        tabId: plan.draggedWorkspaceId,
+                        toIndex: index,
+                        isDragOperation: true,
+                        usesTopLevelRows: usesTopLevelRows,
+                        explicitGroupId: explicitGroupId
+                    )
+                }
+            }
+            syncSidebarSelectionAfterWorkspaceReorder(
+                preserving: selectionBeforeReorder,
+                preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
+            )
+            return didReorder
         }
     }
 
@@ -15155,7 +15317,12 @@ struct VerticalTabsSidebar: View, Equatable {
     ) -> SidebarWorkspaceRowInput? {
         // Lifecycle/event handlers build snapshots. A cache miss must never
         // subscribe this render pass to live pane bookkeeping through the factory.
-        guard let workspaceSnapshot = workspaceSnapshotCache.value(for: tab.id) else { return nil }
+        guard var workspaceSnapshot = workspaceSnapshotCache.value(for: tab.id) else { return nil }
+        if renderContext.rowsUnderMachine.contains(tab.id) {
+            // Under its own machine the badge says what the workspace holds, not where it runs.
+            workspaceSnapshot.remoteWorkspaceBadgeSymbolOverride = tab.focusedPanelId
+                .flatMap { tab.panels[$0] } is BrowserPanel ? "globe" : "terminal"
+        }
 #if DEBUG
         sidebarLazyContractProbe.workspaceRowInputProjection?()
 #endif

@@ -27,10 +27,14 @@ extension VerticalTabsSidebar {
         let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
-        let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
-            explicit: group.iconSymbol,
-            configured: resolvedConfig?.iconSymbol
-        )
+        // Codex: a machine section (debug preview). Pinned, Cloud and Local are text-only headers.
+        let machineSection = renderContext.machineSections[group.id]
+        let effectiveIcon = machineSection != nil && (group.iconSymbol ?? "").isEmpty
+            ? ""
+            : RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
+                explicit: group.iconSymbol,
+                configured: resolvedConfig?.iconSymbol
+            )
         let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: false,
@@ -103,7 +107,7 @@ extension VerticalTabsSidebar {
             tabIds: renderContext.sidebarReorderIds,
             indicatorScope: dragState.dropIndicatorScope
         )
-        let model = SidebarGroupHeaderRowModel(
+        var model = SidebarGroupHeaderRowModel(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
@@ -140,7 +144,12 @@ extension VerticalTabsSidebar {
             notificationBadgeColorHex: settings.notificationBadgeColorHex,
             accentColor: settings.accentColor
         )
-        let actions = makeWorkspaceGroupHeaderActions(
+        if let machineSection {
+            // A section folds on a press and is never selected; a Cloud machine sits one step in.
+            model.foldsOnPress = true
+            if machineSection.isNested { model.leadingIndent = SidebarWorkspaceGroupingMetrics.memberIndent }
+        }
+        let actions = machineSection.map(machineSectionHeaderActions) ?? makeWorkspaceGroupHeaderActions(
             groupId: group.id,
             fallbackGroupName: group.name,
             fallbackAnchorWorkspaceId: group.anchorWorkspaceId,
@@ -409,6 +418,43 @@ extension VerticalTabsSidebar {
     /// group-header renderers. The stable group id is captured; mutable anchor
     /// and member ids are resolved only when an action is invoked.
     @MainActor
+    /// A Codex section's header: a press folds it, + adds a workspace there (a
+    /// pinned one under Pinned, a new Cloud machine under Cloud). Group actions
+    /// don't apply: the section exists only in the sidebar.
+    private func machineSectionHeaderActions(_ section: SidebarMachineLayout.Section) -> SidebarGroupHeaderRowActions {
+        let toggle = { SidebarMachineLayoutState.shared.toggle(section.title) }
+        let add: () -> Void = { [weak tabManager] in
+            guard let tabManager else { return }
+            if section.title == SidebarMachineLayout.cloudTitle {
+                _ = AppDelegate.shared?.performNewCloudMachineAction(tabManager: tabManager, debugSource: "sidebar.codex", destination: nil)
+            } else {
+                SidebarProjectsAppHost.newWorkspace(
+                    group: nil,
+                    place: section.place,
+                    pinned: section.title == SidebarMachineLayout.pinnedTitle,
+                    in: tabManager
+                )
+            }
+        }
+        return SidebarGroupHeaderRowActions(
+            onToggleCollapsed: toggle,
+            onFocusAnchor: { _ in toggle() },
+            onTapPlus: add,
+            onRunResolvedItem: { _ in },
+            onRename: {},
+            onTogglePinned: {},
+            onMarkRead: {},
+            onMarkUnread: {},
+            onClearLatestNotifications: {},
+            onMarkAllRead: {},
+            onMarkAllUnread: {},
+            onUngroup: {},
+            onDelete: {},
+            onEditConfig: {},
+            onOpenDocs: {}
+        )
+    }
+
     private func makeWorkspaceGroupHeaderActions(
         groupId: UUID,
         fallbackGroupName: String,

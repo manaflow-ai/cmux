@@ -193,6 +193,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
         )
 
+        // An empty symbol means a text-only header (the app always passes a resolved one).
+        iconImageView.isHidden = model.iconSymbol.isEmpty
         let iconSymbol = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: model.iconSymbol, configured: nil)
         iconImageView.image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: iconSymbol,
@@ -450,7 +452,13 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
-        let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
+        // A nested header shifts whole, wash included, like a group member row.
+        let bgFrame = NSRect(
+            x: outerPad + model.leadingIndent,
+            y: 0,
+            width: max(0, bounds.width - outerPad * 2 - model.leadingIndent),
+            height: bounds.height
+        )
         backgroundView.frame = bgFrame
         SidebarGlassSelection.fitOverlay(rowHoverLayer)
         let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
@@ -471,8 +479,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let plusSide = metrics.plusFrame
         plusButton.frame = NSRect(x: contentMaxX - plusSide, y: midY - plusSide / 2, width: plusSide, height: plusSide)
 
-        iconImageView.frame = centered(metrics.iconFrame)
-        x = iconImageView.frame.maxX + 6
+        if !iconImageView.isHidden {
+            iconImageView.frame = centered(metrics.iconFrame)
+            x = iconImageView.frame.maxX + 6
+        }
 
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
@@ -546,6 +556,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     // toggle (add then remove) and made header multi-selection impossible.
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        // A header that only folds (a machine section) has no group to act on.
+        if model?.foldsOnPress == true { return nil }
         let point = convert(event.locationInWindow, from: nil)
         if plusButton.frame.contains(point), !plusButton.isHidden {
             return makePlusMenu()
