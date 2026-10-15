@@ -354,6 +354,17 @@ same set of folders as `file`'s tab-folder rule (`feat-cnx-ios-fileroots`).
   person sets the list; `/` and home dropped; the folder and a folder below it
   pass; elsewhere, a symlink out and `..` out are refused; cleared refuses
   again). acpmux `person_allow`, `remote_guard` and the lib tests still pass.
+- **Who steers the list:** it is the folders of the tabs open now, and a phone
+  can change a tab's folder by typing `cd` in its terminal, so in practice a
+  phone can start a chat in any folder below home that it can `cd` to (never
+  home itself, `/` or above). That adds no new reach: the same phone can already
+  type any command in that terminal, and every agent tool still asks. The list is
+  held by acpmux for every Web connection with the listener token (cnx-hostd's
+  splice is the only one the app opens), not per phone.
+- **Turning it off:** the Mac app sends an empty list when iPhone connections
+  turn off or the account signs out, reconnecting once to deliver it
+  (`CnxApproverSync.rootsClearPending`); the list is memory only and goes with
+  acpmux.
 - **What stays refused:** the phone still sends no `cwd` to the daemon, no
   command, argv, env, mode or permission policy other than `ask`; Codex and
   opencode stay refused families (`web_modes.rs`); MCP servers stay empty. The
