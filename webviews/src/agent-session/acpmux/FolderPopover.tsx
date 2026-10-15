@@ -114,13 +114,14 @@ export function FolderPopover({
     const folder = folders.find((candidate) => candidate.id === value);
     if (!folder)
       return (
-        <span className="acpmux-location-row" title={value}>
+        <span className="acpmux-location-row">
           <span className="acpmux-location-check" aria-hidden="true" />
           <span className="acpmux-menu-label">{t("project.usePath", { path: value })}</span>
         </span>
       );
     const suffix = suffixes.get(folder.id);
     return (
+      // tooltip-allow: the row shows the folder's name; the tooltip is its full path
       <span className="acpmux-location-row" title={folder.id} data-current={folder.id === current ? "" : undefined}>
         <span className="acpmux-location-check" aria-hidden="true">
           {folder.id === current && <CheckIcon />}
@@ -143,7 +144,7 @@ export function FolderPopover({
   };
 
   return (
-    <span ref={control} className="acpmux-location-picker" title={current}>
+    <span ref={control} className="acpmux-location-picker">
       <button
         ref={trigger}
         type="button"
