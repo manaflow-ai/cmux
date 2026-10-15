@@ -412,30 +412,53 @@ enum BrowserEnginePageAutomationReadiness {
 }
 
 extension BrowserPanel {
-    /// Whether an engine page has keyboard focus (`is_webview_focused`): the
-    /// first responder is inside its content view, or, for a page drawn in
-    /// its own child window over the pane (Chromium), that window is key.
+    /// Whether an engine page has keyboard focus (`is_webview_focused`), the
+    /// way WebKit's answer reads first responders (also while cmux is not
+    /// the active app): the first responder is inside the page's content
+    /// view, or, for a page drawn in its own child window over the pane
+    /// (Chromium), that window's first responder is the page's own view and
+    /// the pane's window has not moved focus to a view outside the page.
     static func enginePageHasKeyboardFocus(_ page: any BrowserPage) -> Bool {
         let view = page.contentView
         guard let window = view.window else { return false }
-        if let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) { return true }
-        guard page.presentation == .childWindow else { return false }
-        let paneFrame = window.convertToScreen(view.convert(view.bounds, to: nil))
+        let hostResponder = window.firstResponder as? NSView
+        if let hostResponder, hostResponder.isDescendant(of: view) { return true }
+        guard page.presentation == .childWindow,
+              let pageWindow = pageChildWindow(over: view, in: window) else { return false }
 #if DEBUG
-        let children = (window.childWindows ?? []).map { child in
-            "\(type(of: child)) key=\(child.isKeyWindow ? 1 : 0) frame=\(child.frame) fr=\(child.firstResponder.map { "\(type(of: $0))" } ?? "nil")"
-        }
         cmuxDebugLog(
-            "browser.engine.focusProbe pane=\(paneFrame) appActive=\(NSApp.isActive ? 1 : 0) " +
-            "key=\(NSApp.keyWindow.map { "\(type(of: $0))" } ?? "nil") children=\(children)"
+            "browser.engine.focusProbe appActive=\(NSApp.isActive ? 1 : 0) pageKey=\(pageWindow.isKeyWindow ? 1 : 0) " +
+            "pageFR=\(pageWindow.firstResponder.map { "\(type(of: $0))" } ?? "nil") " +
+            "hostFR=\(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")"
         )
 #endif
-        guard let key = NSApp.keyWindow, key.parent === window else { return false }
-        // The key child window over this pane, not another pane's page.
-        let overlap = key.frame.intersection(paneFrame)
-        guard !overlap.isNull else { return false }
-        let smaller = min(key.frame.width * key.frame.height, paneFrame.width * paneFrame.height)
-        return smaller > 0 && overlap.width * overlap.height >= smaller / 2
+        // Chromium keeps its view first responder in the page window after
+        // cmux moves focus elsewhere, so the pane's window decides: focus
+        // in a view of its own (a terminal, the omnibar) is not the page's.
+        if hostResponder != nil, NSApp.isActive ? !pageWindow.isKeyWindow : true { return false }
+        guard let pageResponder = pageWindow.firstResponder as? NSView,
+              let pageRoot = pageWindow.contentView else { return false }
+        // The window's root view holds focus until the page itself takes it.
+        return pageResponder !== pageRoot && pageResponder.isDescendant(of: pageRoot)
+    }
+
+    /// The child window drawing the page over `view` (most of it overlaps
+    /// the view), not another pane's page window.
+    private static func pageChildWindow(over view: NSView, in window: NSWindow) -> NSWindow? {
+        let paneFrame = window.convertToScreen(view.convert(view.bounds, to: nil))
+        let paneArea = paneFrame.width * paneFrame.height
+        guard paneArea > 0 else { return nil }
+        return (window.childWindows ?? []).max { lhs, rhs in
+            overlapArea(lhs.frame, paneFrame) < overlapArea(rhs.frame, paneFrame)
+        }.flatMap { child in
+            let smaller = min(child.frame.width * child.frame.height, paneArea)
+            return smaller > 0 && overlapArea(child.frame, paneFrame) >= smaller / 2 ? child : nil
+        }
+    }
+
+    private static func overlapArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        let overlap = lhs.intersection(rhs)
+        return overlap.isNull ? 0 : overlap.width * overlap.height
     }
 
     /// Restores a page Memory Saver released and creates one that was never
