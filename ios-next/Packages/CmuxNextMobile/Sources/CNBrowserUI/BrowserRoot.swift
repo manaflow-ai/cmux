@@ -170,6 +170,15 @@ struct BrowserScreen: View {
     /// A card to remove once the zoom back to the grid settles (an ended
     /// terminal's "Back to Terminals").
     @State private var pendingCardRemoval: String?
+    /// The insets the grid last had on screen (see `gridSafeBottom`).
+    @State private var gridBottom: CGFloat = 0
+    @State private var gridTop: CGFloat = 0
+    /// The grid's insets: a page that hides the app's tab bar and the status
+    /// bar (a terminal) has smaller ones, and a card revealed or laid out
+    /// against them landed under the grid's bar once they came back (63 pt
+    /// short on the real host).
+    private var gridSafeBottom: CGFloat { max(pageBottom, gridBottom) }
+    private var gridSafeTop: CGFloat { max(safeTop, gridTop) }
     /// A card tapped while the zoom headed to the grid: opened once it settles.
     @State private var queuedOpen: String?
     @Environment(\.cnLeadingBarItem) private var leadingItem
@@ -228,7 +237,7 @@ struct BrowserScreen: View {
     private func zoomEndpoint() -> CGRect {
         if isNewTabZoom {
             guard newTabZoom.fromLoneSlot else { return newTabZoom.rect(in: fullRect) }
-            let lone = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: 1)
+            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1)
             return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
         }
         let index: Int
@@ -237,7 +246,7 @@ struct BrowserScreen: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.items.firstIndex { $0.id == id } } ?? (tabs.activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: max(tabs.items.count, index + 1),
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.items.count, index + 1),
                                   pinned: tabs.pinnedCount)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
@@ -554,6 +563,12 @@ struct BrowserScreen: View {
                     openOverview()
                 }
             }
+        }
+        .onChange(of: zoomState.phase == .overview ? pageBottom : -1) { _, bottom in
+            if bottom >= 0 { gridBottom = bottom }
+        }
+        .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
+            if top >= 0 { gridTop = top }
         }
         // A card tapped during the zoom-out opens on Safari's timing, before
         // the zoom-out's tail has run out (TabZoomState.queuedOpenAfter).
@@ -926,7 +941,7 @@ struct BrowserScreen: View {
     // MARK: Tab overview
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: newTabSlot?.cardCount(in: itemIds) ?? tabs.items.count,
+        OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: itemIds) ?? tabs.items.count,
                        pinned: tabs.pinnedCount)
     }
 
@@ -953,7 +968,7 @@ struct BrowserScreen: View {
         captureOverviewImages()
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen (OverviewLayout.offset(revealing:from:)).
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: count, pinned: tabs.pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: tabs.pinnedCount)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()
