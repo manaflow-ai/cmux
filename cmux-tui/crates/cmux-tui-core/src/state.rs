@@ -34,6 +34,7 @@ pub(crate) mod closed_history_store;
 mod closed_history_tests;
 #[cfg(test)]
 mod closed_relaunch_tests;
+mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;

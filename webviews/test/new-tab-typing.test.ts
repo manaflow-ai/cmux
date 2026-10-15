@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-typing.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -31,6 +32,7 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/new-tab-typing.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -45,7 +47,10 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-typing.html?screen=${screen}`);
       const field = page.locator(screen === "classic" ? "input.acpmux-newtab-field" : ".nt-field");
       await field.first().waitFor();
-      await page.waitForFunction(() => document.activeElement instanceof HTMLInputElement);
+      await page.waitForFunction(
+        () =>
+          document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement,
+      );
       // A key at a time, with the page rendering again before each, as the bead's keys came.
       for (const key of "hello world 123") {
         await page.evaluate(() => window.rerenderHost?.());

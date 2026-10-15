@@ -83,7 +83,7 @@ pub fn def(action: Action) -> &'static ActionDef {
 }
 
 /// Effort levels offered for a draft, before the harness can be asked.
-/// Codex uses ultra as its top level; Claude Code adds Ultracode and Ultrathink after max.
+/// Codex uses ultra as its top level; Claude Code's own levels end at max.
 pub fn draft_effort_levels(agent: &str) -> Vec<(&'static str, &'static str)> {
     if agent.contains("codex") {
         vec![
@@ -102,8 +102,6 @@ pub fn draft_effort_levels(agent: &str) -> Vec<(&'static str, &'static str)> {
             ("high", "High"),
             ("xhigh", "Extra High"),
             ("max", "Max"),
-            ("ultracode", "Ultracode"),
-            ("ultrathink", "Ultrathink"),
         ]
     }
 }

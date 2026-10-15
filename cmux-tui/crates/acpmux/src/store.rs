@@ -111,6 +111,15 @@ pub struct SessionMeta {
     pub permission_policy: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
+    /// `harness` (its own `session_info_update`), `asked` (a generated title
+    /// is on its way or failed; never asked again), `generated` or `adopted`.
+    /// None: a chat titled before acpmux generated titles; kept as is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<String>,
+    /// The first prompt a `prompt` title came from, until a title is asked for.
+    #[serde(skip)]
+    pub title_prompt: Option<String>,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -182,6 +191,15 @@ pub struct SessionMeta {
     /// The tools the chat has (`hub/tools.rs`).
     #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
     pub tools: ToolInventory,
+    /// The branch checked out in `cwd` when the session started (session/new,
+    /// or a fork at fork time; `git_state.rs`). `None` on a detached HEAD or
+    /// outside a repository. Never updated after: it joins the session to the
+    /// pull request it produced (hq#1920).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_head: Option<String>,
 }
 
 /// The tools a chat has (`hub/tools.rs`): cmux's own, recorded at each
