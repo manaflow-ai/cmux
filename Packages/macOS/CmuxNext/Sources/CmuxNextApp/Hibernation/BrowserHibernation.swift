@@ -171,7 +171,9 @@ final class BrowserHibernation {
         let tab = entry.tab
         Task { @MainActor [weak self] in
             let probe = user ? PageProbe() : await PageProbe.run(tab)
-            let snapshot = await Self.snapshot(tab, cached: self?.cache?.previews.image(for: key))
+            let exemption = probe.exemption(pressure: self?.pressure ?? .normal) ?? (source.showsFormSubmission ? .formSubmission : nil)
+            // A page that stays needs no picture (each replan probes it again).
+            let snapshot = exemption == nil ? await Self.snapshot(tab, cached: self?.cache?.previews.image(for: key)) : nil
             guard let self, let cache = self.cache else { return }
             self.probing.remove(key)
             // Still the same hidden page: no show, hide or close since.
@@ -180,7 +182,7 @@ final class BrowserHibernation {
                 cache.trace(key, "hibernate probe dropped (stale)")
                 return
             }
-            if let exemption = probe.exemption(pressure: self.pressure) ?? (source.showsFormSubmission ? .formSubmission : nil) {
+            if let exemption {
                 self.exemptions[key] = exemption
                 return
             }
@@ -201,7 +203,9 @@ final class BrowserHibernation {
     }
 
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`
-    /// holding its history and snapshot, and closes the engine page.
+    /// holding its history, and closes the engine page. Its snapshot lives in the
+    /// 32 MB `previews` LRU only: each placeholder used to keep its own full-size
+    /// picture (about 7 MB of app memory per hibernated tab in the 2026-10-14 audit).
     func release(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let entry = cache.browsers[key], let saved = prepared.removeValue(forKey: key) else {
             logger.error("hibernate \(key, privacy: .public): nothing prepared")
@@ -210,7 +214,7 @@ final class BrowserHibernation {
         let page = entry.tab
         let placeholder = HibernatedBrowserTab(
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
-            favicon: page.favicon, restoreState: saved.state, snapshot: saved.snapshot
+            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak cache] in cache?.previews.image(for: key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
         if let snapshot = saved.snapshot { cache.previews.insert(snapshot, for: key) }
@@ -341,7 +345,8 @@ struct PageProbe {
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
-            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: object["form"] ?? true,
+            // The recorder knows which fields the person changed; a page loaded before it compares every field.
+            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio)
         } catch {
             return PageProbe(playingMedia: true)
