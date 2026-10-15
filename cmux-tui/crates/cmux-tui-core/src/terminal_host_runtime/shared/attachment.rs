@@ -114,6 +114,9 @@ pub struct HostAttachment {
     pub(crate) control_responses: Arc<ControlResponses>,
     pub(crate) next_request: AtomicU64,
     pub(crate) viewer_size: Mutex<Option<(u16, u16)>>,
+    /// The host acknowledges a `ViewerSize` that carries a request id
+    /// (`FLAG_VIEWER_SIZE_ACKS`), after the resize it caused.
+    pub(crate) viewer_size_acks: bool,
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.
@@ -272,6 +275,57 @@ impl HostAttachment {
 
     pub fn supports_clear_history(&self) -> bool {
         self.record.supports_clear_history
+    }
+
+    /// Re-send the latest viewer size with a request id and return the
+    /// receiver of its acknowledgement. The host answers frames in order, so
+    /// the acknowledgement arrives after the resize transition of every
+    /// viewer size sent before it, and the daemon's reader applies those to
+    /// the mirror before it resolves the acknowledgement. `None` when the
+    /// host does not acknowledge viewer sizes, no size was sent, or the
+    /// write failed.
+    pub(crate) fn begin_viewer_size_barrier(&self) -> Option<Receiver<Frame>> {
+        if !self.viewer_size_acks {
+            return None;
+        }
+        // Held while writing, as `send_viewer_size` does, so a newer size
+        // cannot be overtaken by this re-send of an older one.
+        let viewer_size =
+            self.viewer_size.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (cols, rows) = (*viewer_size)?;
+        let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let (sender, receiver) = sync_channel(1);
+        self.control_responses
+            .waiters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                request_id,
+                ControlResponseWaiter::Blocking { kind: MessageKind::ResizeAck, sender },
+            );
+        let mut payload = Vec::with_capacity(4);
+        payload.extend_from_slice(&cols.to_le_bytes());
+        payload.extend_from_slice(&rows.to_le_bytes());
+        let mut frame = Frame::new(MessageKind::ViewerSize, payload);
+        frame.version = self.protocol_version;
+        frame.request_id = request_id;
+        let written = write_frame(
+            &mut *self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            &frame,
+        )
+        .is_ok();
+        drop(viewer_size);
+        if !written {
+            self.control_responses
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&request_id);
+            return None;
+        }
+        // A late acknowledgement after the caller stops waiting still finds
+        // this waiter, so it never reaches the reader as an unknown response.
+        Some(receiver)
     }
 
     pub fn send_viewer_size(&self, cols: u16, rows: u16) -> std::io::Result<()> {
