@@ -7231,7 +7231,6 @@ struct CMUXCLI {
                 let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
                 let labelWidth = max(5, rows.map { $0.1.count }.max() ?? 5)
-                let stateWidth = max(5, rows.map { $0.2.count }.max() ?? 5)
                 func pad(_ text: String, _ width: Int) -> String {
                     text.padding(toLength: width, withPad: " ", startingAt: 0)
                 }

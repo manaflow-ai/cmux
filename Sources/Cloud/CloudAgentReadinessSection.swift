@@ -68,10 +68,10 @@ struct CloudAgentReadinessSection: View {
     @ViewBuilder
     private var content: some View {
         switch readiness.phase {
-        case .idle, .checking where readiness.assessments.isEmpty:
-            Text(String(localized: "cloudAgentReadiness.ui.checkingBody", defaultValue: "Checking which agents can start on this machine\u{2026}"))
-                .cmuxFont(size: 11)
-                .foregroundStyle(.secondary)
+        case .idle:
+            checkingBody
+        case .checking where readiness.assessments.isEmpty:
+            checkingBody
         case .unavailable:
             Text(String(localized: "cloudAgentReadiness.ui.unavailable", defaultValue: "This machine could not report its agents. Wake it and check again."))
                 .cmuxFont(size: 11)
@@ -85,6 +85,12 @@ struct CloudAgentReadinessSection: View {
                 issueRow(assessment)
             }
         }
+    }
+
+    private var checkingBody: some View {
+        Text(String(localized: "cloudAgentReadiness.ui.checkingBody", defaultValue: "Checking which agents can start on this machine\u{2026}"))
+            .cmuxFont(size: 11)
+            .foregroundStyle(.secondary)
     }
 
     private var chips: some View {
