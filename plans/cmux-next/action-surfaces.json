@@ -14166,6 +14166,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "browser fit-desktop",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserFitDesktop",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fit as 16:9 Desktop",
+      "title_key" : "action.browserFitDesktop",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "browser stop-vs-code-inline-server",
       "context_menu" : "noTargetSurface",
@@ -29921,8 +29949,21 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "browserFitDesktop",
+              "kind" : "action",
+              "order" : 4,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "browserFocused"
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 4
+              "order" : 5
             },
             {
               "children" : [
@@ -30084,7 +30125,7 @@
               ],
               "id" : "browser.pageInfo",
               "kind" : "submenu",
-              "order" : 5,
+              "order" : 6,
               "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
@@ -30098,7 +30139,7 @@
               "enabled_when" : "can_perform",
               "id" : "showBrowserJavaScriptConsole",
               "kind" : "action",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30111,7 +30152,7 @@
               "enabled_when" : "can_perform",
               "id" : "inspectBrowserElement",
               "kind" : "action",
-              "order" : 7,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30122,24 +30163,11 @@
             },
             {
               "kind" : "separator",
-              "order" : 8
+              "order" : 9
             },
             {
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.menu",
-              "kind" : "action",
-              "order" : 9,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browser.extensions.manage",
               "kind" : "action",
               "order" : 10,
               "visible_when" : {
@@ -30152,7 +30180,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "browser.extensions.webStore",
+              "id" : "browser.extensions.manage",
               "kind" : "action",
               "order" : 11,
               "visible_when" : {
@@ -30165,9 +30193,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "browser.extensions.loadUnpacked",
+              "id" : "browser.extensions.webStore",
               "kind" : "action",
               "order" : 12,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browser.extensions.loadUnpacked",
+              "kind" : "action",
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
