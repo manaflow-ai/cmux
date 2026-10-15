@@ -360,6 +360,8 @@ class TaggedApp:
         self.debug_log = workdir / f"bench-{slug}.log"
         self.cli_path = app / "Contents/Resources/bin/cmux"
         self.pid: int | None = None
+        # Extra app environment for a scenario (for example CMUX_CEF_DEBUG_URL).
+        self.extra_env: dict[str, str] = {}
 
     def env(self) -> dict[str, str]:
         return {
@@ -369,6 +371,7 @@ class TaggedApp:
             "CMUX_DEBUG_LOG": str(self.debug_log),
             "CMUX_TAG": self.tag,
             "CMUX_BUNDLE_ID": self.bundle_id,
+            **self.extra_env,
         }
 
     def running_pids(self) -> set[int]:
@@ -380,6 +383,15 @@ class TaggedApp:
         # Never touch an instance someone else launched from this bundle.
         if self.running_pids():
             raise BenchFailure(f"{self.app.name} is already running; quit it before benchmarking")
+        # Another copy of a same-tag bundle (elsewhere on disk) would own this socket.
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.connect(str(self.socket_path))
+            raise BenchFailure(f"{self.socket_path} is live: another copy of tag {self.tag} is running")
+        except OSError:
+            pass
+        finally:
+            probe.close()
         self.socket_path.unlink(missing_ok=True)
         cmd = ["open", "-g", "-n", "-F", "-a", str(self.app)]
         for key, value in self.env().items():
@@ -428,7 +440,11 @@ class TaggedApp:
         return env
 
     def cli(self, args: list[str], timeout: float = 60) -> str:
-        proc = subprocess.run([str(self.cli_path)] + args, capture_output=True, text=True, env=self.cli_env(), timeout=timeout)
+        try:
+            proc = subprocess.run([str(self.cli_path)] + args, capture_output=True, text=True,
+                                  env=self.cli_env(), timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            raise BenchFailure(f"cmux {' '.join(args)} timed out after {timeout}s") from exc
         if proc.returncode != 0:
             raise BenchFailure(f"cmux {' '.join(args)} failed: {proc.stderr.strip() or proc.stdout.strip()}")
         return proc.stdout.strip()
@@ -596,23 +612,28 @@ def cmd_run(args: argparse.Namespace) -> int:
         "launch": {},
         "engines": {},
     }
-    try:
-        launch_ms = []
-        for index in range(args.launches):
-            launch_ms.append(round(app.launch(args.launch_timeout), 2))
-            if index < args.launches - 1:
-                app.quit()
-        result["launch"]["socket_ready_ms"] = stats(launch_ms)
-        time.sleep(args.settle_s)
-        result["launch"]["idle"] = engine_snapshot(app.pid, str(app_path))
-        result["launch"]["idle_cpu_percent"] = cpu_percent_over(app.pid, str(app_path), args.cpu_window_s)
-        result["key_latency_ms_no_browser"] = key_latency(app, args)
-        with FixtureServer() as server:
+    with FixtureServer() as server:
+        # `{fixture:<name>}` in a --launch-env value becomes a fixture page URL.
+        for item in args.launch_env:
+            key, _, value = item.partition("=")
+            app.extra_env[key] = re.sub(r"\{fixture:([a-z0-9-]+)\}", lambda m: server.url(m.group(1)), value)
+        result["launch_env"] = dict(app.extra_env)
+        try:
+            launch_ms = []
+            for index in range(args.launches):
+                launch_ms.append(round(app.launch(args.launch_timeout), 2))
+                if index < args.launches - 1:
+                    app.quit()
+            result["launch"]["socket_ready_ms"] = stats(launch_ms)
+            time.sleep(args.settle_s)
+            result["launch"]["idle"] = engine_snapshot(app.pid, str(app_path))
+            result["launch"]["idle_cpu_percent"] = cpu_percent_over(app.pid, str(app_path), args.cpu_window_s)
+            result["key_latency_ms_no_browser"] = key_latency(app, args)
             for engine in engines:
                 result["engines"][engine] = run_engine(app, engine, open_params.get(engine, {}), server, args)
-        result["final"] = engine_snapshot(app.pid, str(app_path))
-    finally:
-        app.quit()
+            result["final"] = engine_snapshot(app.pid, str(app_path))
+        finally:
+            app.quit()
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.out:
         pathlib.Path(args.out).write_text(text + "\n")
@@ -697,6 +718,9 @@ def main(argv: list[str]) -> int:
     run.add_argument("--key-combo", default="up")
     run.add_argument("--key-events", type=int, default=200)
     run.add_argument("--key-repeats", type=int, default=3)
+    run.add_argument("--launch-env", action="append", default=[],
+                     help="KEY=VALUE for the app; {fixture:<name>} becomes a fixture page URL, "
+                          "e.g. CMUX_CEF_DEBUG_URL={fixture:chromium-debug}")
     run.add_argument("--out")
     run.set_defaults(func=cmd_run)
 
