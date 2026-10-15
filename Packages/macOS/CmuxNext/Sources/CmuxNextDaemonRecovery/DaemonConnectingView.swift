@@ -1,6 +1,6 @@
-import AppKit
-import CmuxNextDaemon
-import CmuxNextDaemonService
+public import AppKit
+public import CmuxNextDaemon
+public import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -13,7 +13,7 @@ import CmuxNextWakeups
 /// passes, it shows the failure at once, in plain words, with the raw error
 /// behind Copy Details for a bug report, Retry Now and, for a stuck owner,
 /// Restart cmux-tui (`DaemonRecoveryControls`, cx-jniyz.1).
-final class DaemonConnectingView: NSView {
+public final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
@@ -32,11 +32,11 @@ final class DaemonConnectingView: NSView {
     /// The status line has waited out its delay (or a failure showed it).
     private var statusDue = false
 
-    convenience override init(frame: NSRect) {
+    public convenience override init(frame: NSRect) {
         self.init(frame: frame, clock: ContinuousClock())
     }
 
-    convenience init(frame: NSRect, recovery: DaemonRecovery) {
+    public convenience init(frame: NSRect, recovery: DaemonRecovery) {
         self.init(frame: frame, clock: ContinuousClock(), recovery: recovery)
     }
 
@@ -57,7 +57,7 @@ final class DaemonConnectingView: NSView {
         detailLabel.maximumNumberOfLines = 4
         detailLabel.isSelectable = true
         detailLabel.focusRingType = .none
-        copyDetailsButton.title = Strings.daemonCopyDetails
+        copyDetailsButton.title = DaemonRecoveryStrings.copyDetails
         copyDetailsButton.controlSize = .small
         copyDetailsButton.target = self
         copyDetailsButton.action = #selector(copyDetails)
@@ -125,11 +125,11 @@ final class DaemonConnectingView: NSView {
         statusTimer.cancel()
     }
 
-    func apply(_ state: DaemonStartupState) {
+    public func apply(_ state: DaemonStartupState) {
         self.state = state
         switch state {
         case .connecting, .connected:
-            titleLabel.stringValue = Strings.daemonConnecting
+            titleLabel.stringValue = DaemonRecoveryStrings.connecting
             titleLabel.alphaValue = statusDue ? 1 : 0
             detailLabel.stringValue = ""
             detailLabel.isHidden = true
@@ -146,7 +146,7 @@ final class DaemonConnectingView: NSView {
                 titleLabel.stringValue = RefusalStrings.daemonRestoreTimedOut
                 detailLabel.stringValue = ""
             } else {
-                titleLabel.stringValue = Strings.daemonServiceUnavailable
+                titleLabel.stringValue = DaemonRecoveryStrings.serviceUnavailable
                 detailLabel.stringValue = Self.plainReason(error) ?? ""
             }
             detailLabel.isHidden = detailLabel.stringValue.isEmpty
@@ -163,12 +163,12 @@ final class DaemonConnectingView: NSView {
     /// app serves the socket, a bad launch tag): Copy Details carries the specifics.
     private static func plainReason(_ error: DaemonError) -> String? {
         switch error {
-        case .binaryNotFound: Strings.daemonReinstall
+        case .binaryNotFound: DaemonRecoveryStrings.reinstall
         case .unsupportedProtocol: RefusalStrings.restartToUpdateDaemon
         case .missingCapabilities, .sessionRestoreTimedOut: RefusalStrings.describe(error)
         case .endpointBlocked(let reason): reason
         case .wrongApp, .invalidSessionName: nil
-        default: DaemonStartup.shared.isPermanent(error) ? nil : Strings.daemonRetrying
+        default: DaemonStartup.shared.isPermanent(error) ? nil : DaemonRecoveryStrings.retrying
         }
     }
 

@@ -1,11 +1,19 @@
-import AppKit
-import CmuxNextApps
+public import AppKit
+public import CmuxNextApps
 import CmuxNextCompat
-import CmuxNextDaemonService
+public import CmuxNextDaemonService
 import CmuxNextDesign
 
-/// Strings of the daemon recovery controls (Resources/Localizable.xcstrings).
+/// Strings of the launch window's connecting and failure screen and the
+/// daemon recovery controls (Resources/Localizable.xcstrings).
 enum DaemonRecoveryStrings {
+    static var connecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux-tui…", bundle: .module) }
+    static var serviceUnavailable: String {
+        String(localized: "daemon.serviceUnavailable", defaultValue: "cmux couldn’t start its background service.", bundle: .module)
+    }
+    static var reinstall: String { String(localized: "daemon.reinstall", defaultValue: "Reinstall cmux to fix this.", bundle: .module) }
+    static var copyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .module) }
+    static var retrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
     static var retryNow: String { String(localized: "daemon.recovery.retryNow", defaultValue: "Retry Now", bundle: .module) }
     static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart cmux-tui", bundle: .module) }
     static var confirmTitle: String { String(localized: "daemon.recovery.confirmTitle", defaultValue: "Restart cmux-tui?", bundle: .module) }
@@ -24,7 +32,7 @@ enum DaemonRecoveryStrings {
 /// Restart cmux-tui's question and the App Store banner's controls, one path
 /// for both surfaces (cx-jniyz.1). The question is the cmux dialog every
 /// destructive confirm uses, so the debug socket can answer it.
-enum DaemonRestartPrompt {
+public enum DaemonRestartPrompt {
     static let confirmID = "restart"
     static let identifier = "cmux.dialog.restartDaemon"
 
@@ -48,7 +56,7 @@ enum DaemonRestartPrompt {
     }
 
     /// The App Store's disconnected banner controls (AppStoreModel.recovery).
-    static func appsRecovery(_ recovery: DaemonRecovery) -> AppsRecovery {
+    public static func appsRecovery(_ recovery: DaemonRecovery) -> AppsRecovery {
         guard recovery.canRetry else { return AppsRecovery(actions: [], status: nil) }
         var actions = [AppsRecoveryAction(id: "retryNow", title: DaemonRecoveryStrings.retryNow, isEnabled: !recovery.isRestarting) {
             recovery.retryNow()

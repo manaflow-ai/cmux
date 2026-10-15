@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextControl
+import CmuxNextDaemonRecovery
 import CmuxNextDaemonService
 import CmuxNextIcons
 import CmuxNextPages

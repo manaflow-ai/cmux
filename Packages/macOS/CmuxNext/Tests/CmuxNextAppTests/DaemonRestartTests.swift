@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+@testable import CmuxNextDaemonRecovery
 import CmuxNextDesign
 import Foundation
 import Testing

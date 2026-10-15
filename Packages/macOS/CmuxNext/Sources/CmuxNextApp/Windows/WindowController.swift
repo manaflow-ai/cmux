@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentCursor
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemonRecovery
 import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -176,8 +177,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if content == nil { showConnecting() }
     }
 
-    /// The connecting (or unavailable) state of the local daemon's first
-    /// connection, until a workspace can be shown.
+    /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
         let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
         connectingView = view
