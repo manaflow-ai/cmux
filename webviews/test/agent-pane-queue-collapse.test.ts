@@ -156,7 +156,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         (row) =>
           `${row.querySelector(".acpmux-queued-mark")?.textContent ?? ""} ${row.querySelector(".acpmux-queued-text")?.textContent ?? ""}`,
       );
-      const fold = list?.querySelector<HTMLButtonElement>("button[aria-expanded].acpmux-queue-fold");
+      const fold = document.querySelector<HTMLButtonElement>("button[aria-expanded].acpmux-queue-fold");
       return { rows, fold: fold ? `${fold.textContent} (${fold.getAttribute("aria-expanded")})` : null };
     });
   const focused = (page: Page) =>
@@ -241,20 +241,26 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
                   const box = list.getBoundingClientRect();
                   const fold = document.querySelector<HTMLElement>(".acpmux-queue-fold")!.getBoundingClientRect();
                   const focused = document.activeElement as HTMLElement;
-                  const inside = (rect: DOMRect, bottom: number) =>
-                    rect.top >= box.top - 1 && rect.bottom <= bottom + 1 && rect.bottom <= innerHeight + 1;
-                  const isFold = focused.classList.contains("acpmux-queue-fold");
-                  // Rows show above the fold, and never past the list's own bottom edge.
+                  // Rows show between a pinned header (if the list pins one) and the list's
+                  // bottom edge, never under the fold.
+                  const header = list.querySelector<HTMLElement>(".acpmux-queue-header");
+                  const pinned = header && getComputedStyle(header).position === "sticky";
+                  const top = pinned ? Math.max(box.top, header.getBoundingClientRect().bottom) : box.top;
                   const edge = Math.min(box.bottom, fold.top);
+                  const inside = (rect: DOMRect) =>
+                    rect.top >= top - 1 && rect.bottom <= edge + 1 && rect.bottom <= innerHeight + 1;
+                  // The fold: on the page, and clear of every row the list shows.
+                  const foldClear = fold.top >= box.bottom - 1 && fold.bottom <= innerHeight + 1;
+                  const isFold = focused.classList.contains("acpmux-queue-fold");
                   const rect = focused.getBoundingClientRect();
                   const cut = [...list.querySelectorAll<HTMLElement>(".acpmux-queued")]
                     .map((row) => row.getBoundingClientRect())
-                    .filter((row) => row.bottom > box.top + 1 && row.top < edge - 1)
-                    .filter((row) => row.top < box.top - 1 || row.bottom > edge + 1).length;
+                    .filter((row) => row.bottom > top + 1 && row.top < edge - 1)
+                    .filter((row) => row.top < top - 1 || row.bottom > edge + 1).length;
                   resolve({
                     focused: focused.dataset.promptId ?? (isFold ? "fold" : focused.className),
-                    inSight: inside(rect, isFold ? box.bottom : edge),
-                    foldInSight: inside(fold, box.bottom),
+                    inSight: isFold ? foldClear : inside(rect),
+                    foldInSight: foldClear,
                     wholeRows: cut === 0,
                   });
                 }),
@@ -273,6 +279,43 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       }
       await page.keyboard.press("ArrowDown");
       expect(await sight()).toEqual({ focused: "fold", inSight: true, foldInSight: true, wholeRows: true });
+      await page.close();
+    });
+
+    test("a long row opened in a folded queue never runs under the fold (capture, 2026-10-15)", async () => {
+      // The capture at 935dada: the folded queue's first row opened to its whole text ran under the
+      // pinned "6 more queued", and row 2 hid behind it.
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(8);
+      const page = await openChat([long, "two", "three", "four", "five", "six", "seven", "eight"]);
+      await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
+      await page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text').click();
+      await page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text[data-open]').waitFor();
+      const layout = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!.getBoundingClientRect();
+        const fold = document.querySelector<HTMLElement>(".acpmux-queue-fold")!;
+        const box = fold.getBoundingClientRect();
+        // What draws at each point of the fold is the fold itself, never a row's text.
+        const hit = [0.1, 0.5, 0.9].map((x) => {
+          const at = document.elementFromPoint(box.left + box.width * x, box.top + box.height / 2);
+          return !!at && (at === fold || fold.contains(at) || !at.closest(".acpmux-queued"));
+        });
+        return { foldBelowList: box.top >= list.bottom - 1, hit };
+      });
+      expect(layout).toEqual({ foldBelowList: true, hit: [true, true, true] });
+      await page.close();
+    });
+
+    test("opening the fold grows the bottom stack by about one row at most (capture, 2026-10-15)", async () => {
+      // The capture at 935dada: opening eight queued prompts took the transcript from 312 to 156 px.
+      const page = await openChat(["one", "two", "three", "four", "five", "six", "seven", "eight"]);
+      await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
+      const height = () =>
+        page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer")!.getBoundingClientRect().height);
+      const folded = await height();
+      await page.locator(".acpmux-queue-fold").click();
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
+      const opened = await height();
+      expect(Math.abs(opened - folded)).toBeLessThanOrEqual(40);
       await page.close();
     });
 
