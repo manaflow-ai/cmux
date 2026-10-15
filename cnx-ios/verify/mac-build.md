@@ -42,4 +42,21 @@ cnx-hostd (fleet side fixed in cmuxterm-hq #2091). Now (b20242a0):
 
 | When (UTC) | SHA | Fleet job | Path | Result |
 | --- | --- | --- | --- | --- |
-| 2026-10-15 | 9063df14 | prod cbd41d5d, rig 79c6e58c | pending | pending |
+| 2026-10-15 05:20 | 9063df14 | prod cbd41d5d (aws-m4pro-3), rig cnx-e2e-9063df14 79c6e58c (linux pool) | `~/cnx-ios-builds/20261015-9063df1493-mac-prod/cmux NEXT iOS Test.app` | bundle checks pass; live checks below |
+
+## Verification of 9063df14
+
+Bundle (headless, on this Mac and a copy on mini-cmux10s-mac-mini):
+
+- `codesign --verify --deep --strict`: pass.
+- `Resources/bin/cnx-hostd`: universal (arm64, x86_64), `.version` key `538d774e0f4acec6`, which is
+  `build-cnx-hostd.sh --print-key` of 9063df14; the binary carries `browser-stream-v1`.
+- Embedded `Helpers/cmux-remote-browser-host.app` rendered https://example.com with
+  `rb-host-http-frames.sh` (first frame 553 ms) on mini-cmux10s, from a copy of the app.
+- `Resources/bin/cmux-tui` (the daemon) is built from 9063df14 (`cmux-tui.version`), with the
+  departed-phone grid hold (`terminal-grid-hold`, D4/D5 attach) and the Codex agent shims kept
+  first on PATH (`_cmux_tui_agent_shims_first`).
+
+Live rig (mini-cmux10s-mac-mini, tag cnx-e2e-9063df14, iOS Demo build of this tree in one
+headless iOS 26.5 simulator; the rig app is an unmodified copy of the fleet build, settings
+via `open --env`; no Keychain prompt, no SecurityAgent):
