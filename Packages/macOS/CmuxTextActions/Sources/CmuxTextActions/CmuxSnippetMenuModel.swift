@@ -1,16 +1,25 @@
 import Foundation
 
-/// One `type: "text"` action as the Snippets context menu sees it.
+/// One `type: "text"` action as the Snippets context menu and sidebar see it.
 public struct CmuxSnippetMenuEntry: Sendable, Hashable {
     public var actionID: String
     public var title: String
     public var category: String?
+    /// Palette keywords from the action definition; searched by the sidebar.
+    public var keywords: [String]
     public var payload: CmuxTextActionPayload
 
-    public init(actionID: String, title: String, category: String?, payload: CmuxTextActionPayload) {
+    public init(
+        actionID: String,
+        title: String,
+        category: String?,
+        keywords: [String] = [],
+        payload: CmuxTextActionPayload
+    ) {
         self.actionID = actionID
         self.title = title
         self.category = category
+        self.keywords = keywords
         self.payload = payload
     }
 }
