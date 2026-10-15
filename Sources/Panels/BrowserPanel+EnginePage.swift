@@ -1,3 +1,5 @@
+import AppKit
+import CMUXMobileCore
 import CmuxBrowser
 import CmuxSettings
 import Foundation
@@ -206,6 +208,79 @@ extension BrowserPanel {
         // A WKNavigation-shaped callback cannot carry an engine load; tie the
         // load to automation's pending wait instead, and finish it from page events.
         associateEngineNavigation(targetURL: request.url)
+    }
+
+    /// Shows a non-WebKit page's JavaScript dialog the way WebKit's are shown:
+    /// a REPL session answers its own tabs, automation owns it while it
+    /// drives the panel (`browser dialog accept|dismiss`), otherwise a sheet.
+    func runEngineJavaScriptDialog(_ dialog: BrowserPageJavaScriptDialog) async -> BrowserPageJavaScriptDialogResponse {
+        await withCheckedContinuation { (continuation: CheckedContinuation<BrowserPageJavaScriptDialogResponse, Never>) in
+            var resumed = false
+            let finish: @MainActor (BrowserPageJavaScriptDialogResponse) -> Void = { response in
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: response)
+            }
+            presentEngineJavaScriptDialog(dialog, finish: finish)
+        }
+    }
+
+    private func presentEngineJavaScriptDialog(
+        _ dialog: BrowserPageJavaScriptDialog,
+        finish: @escaping @MainActor (BrowserPageJavaScriptDialogResponse) -> Void
+    ) {
+        let okLabel = String(localized: "common.ok", defaultValue: "OK")
+        let cancelLabel = String(localized: "common.cancel", defaultValue: "Cancel")
+        let type: String
+        let kind: MobileBrowserDialogKind
+        var defaultText: String?
+        switch dialog.kind {
+        case .alert:
+            type = "alert"; kind = .javaScriptAlert
+        case .confirm, .beforeUnload:
+            type = "confirm"; kind = .javaScriptConfirm
+        case .prompt(let text):
+            type = "prompt"; kind = .javaScriptPrompt; defaultText = text
+        }
+        if let attachment = BrowserReplTabAttachments.shared.attachment(for: id),
+           attachment.handleDialog(type: type, message: dialog.message, defaultValue: defaultText, respond: { accept, text in
+               finish(accept ? .accept(text: text ?? defaultText ?? "") : .dismiss)
+           }) {
+            return
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = dialog.origin?.host ?? ""
+        alert.informativeText = dialog.message
+        alert.addButton(withTitle: okLabel)
+        let isAlert = kind == .javaScriptAlert
+        if !isAlert { alert.addButton(withTitle: cancelLabel) }
+        var field: NSTextField?
+        if kind == .javaScriptPrompt {
+            let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+            input.stringValue = defaultText ?? ""
+            alert.accessoryView = input
+            field = input
+        }
+        var buttons = [MobileBrowserDialogButton(id: "ok", label: okLabel, role: .default)]
+        if !isAlert { buttons.append(MobileBrowserDialogButton(id: "cancel", label: cancelLabel, role: .cancel)) }
+        _ = presentMobileBrowserDialog(
+            kind: kind,
+            title: alert.messageText,
+            message: dialog.message,
+            host: dialog.origin?.host,
+            buttons: buttons,
+            textField: field.map { MobileBrowserDialogTextField(placeholder: nil, initial: $0.stringValue, secure: false) },
+            informational: false,
+            alert: alert,
+            response: { buttonID, text in
+                finish(buttonID == "ok" ? .accept(text: text) : .dismiss)
+            },
+            macResponse: { response in
+                (response == .alertFirstButtonReturn ? "ok" : "cancel", field?.stringValue)
+            },
+            cancelButtonID: isAlert ? "ok" : "cancel"
+        )
     }
 
     /// Steps a non-WebKit page's history.

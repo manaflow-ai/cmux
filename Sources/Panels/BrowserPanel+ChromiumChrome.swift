@@ -139,7 +139,7 @@ final class BrowserPanelEnginePageDelegate: BrowserPageUIDelegate {
     }
 
     func page(_ page: any BrowserPage, runJavaScriptDialog dialog: BrowserPageJavaScriptDialog) async -> BrowserPageJavaScriptDialogResponse {
-        .dismiss
+        await panel?.runEngineJavaScriptDialog(dialog) ?? .dismiss
     }
 
     func page(_ page: any BrowserPage, openNewPage request: BrowserPageOpenRequest) -> BrowserPageOpenDisposition {

@@ -39,6 +39,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var appliedNavigationGuardMode: Int32?
     /// Permission prompts waiting for the UI delegate, by shim token.
     private var pendingPermissions: [Int32: Task<Void, Never>] = [:]
+    /// JavaScript dialogs waiting for the UI delegate, by shim token.
+    private var pendingDialogs: [Int32: Task<Void, Never>] = [:]
     /// Downloads of this page, by shim token.
     private var downloads: [Int32: BrowserPageDownload] = [:]
 
@@ -357,6 +359,8 @@ public final class CEFBrowserPage: BrowserPage {
         isClosed = true
         pendingPermissions.values.forEach { $0.cancel() }
         pendingPermissions.removeAll()
+        pendingDialogs.values.forEach { $0.cancel() }
+        pendingDialogs.removeAll()
         features.tearDown()
         browser.close()
         eventContinuation?.finish()
@@ -417,6 +421,11 @@ public final class CEFBrowserPage: BrowserPage {
             handlePermissionPrompt(token: token, bits: permissions, origin: origin)
         case .permissionDismissed(_, let token):
             pendingPermissions.removeValue(forKey: token)?.cancel()
+        case .jsDialog(_, let token, let kind, let message, let origin, let defaultText, let isReload):
+            handleJavaScriptDialog(token: token, kind: kind, message: message, origin: origin,
+                                   defaultText: defaultText, isReload: isReload)
+        case .jsDialogDismissed(_, let token):
+            pendingDialogs.removeValue(forKey: token)?.cancel()
         case .download(let kind, _, let token, let a, let b, let s1, let s2):
             handleDownload(kind: kind, token: token, a: a, b: b, s1: s1, s2: s2)
         default:
@@ -445,6 +454,46 @@ public final class CEFBrowserPage: BrowserPage {
             case .prompt:
                 break
             }
+        }
+    }
+
+    // MARK: JavaScript dialogs
+
+    /// Chromium shows no dialog of its own and waits for the answer, so
+    /// every dialog is answered: by the UI delegate, or with Chrome's
+    /// defaults (OK for an alert and Leave, Cancel otherwise) without one.
+    private func handleJavaScriptDialog(
+        token: Int32, kind: CEFJSDialogKind, message: String, origin: String, defaultText: String, isReload: Bool
+    ) {
+        let pageKind: BrowserPageJavaScriptDialog.Kind = switch kind {
+        case .alert: .alert
+        case .confirm: .confirm
+        case .prompt: .prompt(defaultText: defaultText)
+        case .beforeUnload: .beforeUnload(isReload: isReload)
+        }
+        let dialog = BrowserPageJavaScriptDialog(kind: pageKind, message: message, origin: URL(string: origin))
+        pendingDialogs[token]?.cancel()
+        pendingDialogs[token] = Task { @MainActor [weak self] in
+            let response: BrowserPageJavaScriptDialogResponse
+            if let self, let uiDelegate = self.uiDelegate {
+                response = await uiDelegate.page(self, runJavaScriptDialog: dialog)
+            } else {
+                response = Self.defaultResponse(for: pageKind)
+            }
+            guard !Task.isCancelled, self?.pendingDialogs.removeValue(forKey: token) != nil else { return }
+            switch response {
+            case .accept(let text):
+                CEFRuntime.shared.answerJSDialog(token: token, accept: true, text: text ?? "")
+            case .dismiss:
+                CEFRuntime.shared.answerJSDialog(token: token, accept: false)
+            }
+        }
+    }
+
+    nonisolated static func defaultResponse(for kind: BrowserPageJavaScriptDialog.Kind) -> BrowserPageJavaScriptDialogResponse {
+        switch kind {
+        case .alert, .beforeUnload: .accept(text: nil)
+        case .confirm, .prompt: .dismiss
         }
     }
 
