@@ -227,7 +227,9 @@ struct MockDialer: MacLinkDialer {
         #expect(ws.colorHex == "#30D158")
         #expect(ws.hasUnread)
         #expect(ws.isWorking)
-        #expect(ws.tabs.map(\.kind) == [.terminal, .agent, .browser])
+        // A dead terminal the Mac keeps is listed with its ended shell (Restart Shell Here).
+        #expect(ws.tabs.map(\.kind) == [.terminal, .agent, .browser, .terminal])
+        #expect(ws.tabs.map(\.hasEndedShell) == [false, false, false, true])
         #expect(ws.tabs[1].title == "Claude")
         #expect(ws.tabs[1].harness == "claude")
         #expect(tree.agentTabs["s7"]?.session == "sess-1")
@@ -253,7 +255,7 @@ struct MockDialer: MacLinkDialer {
         let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
         let ws = tree.workspaces[0]
         // The terminal runs Claude; the conversation tab has an open permission.
-        #expect(ws.tabs.map(\.agentStatus) == [.working, .waiting, nil])
+        #expect(ws.tabs.map(\.agentStatus) == [.working, .waiting, nil, nil])
         #expect(ws.tabs[0].harness == "claude")
         // The active screen's active pane's tab.
         #expect(ws.activeTabID == "s7")

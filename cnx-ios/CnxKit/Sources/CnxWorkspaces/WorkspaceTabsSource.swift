@@ -509,7 +509,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     // MARK: Tab edits (the Mac's Rename Tab…, Duplicate Tab, drag to reorder)
 
-    private var canEditTabs: Bool {
+    var canEditTabs: Bool {
         guard let workspace, let creator else { return false }
         return creator.backend.canEditTabs(on: workspace.macID)
     }
@@ -554,6 +554,21 @@ public final class WorkspaceTabsSource: TabsDataSource {
         } catch {
             show(TabNotice(action: .open(optionTitle: "New \(tab.kind == .browser ? "Browser Tab" : "Terminal")"), macName: macName,
                            reason: Self.message(error)))
+            CnxTheme.standard.haptics.error()
+        }
+    }
+
+    /// The Mac's wording (`terminal.restart.button`, `action.tab.restart`).
+    public static let restartShellTitle = "Restart Shell Here"
+
+    /// Restart Shell Here: the Mac starts the tab's shell again; the tab turns live when
+    /// the Mac's tree says so.
+    public func restartShell(_ id: TabsKitTab.ID) async {
+        guard let workspace, let creator, let tab = workspaceTab(id), tab.hasEndedShell else { return }
+        do {
+            try await creator.backend.restartShell(tab, in: workspace)
+        } catch {
+            show(TabNotice(action: .other(verb: "restart", title: tab.title), macName: macName, reason: Self.message(error)))
             CnxTheme.standard.haptics.error()
         }
     }
@@ -859,9 +874,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
                                 isDestructive: action.isDestructive) { action.perform() }
             }
             let copy = TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }
+            // The Mac shows Restart Shell Here only on a tab whose shell ended.
+            let restart = tab.hasEndedShell && canEditTabs
+                ? [TabsKitMenuItem(title: Self.restartShellTitle, systemImage: "arrow.counterclockwise") { [weak self] in
+                    Task { await self?.restartShell(tab.id) }
+                }] : []
             // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [own, [copy], edit, [close]].filter { !$0.isEmpty }
+            return [restart, own, [copy], edit, [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
@@ -913,6 +933,21 @@ struct WorkspaceTabPage: View {
             }
         case .terminal:
             source.terminal.page(for: tab, in: workspace, context: terminalContext)
+                .overlay {
+                    // The Mac's dead-tab overlay: the shell ended; its button restarts it.
+                    if tab.hasEndedShell {
+                        VStack(spacing: 12) {
+                            Text("The shell ended.").font(.headline)
+                            Button(WorkspaceTabsSource.restartShellTitle, systemImage: "arrow.counterclockwise") {
+                                Task { await source.restartShell(tab.id) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!source.canEditTabs)
+                        }
+                        .padding(20)
+                        .background(.regularMaterial, in: .rect(cornerRadius: 16))
+                    }
+                }
         case .browser:
             if let model = source.browser(tab) as? StreamedBrowserModel {
                 StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })

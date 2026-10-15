@@ -435,6 +435,13 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     }
 
     /// Pin Tab / Unpin Tab (`set-tab-pinned`): pinned tabs sort first in their pane.
+    /// The Mac's Restart Shell Here (`tab.restart`): the tab names only its surface; the
+    /// Mac starts the tab's own shell again under the same terminal id.
+    public func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        let (client, surface) = try target(tab, in: workspace)
+        try await run(client, "restart-tab", ["surface": surface])
+    }
+
     public func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws {
         let (client, surface) = try target(tab, in: workspace)
         try await run(client, "set-tab-pinned", ["surface": surface, "pinned": pinned])

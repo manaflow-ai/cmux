@@ -158,6 +158,9 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Move Tab to Workspace… (`destination`) or Move Tab to New Workspace (nil, named as the
     /// Mac names it). Returns the workspace the tab is in now, once the Mac lists it.
     func moveTab(_ tab: WorkspaceTab, from workspace: Workspace, toWorkspace destination: Workspace?) async throws -> Workspace?
+    /// Restart Shell Here: a terminal tab whose shell ended gets a new shell on the Mac,
+    /// under the same tab (`restart-tab`).
+    func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws
     /// Pin Tab / Unpin Tab.
     func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws
     /// A tab group change (`TabGroupEdit`).
@@ -169,6 +172,9 @@ public protocol WorkspaceCreationBackend: AnyObject {
 }
 
 extension WorkspaceCreationBackend {
+    public func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
     public func canManage(on macID: String) -> Bool { false }
     public func rename(_ workspace: Workspace, to title: String) async throws {
         throw WorkspaceCreationError("Renaming isn't available on this Mac")
@@ -573,6 +579,14 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws {
         try await settle()
+    }
+
+    /// Tabs Restart Shell Here was sent for, in order (tests).
+    public private(set) var restartedShells: [String] = []
+
+    public func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+        restartedShells.append(tab.id)
     }
 
     /// Every edit the mock received, in order (tests).

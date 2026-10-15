@@ -17,8 +17,8 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 
 | Mac action (wording) | Mac sends | Phone | State | Notes |
 | --- | --- | --- | --- | --- |
-| New Agent Chat (⌘I) | acpmux `session/new` (harness from the last pick, else acpmux `defaultHarness`), daemon `new-conversation-tab` | + > **New Agent Chat** | works (this branch) | One model-agnostic entry: the Mac's acpmux `defaultHarness` when a phone may start it, else the first that may (Claude). Was one "New Claude Chat" per harness. The Mac's last-pick memory (`newTab.lastPicks`, Mac UserDefaults) does not reach the phone; the phone uses acpmux's default. |
-| Harness and model picker (chip: "Harness", "Model"; "Unavailable" + reason) | `session/new` then `session/set_model` | + > **New Agent Chat With…** (sheet "New Agent Chat": Harness, Model, Start Chat) | works (this branch) | Unavailable agents keep the Mac's reason. Codex and opencode: "Not available from here: this agent has no mode that asks before each change" (the Mac's own remote wording, acpmux `REFUSED_FAMILIES`). |
+| New Agent Chat (⌘I) | acpmux `session/new` (harness from the last pick, else acpmux `defaultHarness`), daemon `new-conversation-tab` | + > **New Agent Chat** | works (round 2) | One model-agnostic entry. Round 2: it starts where the Mac's would: the Mac's last pick in the workspace folder, then its last pick anywhere, then the agent it picked last, then acpmux's `defaultHarness` (a pick the phone can't start is skipped). The Mac app hands its `newTab.lastPicks` to acpmux over its person connection (`_acpmux/new_chat_picks_set`, memory only) and `_acpmux/harnesses` shows them (`lastPicks`). Unit-tested on both sides; not driven live (the rig app is hidden, so nobody picks on its New Tab page). |
+| Harness and model picker (chip: "Harness", "Model"; "Unavailable" + reason) | `session/new` then `session/set_model` | + > **New Agent Chat With…** (sheet "New Agent Chat": Harness, Model, Start Chat) | works (round 2) | acpmux now says per agent what a phone may start (`remote: {startable, modes}` or the reason). **Codex** (the `codex app-server` bridge, the Mac's `codex` profile) is startable: a phone-started Codex chat begins in the bridge's **Ask** mode (approval policy `untrusted`: Codex asks before every command that is not a known-safe read and before every file change), with acpmux policy `ask`, so each approval reaches the phone and Allow needs Face ID. The codex-acp adapter and **opencode** stay "Not available from here: this agent has no mode that asks before each change" (opencode starts every agent from allow-all and merges the user's rules last). A Mac without the `remote` row keeps Codex refused. |
 | Agent chat in a workspace folder | `session/new {cwd}` (the pane's folder) | same | works (this branch) | Needed `feat-cnx-ios-agentcwd` (acpmux `_acpmux/workspace_roots_set`), merged here. A workspace still at home gets "Agent chats start in a project folder…". A folder Claude has never been trusted in waits on the Mac's trust question (see Gaps). |
 | New Terminal Tab (⌃`) | `new-tab {cwd}` | + > **New Terminal** | works | hostd picks the pane's folder (`with_pane_folder`); the phone never sends `cwd`. |
 | New Browser Tab (⇧⌘L) | `new-frontend-browser-tab` | + > **New Browser Tab** | works on a Mac that streams (`browser-stream-v1`) | An older Mac now keeps the entry; a tap says "Update cmux on <Mac> to open browser tabs from your phone." (was: silently missing). |
@@ -40,7 +40,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Pin Tab / Unpin Tab | `set-tab-pinned` | page and card menu **Pin Tab** / **Unpin Tab** | works (parity2 tabs; live run pending) | Here at once, rolled back on refusal. A pinned tab's card icon is a pin; the Mac sorts pinned tabs first in their pane. |
 | Split Right / Down, New Column / Row, Zoom Pane | `split`, `new-pane-right`, `new-row`, `zoom-pane` | — | not applicable | The phone shows one tab at a time; panes are a Mac layout. |
 | Reopen Last Closed Tab (⇧⌘T) | resource `closed.reopen` | — | not from a phone (yet) | The resource API is not on the phone's lane. |
-| Restart Shell Here | `restart-tab` | — | not from a phone | Respawns a program; the remote relay rules need live verification on the Mac first (CLAUDE.md "Remote CLI relay"). |
+| Restart Shell Here | `restart-tab` | dead terminal: overlay "The shell ended." + **Restart Shell Here**, page menu row | works (round 2) | Allowlisted with the surface only (no command, folder, env or alias), after live verification on the rig Mac that the new shell runs on the Mac under the same tab (SECURITY.md "Restart Shell"). The phone now lists a dead terminal the Mac keeps (it hid every dead tab). |
 | New Tab Group, Add Tab to Group…, Remove Tab from Group | `create-tab-group {surfaces, color}`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group` | page and card menu, the Mac's group rows | works (parity2 tabs; live run pending) | New Tab Group takes the Mac's next color (`GroupColor.automatic`, never blue or grey) and no name. A pinned tab offers no group rows ("Pinned tabs cannot be grouped." on the Mac). A member's card carries the group's chip (name, else "<Color> group"). |
 | The group's chip menu: Rename Tab Group…, Pin Group / Unpin Group, Ungroup Tabs, Close Tab Group | `update-tab-group {name}`, `save-tab-group`, `unsave-tab-group`, `ungroup-tab-group`, `close-tab-group` | a member's menu > **Tab Group: <name>…** (the group's actions) | works (parity2 tabs; live run pending) | The phone has no group chip to hold, so a member's row opens the same actions. Close Tab Group waits for the Mac, then removes every member. Collapse / Expand, color and icon, Move Tab Group … and New Tab in Group: not on the phone (the phone has no strip to collapse or arrange; a new tab in a group starts a terminal by another path). |
 | Reopen Saved Tab Group…, Delete Saved Tab Group… | `reopen-saved-tab-group`, `delete-saved-tab-group` | — | not from a phone (yet) | Reopening recreates terminals from the saved record (a respawn path); the remote rules need live verification of it on the Mac first (orchestrator decision 2026-10-15). Pin Group on the phone saves the group; it is reopened on the Mac. |
@@ -69,7 +69,8 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Run a command | type it | works | The phone never starts a program by argv (`run` refused). |
 | Clear Screen (⇧⌘K) | page menu Clear | works | `clear-history`. |
 | Find, Copy | Files and Links, selection | partial | |
-| Restart Shell, Reset Terminal, Keep Running After Close | — | not from a phone | Program lifetime stays the Mac's (`restart-tab`, `set-terminal-keep` not allowlisted). |
+| Restart Shell Here | overlay and page menu on a dead terminal | works (round 2) | See Tabs. |
+| Reset Terminal, Keep Running After Close | — | not from a phone | Program lifetime stays the Mac's (`set-terminal-keep` not allowlisted). |
 
 ## Browser
 
@@ -85,7 +86,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | --- | --- | --- | --- |
 | Stop | page menu Stop Agent, composer stop | works | `session/cancel`. |
 | Retry / Send this prompt again | Retry on a failed turn | works | |
-| Switch Model… (⌃⌘M), Mode | composer model and mode menus | works for phone-started chats | A Mac-started Claude session keeps its model and mode from a phone (acpmux D13). |
+| Switch Model… (⌃⌘M), Mode | composer model and mode menus | works for phone-started chats | A Mac-started Claude session keeps its model and mode from a phone (acpmux D13). Round 2: the mode menus list only modes that ask (Claude's Default and Plan, Codex's Ask) plus the current one, and cnx-hostd refuses any other mode a phone sends (`acpmux_policy.rs`), because acpmux lets an authenticated remote connection pick any Codex bridge mode. |
 | Continue in… (handoff) | page menu Continue in… | works | `_acpmux/handoff_*`. |
 | Allow Once / Allow for This Chat / Deny | permission cards | works | Allow needs the phone's Face ID signature (pairing). |
 | Queue: Edit / Remove / Send now | queue remove | partial | |
@@ -223,3 +224,40 @@ Live flows: `verify/parity/pq_tabs.py` (`pin`, `move-to-workspace`, `move-to-new
 `tab-groups`, `tab-groups-2`, `reorder`, `browser-forward`, `chat-fork-duplicate-archive`),
 each checked on the Mac's daemon tree and recorded. Status: ready; not yet run against the
 rig Mac.
+
+## Round 2 (2026-10-15, branch `feat-cnx-ios-parity2`)
+
+Rig: real cmux-next builds of this branch (`cnx-p2-bfdcd53e`, then `cnx-p2-26459378`),
+hidden, settings by `open --env` only. Agents through the team subrouter on
+mini-cmux11s (`~/cnx-ios-e2e/p2`); Codex on a hidden rig app on the laptop
+(`~/cnx-ios-e2e/p2l`), with the laptop's own Codex login used in place (quit after).
+Phone: this branch's Demo build in one headless simulator, real link. Videos:
+`~/cnx-ios-e2e/p2main-raw/` (orchestrator), `p2ws-raw/`, `p2tabs-raw/` (lanes).
+
+| Flow | Result | Video |
+| --- | --- | --- |
+| Codex: New Agent Chat With… > Codex > Start Chat, "PONG" | Pass: open 4.7 s, reply 9.7 s; Mac session `codex`, mode `ask`, policy `ask`, model gpt-6.1-sol | `codex-agent.mp4` |
+| Codex tool approval: "echo hi > p2-approval.txt" | Pass: Codex asked first ("Codex wants to run a command"), Allow + Face ID (simulator match) on the phone, the file appeared on the Mac | `codex-approval.mp4` |
+| `claude-sr` (sr claude proxy) | Pass (was "agent process closed"): open 4.5 s, "PONG" 3.9 s | `sr-agent.mp4` |
+| `claude` (user settings route to the subrouter) | Pass: "PONG" 1.9 s | `claude-agent.mp4` |
+| `cmux` (local relay to the cmux model router) | The request now reaches the relay from the sandbox (was: Working, no reply). The hosted router answered 403 "this team cannot use the model router on this deployment yet" for the test account: an account entitlement, not the phone path. On mini-cmux11s the rig's local router did not answer its admin socket (a Mac-side router problem; a Mac-local session failed the same way). | `cmux-agent.mp4` |
+
+Findings fixed in round 2:
+
+1. **Codex refused from a phone.** acpmux already bridged Codex through `codex
+   app-server` and let an authenticated remote connection use any of its modes,
+   but a remote session stayed in the bridge's default `agent` (no asking) and the
+   phone refused the family by name. Now: a phone-started Codex chat starts in
+   `ask`, the catalog says so, and hostd keeps the phone to asking modes.
+2. **Agents behind a local model proxy never answered.** Claude Code applies its
+   user settings `env` over its process env, so the route the sandbox opened
+   (the profile's) was not the one Claude used (the user's settings pointed at the
+   subrouter, a port the sandbox kept shut: EPERM or a silent hang). The sandbox
+   now opens exactly the endpoint Claude will use, pins it in the inline
+   settings, and skips the user settings source when the profile names its own
+   route (whose key the user settings would replace). `sr claude proxy` cannot
+   listen in the sandbox, so a remote chain runs Claude straight to the
+   subrouter server, as acpmux already does when that launcher cannot run.
+   Tests: unit (Linux) and `remote_sandbox` on macOS (the chain reaches its
+   loopback proxy port and no other loopback port).
+

@@ -216,6 +216,25 @@ import SwiftUI
         #expect(source.toastText?.hasPrefix("Couldn't unpin") == true)
     }
 
+    /// Restart Shell Here (the Mac's dead-tab overlay and tab menu row): only on a terminal
+    /// whose shell ended; it asks the Mac to start the tab's shell again.
+    @Test func restartShellOnlyOnAnEndedShell() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let live = try #require(source.tabs.first { $0.id == "t-zsh" })
+        #expect(!source.pageMenu(for: live).flatMap { $0 }.map(\.title).contains(WorkspaceTabsSource.restartShellTitle))
+        await source.restartShell("t-zsh")
+        #expect(backend.restartedShells.isEmpty)
+        store.updateTab("t-zsh", in: "ws-cmux") { $0.shellEnded = true }
+        let ended = try #require(source.tabs.first { $0.id == "t-zsh" })
+        #expect(source.pageMenu(for: ended).flatMap { $0 }.map(\.title).first == WorkspaceTabsSource.restartShellTitle)
+        await source.restartShell("t-zsh")
+        #expect(backend.restartedShells == ["t-zsh"])
+        backend.failNext = "tab-not-dead"
+        await source.restartShell("t-zsh")
+        #expect(source.toastText?.hasPrefix("Couldn't restart") == true)
+    }
+
     @Test func tabGroupsFromTheTabMenu() async throws {
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)
