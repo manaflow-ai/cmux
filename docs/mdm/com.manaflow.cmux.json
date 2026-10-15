@@ -1461,11 +1461,18 @@
       "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
-    "labs.classicHome" : {
-      "default" : false,
-      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-      "title" : "Classic Home",
-      "type" : "boolean"
+    "labs.newTabStyle" : {
+      "default" : "round",
+      "description" : "How the New Tab page shows its styles.",
+      "enum" : [
+        "round",
+        "hint",
+        "dots",
+        "strip",
+        "names"
+      ],
+      "title" : "New Tab Style Switch",
+      "type" : "string"
     },
     "labs.previewFeatures" : {
       "default" : false,
