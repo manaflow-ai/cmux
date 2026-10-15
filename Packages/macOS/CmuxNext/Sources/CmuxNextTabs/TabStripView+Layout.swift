@@ -64,6 +64,7 @@ extension TabStripView {
         // tab's drop keeps every tween as it was.
         let insertsAtOnce = !added.isEmpty && drag == nil && pendingDrop == nil && !grows
         let tween: MotionTween = grows ? .tabOpen : token ?? .tabMove
+        let scale = window?.backingScaleFactor ?? 2
         var previousMaxX: CGFloat?
         for slot in result.slots where slot.id != Self.placeholderID {
             defer { previousMaxX = slot.maxX }
@@ -74,7 +75,9 @@ extension TabStripView {
                     self.pendingDrop = nil
                 } else if grows {
                     // Chrome (StartInsertTabAnimation): from the previous tab's right edge minus the
-                    // open width, that wide, no fade; the first tab starts at its slot.
+                    // open width, that wide, no fade; the first tab starts at its slot. Chrome's 18 is
+                    // its tab overlap (a tab 18 wide shows nothing); ours do not overlap, so the token
+                    // is 0: the tab opens from nothing at the previous right edge (hq-4e 2026-10-15).
                     let open = metrics.chrome.openStartWidth
                     m = TabMotion(x: previousMaxX.map { $0 - open } ?? slot.x, width: open, alpha: 1)
                 } else {
@@ -82,9 +85,9 @@ extension TabStripView {
                 }
             }
             m.use(tween)
-            if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
+            if drag?.id != slot.id { m.x.retarget(groupDragX(for: slot) ?? slot.x, scale: scale) }
             if groups.isDragged(slot.id) { m.x.snap() }
-            m.width.target = slot.width
+            m.width.retarget(slot.width, scale: scale)
             // Members of a collapsed group shrink into the chip and fade.
             m.alpha.target = slot.isCollapsed ? 0 : 1
             if !animated || (insertsAtOnce && !groups.isDragged(slot.id)) { m.snap() }
@@ -105,15 +108,17 @@ extension TabStripView {
         applyFrames()
     }
 
-    /// A closing tab's left edge stays on the previous tab's right edge minus the close width while it
-    /// shrinks (Chrome StartRemoveTabAnimation), following that tab as it resizes.
+    /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
+    /// tabs do not overlap) while it shrinks to that width (Chrome StartRemoveTabAnimation), following
+    /// that tab as it resizes.
     func pinClosingTabs() {
         let closeWidth = metrics.chrome.closeEndWidth
+        let scale = window?.backingScaleFactor ?? 2
         for id in dying where id.chipGroupID == nil {
             guard var m = motion[id] else { continue }
             let previous = result.slots.last { $0.id != Self.placeholderID && $0.x < m.x.target - 0.5 }
             m.use(.tabClose)
-            m.x.target = previous.map { $0.maxX - closeWidth } ?? 0
+            m.x.retarget(previous.map { $0.maxX - closeWidth } ?? 0, scale: scale)
             motion[id] = m
         }
     }

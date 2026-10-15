@@ -59,10 +59,12 @@ extension TabStripView {
             group = resolution.groupID
         }
         motion[drag.id]?.x.follow(x)
-        // Chrome: a reorder waits until the pointer moved 16 x width / 200 pt since the last one.
-        if index != drag.currentIndex, group == drag.targetGroup,
-           abs(contentX - drag.lastMoveX) <= metrics.chrome.reorderThreshold(forTabWidth: width) {
-            index = drag.currentIndex
+        // Chrome: a reorder waits until the pointer moved 16 x width / 200 pt since the last one, the
+        // width of the tab at the target index (the one being passed).
+        let others = displayed.filter { $0.id != drag.id }
+        if index != drag.currentIndex, group == drag.targetGroup, !others.isEmpty {
+            let passed = result.slot(others[min(max(index, 0), others.count - 1)].id)?.width ?? width
+            if abs(contentX - drag.lastMoveX) <= metrics.chrome.reorderThreshold(forTabWidth: passed) { index = drag.currentIndex }
         }
         let moved = index != drag.currentIndex || group != drag.targetGroup
         if moved { drag.lastMoveX = contentX }
