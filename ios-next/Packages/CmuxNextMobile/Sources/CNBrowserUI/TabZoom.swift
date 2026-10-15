@@ -13,15 +13,17 @@ struct ZoomSpring: Equatable, Sendable {
     // frame timestamps).
     /// Page to card (tabs button): 0.369 / 0.873, four events agree.
     static let toOverview = ZoomSpring(response: 0.37, damping: 0.875)
-    /// Card to page (Done, a card): the middle and tail fit 0.385–0.40 /
-    /// 0.98–0.99. From rest: simulator Safari's first frame moves 7–11 pt
-    /// and its second about 21 pt (tabs-parity-audit 1a; this spring from
-    /// rest: 8 and 23 pt). The device recording's 8.5 progress/s launch put
-    /// 31 pt in the first frame on the simulator (re-audit D11).
-    static let toPage = ZoomSpring(response: 0.39, damping: 0.99)
-    /// (+) New Tab: Safari's start page tail fits 0.34 / 0.97 with about
-    /// 10 progress/s at its first sharp frame (tabs-parity-audit 2a).
-    static let newTab = ZoomSpring(response: 0.34, damping: 0.97, launch: 10)
+    /// Card to page (Done, a card), from rest: simulator Safari's mean
+    /// crossings are t50 95 ms and t90 227 ms (3 runs, tabs-parity-audit
+    /// 1a), which this spring gives (0.39 / 0.99 was 17–22 ms late,
+    /// re-audit 2); its first frame moves about 8 pt (Safari 7–11).
+    static let toPage = ZoomSpring(response: 0.356, damping: 0.99)
+    /// (+) New Tab: Safari's page edge, from where it passes 385 pt (0.7
+    /// scale start), reaches 395 / 398 / 400 / 401.3 pt 48 / 80 / 130 /
+    /// 182 ms later (tabs-parity-reaudit-2 D5). With 10 progress/s at the
+    /// start this spring gives 53 / 86 / 125 / 184 ms; 0.34 / 0.97 gave 57 /
+    /// 91 / 131 / 189 and rendered a frame later still.
+    static let newTab = ZoomSpring(response: 0.27, damping: 1.03, launch: 10)
     /// The fresh start page after the last tab closed: Safari turns the lone
     /// card into the start page in its own slot (0.665 of the width) and
     /// zooms it to full screen, at rest about 500 ms later; its page edge

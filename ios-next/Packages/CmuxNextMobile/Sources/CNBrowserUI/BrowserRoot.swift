@@ -1231,7 +1231,7 @@ struct BrowserScreen: View {
     /// the finger's velocity), on the release spring.
     private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        zoomDriver.endInteraction(velocity: BarSwipe.velocity(up: up, velocity: velocity), startedFromOverview: false)
+        zoomDriver.endInteraction(velocity: BarSwipe.releaseVelocity(velocity), startedFromOverview: false)
     }
 
     private func swipeChanged(_ dx: CGFloat) {

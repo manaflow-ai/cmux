@@ -46,12 +46,12 @@ struct TabZoomStateTests {
         return t * 1000
     }
 
-    /// (+): Safari's start page grows on 0.34 / 0.97 from the first frame.
+    /// (+): Safari's start page grows on 0.27 / 1.03 from the first frame.
     @Test func newTabUsesSafarisSpring() {
         var s = TabZoomState(overview: true)
         s.openNewTab()
         #expect(s.phase == .animating && s.spring == .newTab)
-        #expect(s.spring.response == 0.34 && s.spring.damping == 0.97)
+        #expect(s.spring.response == 0.27 && s.spring.damping == 1.03)
         // An existing tab opens on toPage.
         var o = TabZoomState(overview: true)
         o.go(toOverview: false)
