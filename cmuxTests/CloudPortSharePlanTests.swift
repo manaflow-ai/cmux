@@ -9,52 +9,40 @@ import Testing
 @testable import cmux
 #endif
 
-/// Share… used to read only the first publication of a port: with a public
-/// link beside a private one it reported the port private and narrowed only one
-/// link, and a double Share created two publications.
+/// Share used to read only the first publication of a port: with a public link
+/// beside a private one it reported the port private and narrowed only one link,
+/// and a double Share created two publications. Rows showed no audience at all
+/// until a menu opened. The plan itself is covered in CmuxSurfaceCatalogModel;
+/// these cover the app's bridge, store, badge and menu.
 @MainActor
 @Suite struct CloudPortSharePlanTests {
-    private static func publication(_ id: String, port: Int = 3000, vm: String = "vm-1", _ mode: VMPublicationAccessMode) -> VMPublication {
+    private static func publication(
+        _ id: String, port: Int = 3000, vm: String = "vm-1", _ mode: VMPublicationAccessMode, domainKind: String = "generated"
+    ) -> VMPublication {
         VMPublication(
-            id: id, hostname: "\(id).example.test", url: "https://\(id).example.test", domainKind: "generated",
+            id: id, hostname: "\(id).example.test", url: "https://\(id).example.test", domainKind: domainKind,
             vmID: vm, port: port, accessMode: mode, teamID: nil, state: "active", routingRevision: 1, verification: nil
         )
     }
 
-    @Test func statusIsTheWidestAudienceAmongAllThePortsPublications() {
+    private static func refs(_ publications: [VMPublication]) -> [CloudPortPublicationRef] {
+        publications.map(CloudPortPublicationRef.init)
+    }
+
+    @Test func theAppPlanReadsEveryPublicationOfThePort() {
         let plan = CloudPortSharePlan(
-            publications: [
+            publications: Self.refs([
                 Self.publication("a", .personal),
                 Self.publication("b", .public),
-                Self.publication("c", .team),
+                Self.publication("c", .team, domainKind: "custom"),
                 Self.publication("other-port", port: 4000, .public),
-                Self.publication("other-vm", vm: "vm-2", .public),
-            ],
+            ]),
             machineID: "vm-1",
             port: 3000
         )
         #expect(plan.current == .public)
         #expect(plan.publications.map(\.id) == ["b", "c", "a"])
-        #expect(plan.primary?.id == "b")
-        #expect(!plan.opensToPublic(.public))
-    }
-
-    @Test func aChosenAudienceAppliesToEveryPublicationThatDiffers() {
-        let plan = CloudPortSharePlan(
-            publications: [Self.publication("a", .personal), Self.publication("b", .public), Self.publication("c", .team)],
-            machineID: "vm-1",
-            port: 3000
-        )
-        #expect(plan.updates(to: .personal).map(\.id) == ["b", "c"])
-        #expect(plan.updates(to: .public).map(\.id) == ["c", "a"])
-    }
-
-    @Test func anUnsharedPortHasNoStatusAndNeedsCreation() {
-        let plan = CloudPortSharePlan(publications: [], machineID: "vm-1", port: 3000)
-        #expect(plan.current == nil)
-        #expect(plan.primary == nil)
-        #expect(plan.opensToPublic(.public))
-        #expect(!plan.opensToPublic(.team))
+        #expect(plan.steps(to: .stopSharing) == [.delete(id: "b"), .update(id: "c", .personal), .delete(id: "a")])
     }
 
     @Test func aSecondShareForTheSamePortDoesNotStartWhileTheFirstRuns() {
@@ -65,5 +53,73 @@ import Testing
         CloudPortShareFlow.endFlow(machineID: "vm-test-share", port: 3001)
         #expect(CloudPortShareFlow.beginFlow(machineID: "vm-test-share", port: 3000))
         CloudPortShareFlow.endFlow(machineID: "vm-test-share", port: 3000)
+    }
+
+    @Test func theStoreHidesTheBadgeUntilReadThenFollowsAShareChange() async throws {
+        var listed = Self.refs([Self.publication("a", .team)])
+        var reads = 0
+        let store = CloudPortSharingStore(now: { Date(timeIntervalSince1970: 1_000) }) {
+            reads += 1
+            return listed
+        }
+        #expect(store.sharing(machineID: "vm-1", port: 3000) == nil)
+        #expect(CloudTreePortPresentation.audienceBadge(store.sharing(machineID: "vm-1", port: 3000)) == nil)
+
+        try await store.reload()
+        #expect(store.sharing(machineID: "vm-1", port: 3000) == .team)
+        #expect(store.sharing(machineID: "vm-1", port: 5173) == .unshared)
+        #expect(reads == 1)
+
+        // Inside the TTL, rows appearing ask again without a read.
+        store.requestRefresh()
+        #expect(reads == 1)
+
+        listed = Self.refs([Self.publication("a", .public)])
+        try await store.reload()
+        #expect(store.sharing(machineID: "vm-1", port: 3000) == .public)
+        #expect(CloudTreePortPresentation.audienceBadge(.public)?.kind == .public)
+    }
+
+    @Test func theBadgeIsPrivateTeamOrPublic() {
+        #expect(CloudTreePortPresentation.audienceBadge(.unshared)?.kind == .private)
+        #expect(CloudTreePortPresentation.audienceBadge(.personal)?.kind == .private)
+        #expect(CloudTreePortPresentation.audienceBadge(.team)?.title == "Team")
+        #expect(CloudTreePortPresentation.audienceBadge(.public)?.symbolName == "globe")
+        #expect(CloudTreePortPresentation.audienceBadge(.public)?.help.contains("anyone") == true)
+    }
+
+    @Test func theShareMenuChecksTheAudienceAndOffersStopSharingOnlyWithALink() {
+        let unshared = CloudPortShareMenuModel(
+            plan: CloudPortSharePlan(publications: [], machineID: "vm-1", port: 3000), hasLoaded: true
+        )
+        #expect(unshared.status.hasPrefix("Private"))
+        #expect(unshared.audiences.allSatisfy { !$0.isChecked && $0.isEnabled })
+        // Public still asks: its row carries the ellipsis.
+        #expect(unshared.audiences.last?.title.hasSuffix("\u{2026}") == true)
+        #expect(unshared.audiences.first?.title.hasSuffix("\u{2026}") == false)
+        #expect(unshared.linkActions.allSatisfy { !$0.isEnabled })
+
+        let team = CloudPortShareMenuModel(
+            plan: CloudPortSharePlan(publications: Self.refs([Self.publication("a", .team)]), machineID: "vm-1", port: 3000),
+            hasLoaded: true
+        )
+        #expect(team.audiences.map(\.isChecked) == [false, true, false])
+        #expect(team.linkActions.allSatisfy(\.isEnabled))
+        #expect(team.linkActions.last?.action == .change(.stopSharing))
+        #expect(team.linkActions.last?.isDestructive == true)
+
+        let unread = CloudPortShareMenuModel(
+            plan: CloudPortSharePlan(publications: [], machineID: "vm-1", port: 3000), hasLoaded: false
+        )
+        #expect(unread.audiences.allSatisfy { !$0.isEnabled })
+    }
+
+    @Test func theRowTooltipNamesTheAudienceOnceKnown() {
+        let resource = CmuxTuiSnapshotParser.portBrowser(machine: .cloud("vm"), port: 3000, directURL: "http://10.0.0.7:3000")
+        let presentation = CloudTreePortPresentation(resource: resource)
+        #expect(presentation.shareTarget?.machineID == "vm")
+        #expect(presentation.shareTarget?.port == 3000)
+        #expect(presentation.toolTip(sharing: nil)?.contains("Private") == true)
+        #expect(presentation.toolTip(sharing: .public)?.contains("anyone") == true)
     }
 }

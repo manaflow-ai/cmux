@@ -104,10 +104,104 @@ struct CLIVMPortsCommandTests {
         #expect(live.stdout.contains("http://10.140.85.1:3000"))
     }
 
+    // MARK: - vm share
+
+    @Test("vm share with no flag says who can open the port and writes nothing")
+    func shareStatus() throws {
+        let fixture = PublicationFixture()
+        let (result, requests) = try runCLI(["vm", "share", "vivid-newt", "3000"], respond: fixture.respond)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("Port 3000 on vivid-newt: shared with your team"), Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("https://gen.cmux.sh"))
+        #expect(result.stdout.contains("cmux vm share vivid-newt 3000 --team"))
+        #expect(!requests.contains { ["vm.publication_create", "vm.publication_update", "vm.publication_delete"].contains($0) })
+    }
+
+    @Test("vm share --team gives an unshared port one team link through the domains methods")
+    func shareTeam() throws {
+        let fixture = PublicationFixture()
+        let (result, _) = try runCLI(["vm", "share", "vivid-newt", "5173", "--team"], respond: fixture.respond)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let created = fixture.calls.filter { $0.method == "vm.publication_create" }
+        #expect(created.count == 1)
+        #expect(created.first?.params["accessMode"] as? String == "team")
+        #expect(created.first?.params["teamId"] as? String == "team-1")
+        #expect(created.first?.params["port"] as? Int == 5173)
+        #expect(result.stdout.contains("Port 5173 on vivid-newt: shared with your team"), Comment(rawValue: result.stdout))
+    }
+
+    @Test("vm share --public asks first and refuses without a terminal or --yes")
+    func sharePublicRefusedWithoutConfirmation() throws {
+        let fixture = PublicationFixture()
+        let (result, requests) = try runCLI(["vm", "share", "vivid-newt", "5173", "--public"], respond: fixture.respond)
+        #expect(result.status != 0)
+        #expect(result.stderr.contains("anyone on the internet"), Comment(rawValue: result.stderr))
+        #expect(result.stderr.contains("--yes"))
+        #expect(!requests.contains("vm.publication_create"), "a refused public share must write nothing")
+    }
+
+    @Test("vm share --public --yes creates the link private, then opens it")
+    func sharePublicConfirmed() throws {
+        let fixture = PublicationFixture()
+        let (result, _) = try runCLI(["vm", "share", "vivid-newt", "5173", "--public", "--yes"], respond: fixture.respond)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let writes = fixture.calls.filter { $0.method.hasPrefix("vm.publication_") && $0.method != "vm.publication_list" }
+        #expect(writes.map(\.method) == ["vm.publication_create", "vm.publication_update"])
+        #expect(writes.first?.params["accessMode"] as? String == "personal")
+        #expect(writes.last?.params["accessMode"] as? String == "public")
+        #expect(writes.last?.params["confirmPublic"] as? Bool == true)
+        #expect(result.stdout.contains("PUBLIC (anyone with the link)"), Comment(rawValue: result.stdout))
+    }
+
+    @Test("vm share --private deletes generated links and keeps a custom domain for the owner")
+    func stopSharing() throws {
+        let fixture = PublicationFixture()
+        let (result, _) = try runCLI(["vm", "share", "vivid-newt", "3000", "--private"], respond: fixture.respond)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(fixture.calls.contains { $0.method == "vm.publication_delete" && $0.params["id"] as? String == "gen" })
+        #expect(fixture.calls.contains {
+            $0.method == "vm.publication_update" && $0.params["id"] as? String == "custom"
+                && $0.params["accessMode"] as? String == "personal"
+        })
+        #expect(!fixture.calls.contains { $0.method == "vm.publication_delete" && $0.params["id"] as? String == "custom" })
+        #expect(result.stdout.contains("Kept app.example.com for you only"), Comment(rawValue: result.stdout))
+    }
+
+    @Test("vm share --json reports the audience and every link of the port")
+    func shareJSON() throws {
+        let fixture = PublicationFixture()
+        let (result, _) = try runCLI(["vm", "share", "vivid-newt", "3000", "--json"], respond: fixture.respond)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
+        #expect(object["shared"] as? String == "team")
+        #expect(object["changed"] as? Bool == false)
+        let links = try #require(object["links"] as? [[String: Any]])
+        #expect(links.map { $0["id"] as? String } == ["gen", "custom"])
+        #expect(links.last?["generated"] as? Bool == false)
+    }
+
+    @Test("vm share refuses a bad port and conflicting audiences before any request")
+    func shareUsage() throws {
+        let fixture = PublicationFixture()
+        let (badPort, _) = try runCLI(["vm", "share", "vivid-newt", "nope"], respond: fixture.respond)
+        #expect(badPort.status != 0)
+        let (both, _) = try runCLI(["vm", "share", "vivid-newt", "3000", "--team", "--public"], respond: fixture.respond)
+        #expect(both.status != 0)
+        #expect(both.stderr.contains("cmux vm share <machine> <port>"), Comment(rawValue: both.stderr))
+        #expect(!fixture.calls.contains { $0.method.hasPrefix("vm.publication_") })
+    }
+
     // MARK: - Harness
 
     private func runCLI(_ arguments: [String]) throws -> (CLIHookProcessRunner.Result, [String]) {
-        let server = try ScriptedVMSocketServer(respond: Self.responder)
+        try runCLI(arguments, respond: Self.responder)
+    }
+
+    private func runCLI(
+        _ arguments: [String],
+        respond: @escaping @Sendable (String, [String: Any]) -> [String: Any]?
+    ) throws -> (CLIHookProcessRunner.Result, [String]) {
+        let server = try ScriptedVMSocketServer(respond: respond)
         defer { server.stop() }
         let result = CLIHookProcessRunner.run(
             executablePath: try BundledCLITestSupport.bundledCLIPath(),
@@ -122,6 +216,67 @@ struct CLIVMPortsCommandTests {
         )
         #expect(!result.timedOut)
         return (result, server.methods())
+    }
+}
+
+/// A machine with a team-shared port 3000 (a generated link plus a custom domain)
+/// and an unshared 5173, answering the publication methods statefully.
+private final class PublicationFixture: @unchecked Sendable {
+    struct Call {
+        let method: String
+        let params: [String: Any]
+    }
+
+    private let lock = NSLock()
+    private var publications: [[String: Any]] = [
+        ["id": "gen", "hostname": "gen.cmux.sh", "url": "https://gen.cmux.sh", "domainKind": "generated",
+         "vmId": "vivid-newt", "port": 3000, "accessMode": "team"],
+        ["id": "custom", "hostname": "app.example.com", "url": "https://app.example.com", "domainKind": "custom",
+         "vmId": "vivid-newt", "port": 3000, "accessMode": "team"],
+    ]
+    private var recorded: [Call] = []
+    private var created = 0
+
+    var calls: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    var respond: @Sendable (String, [String: Any]) -> [String: Any]? {
+        { [self] method, params in handle(method, params) }
+    }
+
+    private func handle(_ method: String, _ params: [String: Any]) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(Call(method: method, params: params))
+        switch method {
+        case "vm.list":
+            return ["vms": [["id": "vivid-newt", "displayName": "vivid-newt", "status": "running"]]]
+        case "auth.team.list":
+            return ["teams": [["id": "team-1"]], "selected_team_id": "team-1"]
+        case "vm.publication_list":
+            return ["publications": publications]
+        case "vm.publication_create":
+            created += 1
+            let id = "new-\(created)"
+            let publication: [String: Any] = [
+                "id": id, "hostname": "\(id).cmux.sh", "url": "https://\(id).cmux.sh", "domainKind": "generated",
+                "vmId": params["vmId"] ?? "", "port": params["port"] ?? 0, "accessMode": params["accessMode"] ?? "personal",
+            ]
+            publications.append(publication)
+            return ["publication": publication]
+        case "vm.publication_update":
+            guard let index = publications.firstIndex(where: { $0["id"] as? String == params["id"] as? String }) else { return [:] }
+            publications[index]["accessMode"] = params["accessMode"]
+            return ["publication": publications[index]]
+        case "vm.publication_delete":
+            publications.removeAll { $0["id"] as? String == params["id"] as? String }
+            return ["deleted": true, "id": params["id"] ?? ""]
+        default:
+            return [:]
+        }
     }
 }
 
