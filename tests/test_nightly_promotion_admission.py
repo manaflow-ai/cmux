@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-"""Regression coverage for the nightly-next promotion admission lookup.
+"""Behavior of the nightly-next promote guard (scripts/ci/promote-nightly-next.mjs).
 
-The source cmux-next push requests promotion immediately after its Release
-compile job succeeds. GitHub can briefly omit that just-finished run from the
-head-SHA workflow list, so the admission check must retry before rejecting an
-otherwise valid promotion.
+The guard runs from main in nightly.yml. Each case drives it against an
+in-memory GitHub API (runs, jobs, refs, commits, pull requests, repository
+activity, deployment approvals) and checks the decision the workflow acts on:
+
+- G1: a SHA that is not on feat-cmux-next is refused.
+- G2: only a cmux-next.yml push run of this repository proves the Release
+  compile; a same-named job in another workflow does not. The lookup retries
+  while GitHub's index lags.
+- G3: a range that changes no release surface file is promoted; a range that
+  changes one needs an approval.
+- G4: the approval must come from someone who did not land the surface
+  change (push actor, PR author or merger, commit author) and did not start
+  the run; a missing push actor fails closed.
 """
 
 from __future__ import annotations
@@ -14,191 +23,235 @@ import os
 import subprocess
 from pathlib import Path
 
-import yaml
-
-
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
-SHA = "a" * 40
+GUARD = ROOT / "scripts" / "ci" / "promote-nightly-next.mjs"
+SURFACE = (ROOT / ".github" / "release-surface.txt").read_text(encoding="utf-8")
+WORKFLOW = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
 
+CURRENT = "c" * 40
+MID = "d" * 40
+SHA = "a" * 40
 
 HARNESS = r"""
 const scenario = JSON.parse(process.env.SCENARIO);
-const calls = { runs: 0, jobs: 0, updates: 0 };
-const failed = [];
+const guard = await import(process.env.GUARD);
+const calls = { runs: 0, jobs: 0 };
 const notices = [];
-const sourceRun = {
-  id: 123,
-  head_sha: scenario.sha,
-  head_branch: 'feat-cmux-next',
-  event: 'push',
-  conclusion: 'failure',
-};
-const actions = {
-  listWorkflowRuns: Symbol('listWorkflowRuns'),
-  listJobsForWorkflowRun: Symbol('listJobsForWorkflowRun'),
-};
+const actions = { listWorkflowRuns: async () => ({ data: { workflow_runs: [] } }), listJobsForWorkflowRun: Symbol('jobs') };
+const commits = Object.fromEntries(scenario.commits.map((c) => [c.sha, c]));
 const github = {
   rest: {
     actions,
     git: {
-      getRef: async ({ ref }) => ({ data: { object: { sha: ref === 'heads/feat-cmux-next' ? scenario.sha : 'b'.repeat(40) } } }),
+      getRef: async ({ ref }) => {
+        if (ref === 'heads/feat-cmux-next') return { data: { object: { sha: scenario.sourceHead } } };
+        if (ref === 'heads/nightly-next') return { data: { object: { sha: scenario.current } } };
+        throw Object.assign(new Error('missing'), { status: 404 });
+      },
     },
     repos: {
-      compareCommitsWithBasehead: async () => ({ data: { status: 'ahead' } }),
+      compareCommitsWithBasehead: async ({ basehead }) => {
+        const [base, head] = basehead.split('...');
+        if (base === scenario.current && head === scenario.sha) return { data: { status: 'ahead', files: scenario.rangeFiles } };
+        if (head === scenario.sourceHead) return { data: { status: scenario.onSource[base] || 'diverged' } };
+        throw new Error(`unexpected compare ${basehead}`);
+      },
+      getCommit: async ({ ref }) => {
+        if (!commits[ref]) throw new Error(`unexpected commit ${ref}`);
+        return { data: commits[ref] };
+      },
     },
+    pulls: { get: async ({ pull_number }) => ({ data: scenario.pulls[pull_number] }) },
   },
   paginate: async (method, params) => {
     if (method === actions.listWorkflowRuns) {
-      if (params.workflow_id !== 'cmux-next.yml' || params.event !== 'push' ||
-          params.branch !== 'feat-cmux-next' || params.head_sha !== scenario.sha) {
-        throw new Error(`workflow lookup was not exact: ${JSON.stringify(params)}`);
-      }
       calls.runs += 1;
-      if (calls.runs <= scenario.emptyRuns) return [];
-      return [sourceRun];
+      return calls.runs <= scenario.emptyRuns ? [] : scenario.runs;
     }
     if (method === actions.listJobsForWorkflowRun) {
-      if (params.run_id !== sourceRun.id || params.filter !== 'latest') {
-        throw new Error(`job lookup was not exact: ${JSON.stringify(params)}`);
-      }
       calls.jobs += 1;
-      if (calls.jobs <= scenario.emptyJobs) return [];
-      return [{
-        name: scenario.jobName,
-        status: scenario.jobStatus,
-        conclusion: scenario.jobConclusion,
-      }];
+      return scenario.jobs[params.run_id] || [];
     }
-    throw new Error(`unexpected pagination method for ${JSON.stringify(params)}`);
+    throw new Error('unexpected paginate');
+  },
+  request: async (route, params) => {
+    if (route === 'GET /repos/{owner}/{repo}/activity') return { data: params.page === 1 ? scenario.activity : [] };
+    if (route === 'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls') return { data: scenario.commitPulls[params.commit_sha] || [] };
+    if (route === 'GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals') return { data: scenario.approvals };
+    throw new Error(`unexpected request ${route}`);
   },
 };
-const writer = {
-  rest: {
-    git: {
-      updateRef: async () => { calls.updates += 1; },
-      createRef: async () => { calls.updates += 1; },
-    },
-  },
-};
-const core = {
-  setFailed: (message) => failed.push(message),
-  notice: (message) => notices.push(message),
-};
-const processForScript = {
-  env: {
-    REQUESTED_SHA: scenario.sha,
-    DEBOUNCE: 'false',
-    MIN_INTERVAL_HOURS: '0',
-    APP_TOKEN: 'fixture',
-  },
-};
-const context = { repo: { owner: 'manaflow-ai', repo: 'cmux' } };
-const run = new Function('github', 'context', 'core', 'process', 'getOctokit',
-  `return (async () => {\n${scenario.script}\n})();`);
-const originalSetTimeout = global.setTimeout;
-global.setTimeout = (callback) => { callback(); return 0; };
-run(github, context, core, processForScript, () => writer).then(() => {
-  global.setTimeout = originalSetTimeout;
-  console.log(JSON.stringify({ calls, failed, notices }));
-}).catch((error) => {
-  global.setTimeout = originalSetTimeout;
-  console.error(error);
-  process.exit(1);
+const core = { notice: (m) => notices.push(m) };
+const decision = await guard.decide({
+  github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
+  surfaceText: scenario.surface, sleep: async () => {},
 });
+const approvers = await guard.approvedBy({ github, owner: 'manaflow-ai', repo: 'cmux', runId: 1 });
+const ack = guard.ackDecision({ decision, approvers, triggeringActor: scenario.triggeringActor, expectedCurrent: scenario.current });
+console.log(JSON.stringify({ decision, ack, calls, notices }));
 """
 
 
-def promotion_script() -> str:
-    """Extract the live promotion script from nightly.yml."""
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    steps = workflow["jobs"]["promote-nightly-next"]["steps"]
-    return next(step["with"]["script"] for step in steps if step.get("name") == "Move nightly-next")
-
-
-def run_admission(*, empty_runs: int, job_name: str, job_conclusion: str,
-                  job_status: str = "completed", empty_jobs: int = 0) -> dict:
-    """Run the promotion script against a deterministic mocked Actions API."""
-    scenario = {
-        "script": promotion_script(),
-        "sha": SHA,
-        "emptyRuns": empty_runs,
-        "emptyJobs": empty_jobs,
-        "jobName": job_name,
-        "jobConclusion": job_conclusion,
-        "jobStatus": job_status,
+def gate_run(**overrides) -> dict:
+    run = {
+        "id": 7, "head_sha": SHA, "head_branch": "feat-cmux-next", "event": "push",
+        "path": ".github/workflows/cmux-next.yml", "head_repository": {"full_name": "manaflow-ai/cmux"},
     }
-    env = {**os.environ, "SCENARIO": json.dumps(scenario)}
+    run.update(overrides)
+    return run
+
+
+GREEN = [{"name": "cmux-next Release compile (Xcode 26)", "status": "completed", "conclusion": "success"}]
+
+
+def scenario(**overrides) -> dict:
+    base = {
+        "sha": SHA,
+        "sourceHead": SHA,
+        "current": CURRENT,
+        "onSource": {SHA: "identical"},
+        "emptyRuns": 0,
+        "runs": [gate_run()],
+        "jobs": {"7": GREEN},
+        "rangeFiles": [{"filename": "Sources/App.swift"}],
+        # SHA (Leo's PR merge) -> MID (Lawrence's safe-push) -> CURRENT
+        "commits": [
+            {"sha": SHA, "parents": [{"sha": MID}], "author": {"login": "teamleaderleo"},
+             "committer": {"login": "web-flow"}, "files": [{"filename": "Sources/App.swift"}]},
+            {"sha": MID, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"},
+             "committer": {"login": "lawrencecchen"}, "files": [{"filename": "README.md"}]},
+        ],
+        "activity": [
+            {"before": MID, "after": SHA, "actor": {"login": "teamleaderleo"}},
+            {"before": CURRENT, "after": MID, "actor": {"login": "lawrencecchen"}},
+        ],
+        "commitPulls": {SHA: [{"number": 5, "merged_at": "2026-10-15T00:00:00Z", "user": {"login": "teamleaderleo"}}]},
+        "pulls": {"5": {"merged_by": {"login": "teamleaderleo"}}},
+        "approvals": [],
+        "triggeringActor": "github-actions[bot]",
+        "surface": SURFACE,
+    }
+    base.update(overrides)
+    base["jobs"] = {str(k): v for k, v in base["jobs"].items()}
+    base["pulls"] = {str(k): v for k, v in base["pulls"].items()}
+    return base
+
+
+def run(case: dict) -> dict:
     result = subprocess.run(
-        ["node", "-e", HARNESS],
+        ["node", "--input-type=module", "-e", HARNESS],
         cwd=ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
+        env={**os.environ, "SCENARIO": json.dumps(case), "GUARD": str(GUARD)},
+        capture_output=True, text=True, check=False,
     )
     if result.returncode:
         raise RuntimeError(result.stderr)
     return json.loads(result.stdout)
 
 
-def test_admission_retries_a_temporarily_missing_source_run() -> None:
-    """A delayed workflow index must not reject an otherwise green compile."""
-    result = run_admission(
-        empty_runs=1,
-        job_name="cmux-next Release compile (Xcode 26)",
-        job_conclusion="success",
-    )
-    assert result["failed"] == []
-    assert result["calls"]["runs"] >= 2
-    assert result["calls"]["updates"] == 1
-    assert any("retry" in notice.lower() for notice in result["notices"])
+def surface_change() -> dict:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}])
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    return case
 
 
-def test_admission_still_rejects_a_missing_successful_release_compile() -> None:
-    """A matching SHA without the required Release compile must fail closed."""
-    result = run_admission(
-        empty_runs=0,
-        job_name="cmux-next checks",
-        job_conclusion="success",
-    )
-    assert result["calls"]["updates"] == 0
-    assert result["failed"]
-    assert "no cmux-next.yml push run" in result["failed"][0]
+def test_non_surface_range_is_promoted() -> None:
+    out = run(scenario())
+    assert out["decision"]["action"] == "promote", out
+    assert out["ack"]["ok"]
 
 
-def test_admission_rejects_a_success_conclusion_from_an_in_progress_job() -> None:
-    """A success conclusion on an unfinished job is not admission evidence."""
-    result = run_admission(
-        empty_runs=0,
-        job_name="cmux-next Release compile (Xcode 26)",
-        job_conclusion="success",
-        job_status="in_progress",
-    )
-    assert result["calls"]["updates"] == 0
-    assert result["failed"]
+def test_sha_not_on_feat_cmux_next_is_refused() -> None:
+    out = run(scenario(onSource={SHA: "diverged"}, sourceHead="e" * 40))
+    assert out["decision"]["action"] == "refuse"
+    assert "is not on feat-cmux-next" in out["decision"]["reason"]
 
 
-def test_admission_retries_a_source_run_until_its_release_compile_is_visible() -> None:
-    """A run may be indexed before its completed Release job is queryable."""
-    result = run_admission(
-        empty_runs=0,
-        empty_jobs=1,
-        job_name="cmux-next Release compile (Xcode 26)",
-        job_conclusion="success",
-    )
-    assert result["failed"] == []
-    assert result["calls"]["jobs"] >= 2
-    assert result["calls"]["updates"] == 1
+def test_same_named_job_in_another_workflow_does_not_admit() -> None:
+    out = run(scenario(runs=[gate_run(path=".github/workflows/other.yml")]))
+    assert out["decision"]["action"] == "refuse"
+    out = run(scenario(runs=[gate_run(head_repository={"full_name": "someone/cmux"})]))
+    assert out["decision"]["action"] == "refuse"
+
+
+def test_admission_retries_while_the_index_lags() -> None:
+    out = run(scenario(emptyRuns=2))
+    assert out["decision"]["action"] == "promote"
+    assert out["calls"]["runs"] == 3
+    assert any("retry" in notice for notice in out["notices"])
+
+
+def test_in_progress_success_is_not_admission() -> None:
+    out = run(scenario(jobs={7: [dict(GREEN[0], status="in_progress")]}))
+    assert out["decision"]["action"] == "refuse"
+
+
+def test_surface_change_needs_a_non_lander_approval() -> None:
+    out = run(surface_change())
+    decision = out["decision"]
+    assert decision["action"] == "needs-ack", decision
+    assert decision["surfaceFiles"] == [".github/workflows/nightly.yml"]
+    assert decision["landers"] == ["teamleaderleo"]
+    assert not out["ack"]["ok"]  # nobody approved yet
+
+
+def test_lander_cannot_approve_their_own_surface_change() -> None:
+    case = surface_change()
+    case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    assert not run(case)["ack"]["ok"]
+
+
+def test_other_release_approver_can_approve() -> None:
+    case = surface_change()
+    case["approvals"] = [{"state": "approved", "user": {"login": "austinywang"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["ack"]["ok"], out["ack"]
+    assert out["ack"]["approver"] == "austinywang"
+
+
+def test_approval_for_another_environment_does_not_count() -> None:
+    case = surface_change()
+    case["approvals"] = [{"state": "approved", "user": {"login": "austinywang"},
+                          "environments": [{"name": "release"}]}]
+    assert not run(case)["ack"]["ok"]
+
+
+def test_push_actor_is_a_lander_even_with_a_spoofed_author() -> None:
+    case = surface_change()
+    # The commit claims Leo as author, but Lawrence's token pushed it.
+    case["activity"][0]["actor"] = {"login": "lawrencecchen"}
+    case["commitPulls"] = {}
+    case["approvals"] = [{"state": "approved", "user": {"login": "lawrencecchen"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert "lawrencecchen" in out["decision"]["landers"]
+    assert not out["ack"]["ok"]
+
+
+def test_unknown_push_actor_fails_closed() -> None:
+    case = surface_change()
+    case["activity"] = []
+    out = run(case)
+    assert out["decision"]["action"] == "refuse"
+    assert "push actor" in out["decision"]["reason"]
+
+
+def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
+    assert "environment: nightly-next-promote" in WORKFLOW
+    assert "environment: release-surface-ack" in WORKFLOW
+    assert "promote_dry_run:" in WORKFLOW
+    assert "ref: ${{ github.sha }}" in WORKFLOW
+    assert "if: steps.decide.outputs.action == 'promote' && !inputs.promote_dry_run" in WORKFLOW
+    assert "if: needs.promote-nightly-next.outputs.action == 'needs-ack' && !inputs.promote_dry_run" in WORKFLOW
 
 
 def main() -> None:
-    """Run the focused regression suite without requiring a test runner."""
-    test_admission_retries_a_temporarily_missing_source_run()
-    test_admission_still_rejects_a_missing_successful_release_compile()
-    test_admission_rejects_a_success_conclusion_from_an_in_progress_job()
-    test_admission_retries_a_source_run_until_its_release_compile_is_visible()
-    print("PASS: nightly promotion admission")
+    tests = [value for name, value in globals().items() if name.startswith("test_")]
+    for test in tests:
+        test()
+    print(f"PASS: nightly-next promote guard ({len(tests)} cases)")
 
 
 if __name__ == "__main__":
