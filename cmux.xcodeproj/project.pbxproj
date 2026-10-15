@@ -909,6 +909,9 @@
 		B71758C265B0439845140478 /* CloudNotificationSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */; };
 		BC3A358B3BEE7DBEB4B67FA0 /* CloudOpenRepositoryCLIParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82251E72C4BE1B42ECD2E7BC /* CloudOpenRepositoryCLIParityTests.swift */; };
 		2FAF4AC508DBFE8EE10ACFB0 /* CloudOpenRepositoryCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F97D5D2985109A7E278396 /* CloudOpenRepositoryCommand.swift */; };
+		75241DC73F6BC44FBBEAC323 /* CloudOpenRepositoryEntryPoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 617FA408C0CD1B0E975957EB /* CloudOpenRepositoryEntryPoints.swift */; };
+		38BE6B39A00FA819BA28FF4D /* CloudOpenRepositoryPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27785FC95109F957A53D36A5 /* CloudOpenRepositoryPresenter.swift */; };
+		0AD747D5FDAF3C0E45166790 /* CloudOpenRepositorySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 005015C28D1B0D786890F558 /* CloudOpenRepositorySheet.swift */; };
 		906CBCE645C20119A53B721F /* CloudOpenRepositorySheetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF350A14E80CC5EBA7935B2 /* CloudOpenRepositorySheetModel.swift */; };
 		ED1C26282879A86D7711C007 /* CloudOpenRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6258AC4DE00147FED54B26E /* CloudOpenRepositoryTests.swift */; };
 		EC956EE8BAE1B992494BB695 /* CloudOpenRepositoryURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74BA6CA8CDE22CF9722CFF72 /* CloudOpenRepositoryURLRequest.swift */; };
@@ -5672,6 +5675,9 @@
 		64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncTests.swift; sourceTree = "<group>"; };
 		82251E72C4BE1B42ECD2E7BC /* CloudOpenRepositoryCLIParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudOpenRepositoryCLIParityTests.swift"; sourceTree = "<group>"; };
 		C4F97D5D2985109A7E278396 /* CloudOpenRepositoryCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositoryCommand.swift; sourceTree = "<group>"; };
+		617FA408C0CD1B0E975957EB /* CloudOpenRepositoryEntryPoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositoryEntryPoints.swift; sourceTree = "<group>"; };
+		27785FC95109F957A53D36A5 /* CloudOpenRepositoryPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositoryPresenter.swift; sourceTree = "<group>"; };
+		005015C28D1B0D786890F558 /* CloudOpenRepositorySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositorySheet.swift; sourceTree = "<group>"; };
 		6FF350A14E80CC5EBA7935B2 /* CloudOpenRepositorySheetModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositorySheetModel.swift; sourceTree = "<group>"; };
 		C6258AC4DE00147FED54B26E /* CloudOpenRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudOpenRepositoryTests.swift"; sourceTree = "<group>"; };
 		74BA6CA8CDE22CF9722CFF72 /* CloudOpenRepositoryURLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOpenRepositoryURLRequest.swift; sourceTree = "<group>"; };
@@ -10191,6 +10197,9 @@
 				C4F97D5D2985109A7E278396 /* CloudOpenRepositoryCommand.swift */,
 				74BA6CA8CDE22CF9722CFF72 /* CloudOpenRepositoryURLRequest.swift */,
 				6FF350A14E80CC5EBA7935B2 /* CloudOpenRepositorySheetModel.swift */,
+				005015C28D1B0D786890F558 /* CloudOpenRepositorySheet.swift */,
+				27785FC95109F957A53D36A5 /* CloudOpenRepositoryPresenter.swift */,
+				617FA408C0CD1B0E975957EB /* CloudOpenRepositoryEntryPoints.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -15362,6 +15371,9 @@
 				06A7D527A380A87E00C122EE /* CloudNotificationLocalDelivery.swift in Sources */,
 				0E06E7885C78B752A9AB83E2 /* CloudNotificationSyncHub.swift in Sources */,
 				2FAF4AC508DBFE8EE10ACFB0 /* CloudOpenRepositoryCommand.swift in Sources */,
+				75241DC73F6BC44FBBEAC323 /* CloudOpenRepositoryEntryPoints.swift in Sources */,
+				38BE6B39A00FA819BA28FF4D /* CloudOpenRepositoryPresenter.swift in Sources */,
+				0AD747D5FDAF3C0E45166790 /* CloudOpenRepositorySheet.swift in Sources */,
 				906CBCE645C20119A53B721F /* CloudOpenRepositorySheetModel.swift in Sources */,
 				EC956EE8BAE1B992494BB695 /* CloudOpenRepositoryURLRequest.swift in Sources */,
 				7C98953CC5230654F2A4D628 /* CloudOperationDetailsView.swift in Sources */,

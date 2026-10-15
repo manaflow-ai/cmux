@@ -44,6 +44,8 @@ struct CloudMenuActions {
     var machine: CloudMachineMenuVerbs
     /// Opens the Cloud Secrets sheet for every machine.
     var showSecrets: @MainActor () -> Void = {}
+    /// Opens "Open Repository in Cloud…".
+    var openRepository: @MainActor () -> Void = {}
 }
 
 enum CloudMenuContent {
@@ -193,6 +195,11 @@ enum CloudMenuContent {
                 title: String(localized: "menu.file.newCloudWorkspace", defaultValue: "New Cloud Workspace"),
                 shortcut: .newCloudWorkspace,
                 perform: actions.newWorkspace
+            )),
+            .action(CloudMenuAction(
+                id: "cloud.openRepository",
+                title: String(localized: "cloudOpenRepository.menu", defaultValue: "Open Repository in Cloud…"),
+                perform: actions.openRepository
             )),
             .action(CloudMenuAction(
                 id: "cloud.newMachine",

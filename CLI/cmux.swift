@@ -7332,10 +7332,6 @@ struct CMUXCLI {
                 guard let rawTarget = openArgs.first, let target = Self.parseVMOpenTarget(rawTarget), openArgs.count <= 2 else {
                     throw CLIError(message: Self.vmOpenUsage)
                 }
-                // Every open form needs the machine awake; a paused one wakes first, with one line.
-                if !printOnly {
-                    try wakeVMIfParked(machine: target.machine, knownStatus: nil, client: client)
-                }
                 if let portArg = openArgs.dropFirst().first {
                     // `vm open <id> <port>`: exactly the port form, nothing else takes a second positional.
                     guard case .machine(let vmId) = target, let port = Int(portArg), (1...65535).contains(port) else {
@@ -7721,17 +7717,12 @@ struct CMUXCLI {
                     try runVMSnapshotDeleteCommand(rest: Array(rest.dropFirst()), client: client, jsonOutput: jsonOutput)
                     break
                 }
-                if let first = rest.first?.lowercased(), first == "warm" {
-                    try runVMSnapshotWarmCommand(rest: Array(rest.dropFirst()), client: client, jsonOutput: jsonOutput)
-                    break
-                }
                 let (nameOpt, snapshotArgs) = parseOption(rest, name: "--name")
                 guard snapshotArgs.count == 1, let vmId = snapshotArgs.first, !vmId.hasPrefix("-") else {
                     throw CLIError(message: """
                         Usage: cmux vm snapshot <id> [--name <name>]
                                cmux vm snapshot ls <id>
                                cmux vm snapshot rm <id> <snapshot-id>
-                               cmux vm snapshot warm [rm <repo>]
 
                         Find an id:
                           cmux vm ls

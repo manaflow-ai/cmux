@@ -194,6 +194,7 @@ struct MachinesPanelView: View {
             await devBackend.observe()
             if devBackend.status?.isReady == true, !activationCoordinator.isPreparing { viewModel.refresh() }
         }
+        .cloudOpenRepositoryDropTarget()
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
@@ -206,6 +207,12 @@ struct MachinesPanelView: View {
                     tabManager: tabManager,
                     preferredWindow: tabManager?.window,
                     debugSource: "cloudTree.newMachineButton"
+                )
+            }
+            CloudOpenRepositoryPanelButton {
+                AppDelegate.shared?.performOpenRepositoryInCloudAction(
+                    preferredWindow: tabManager?.window,
+                    debugSource: "cloudTree.openRepositoryButton"
                 )
             }
         }

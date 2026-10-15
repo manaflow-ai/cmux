@@ -866,65 +866,6 @@ extension CMUXCLI {
         }
     }
 
-    // MARK: - waking a parked machine
-
-    /// Statuses of a machine that is parked rather than gone: `vm.resume` brings it back.
-    static let vmParkedStatuses: Set<String> = ["paused", "standby", "asleep", "sleeping", "suspended"]
-
-    /// Long enough for the backend's resume, which waits for the provider to report running.
-    static let vmWakeResponseTimeoutSeconds: TimeInterval = 16 * 60
-
-    /// The one wake step verbs that work in a machine's session share (`vm clone`, `vm agent`,
-    /// `vm open`): a parked machine is resumed before the verb's first request, with one
-    /// status line ("Waking brave-otter… 2.3s"), so the verb never meets a sleeping daemon
-    /// and the wait is never silent. `knownStatus` comes from a `vm.list` the caller already
-    /// read; with `readStatus` the status is read when it is not known. An unreadable status
-    /// (an app without `vm.status`, a label the backend does not know) leaves the decision to
-    /// the verb, whose own not-found answer still drives label resolution. A provider without
-    /// an explicit resume is left to the verb's own request, which wakes the machine on the
-    /// backend. Returns the seconds spent waking, or nil when nothing was woken. A definitive
-    /// refusal (the plan's machine limit, the free window) stops the verb, naming the machine.
-    @discardableResult
-    func wakeVMIfParked(
-        machine: String,
-        knownStatus: String?,
-        readStatus: Bool = true,
-        displayName: String? = nil,
-        client: SocketClient
-    ) throws -> Double? {
-        var status = knownStatus?.lowercased()
-        if status == nil, readStatus {
-            status = ((try? client.sendV2(method: "vm.status", params: ["id": machine], responseTimeout: 30))?["status"] as? String)?.lowercased()
-        }
-        guard let status, Self.vmParkedStatuses.contains(status) else { return nil }
-        let name = displayName ?? Self.vmMachineDisplayName(machine)
-        let started = Date()
-        cliWriteStderr(String(format: String(localized: "cli.vm.wake.waking", defaultValue: "Waking %@\u{2026}"), name))
-        do {
-            _ = try client.sendV2(method: "vm.resume", params: ["id": machine], responseTimeout: Self.vmWakeResponseTimeoutSeconds)
-        } catch let error as CLIError {
-            cliWriteStderr("\n")
-            if error.vmBackendCode == "vm_operation_unsupported" || error.vmBackendHTTPStatus == 501 || error.v2Code == "method_not_found" {
-                return nil
-            }
-            if Self.isVMMachineNotFoundError(error) { throw error }
-            throw CLIError(
-                message: String(
-                    format: String(localized: "cli.vm.wake.failed", defaultValue: "Could not wake %1$@: %2$@"),
-                    name, error.message
-                ),
-                exitCode: error.exitCode,
-                v2Code: error.v2Code,
-                isStructuredProtocolResponse: error.isStructuredProtocolResponse,
-                vmBackendCode: error.vmBackendCode,
-                vmBackendHTTPStatus: error.vmBackendHTTPStatus
-            )
-        }
-        let seconds = Date().timeIntervalSince(started)
-        cliWriteStderr(" \(String(format: "%.1fs", seconds))\n")
-        return seconds
-    }
-
     /// Seconds between `vm.status` polls; see ``VMReadyPollInterval``.
     static func vmReadyPollInterval(
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -2086,10 +2027,6 @@ extension CMUXCLI {
             client: client
         )
         cliWriteStderr("[cmux vm agent] \(selection.id) (\(selection.reason))\n")
-        // A paused machine wakes here with one line, before the sync and the agent's terminal.
-        if !selection.created {
-            try wakeVMIfParked(machine: selection.id, knownStatus: nil, client: client)
-        }
         Self.saveVMRunBinding(workKey: Self.vmRunWorkKey(forDirectory: workDirectory), machine: selection.id)
 
         var syncedRemoteDir: String?

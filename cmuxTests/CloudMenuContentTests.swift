@@ -54,7 +54,7 @@ struct CloudMenuContentTests {
             layout: .mainMenu
         )
         let ids = entries.filter { if case .separator = $0 { return false } else { return true } }.map(\.id)
-        #expect(ids == ["cloud.account", "cloud.newWorkspace", "cloud.newMachine", "cloud.machines.title"]
+        #expect(ids == ["cloud.account", "cloud.newWorkspace", "cloud.openRepository", "cloud.newMachine", "cloud.machines.title"]
             + machines.map { "machine.\($0.id)" }
             + ["cloud.secrets", "cloud.showMachines", "cloud.dashboard", "cloud.diagnostics", "cloud.signOut"])
         try Self.perform("cloud.newWorkspace", in: entries)

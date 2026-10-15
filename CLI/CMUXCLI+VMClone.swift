@@ -55,9 +55,6 @@ extension CMUXCLI {
           --setup              Run the repository's setup commands without asking (also
                                on a checkout that already existed).
           --skip-setup         Do not run the repository's setup commands.
-          --save-warm          After setup, save the machine as this repository's warm start
-                               (a snapshot, before --agent starts).
-          --cold               Do not start from the repository's warm start.
           --no-open            Do everything on the machine; open nothing here.
           --focus, --no-focus  \(openFocusDefaultHelp)
           --dry-run            Show the plan, including the machine it would use; change nothing.
@@ -70,16 +67,6 @@ extension CMUXCLI {
         the commands are listed and, on a terminal, you are asked first; without a
         terminal they are skipped unless you pass --setup. A checkout that already
         existed is only updated: its setup runs again only with --setup.
-
-        Warm starts: when the clone needs a new machine (--new, or nothing to reuse) and
-        the repository has a warm start, the machine is restored from that snapshot (its
-        checkout, dependencies and workspace) and the checkout is fetched, instead of a
-        fresh machine, clone and setup. A snapshot that cannot be restored falls back to
-        a fresh machine with a one-line note. Save one with --save-warm, or put
-        "warm": true in .cmux/cloud.json to save one after the first successful setup.
-        The restored machine's ~/.config/cmux/env is cleared and Cloud Secrets are
-        delivered again. A paused machine is woken first ("Waking <machine>… 2.3s").
-        `cmux vm snapshot warm` lists warm starts; `cmux vm snapshot warm rm <repo>` forgets one.
         """
     }
 
@@ -611,8 +598,6 @@ extension CMUXCLI {
         case onlyRunning
         /// `vm run`'s pool router: an idle pool machine, a sleeper, or a new one.
         case router
-        /// A new machine restored from the repository's warm start.
-        case warm
     }
 
     /// The machine `vm clone` uses, with its label and the rule that chose it.
@@ -621,8 +606,6 @@ extension CMUXCLI {
         let pick: VMCloneMachinePick
         /// The machine's label from `vm.list`, when it has one.
         let label: String?
-        /// The machine's status in the `vm.list` the choice was read from, when known.
-        var status: String? = nil
 
         var id: String { run.id }
         var created: Bool { run.created }
@@ -666,11 +649,6 @@ extension CMUXCLI {
             .first { !$0.isEmpty && $0 != id }
     }
 
-    /// The status `vm ls` shows for a machine, when the list carries it.
-    static func vmCloneMachineStatus(_ id: String, vms: [[String: Any]]) -> String? {
-        (vms.first { ($0["id"] as? String) == id }?["status"] as? String).flatMap { $0.isEmpty ? nil : $0.lowercased() }
-    }
-
     /// `--machine` > the repository's machine > the person's only running machine >
     /// `vm run`'s router (idle pool machine, sleeper, new pool machine). The router's
     /// policy itself is unchanged: it still never drafts a hand-made machine.
@@ -692,12 +670,7 @@ extension CMUXCLI {
                 allowProvision: allowProvision,
                 client: client
             )
-            return VMCloneSelection(
-                run: run,
-                pick: pick,
-                label: pinnedLabel ?? Self.vmCloneMachineLabel(run.id, vms: vms),
-                status: run.created ? nil : Self.vmCloneMachineStatus(run.id, vms: vms)
-            )
+            return VMCloneSelection(run: run, pick: pick, label: pinnedLabel ?? Self.vmCloneMachineLabel(run.id, vms: vms))
         }
         if machineOverride != nil || forceNew { return try routed(.explicit, vms: []) }
         // An app that cannot list leaves the decision to the router, which says why.
@@ -713,20 +686,19 @@ extension CMUXCLI {
         return VMCloneSelection(
             run: VMRunSelection(id: choice.id, created: false, reason: reason),
             pick: choice.pick,
-            label: Self.vmCloneMachineLabel(choice.id, vms: vms),
-            status: Self.vmCloneMachineStatus(choice.id, vms: vms)
+            label: Self.vmCloneMachineLabel(choice.id, vms: vms)
         )
     }
 
     /// `--machine <id|label>` → the machine id and its label, through the resolver every
     /// `cmux vm` verb uses. An unknown machine is an error before anything runs; an app
     /// that cannot list machines gets the argument as typed (it then names the failure).
-    func resolveVMCloneMachine(_ selector: String, client: SocketClient) throws -> (id: String, label: String?, status: String?) {
+    func resolveVMCloneMachine(_ selector: String, client: SocketClient) throws -> (id: String, label: String?) {
         guard let listed = try? client.sendV2(method: "vm.list", responseTimeout: 60),
-              let vms = listed["vms"] as? [[String: Any]] else { return (selector, nil, nil) }
+              let vms = listed["vms"] as? [[String: Any]] else { return (selector, nil) }
         switch VMMachineSelectorResolver().resolve(selector, vms: vms) {
         case .id(let id), .label(id: let id):
-            return (id, Self.vmCloneMachineLabel(id, vms: vms), Self.vmCloneMachineStatus(id, vms: vms))
+            return (id, Self.vmCloneMachineLabel(id, vms: vms))
         case .ambiguous(let matches):
             let list = matches.map { "  \($0.id)  \($0.label)" }.joined(separator: "\n")
             throw CLIError(message: String(
@@ -885,8 +857,6 @@ extension CMUXCLI {
         var dryRun = false
         var skipSetup = false
         var forceSetup = false
-        var saveWarm = false
-        var cold = false
         var index = 0
         while index < flags.count {
             let arg = flags[index]
@@ -913,8 +883,6 @@ extension CMUXCLI {
             case "--dry-run": dryRun = true
             case "--skip-setup": skipSetup = true
             case "--setup": forceSetup = true
-            case "--save-warm": saveWarm = true
-            case "--cold": cold = true
             case "--json": break
             default:
                 if arg.hasPrefix("-") {
@@ -939,12 +907,10 @@ extension CMUXCLI {
         // `--machine <label>` becomes the id before anything runs: the clone sends several
         // requests to the machine, so the lazy retry every other verb uses would repeat them.
         var pinnedLabel: String?
-        var pinnedStatus: String?
         if let typed = machineOverride {
             let resolved = try resolveVMCloneMachine(typed, client: client)
             machineOverride = resolved.id
             pinnedLabel = resolved.label
-            pinnedStatus = resolved.status
         }
         if let agent, !Self.vmAgentNames.contains(agent) {
             throw CLIError(message: "vm clone: --agent must be one of \(Self.vmAgentNames.joined(separator: ", "))\n\n\(Self.vmCloneUsage)")
@@ -994,12 +960,6 @@ extension CMUXCLI {
         let workspaceName = spec.name
         let open = !noOpen
         let focusValue = focus ?? Self.defaultFocusForUserOpen()
-        // The repository's warm start replaces only a new machine: a pinned machine,
-        // --cold, and an explicit --size (a warm start keeps the size it was saved at)
-        // never restore one.
-        let warmStart: VMWarmStart? = (cold || machineOverride != nil || memoryMb != nil)
-            ? nil
-            : Self.loadVMWarmStarts()[spec.projectKey]
 
         func orNull(_ value: Any?) -> Any {
             value ?? NSNull()
@@ -1030,10 +990,6 @@ extension CMUXCLI {
                 )
             }
             let machineText = Self.vmCloneDryRunMachineText(pinned: machineOverride, forceNew: forceNew, routed: routed?.run, memoryMb: memoryMb)
-            // Unknown routing (no app to ask) still names the warm start a new machine would use.
-            let plannedWarm = warmStart.flatMap { warm in
-                forceNew || routed == nil || routed?.wouldProvision == true ? warm : nil
-            }
             if jsonOutput {
                 var plan: [String: Any] = [:]
                 plan["dry_run"] = true
@@ -1049,23 +1005,12 @@ extension CMUXCLI {
                 plan["open"] = open
                 plan["skip_setup"] = skipSetup
                 plan["setup"] = Self.vmCloneSetupPlanValue(isOwnCheckout: repoArg == ".", forceSetup: forceSetup, skipSetup: skipSetup)
-                plan["warm_start"] = orNull(plannedWarm.map { warm -> [String: Any] in
-                    [
-                        "snapshot_id": warm.snapshotID,
-                        "saved_at": ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: TimeInterval(warm.createdAtUnix))),
-                        "if_new_machine": routed == nil && !forceNew,
-                    ]
-                })
-                plan["save_warm"] = saveWarm
                 print(jsonString(plan))
             } else {
                 let branchText = spec.branch.map { " (branch \($0))" } ?? " (default branch)"
                 print("plan: clone \(spec.cloneURL)\(branchText)")
                 print("plan: project \(spec.projectKey)")
                 print("plan: machine \(machineText), checkout \(remoteDir)")
-                if let plannedWarm {
-                    print("plan: warm start from snapshot \(plannedWarm.snapshotID) (saved \(Self.vmWarmStartAge(createdAtUnix: plannedWarm.createdAtUnix)))\(routed == nil && !forceNew ? " when a new machine is needed" : "")")
-                }
                 print("plan: workspace \(workspaceName) (get-or-create)\(open ? ", opened here" : ", not opened")")
                 switch Self.vmCloneSetupPlanValue(isOwnCheckout: repoArg == ".", forceSetup: forceSetup, skipSetup: skipSetup) {
                 case "skip":
@@ -1076,9 +1021,6 @@ extension CMUXCLI {
                         : "plan: setup from .cmux/cloud.json `setup` on a new checkout, if the repository has one")
                 default:
                     print("plan: setup from .cmux/cloud.json `setup` only after you confirm it at the prompt, or with --setup")
-                }
-                if saveWarm {
-                    print("plan: save a warm start of the machine after setup (--save-warm)")
                 }
                 if let agentArgv {
                     print("plan: agent \(agentArgv.map { $0.posixShellWord }.joined(separator: " "))")
@@ -1098,83 +1040,19 @@ extension CMUXCLI {
         // machine, then `vm agent`'s router (selectVMForClone).
         let machineLabel = String(localized: "cli.vm.clone.phase.machine", defaultValue: "Machine")
         let machineStarted = Date()
-        func routeMachine(allowProvision: Bool) throws -> VMCloneSelection {
-            try selectVMForClone(
-                machineOverride: machineOverride,
-                pinnedLabel: pinnedLabel,
-                forceNew: forceNew,
-                memoryMb: memoryMb,
-                routingDirectory: routingDirectory,
-                allowProvision: allowProvision,
-                client: client
-            )
-        }
-        // A warm start stands in for the router's new machine only: the machine this
-        // repository used, a running one, or an idle pool machine still come first.
-        // A restore that fails never blocks the clone; it falls back to a fresh machine.
-        let selection: VMCloneSelection
-        var warmPayload: [String: Any]?
-        var warmRestored: VMWarmStart?
-        if let warmStart {
-            let routed = try routeMachine(allowProvision: false)
-            if routed.wouldProvision {
-                let restoreStarted = Date()
-                let restored = restoreVMCloneWarmStart(warmStart, project: spec.projectKey, client: client)
-                let age = Self.vmWarmStartAge(createdAtUnix: warmStart.createdAtUnix)
-                if let id = restored.id {
-                    let seconds = Date().timeIntervalSince(restoreStarted)
-                    cliWriteStderr(String(
-                        format: String(localized: "cli.vm.clone.warm.restored", defaultValue: "Warm start from snapshot (saved %1$@) %2$@"),
-                        age, String(format: "%.1fs", seconds)
-                    ) + "\n")
-                    warmRestored = warmStart
-                    warmPayload = [
-                        "status": "restored",
-                        "snapshot_id": warmStart.snapshotID,
-                        "saved_at": ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: TimeInterval(warmStart.createdAtUnix))),
-                        "seconds": (seconds * 10).rounded() / 10,
-                    ]
-                    selection = VMCloneSelection(
-                        run: VMRunSelection(id: id, created: true, reason: "warm start from \(warmStart.snapshotID), saved \(age)"),
-                        pick: .warm,
-                        label: nil,
-                        status: "running"
-                    )
-                } else {
-                    let reason = restored.failure ?? ""
-                    cliWriteStderr(String(
-                        format: String(
-                            localized: "cli.vm.clone.warm.fallback",
-                            defaultValue: "Warm start from snapshot %1$@ failed (%2$@); cloning on a fresh machine instead."
-                        ),
-                        warmStart.snapshotID, reason
-                    ) + "\n")
-                    warmPayload = ["status": "failed", "snapshot_id": warmStart.snapshotID, "reason": reason]
-                    selection = try routeMachine(allowProvision: true)
-                }
-            } else {
-                selection = routed
-            }
-        } else {
-            selection = try routeMachine(allowProvision: true)
-        }
+        let selection = try selectVMForClone(
+            machineOverride: machineOverride,
+            pinnedLabel: pinnedLabel,
+            forceNew: forceNew,
+            memoryMb: memoryMb,
+            routingDirectory: routingDirectory,
+            client: client
+        )
         let machine = selection.id
         let machineName = selection.label ?? Self.vmMachineDisplayName(machine)
         phase("machine", machineLabel, machineStarted, detail: machineName == machine
             ? "\(machine) (\(selection.reason))"
             : "\(machineName) \(machine) (\(selection.reason))")
-        // A paused machine is woken here, with one line, rather than by whichever request
-        // reaches it first. The status comes from the list routing already read.
-        if !selection.created,
-           let seconds = try wakeVMIfParked(
-               machine: machine,
-               knownStatus: selection.status ?? pinnedStatus,
-               readStatus: false,
-               displayName: machineName,
-               client: client
-           ) {
-            timings.append(("wake", String(localized: "cli.vm.clone.phase.wake", defaultValue: "Wake"), seconds))
-        }
         if selection.pick == .onlyRunning {
             cliWriteStderr(String(
                 format: String(
@@ -1291,8 +1169,7 @@ extension CMUXCLI {
         // A machine provisioned for this clone already has the daemon's `workspace-1`
         // with an idle home shell. Name that first workspace for the repository (the
         // get-or-create below then finds it) instead of adding a second one beside it.
-        // A warm start's daemon already holds the repository's workspace.
-        let adoptedWorkspace = selection.created && selection.pick != .warm
+        let adoptedWorkspace = selection.created
             ? adoptVMCloneInitialWorkspace(machine: machine, name: workspaceName, client: client)
             : nil
         var workspaceParams: [String: Any] = [
@@ -1376,9 +1253,6 @@ extension CMUXCLI {
                 skipSetup: skipSetup,
                 interactive: isatty(STDIN_FILENO) == 1 && isatty(STDERR_FILENO) == 1
             )
-            if warmRestored != nil, decision == .skip(.existingCheckout) {
-                decision = .skip(.warmStart)
-            }
             if decision == .prompt {
                 decision = Self.vmCloneConfirmSetup(
                     commands: setupCommands,
@@ -1422,66 +1296,6 @@ extension CMUXCLI {
             }
         }
         let setupFailed = setupOutcome?.failure != nil
-
-        // 6b. Warm start: a snapshot of the machine once setup succeeded, before an agent
-        // runs in it, so a later clone that needs a new machine starts from here. Asked for
-        // with --save-warm, or by `"warm": true` after the first successful setup of a
-        // checkout whose setup was trusted to run. A failed save is a note, never a stop.
-        var warmSaved: VMWarmStart?
-        let previousWarm = Self.loadVMWarmStarts()[spec.projectKey]
-        let autoWarm = Self.vmCloneWarmRequested(cloudJSON: manifestFiles[".cmux/cloud.json"])
-            && !updated
-            && warmRestored == nil
-            && previousWarm == nil
-            && !skipSetup
-            && (repoArg == "." || forceSetup || setupOutcome != nil)
-        if !setupFailed, saveWarm || autoWarm {
-            let warmLabel = String(localized: "cli.vm.clone.phase.warmSave", defaultValue: "Warm start")
-            let warmStarted = Date()
-            do {
-                let response = try client.sendV2(
-                    method: "vm.snapshot",
-                    params: ["id": machine, "name": Self.vmWarmStartSnapshotName(projectKey: spec.projectKey)],
-                    responseTimeout: Self.vmCreateResponseTimeoutSeconds
-                )
-                guard let snapshotID = ((response["snapshot_id"] as? String) ?? (response["id"] as? String)).flatMap({ $0.isEmpty ? nil : $0 }) else {
-                    throw CLIError(message: String(localized: "cli.vm.clone.warm.noSnapshotID", defaultValue: "the snapshot returned no id"))
-                }
-                let saved = VMWarmStart(
-                    snapshotID: snapshotID,
-                    machine: machine,
-                    createdAtUnix: Int(Date().timeIntervalSince1970),
-                    name: Self.vmWarmStartSnapshotName(projectKey: spec.projectKey)
-                )
-                Self.saveVMWarmStart(project: spec.projectKey, saved)
-                warmSaved = saved
-                // The warm start it replaces is deleted: only the newest is ever restored.
-                if let previousWarm, previousWarm.snapshotID != snapshotID,
-                   previousWarm.name == Self.vmWarmStartSnapshotName(projectKey: spec.projectKey) {
-                    _ = try? client.sendV2(
-                        method: "vm.snapshot_delete",
-                        params: ["id": previousWarm.machine, "snapshot_id": previousWarm.snapshotID],
-                        responseTimeout: 130
-                    )
-                }
-                phase("warm_save", warmLabel, warmStarted, detail: String(
-                    format: String(
-                        localized: "cli.vm.clone.warm.saved",
-                        defaultValue: "saved snapshot %@; a clone that needs a new machine starts from it"
-                    ),
-                    snapshotID
-                ))
-            } catch {
-                let reason = Self.vmCloneWarmFailureReason((error as? CLIError)?.message ?? String(describing: error))
-                cliWriteStderr(String(
-                    format: String(
-                        localized: "cli.vm.clone.warm.saveFailed",
-                        defaultValue: "Could not save a warm start of %1$@ (%2$@). The clone itself is done."
-                    ),
-                    machineName, reason
-                ) + "\n")
-            }
-        }
 
         // 7. Agent: `vm agent`'s terminal, landed in the repository's workspace and
         // started in the checkout, once setup succeeded.
@@ -1537,8 +1351,6 @@ extension CMUXCLI {
             payload["open"] = "cmux vm open \(address)"
             payload["timings"] = timingPayload
             payload["missing_secrets"] = missingSecrets
-            payload["warm_start"] = orNull(warmPayload)
-            payload["warm_saved"] = orNull(warmSaved.map { ["snapshot_id": $0.snapshotID] as [String: Any] })
             payload["setup"] = Self.vmCloneSetupPayload(
                 commands: setupCommands,
                 skipped: setupSkipReason != nil,
@@ -1574,59 +1386,6 @@ extension CMUXCLI {
         }
     }
 
-    // MARK: - Warm start restore
-
-    /// The first line of a failure, short enough for the one-line fallback note.
-    static func vmCloneWarmFailureReason(_ message: String) -> String {
-        let line = message.split(whereSeparator: \.isNewline).first.map(String.init) ?? message
-        return line.count > 160 ? String(line.prefix(159)) + "\u{2026}" : line
-    }
-
-    /// Run on a machine restored from a warm start before Cloud Secrets sync: the snapshot
-    /// carried its source machine's env file, and this machine's values come from Cloud
-    /// Secrets alone (a name removed from the vault since the snapshot must not come back).
-    static let vmCloneWarmEnvResetCommand = #"rm -f -- "$HOME/.config/cmux/env""#
-
-    /// Restores `warm` as a new pool machine (the router's own kind of machine, so later
-    /// routing can reuse it) and waits until it runs. Returns its id, or why it could not;
-    /// nothing here throws, so a bad snapshot never blocks the clone. A snapshot the
-    /// backend no longer has is forgotten, so the next clone does not try it again.
-    func restoreVMCloneWarmStart(_ warm: VMWarmStart, project: String, client: SocketClient) -> (id: String?, failure: String?) {
-        let response: [String: Any]
-        do {
-            response = try client.sendV2(
-                method: "vm.restore",
-                params: ["snapshot_id": warm.snapshotID, "idempotency_key": UUID().uuidString.lowercased()],
-                responseTimeout: Self.vmCreateResponseTimeoutSeconds
-            )
-        } catch {
-            if let error = error as? CLIError, error.vmBackendCode == "vm_snapshot_not_found" {
-                Self.saveVMWarmStart(project: project, nil)
-            }
-            return (nil, Self.vmCloneWarmFailureReason((error as? CLIError)?.message ?? String(describing: error)))
-        }
-        guard let id = (response["id"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else {
-            return (nil, String(localized: "cli.vm.clone.warm.noMachineID", defaultValue: "the restore returned no machine"))
-        }
-        try? Self.updateVMRunPool { machines in machines.insert(id) }
-        _ = try? client.sendV2(method: "vm.rename", params: ["id": id, "display_name": Self.vmRunPoolLabel], responseTimeout: 60)
-        do {
-            try waitForVMReady(vmID: id, timeoutSeconds: Self.vmRunCreateWaitSeconds, client: client)
-        } catch {
-            let reason = Self.vmCloneWarmFailureReason((error as? CLIError)?.message ?? String(describing: error))
-            return (nil, String(
-                format: String(localized: "cli.vm.clone.warm.notReady", defaultValue: "%1$@ did not start: %2$@"),
-                id, reason
-            ))
-        }
-        _ = try? client.sendV2(
-            method: "vm.exec",
-            params: ["id": id, "command": Self.vmCloneWarmEnvResetCommand, "timeout_ms": 30_000],
-            responseTimeout: 60
-        )
-        return (id, nil)
-    }
-
     // MARK: - Setup trust
 
     /// Why the repository's setup commands did not run.
@@ -1639,8 +1398,6 @@ extension CMUXCLI {
         case needsConfirmation = "needs_confirmation"
         /// Asked at the prompt and not confirmed.
         case declined = "declined"
-        /// The machine was restored from the repository's warm start, which ran it already.
-        case warmStart = "warm_start"
     }
 
     enum VMCloneSetupDecision: Equatable {
@@ -1702,14 +1459,6 @@ extension CMUXCLI {
             )
         case .declined:
             return String(localized: "cli.vm.clone.setup.skippedDeclined", defaultValue: "Setup skipped.")
-        case .warmStart:
-            return String(
-                format: String(
-                    localized: "cli.vm.clone.setup.skippedWarm",
-                    defaultValue: "Setup skipped: the warm start of %1$@ already ran it. Run again with --setup to refresh dependencies (%2$@)."
-                ),
-                repository, shown
-            )
         }
     }
 

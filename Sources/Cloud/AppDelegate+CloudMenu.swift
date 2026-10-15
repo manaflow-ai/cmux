@@ -112,6 +112,10 @@ extension AppDelegate {
             showSecrets: {
                 if fromStatusItem { NSApp.activate() }
                 CloudSecretsSheetPresenter.shared.present(preferredWindow: window())
+            },
+            openRepository: { [weak self] in
+                if fromStatusItem { NSApp.activate() }
+                self?.performOpenRepositoryInCloudAction(preferredWindow: window(), debugSource: source)
             }
         )
     }
