@@ -343,8 +343,14 @@ final class TabsModel {
             let terminal = terminals[index]
             let thumbnail = terminalThumbnails[key]
             withAnimation(animation) { removeTerminalLocally(key, id: id) }
+            // A terminal that ended on the Mac has nothing left to close there.
+            guard terminal.running else { return true }
             do {
                 try await connection.requireClient().closeTerminal(id)
+                return true
+            } catch where TerminalClose.isGone(error) {
+                // The host no longer has it (it ended, or is unknown): the
+                // card's removal stands.
                 return true
             } catch {
                 withAnimation(animation) {
