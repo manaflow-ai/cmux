@@ -13,8 +13,6 @@
   --lg-mark: 20px;
   --lg-list: clamp(232px, 27vw, 296px);
   --lg-header: 44px;
-  /* The reading column: rows, day lines and the composer never grow past it. */
-  --lg-column: 840px;
 }
 
 .lg-page {
@@ -668,6 +666,14 @@
 }
 
 /* ---------- Thread sheet: over the timeline, from the end edge ---------- */
+/* A wide pane keeps the conversation beside the sheet: the timeline, the typing line and the
+   composer end where the sheet starts (its widest, 520 px), so the sheet never covers the composer.
+   A narrower pane lets the sheet slide over them. */
+@container lg-main (min-width: 1100px) {
+  .lg-stage:has(> .lg-sheet) > :not(.lg-sheet) {
+    margin-inline-end: 520px;
+  }
+}
 .lg-sheet {
   position: absolute;
   inset-block: 0;
@@ -959,16 +965,9 @@
   color: var(--page-text-3);
 }
 
-/* ---------- The reading column ---------- */
-.lg-main .hc-timeline-row > * {
-  max-width: calc(var(--lg-column) + 2 * var(--lg-pad));
-}
-.lg-main-compose > * {
-  max-width: var(--lg-column);
-}
+/* ---------- The conversation column: the pane's full width, the side padding only ---------- */
 .lg-main-compose,
 .lg-typing {
-  max-width: calc(var(--lg-column) + 2 * var(--lg-pad));
   width: 100%;
   box-sizing: border-box;
 }
@@ -1070,7 +1069,6 @@
   --lg-run-rail: 3px;
   container: lg-run / inline-size;
   margin: 2px 0 0;
-  max-width: min(100%, 640px);
 }
 /* With the author's picture (16 px, then the mark): the rail under the picture's center. */
 .lg-run:has(> .lg-run-bar > .lg-run-toggle > .hc-avatar) {
@@ -1167,6 +1165,14 @@
   padding: 0 0 4px;
   padding-inline-start: calc(var(--lg-run-lead) - var(--lg-run-rail) - 1px);
   border-inline-start: 1px solid var(--lg-line);
+}
+/* The steps (the agent pane's tool rows) at the card's own type size, not the transcript's. */
+.lg-run-steps {
+  --cv-font-size: var(--text-detail);
+}
+.lg-run-steps .cv-tool {
+  min-height: 22px;
+  line-height: var(--text-detail--line-height);
 }
 .lg-run-more {
   margin: 6px 0 0;
