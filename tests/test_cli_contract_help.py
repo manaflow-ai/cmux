@@ -700,16 +700,16 @@ def check_guide_contract(cli_path: str) -> list[str]:
 WELCOME_DEFAULT_ROWS = [
     ("⌘N", "New workspace"),
     ("⌘T", "New tab"),
-    ("⌘P", "Go to workspace"),
+    ("⌘P", "Go to Workspace…"),
     ("⌘B", "Toggle Left Sidebar"),
     ("⌘⌥B", "Toggle Right Sidebar"),
-    ("⌘D", "Split right"),
-    ("⌘⇧D", "Split down"),
-    ("⌘⇧P", "Command palette"),
-    ("⌘⇧R", "Rename workspace"),
+    ("⌘D", "Split Right"),
+    ("⌘⇧D", "Split Down"),
+    ("⌘⇧P", "Command Palette…"),
+    ("⌘⇧R", "Rename Workspace"),
     ("⌘⇧L", "New browser"),
-    ("⌘⇧U", "Jump to latest unread"),
-    ("⌥⌘U", "Toggle unread"),
+    ("⌘⇧U", "Jump to Latest Unread"),
+    ("⌥⌘U", "Toggle Unread"),
 ]
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -764,10 +764,10 @@ def check_welcome_contract(cli_path: str) -> list[str]:
                     f"got {rows!r}\nstdout={result.stdout!r}"
                 )
             plain = ANSI_ESCAPE_RE.sub("", result.stdout)
-            for needle in ("Run cmux shortcuts to edit shortcuts.", "Command palette"):
+            for needle in ("Run cmux shortcuts to edit shortcuts.", "Command Palette…"):
                 if needle not in plain:
                     failures.append(f"cmux welcome ({label}): missing {needle!r}\nstdout={result.stdout!r}")
-            for stale in ("Default shortcuts", "Settings > Keyboard Shortcuts", "Command Palette…"):
+            for stale in ("Default shortcuts", "Settings > Keyboard Shortcuts"):
                 if stale in plain:
                     failures.append(f"cmux welcome ({label}): shows stale text {stale!r}\nstdout={result.stdout!r}")
             for rebound in ("⇧⌘K", "⌃⌥P"):

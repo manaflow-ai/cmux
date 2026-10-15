@@ -26,16 +26,16 @@ struct CLIWelcomeTests {
           Shortcuts
           ⌘N                  New workspace
           ⌘T                  New tab
-          ⌘P                  Go to workspace
+          ⌘P                  Go to Workspace…
           ⌘B                  Toggle Left Sidebar
           ⌘⌥B                 Toggle Right Sidebar
-          ⌘D                  Split right
-          ⌘⇧D                 Split down
-          ⌘⇧P                 Command palette
-          ⌘⇧R                 Rename workspace
+          ⌘D                  Split Right
+          ⌘⇧D                 Split Down
+          ⌘⇧P                 Command Palette…
+          ⌘⇧R                 Rename Workspace
           ⌘⇧L                 New browser
-          ⌘⇧U                 Jump to latest unread
-          ⌥⌘U                 Toggle unread
+          ⌘⇧U                 Jump to Latest Unread
+          ⌥⌘U                 Toggle Unread
         """
         // The reference block is intentionally exact: these labels describe the
         // factory defaults and should not follow user-customized settings.
