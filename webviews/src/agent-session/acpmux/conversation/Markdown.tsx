@@ -434,7 +434,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (linkKind(lm[2]) === "file")
         out.push(
-          <span key={k++} className="cv-link is-file" title={lm[2]}>
+          <span key={k++} className="cv-link is-file">
             {(opts.linkIcon ?? linkIcon)(lm[2])}
             {renderInline(lm[1], labelOpts)}
           </span>,
@@ -521,12 +521,12 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
   const href = safeHref(src);
   const fallback = !href ? (
-    <span className="cv-link is-image" title={src}>
+    <span className="cv-link is-image">
       <ImageIcon size={16} className="cv-link__icon" />
       {renderInline(name, labelOpts)}
     </span>
   ) : (
-    <a className="cv-link is-image" href={href} rel="noreferrer" title={src}>
+    <a className="cv-link is-image" href={href} rel="noreferrer">
       <ImageIcon size={16} className="cv-link__icon" />
       {renderInline(name, labelOpts)}
     </a>
@@ -540,7 +540,10 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
 function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
   const t = useT();
   return (
-    <span className="cv-link is-image" title={t("markdown.imageTooLarge")}>
+    <span
+      className="cv-link is-image"
+      /* tooltip-allow: why the image does not show */ title={t("markdown.imageTooLarge")}
+    >
       <ImageIcon size={16} className="cv-link__icon" />
       {alt
         ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false })
