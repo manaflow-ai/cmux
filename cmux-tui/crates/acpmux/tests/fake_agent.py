@@ -615,7 +615,11 @@ def main():
                       "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]}
             if m == "session/new":
                 sessions += 1
-                send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}})
+                result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}
+                # FAKE_PICKER_MODES=1: the picker harness reports the two session modes too.
+                if os.environ.get("FAKE_PICKER_MODES") == "1":
+                    result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
+                send({"jsonrpc": "2.0", "id": rid, "result": result})
             elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
             elif m == "session/set_model":
@@ -733,6 +737,10 @@ def main():
             sessions += 1
             send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
         elif m == "session/set_mode":
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
