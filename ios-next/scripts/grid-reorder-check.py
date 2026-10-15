@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""grid-reorder-check.py PNG HEX FX FY WANT < describe-ui JSON: grid-reorder.sh's check
-(the dragged card under the finger mid-drag; the order and count after the drop)."""
+"""grid-reorder-check.py PNG HEX FX FY WANT [MODE] < describe-ui JSON: grid-reorder.sh's check.
+
+MODE move (left, right): the dragged card under the finger mid-drag; the
+order and count after the drop. MODE menu (up): Safari's menu keeps the
+touch, so no drag: the order is unchanged. MODE select (down): no drag, and
+the release over the menu ran the row under the finger (Select Tabs)."""
 import json, subprocess, sys
 png, hexc, fx, fy, want = sys.argv[1], sys.argv[2], float(sys.argv[3]), float(sys.argv[4]), sys.argv[5].split('|')
+mode = sys.argv[6] if len(sys.argv) > 6 else 'move'
 # The dragged card's header near the finger (points; 3 px per point).
 w, h = 402 * 3, 874 * 3
 try:
@@ -10,7 +15,7 @@ try:
                          capture_output=True).stdout
 except FileNotFoundError:
     raw = b''
-c = [int(hexc[i:i + 2], 16) for i in (0, 2, 4)]
+c = [int(hexc[i:i + 2], 16) for i in (0, 2, 4)] if hexc != '-' else [0, 0, 0]
 hits = 0
 if len(raw) == w * h * 3:
     x0, x1 = int(max(0, fx - 110) * 3), int(min(402, fx + 110) * 3)
@@ -36,7 +41,9 @@ cards = sorted(((n['frame']['y'], n['frame']['x'], n['AXLabel']) for n in nodes
 order = [next((wnt for wnt in want if lab.startswith(wnt)), lab[:20]) for _, _, lab in cards]
 count = any(n.get('AXLabel') == '5 Tabs' for n in nodes)
 problems = []
-if hits < 40: problems.append(f'no dragged card under the finger ({hits} header px)')
+if mode == 'move' and hexc != '-' and hits < 40: problems.append(f'no dragged card under the finger ({hits} header px)')
+selected = any((n.get('AXLabel') or '').endswith(' selected') for n in nodes)
+if mode == 'select' and not selected: problems.append('the release ran no menu row (not in Select Tabs)')
 if not count: problems.append('not 5 Tabs')
 if order != want: problems.append('order ' + ' | '.join(order))
 print('ok' if not problems else '; '.join(problems))
