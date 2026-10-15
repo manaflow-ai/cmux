@@ -429,11 +429,14 @@ fn real_flow(request: &Request) -> Result<Value, CmuxError> {
 
         let renamed_result = client.rename_workspace(RenameWorkspaceRequest {
             expected_generation: Optional::Missing,
+            expected_name_revision: Optional::Missing,
             expected_revision: Optional::Missing,
             key: Optional::Missing,
             mutation_id: Optional::Missing,
             name: renamed_name.to_owned(),
             origin: Optional::Missing,
+            release: None,
+            source: Optional::Missing,
             workspace: Optional::Value(workspace),
         })?;
         let renamed_tree = client.workspace_tree()?;

@@ -129,6 +129,7 @@ impl Mux {
             if state.workspace_by_key(&key).is_some() {
                 anyhow::bail!("workspace key already exists: {key}");
             }
+            let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
             let name = name.unwrap_or_else(|| self.default_workspace_name(&state));
             let index = state.workspaces.len();
             let selection_resync = !state.workspaces.is_empty();
@@ -138,6 +139,8 @@ impl Mux {
                 public_id: workspace_public_id.clone(),
                 key: key.clone(),
                 name: name.clone(),
+                name_source,
+                name_revision: 0,
                 group_key: self.session.clone(),
             });
             let result = serde_json::json!({
@@ -212,6 +215,8 @@ impl Mux {
                 public_id: workspace_public_id,
                 key: key.clone(),
                 name,
+                name_source,
+                name_revision: 0,
                 screens: Vec::new(),
                 active_screen: 0,
             });
