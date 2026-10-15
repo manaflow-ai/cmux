@@ -24,9 +24,7 @@ public final class AgentPaneLoadingView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         autoresizingMask = [.width, .height]
-        addSubview(indicator)
         indicator.configure(.busy(progress: nil))
-        indicator.isHidden = true
         setAccessibilityElement(true)
         setAccessibilityRole(.progressIndicator)
         setAccessibilityLabel(Self.label)
@@ -49,15 +47,18 @@ public final class AgentPaneLoadingView: NSView {
         layer?.backgroundColor = color.cgColor
     }
 
-    /// Shows the mark after ``markDelay``, unless the page paints first.
+    /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
+    /// the indicator sets its own `isHidden` from its config whenever it refreshes.
     func showMarkLater() {
-        indicator.isHidden = true
-        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in self?.indicator.isHidden = false }
+        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in
+            guard let self else { return }
+            addSubview(indicator)
+        }
     }
 
     func hideMark() {
         markTimer.cancel()
-        indicator.isHidden = true
+        indicator.removeFromSuperview()
     }
 
     /// Runs `body` once the page shows: after its fade, if it fades; now if it shows. It

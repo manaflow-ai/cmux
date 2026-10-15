@@ -28,6 +28,12 @@ struct AgentPaneColdChatRevealTests {
         return (view, window)
     }
 
+    /// Whether the busy mark draws: in the loading view and not hidden.
+    private static func markShows(_ view: AgentPaneView) -> Bool {
+        let mark = view.loadingView.indicator
+        return mark.superview != nil && !mark.isHidden
+    }
+
     private static func settle(until done: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(2)
         while !done(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
@@ -37,7 +43,7 @@ struct AgentPaneColdChatRevealTests {
         let (view, window) = try Self.pane()
         defer { window.close() }
         #expect(view.showsLoadingState, "a chat that has not drawn showed its page's unpainted frames")
-        #expect(view.loadingView.indicator.isHidden, "the busy mark popped up the moment the chat was opened")
+        #expect(!Self.markShows(view), "the busy mark popped up the moment the chat was opened")
 
         view.model.markPainted()
         #expect(view.pageContent.alphaValue == 1, "the page stayed clear under its loading state")
@@ -51,10 +57,10 @@ struct AgentPaneColdChatRevealTests {
     @Test func aSlowChatShowsTheMarkAfterABeat() async throws {
         let (view, window) = try Self.pane()
         defer { window.close() }
-        try await Self.settle { !view.loadingView.indicator.isHidden }
-        #expect(!view.loadingView.indicator.isHidden, "a chat still loading after the beat showed no busy mark")
+        try await Self.settle { Self.markShows(view) }
+        #expect(Self.markShows(view), "a chat still loading after the beat showed no busy mark")
         view.model.markPainted()
-        #expect(view.loadingView.indicator.isHidden, "the busy mark stayed while the page faded in")
+        #expect(!Self.markShows(view), "the busy mark stayed while the page faded in")
     }
 
     @Test func aNewTabPageShowsInOneFrame() throws {
