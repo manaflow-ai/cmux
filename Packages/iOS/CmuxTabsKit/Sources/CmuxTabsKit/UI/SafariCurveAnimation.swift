@@ -1,4 +1,5 @@
 #if os(iOS)
+import os
 import SwiftUI
 
 /// Replays a `SafariCurve` as a SwiftUI animation (the property follows
@@ -35,6 +36,17 @@ struct SafariCurveAnimation: CustomAnimation {
         if clock.calls > 0, clock.calls < 3, time - clock.last > 1.5 / 60 {
             clock.shift += time - clock.last - 1.0 / 60
         }
+        // A cued curve also holds until a frame that shows its owner's change
+        // (`SafariCurveCue.markApplied`) has been drawn, so the change is on
+        // screen the frame before the first move however the frames fall
+        // (the demo's grid draws at 30-40 Hz there, and its count and first
+        // move had landed in the same frame). At most `maxHeldCalls`.
+        if cue != 0, !clock.released, clock.calls > 0 {
+            if SafariCurveCue.isApplied(cue) || clock.calls >= Self.maxHeldCalls {
+                clock.released = true
+            }
+            clock.shift = time
+        }
         clock.last = time
         clock.calls += 1
         context.state[ClockKey.self] = clock
@@ -43,10 +55,13 @@ struct SafariCurveAnimation: CustomAnimation {
         return value.scaled(by: curve.value(at: t))
     }
 
+    static let maxHeldCalls = 4
+
     private struct Clock {
         var shift: Double
         var last: Double
         var calls: Int
+        var released = false
     }
 
     private struct ClockKey: AnimationStateKey {
@@ -79,5 +94,12 @@ final class SafariCurveCue {
     static func fire(_ cue: Int) {
         handlers.removeValue(forKey: cue)?()
     }
+
+    /// Cues whose owner has made its change (the curve holds until a frame
+    /// showing it has been drawn). Every animated value of the curve reads
+    /// it, so it is kept (one integer per close).
+    private nonisolated static let applied = OSAllocatedUnfairLock(initialState: Set<Int>())
+    static func markApplied(_ cue: Int) { applied.withLock { _ = $0.insert(cue) } }
+    nonisolated static func isApplied(_ cue: Int) -> Bool { applied.withLock { $0.contains(cue) } }
 }
 #endif
