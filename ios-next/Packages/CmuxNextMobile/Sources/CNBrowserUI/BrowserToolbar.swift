@@ -389,8 +389,10 @@ struct BrowserToolbar: View {
     }
 
     @ViewBuilder private func label(_ r: CGRect) -> some View {
-        // The start page has no menu glyph, so the placeholder may use the leading slot.
-        let maxW = max(40, r.width - (showsStartPage ? style.metrics.control + 24 : 2 * style.metrics.control + 8))
+        // The start page has neither the menu glyph nor reload, so the
+        // placeholder may use the whole capsule ("Search or enter website"
+        // was cut to "Search or ente…" in the middle third).
+        let maxW = max(40, r.width - (showsStartPage ? 24 : 2 * style.metrics.control + 8))
         Button(action: unlessSwiped {
             if collapsed { chrome.expand(tap: true) } else { onBeginEditing() }
         }) {
@@ -401,6 +403,8 @@ struct BrowserToolbar: View {
                 Text(labelText)
                     .chromeFont(style.metrics.urlFont, weight: showsStartPage ? .regular : .medium)
                     .lineLimit(1)
+                    // Safari fits the whole placeholder: it shrinks a little before it truncates.
+                    .minimumScaleFactor(showsStartPage ? 0.8 : 1)
                     .truncationMode(.tail)
             }
             .foregroundStyle(showsStartPage ? style.colors.secondaryLabel : style.colors.label)
@@ -412,7 +416,7 @@ struct BrowserToolbar: View {
             .scaleEffect(collapsed ? style.metrics.collapsedScale : 1)
             // Expanded, the label owns only the middle; the 48 pt slots
             // at either end belong to the menu and reload buttons.
-            .frame(width: collapsed ? r.width : max(0, r.width - (showsStartPage ? style.metrics.control : 2 * style.metrics.control)), height: r.height)
+            .frame(width: collapsed ? r.width : max(0, r.width - (showsStartPage ? 0 : 2 * style.metrics.control)), height: r.height)
             .contentShape(.rect)
         }
         .buttonStyle(GlassContentButtonStyle())
