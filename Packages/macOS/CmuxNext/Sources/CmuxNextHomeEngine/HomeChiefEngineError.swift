@@ -12,6 +12,8 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
     case forbidden
     case notConfigured
     case unsupported
+    /// Agents are off in this build session (`agent_launch_disabled`).
+    case agentsDisabled
     case refused(reason: String, message: String)
     case other(String)
 
@@ -21,6 +23,8 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
         case .forbidden: self = .forbidden
         case .notConfigured: self = .notConfigured
         case .unsupported: self = .unsupported
+        // cx-tgf4h: the daemon's typed refusal while agents are off.
+        case .refused(let reason, _) where reason == "agent_launch_disabled": self = .agentsDisabled
         case .refused(let reason, let message): self = .refused(reason: reason, message: message)
         case .other(let text): self = .other(text)
         }
@@ -34,6 +38,7 @@ public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
         case .forbidden: HomeEngineStrings.errorForbidden
         case .notConfigured: HomeEngineStrings.errorNotConfigured
         case .unsupported: HomeEngineStrings.errorUnsupported
+        case .agentsDisabled: HomeStrings.chiefAgentsDisabled
         case .refused(_, let message), .other(let message): String(format: HomeEngineStrings.errorRefusedFormat, message)
         }
     }

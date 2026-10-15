@@ -943,14 +943,60 @@ assert workspaces[1]["active"], workspaces
 assert workspaces[1]["name"] == "workspace-2", workspaces
 print("prefix-W new workspace ok")
 
-# Drag the original workspace below the new one. Layout: row 0 header,
-# row 1 blank, rows 2-3 workspace 1, row 4 blank, rows 5-6 workspace 2
-# (SGR mouse coordinates are 1-based).
+# The rail draws the daemon's sidebar document (sidebar-doc-v1), not the
+# list-workspaces order: a new workspace goes where workspaces.newPlacement
+# says (default: top), and a drop is one sidebar.move, which changes the
+# document only. Layout: row 0 top pad, then per workspace two rows and a
+# gap (rows 1-2, 4-5, ...; SGR mouse coordinates are 1-based).
+def p2(operation, params=None):
+    reply = rpc({"protocol": "cmux.protocol/2", "type": "request", "id": "smoke-doc",
+                 "operation": operation,
+                 "params": {"machine": "current", "session": "current", **(params or {})}})
+    assert reply.get("ok"), reply
+    return reply["result"]
+
+def doc_workspace_order():
+    """Workspace ids in the document's display order (no groups here)."""
+    doc = p2("sidebar.get")
+    region = {"top": 0, "middle": 1, "bottom": 2}
+    sections = {s["id"]: (region.get(s.get("region"), 3), s.get("order", "")) for s in doc["sections"]}
+    items = [i for i in doc["items"] if i["body"].get("type") == "workspace"]
+    items.sort(key=lambda i: (sections.get(i["section"], (9, "")), i.get("order", ""), i["id"]))
+    by_resource = {w["resource_id"]: w["id"] for w in tree()}
+    return [by_resource.get(i["body"]["ref"]["workspace_id"]) for i in items]
+
+def wait_drawn_order(expected, seconds=15):
+    """The document and the drawn rail both show `expected` (workspace ids)."""
+    names = {w["id"]: w["name"] for w in tree()}
+    deadline = time.monotonic() + seconds
+    last = None
+    while time.monotonic() < deadline:
+        drain(0.2)
+        rows = render_text_snapshot(output).splitlines()
+        drawn = [rows[1 + 3 * index][:21].lstrip(" ▎").startswith(names[workspace])
+                 for index, workspace in enumerate(expected)]
+        last = (doc_workspace_order(), drawn)
+        if last[0] == expected and all(drawn):
+            return
+    raise AssertionError((expected, last, names))
+
+def drag_first_row_below_second():
+    write_all(fd, b"\x1b[<0;2;3M\x1b[<32;2;7M\x1b[<0;2;7m")
+    drain(1.0)
+
 original_ws = ws_id
-write_all(fd, b"\x1b[<0;2;3M\x1b[<32;2;7M\x1b[<0;2;7m")
-drain(1.0)
+new_ws = workspaces[1]["id"]
+first, second = doc_workspace_order()
+assert {first, second} == {original_ws, new_ws}, (first, second, workspaces)
+wait_drawn_order([first, second])
+# Drag the top row below the second one, then the other way back, so the
+# original workspace ends below the new one whatever the placement setting.
+drag_first_row_below_second()
+wait_drawn_order([second, first])
+if doc_workspace_order()[0] == original_ws:
+    drag_first_row_below_second()
+wait_drawn_order([new_ws, original_ws])
 workspaces = tree()
-assert [w["id"] for w in workspaces] == [w["id"] for w in workspaces if w["id"] != original_ws] + [original_ws], workspaces
 print("sidebar workspace drag reorder ok")
 
 # Click the moved original workspace's sidebar entry.
@@ -958,7 +1004,7 @@ shared_workspace = next(workspace["id"] for workspace in workspaces if workspace
 write_all(fd, b"\x1b[<0;2;6M\x1b[<0;2;6m")
 drain(1.0)
 workspaces = tree()
-assert workspaces[1]["id"] == original_ws, workspaces
+assert doc_workspace_order()[1] == original_ws, workspaces
 assert next(workspace["id"] for workspace in workspaces if workspace["active"]) == shared_workspace
 original_workspace = next(workspace for workspace in workspaces if workspace["id"] == original_ws)
 original_surfaces = {
