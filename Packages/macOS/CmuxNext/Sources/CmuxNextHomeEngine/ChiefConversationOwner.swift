@@ -25,6 +25,9 @@ public final class ChiefConversationOwner {
     /// The live connection, nil while connecting or disconnected.
     public private(set) var connection: DaemonConnection?
     public private(set) var identity: DaemonIdentity?
+    /// NIGHTLY's one-time backup of its shared home (`ChiefAdoption`), taken before the owner
+    /// starts; nil until it ran or when it failed (the old Chief import waits for a later launch).
+    public private(set) var adoption: ChiefAdoption.Outcome?
     /// Why the owner is not connected, for `debug.home`.
     public private(set) var lastError: String?
     /// Runs once on the first connection, before the connection is
@@ -89,9 +92,15 @@ public final class ChiefConversationOwner {
         let provider = launcher.endpointProvider
         let wake = wake
         let logger = logger
+        let home = home
+        let build = bundle.bundleIdentifier ?? ChiefHome.nightlyBundleID
         // task-owner: lives as long as the app; one connection, reconnecting by itself
         runTask = Task { [weak self] in
             weak let weakSelf = self
+            // NIGHTLY's backup before this app starts the owner (cx-is1kf.7); a running owner's
+            // databases are copied with SQLite's online backup.
+            let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)
+            weakSelf?.adoption = adoption
             let connected = await DaemonStartup.shared.connect(wake: wake) {
                 DaemonConnection(configuration: configuration, endpointProvider: provider)
             } onFailure: { error in
