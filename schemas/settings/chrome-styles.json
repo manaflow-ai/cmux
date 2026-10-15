@@ -40,6 +40,10 @@
     "chrome.mainPane.borderlessStep": {
       "type": "number",
       "meaning": "Share of the separate shade the shared surface keeps when no line parts the sidebar from the main pane (unset: 0.35)."
+    },
+    "chrome.floatingPanes": {
+      "type": "bool",
+      "meaning": "Every pane is its own rounded card, tab strip included, on the shaded chrome: the chrome shade fills the sidebar, the titlebar and every gap, each pane's card is left unshaded (slightly lighter), and the main pane gutter equals the pane padding with no divider gap, so one even gap runs between panes, beside the sidebar and at the window edges."
     }
   },
   "styles": [
@@ -195,6 +199,32 @@
         "appearance.sidebarSurface": "separate",
         "chrome.mainPane.shadeDark": 0.12,
         "chrome.mainPane.shadeLight": 0.02
+      }
+    },
+    {
+      "id": "floating",
+      "actionName": "floating",
+      "title": "Floating Panes",
+      "symbol": "square.grid.2x2.fill",
+      "keywords": [
+        "floating",
+        "panes",
+        "cards",
+        "gaps",
+        "rounded",
+        "darker",
+        "background",
+        "no borders"
+      ],
+      "summary": "Darker window and sidebar; every pane a lighter rounded card, no borders, one even gap on all sides.",
+      "implies": {
+        "chrome.mainPane.curved": true,
+        "layout.paneSeparation": "cards",
+        "sidebar.border": false,
+        "appearance.sidebarSurface": "separate",
+        "chrome.mainPane.shadeDark": 0.25,
+        "chrome.mainPane.shadeLight": 0.05,
+        "chrome.floatingPanes": true
       }
     }
   ]
