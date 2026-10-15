@@ -205,6 +205,8 @@ struct TabOverview: View {
     var onSelect: (String) -> Void
     /// Closes the card's tab on the host; false when refused (it stays).
     var onClose: (String) async -> Bool
+    /// A card's ✕ (the count waits for the reflow's first frame); nil: `onClose`.
+    var onCloseTap: ((String) async -> Bool)? = nil
     var onNewTab: () -> Void
     /// Set when the grid also holds terminals: (+) offers both.
     var onNewTerminal: (() -> Void)?
@@ -368,7 +370,7 @@ struct TabOverview: View {
                 onOpen: { onSelect(tab.id) },
                 onClose: {
                     guard tabs.gridAcceptsCloseTaps else { return }
-                    Task { _ = await onClose(tab.id) }
+                    Task { _ = await (onCloseTap ?? onClose)(tab.id) }
                 })
             // Under its lifted long-press preview the card is hidden.
             .opacity(swipes.menuCard == tab.id ? 0 : 1)
@@ -408,9 +410,11 @@ struct TabOverview: View {
                         }
                         switch phase {
                         case .changed(let dx):
-                            swipes.track(tab.id, translation: dx, reduceMotion: rm)
+                            swipes.track(tab.id, translation: dx, reduceMotion: rm, cardWidth: r.width,
+                                         onFling: { tabs.countHold = $0 ? max(1, tabs.items.count - 1) : nil })
                         case .ended(_, let v):
-                            swipes.release(tab.id, velocity: v, card: r, reduceMotion: rm, departing: copy) {
+                            swipes.release(tab.id, velocity: v, card: r, reduceMotion: rm, departing: copy,
+                                           onCommit: { tabs.countHold = max(1, tabs.items.count - 1) }) {
                                 let closed = await onClose(tab.id)
                                 // Safari opens the last tab when a swipe leaves only one.
                                 if closed, tabs.items.count == 1, let last = tabs.items.first { onSelect(last.id) }
@@ -590,9 +594,6 @@ struct TabOverview: View {
 
     private var bottomBar: some View {
         let bar = layout.barRect
-        // Never "0 Tabs": closing the last tab opens a fresh one in the next
-        // update, and Safari's count goes straight to 1.
-        let count = max(1, tabs.items.count)
         // One glass container for the bar (see `topControls`).
         return GlassEffectContainer(spacing: 0) {
             ZStack(alignment: .topLeading) {
@@ -629,7 +630,7 @@ struct TabOverview: View {
 
                 // One glass shape per control (two nested glass capsules
                 // read as a double background).
-                Text(count == 1 ? "1 Tab" : "\(count) Tabs")
+                TabCountLabel(tabs: tabs)
                     .chromeFont(17, weight: .semibold)
                     .foregroundStyle(style.colors.label)
                     .padding(.horizontal, 22)
@@ -789,5 +790,17 @@ struct CardReorderDrop: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {}
+}
+/// The bar's "N Tabs", apart from the grid's body: it follows the close's
+/// own clock (`TabsModel.countHold`) without re-rendering the cards.
+struct TabCountLabel: View {
+    var tabs: TabsModel
+
+    var body: some View {
+        // Never "0 Tabs": closing the last tab opens a fresh one in the next
+        // update, and Safari's count goes straight to 1.
+        let count = tabs.countHold ?? max(1, tabs.items.count)
+        Text(count == 1 ? "1 Tab" : "\(count) Tabs")
+    }
 }
 #endif

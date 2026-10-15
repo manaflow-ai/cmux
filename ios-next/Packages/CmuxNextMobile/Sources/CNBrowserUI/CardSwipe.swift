@@ -52,6 +52,14 @@ struct CardSwipe: Equatable, Sendable {
     static let leadTime: CGFloat = 0.045
     static let leadMax: CGFloat = 8
     static let leadMaxSpeed: CGFloat = 300
+    /// A finger leftward this fast, with the close rule already met, is a
+    /// fling: the count changes on that tick, before the finger lifts (Safari's
+    /// count changes 5-12 ms after a fling's finger end; ours waited for the
+    /// lift's event, 40-57 ms).
+    static let flingCountSpeed: CGFloat = 600
+    /// Display-link ticks from that decision to the count: it read 24-28 ms
+    /// ahead of Safari's at once (the finger is still moving).
+    static let flingCountTicks = 4
     /// The touch slop is caught up over this long once the drag is recognised.
     static let slopCatchUp = 0.08
     static let settle = ZoomSpring(response: 0.57, damping: 0.94)

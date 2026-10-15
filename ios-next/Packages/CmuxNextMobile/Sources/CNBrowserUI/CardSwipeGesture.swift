@@ -50,7 +50,8 @@ final class CardSwipeState {
     /// renders faster and stiffer than its parameters; tabs-parity-reaudit D8).
     private func spring(_ s: ZoomSpring) -> Animation { s.animation() }
 
-    func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
+    func track(_ key: String, translation: CGFloat, reduceMotion: Bool, cardWidth: CGFloat = 0,
+               onFling: @escaping (Bool) -> Void = { _ in }) {
         if !raised.contains(key) { raised.insert(key) }
         // The finger's velocity (smoothed over the pan's events): the card
         // leads a leftward finger by it (`CardSwipe.leadTime`).
@@ -60,6 +61,23 @@ final class CardSwipeState {
             velocities[key] = ((velocities[key] ?? v) + v) / 2
         }
         lastTrack[key] = (now, translation)
+        // A clear fling decides now (the count), as Safari's does.
+        let flinging = cardWidth > 0 && (velocities[key] ?? 0) < -CardSwipe.flingCountSpeed
+            && CardSwipe.commits(offset: CardSwipe.offset(translation: translation), velocity: velocities[key] ?? 0, cardWidth: cardWidth)
+        if flinging, flings[key] == nil {
+            flings[key] = onFling
+            // Shown `flingCountTicks` frames on, if it still reads as a fling.
+            let clock = FrameClock()
+            var ticks = 0
+            clock.start { [weak self] _ in
+                ticks += 1
+                guard ticks >= CardSwipe.flingCountTicks else { return true }
+                if self?.flings[key] != nil { onFling(true) }
+                return false
+            }
+        } else if !flinging, let undo = flings.removeValue(forKey: key) {
+            undo(false)
+        }
         // A slow drag only: a flick's card trails the finger (Safari's holds
         // where the finger lifted), and a lead made the fling 15 % slow.
         let v = velocities[key] ?? 0
@@ -101,6 +119,8 @@ final class CardSwipeState {
     /// The pan's last event and the finger's velocity, per dragged card.
     private var lastTrack: [String: (time: CFTimeInterval, translation: CGFloat)] = [:]
     private var velocities: [String: CGFloat] = [:]
+    /// Cards whose swipe already reads as a fling (and how to take it back).
+    private var flings: [String: (Bool) -> Void] = [:]
     @ObservationIgnored private let followClock = FrameClock()
 
     private func stepFollowers(_ now: CFTimeInterval) -> Bool {
@@ -140,17 +160,21 @@ final class CardSwipeState {
     /// nothing slides after release: the card fades out where it is, or
     /// reappears at its slot with a 0.18 s fade.
     func release(_ key: String, velocity: CGFloat, card: CGRect, reduceMotion: Bool,
-                 departing makeCopy: () -> DepartingCard, close: @escaping () async -> Bool) {
+                 departing makeCopy: () -> DepartingCard, onCommit: () -> Void = {}, close: @escaping () async -> Bool) {
         // The close decision reads the finger (the card may still be gliding
         // onto it, or not out of its onset travel yet).
         let finger = fingers.removeValue(forKey: key) ?? offsets[key] ?? 0
         lastTrack[key] = nil
         velocities[key] = nil
         _ = stopFollowing(key)
+        let fling = flings.removeValue(forKey: key)
         guard CardSwipe.commits(offset: finger, velocity: velocity, cardWidth: card.width) else {
+            fling?(false)
             comeBack(key, velocity: velocity, reduceMotion: reduceMotion)
             return
         }
+        // The release tick decides: the count changes now (Safari +5-12 ms).
+        onCommit()
         departing.removeAll { $0.id == key }
         departing.append(makeCopy())
         let finish: (Bool) -> Void = { [weak self] closed in
@@ -241,6 +265,7 @@ final class CardSwipeState {
         fingers[key] = nil
         lastTrack[key] = nil
         velocities[key] = nil
+        flings.removeValue(forKey: key)?(false)
         comeBack(key, velocity: 0, reduceMotion: reduceMotion)
     }
 

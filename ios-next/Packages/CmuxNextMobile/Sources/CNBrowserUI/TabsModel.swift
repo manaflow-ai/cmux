@@ -103,6 +103,12 @@ final class TabsModel {
     /// under the finger closed the wrong tab (re-audit 2, real host).
     var gridAcceptsCloseTaps: Bool { GridTapGuard.accepts(now: CACurrentMediaTime(), changedAt: gridChangedAt) }
 
+    /// The count the grid's bar shows while a close is on its way (nil: the
+    /// list's): a ✕ keeps the old count until the reflow's first frame (the
+    /// frame before the cards move, as in Safari); a fling shows the new one
+    /// from the release tick.
+    var countHold: Int?
+
     /// Set by the screen: zoom out to the grid, then remove `key`'s card
     /// (a terminal that ended on the Mac; "Back to Terminals").
     @ObservationIgnored var backToGridRemoving: ((String) -> Void)?
@@ -430,6 +436,7 @@ final class TabsModel {
             let terminal = terminals[index]
             let thumbnail = terminalThumbnails[key]
             withAnimation(animation) { removeTerminalLocally(key, id: id) }
+            if countHold == max(1, items.count) { countHold = nil }
             // A terminal that ended on the Mac has nothing left to close there.
             guard terminal.running else { return true }
             do {
@@ -440,6 +447,7 @@ final class TabsModel {
                 // card's removal stands.
                 return true
             } catch {
+                countHold = nil
                 withAnimation(animation) {
                     if !terminals.contains(where: { $0.id == id }) { terminals.insert(terminal, at: min(index, terminals.count)) }
                     terminalThumbnails[key] = terminalThumbnails[key] ?? thumbnail
@@ -455,7 +463,9 @@ final class TabsModel {
             syncOrder()
             if wasActive, activeTerminalKey == nil, browser.activeTabId == nil, let first = items.first { select(first.id) }
         }
+        if countHold == max(1, items.count) { countHold = nil }
         guard await browser.finishClose(removed, animation: animation) else {
+            countHold = nil
             withAnimation(animation) { restoreOrder(savedOrder) }
             if wasActive { select(key) }
             return false

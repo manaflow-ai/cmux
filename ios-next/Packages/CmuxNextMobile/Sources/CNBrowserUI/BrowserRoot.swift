@@ -297,6 +297,7 @@ struct BrowserScreen: View {
                             leadingItem: leadingItem,
                             onSelect: { closeOverview(selecting: $0) },
                             onClose: { id in await tabs.closeOptimistic(id, animation: motion.resolve(motion.reflow)) },
+                            onCloseTap: { id in await closeTapped(id) },
                             onNewTab: newTabFromOverview,
                             onNewTerminal: tabs.includesTerminals ? { newTerminalFromOverview() } : nil,
                             onDone: { closeOverview(selecting: tabs.activeKey) },
@@ -669,7 +670,7 @@ struct BrowserScreen: View {
             // the card); tappable on the settled grid.
             Button {
                 guard tabs.gridAcceptsCloseTaps else { return }
-                Task { _ = await tabs.closeOptimistic(key, animation: motion.resolve(motion.reflow)) }
+                Task { _ = await closeTapped(key) }
             } label: {
                 CardCloseGlyph().padding(4).contentShape(.rect)
             }
@@ -699,6 +700,41 @@ struct BrowserScreen: View {
         let card = overviewLayout.cardWidth
         guard size.width > card, card > 0 else { return 0 }
         return min(1, max(0, (size.width - width) / (size.width - card)))
+    }
+
+    /// A card's ✕: the bar keeps the old count until the reflow's first
+    /// frame, which holds still, so the count changes the frame before the
+    /// cards move (Safari; re-audit 4 D10: ours changed 45 ms ahead). A
+    /// display-link fallback lets the count go if no card moves at all.
+    static let countLeadTicks = 1
+
+    private func closeTapped(_ key: String) async -> Bool {
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            return await tabs.closeOptimistic(key, animation: motion.resolve(motion.reflow))
+        }
+        tabs.countHold = max(1, tabs.items.count)
+        // The curve's frames reach the screen `countLeadTicks` display-link
+        // ticks after its first call; a count changed then shows a frame
+        // before the cards move (measured: 35-42 ms early at the cue itself).
+        let cue = SafariCurveCue.register { [tabs] in
+            let clock = FrameClock()
+            var ticks = 0
+            clock.start { _ in
+                ticks += 1
+                guard ticks >= Self.countLeadTicks else { return true }
+                tabs.countHold = nil
+                return false
+            }
+        }
+        let fallback = FrameClock()
+        var frames = 0
+        fallback.start { _ in
+            frames += 1
+            guard frames >= 20 else { return true }
+            SafariCurveCue.fire(cue)
+            return false
+        }
+        return await tabs.closeOptimistic(key, animation: .safari(.reflow, cue: cue))
     }
 
     /// Ends the zoom-out now (it is at rest to the eye) when a queued card
