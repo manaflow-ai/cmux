@@ -1,6 +1,29 @@
 import CmuxSidebar
 import Foundation
 
+/// Applies sidebar-only status presentation preferences without changing the
+/// workspace's stored entries or the events published for them.
+enum SidebarStatusEntryDisplayPolicy {
+    static func visibleEntries(
+        _ entries: [SidebarStatusEntry],
+        limit: Int,
+        isExpanded: Bool
+    ) -> [SidebarStatusEntry] {
+        // Regression-test baseline: rows were hard-coded to three before the
+        // configurable limit was wired through both sidebar renderers.
+        guard !isExpanded, entries.count > 3 else { return entries }
+        return Array(entries.prefix(3))
+    }
+
+    static func entries(
+        _ entries: [SidebarStatusEntry],
+        showingProgramStatus: Bool
+    ) -> [SidebarStatusEntry] {
+        guard !showingProgramStatus else { return entries }
+        return entries.filter { $0.key != Workspace.programStatusKey }
+    }
+}
+
 extension Workspace {
     /// The workspace row is an aggregate of every pane: each visible key shows
     /// its most urgent pane's entry (see `mostUrgentPanelStatusEntry`), not

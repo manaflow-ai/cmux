@@ -749,6 +749,11 @@ final class CmuxSettingsFileStore {
         if let value = jsonInt(section["notificationMessageLineLimit"]), SidebarCatalogSection.notificationMessageLineLimitRange.contains(value) {
             snapshot.managedUserDefaults[SidebarCatalogSection().notificationMessageLineLimit.userDefaultsKey] = .int(value)
         } else if section.keys.contains("notificationMessageLineLimit") { logInvalid("sidebar.notificationMessageLineLimit", sourcePath: sourcePath) }
+        if let value = jsonInt(section["statusEntryLimit"]), SidebarCatalogSection.statusEntryLimitRange.contains(value) {
+            snapshot.managedUserDefaults[SidebarCatalogSection().statusEntryLimit.userDefaultsKey] = .int(value)
+        } else if let raw = jsonString(section["statusEntryLimit"]), raw == "all" {
+            snapshot.managedUserDefaults[SidebarCatalogSection().statusEntryLimit.userDefaultsKey] = .int(0)
+        } else if section.keys.contains("statusEntryLimit") { logInvalid("sidebar.statusEntryLimit", sourcePath: sourcePath) }
         parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(

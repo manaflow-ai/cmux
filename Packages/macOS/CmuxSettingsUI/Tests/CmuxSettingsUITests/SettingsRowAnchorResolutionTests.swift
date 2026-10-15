@@ -129,6 +129,8 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showBranchDirectory",
         "sidebar.showCloudDeviceIcons",
         "sidebar.showCustomMetadata",
+        "sidebar.showProgramStatus",
+        "sidebar.statusEntryLimit",
         "sidebar.compactAgentStatus",
         "sidebar.showLog",
         "sidebar.showNotificationMessage",

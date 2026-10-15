@@ -131,9 +131,13 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
+        let displayStatusEntries = SidebarStatusEntryDisplayPolicy.entries(
+            workspace.sidebarStatusEntriesInDisplayOrder(),
+            showingProgramStatus: settings.showsProgramStatus
+        )
         let statusEntries = SidebarCompactStatusGlyph.partition(
             detailVisibility.showsMetadata || settings.compactsAgentStatus
-                ? workspace.sidebarStatusEntriesInDisplayOrder()
+                ? displayStatusEntries
                 : [],
             compacts: settings.compactsAgentStatus
         )
@@ -241,6 +245,7 @@ struct SidebarWorkspaceSnapshotFactory {
             showsAgentActivity: showsAgentActivity,
             compactsAgentStatus: settings.compactsAgentStatus,
             compactStatusIcons: settings.compactStatusIcons,
+            showsProgramStatus: settings.showsProgramStatus,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
             customColorHex: customColorHex,
             hasManualCustomColor: hasManualCustomColor,

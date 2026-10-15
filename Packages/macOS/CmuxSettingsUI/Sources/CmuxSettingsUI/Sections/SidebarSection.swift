@@ -20,6 +20,7 @@ public struct SidebarSection: View {
     @State private var pathLastOnly: DefaultsValueModel<Bool>
     @State var showNotification: DefaultsValueModel<Bool>
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
+    @State var statusEntryLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showCloudDeviceIcons: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
@@ -36,6 +37,7 @@ public struct SidebarSection: View {
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var showMetadata: DefaultsValueModel<Bool>
+    @State var showProgramStatus: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
@@ -54,6 +56,7 @@ public struct SidebarSection: View {
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
         _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
+        _statusEntryLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.statusEntryLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showCloudDeviceIcons = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCloudDeviceIcons))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
@@ -70,6 +73,7 @@ public struct SidebarSection: View {
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _showProgramStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgramStatus))
         _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
@@ -98,7 +102,7 @@ public struct SidebarSection: View {
             workspaceDescriptionHex,
             branchVerticalLayout,
             stackBranchDir,
-            pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
+            pathLastOnly, showNotification, notificationMessageLineLimit, statusEntryLimit, showBranchDir,
             showCloudDeviceIcons,
             showPR,
             watchGit,
@@ -109,7 +113,7 @@ public struct SidebarSection: View {
             showProgress, showAgentActivity, showAgentUsage,
             loadingSpinnerPosition,
             notificationBadgePosition,
-            showMetadata,
+            showMetadata, showProgramStatus,
             compactAgentStatus,
             rightMaxWidth,
             rememberedRightMaxWidth,
@@ -382,6 +386,9 @@ public struct SidebarSection: View {
             notificationMessageLineLimitRow
             SettingsCardDivider()
 
+            statusEntryLimitRow
+            SettingsCardDivider()
+
             SettingsCardRow(
                 configurationReview: .json("sidebar.showBranchDirectory"),
                 String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
@@ -527,6 +534,19 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showProgramStatus"),
+                String(localized: "settings.app.showProgramStatus", defaultValue: "Show Program Status in Sidebar"),
+                subtitle: String(localized: "settings.app.showProgramStatus.subtitle", defaultValue: "Display the OSC 7501 program status row without changing program status events or other consumers."),
+                controlWidth: 220
+            ) {
+                Toggle("", isOn: Binding(get: { showProgramStatus.current }, set: { showProgramStatus.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current || !showMetadata.current)
             SettingsCardDivider()
 
             SettingsCardRow(
