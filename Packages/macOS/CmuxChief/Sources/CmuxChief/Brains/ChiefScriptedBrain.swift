@@ -90,7 +90,9 @@ public final class ChiefScriptedBrain: ChiefBrain {
         }
         if let fact = rememberedFact(in: userText) {
             let save = "scripted-tool-\(turn)-memory"
-            steps += stream("Got it. I'll save that to memory.")
+            // As the prompt coaches (ChiefSystemPrompt.memoryRules): one short acknowledgement, no
+            // second "Saved: …" bubble; the note's row ("Chief will remember: … · Undo") confirms it.
+            steps += stream("Got it.")
             steps += [
                 .pause(.milliseconds(300)),
                 .event(.toolStarted(id: save, title: memoryCommand(for: fact), detail: "Saving one fact to Chief's memory")),
@@ -99,7 +101,6 @@ public final class ChiefScriptedBrain: ChiefBrain {
                 .event(.toolFinished(id: save, ok: true, preview: "Saved")),
                 .pause(.milliseconds(400)),
             ]
-            steps += stream("Saved: \(fact). I'll keep that in mind from now on.")
             steps.append(.event(.finished))
             return steps
         }
@@ -249,7 +250,7 @@ public final class ChiefScriptedBrain: ChiefBrain {
                 // A fixture: with no Chief home (tests) or a failed write, the turn still reads as saved.
                 guard let root = environment[ChiefHome.environmentKey], !root.isEmpty else { continue }
                 let home = ChiefHome(root: URL(fileURLWithPath: root, isDirectory: true))
-                _ = try? ChiefMemory(paths: ChiefMemoryPaths(home: home)).add(fact, source: "cli")
+                _ = try? ChiefMemory(paths: ChiefMemoryPaths(home: home)).add(fact, source: "chief")
             }
         }
     }

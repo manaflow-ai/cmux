@@ -317,7 +317,8 @@ enum ChiefRows {
     /// that run: its receipt and the "Ran" row are one row ("Ran … · Allowed"). An allowed Cloud
     /// provisioning command next to its provisioning row (after it, or right before the row posted
     /// again on Allow) folds into that row (it already says what happened). A Cloud result card names the machine an earlier provisioning row named. A failure
-    /// row offers Try Again only while it is the newest message.
+    /// row offers Try Again only while it is the newest message. A finished memory save
+    /// (`isFinishedMemorySave`) shows nothing: the note's row says it.
     static func roles(_ items: [TranscriptItem]) -> [IdempotencyKey: ToolRole] {
         var out: [IdempotencyKey: ToolRole] = [:]
         var head: TranscriptItem?
@@ -329,7 +330,8 @@ enum ChiefRows {
         var provisioning: TranscriptItem?
         var machineNames: [String: String] = [:]
         func close() {
-            if let head { out[head.key] = .head(calls, allowed: allowed) }
+            // A failed call's result wins over its approval: "Failed <cmd> ✗", never a green "Allowed".
+            if let head { out[head.key] = .head(calls, allowed: allowed && !calls.contains { $0.state == .failed }) }
             head = nil
             calls = []
             allowed = false
@@ -367,11 +369,13 @@ enum ChiefRows {
                 continue
             }
             guard isToolOnly(item) else { close(); granted = nil; continue }
+            // A finished memory save shows nothing: the note's row is its receipt.
+            if isFinishedMemorySave(item) { close(); granted = nil; out[item.key] = .folded; continue }
             let first = item.parts.lazy.compactMap { p -> WorkRef? in if case .work(let w) = p { w } else { nil } }.first
             if let h = head, h.author == item.author, h.threadRoot == item.threadRoot {
                 out[item.key] = .folded
             } else if let g = granted, g.item.author == item.author, g.item.threadRoot == item.threadRoot,
-                      let title = first?.title, !title.isEmpty, g.prompt.contains(title) {
+                      let first, ChiefRows.asksFor(first, prompt: g.prompt) {
                 close()
                 head = g.item
                 allowed = true
@@ -385,6 +389,13 @@ enum ChiefRows {
         }
         close()
         return out
+    }
+
+    /// Whether an approval `prompt` asked for `work`'s call: its title, or its command (the preview
+    /// a Bash call carries while its title is the brain's description), is in the prompt.
+    static func asksFor(_ work: WorkRef, prompt: String) -> Bool {
+        [work.title, work.preview].compactMap { $0 }.map { String($0.prefix(200)) }
+            .contains { !$0.isEmpty && prompt.contains($0) }
     }
 
     /// The custom part of a tool row.
@@ -504,18 +515,43 @@ enum ChiefRows {
             }
             return nil
         }
-        let agent: String
-        switch value("--agent")?.lowercased() {
-        case "codex"?: agent = "Codex"
-        case "claude"?: agent = "Claude Code"
-        case let other?: agent = other
-        case nil: return nil
-        }
+        guard let agent = value("--agent").map(agentName) else { return nil }
         let subject = value("--name").flatMap { $0.isEmpty ? nil : CmuxStrings.dispatchSubject(agent: agent, workspace: $0) } ?? agent
         switch state {
         case .running: return CmuxStrings.dispatchStarting(subject)
         case .done: return CmuxStrings.dispatchStarted(subject)
         case .failed: return CmuxStrings.dispatchFailed(subject)
+        }
+    }
+
+    /// A dispatch's `--agent` as the user reads it: "Codex", "Claude Code", else as written.
+    static func agentName(_ agent: String) -> String {
+        switch agent.lowercased() {
+        case "codex": "Codex"
+        case "claude": "Claude Code"
+        default: agent
+        }
+    }
+
+    /// `cmux chief memory add …`: the call that saves a memory note. Its row is hidden once it
+    /// finished (`roles`): the note's own row ("Chief will remember: … · Undo") is its receipt.
+    static func isMemorySave(_ command: String) -> Bool {
+        // Leading `NAME=value` environment words are not the program.
+        guard let all = words(command)?.drop(while: { $0.contains("=") && !$0.hasPrefix("-") }), all.count >= 4,
+              let program = all.first, (program as NSString).lastPathComponent == "cmux" else { return false }
+        return Array(all.dropFirst().prefix(3)) == ["chief", "memory", "add"]
+    }
+
+    /// A work part that saves a memory note: its title is the command, or (a Bash call whose title
+    /// is the brain's description) its preview is.
+    static func savesMemory(_ work: WorkRef) -> Bool {
+        isMemorySave(work.title) || work.preview.map(isMemorySave) == true
+    }
+
+    /// A tool-only message whose every call is a finished memory save (`savesMemory`).
+    static func isFinishedMemorySave(_ item: TranscriptItem) -> Bool {
+        isToolOnly(item) && item.parts.allSatisfy {
+            if case .work(let w) = $0 { w.status == .done && savesMemory(w) } else { false }
         }
     }
 

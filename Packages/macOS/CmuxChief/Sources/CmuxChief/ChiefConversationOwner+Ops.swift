@@ -83,6 +83,8 @@ extension ChiefConversationOwner {
         guard !parts.isEmpty, !text.isEmpty, text.utf8.count <= 65_536 else { throw HomeRejection.invalid("invalid_parts") }
         var turn = try pendingTurn(parts, threadRoot: threadRoot, in: state)
         let message = try commitMessage(in: id, author: me.id, parts: parts, key: key, threadRoot: threadRoot)
+        // A typed reply to a waiting question card closes the card (answered, or answered in the chat).
+        settlePendingQuestion(byChat: turn.text, in: id)
         let rev = try self.conversationState(id).summary.rev
         turn.readSeq = message.seq
         enqueue(turn, in: id)

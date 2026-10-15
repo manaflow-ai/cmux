@@ -191,6 +191,12 @@ import Testing
         let card = MessagePart.work(WorkRef(session: "ws", host: "brave-otter", title: "Ready", status: .done))
         let items = [Self.item(1, [Self.work("t1", "cmux tree")]), Self.item(2, [card])]
         #expect(ChiefRows.roles(items).value(for: IdempotencyKey("k2")) == nil)
-        #expect(Self.tools(Self.message(items[1], in: items).parts.first)?.calls.first?.title == "Ready")
+        // It is a row of its own: the Cloud result card (ChiefCloudRows), not a tool row.
+        let shown = Self.message(items[1], in: items).parts
+        #expect(shown.count == 1)
+        guard case let .custom(c)? = shown.first else { Issue.record("no custom part: \(shown)"); return }
+        #expect(c.kind == ChiefCloudRows.resultKind)
+        #expect(c.decode(ChiefCloudRows.Result.self)?.title == "Ready")
+        #expect(c.decode(ChiefCloudRows.Result.self)?.machine == "brave-otter")
     }
 }

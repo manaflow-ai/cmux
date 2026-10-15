@@ -16,6 +16,8 @@ public struct ChiefResultCard: Sendable, Equatable, Codable {
         case ready
         /// The flow failed; the subtitle says why.
         case failed
+        /// The agent waits for the user to sign in on the machine; the subtitle says how.
+        case needsSignIn = "needs_sign_in"
     }
 
     public var title: String

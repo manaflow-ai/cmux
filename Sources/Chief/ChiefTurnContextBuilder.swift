@@ -58,7 +58,10 @@ struct ChiefTurnContextBuilder: Sendable {
                 lines.append(ChiefWorkspacesSummary.Line(
                     windowRef: windowRef,
                     ref: controller.v2EnsureHandleRef(kind: .workspace, uuid: workspace.id),
-                    title: workspace.customTitle ?? workspace.title,
+                    // The name the user sees on Home ("Home folder", never a bare "~"), so Chief's
+                    // replies name the workspace as the user's lists do.
+                    title: ChiefAgentGlance.displayTitle(customTitle: workspace.customTitle, title: workspace.title,
+                                                         currentDirectory: workspace.currentDirectory),
                     directory: workspace.currentDirectory,
                     agentState: status.map(agentWord),
                     isSelected: tabManager.selectedTabId == workspace.id))
@@ -99,7 +102,9 @@ struct ChiefTurnContextBuilder: Sendable {
     /// What the brain's process gets on top of the app's environment (the
     /// brain's launcher already drops `CMUX_SURFACE_ID` and
     /// `CMUX_WORKSPACE_ID`): this app's socket, its bundled CLI first on
-    /// `PATH`, and the Chief home for `cmux chief memory`. `CMUX_SOCKET`, an
+    /// `PATH`, the Chief home for `cmux chief memory`, and `CMUX_CHIEF_TURN`, so a note the
+    /// turn saves is recorded as saved by Chief (source `chief`), one typed in a terminal as
+    /// saved from the command line (`cli`). `CMUX_SOCKET`, an
     /// older override the CLI also honors, is pinned to the same socket so an
     /// inherited value never points the Chief at another cmux.
     static func environment(socketPath: String, home: ChiefHome,
@@ -107,6 +112,7 @@ struct ChiefTurnContextBuilder: Sendable {
         var environment: [String: String] = [
             "CMUX_SOCKET_PATH": socketPath,
             ChiefHome.environmentKey: home.root.path,
+            "CMUX_CHIEF_TURN": "1",
         ]
         if base["CMUX_SOCKET"] != nil { environment["CMUX_SOCKET"] = socketPath }
         var path = (base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)

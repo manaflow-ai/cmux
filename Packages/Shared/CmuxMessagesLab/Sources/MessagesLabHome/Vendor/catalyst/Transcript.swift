@@ -139,6 +139,16 @@ final class TranscriptModel {
         return false
     }
 
+    /// cmux-classic: remove the ghosts whose spec matches at once, faded or not (the host's status line leaves
+    /// with no ghost: `MessagesWindowView.cmuxNoticeOffAtOnce`). Returns true if any were removed.
+    @discardableResult
+    func cmuxDropGhosts(where matches: (RowSpec) -> Bool) -> Bool {
+        let n = rows.count
+        rows.removeAll { $0.ghost && matches($0.spec) }
+        if rows.count != n { rebuild(); return true }
+        return false
+    }
+
     var hasGhosts: Bool { liveCount < rows.count }
 
     /// Rows that draw a thread connector, with their root's row (nil: the
@@ -893,6 +903,9 @@ final class RowCell: UICollectionViewCell {
                 self.unstretch(bitmapFrame.size)
                 self.tintTypingDiscs()
                 CATransaction.commit()
+                // cmux-classic: a hosted row's view shows with its bitmap (CustomRowsHost.place reads it): one placed while
+                // the bitmap was pending stayed transparent over a laid-out row until the next decorate.
+                CustomRows.host?.decorated(self)
             }
             }
         }
@@ -989,6 +1002,7 @@ final class RowCell: UICollectionViewCell {
             cell.bitmap.contents = img
             cell.shown(spec, img, scale: sc)
             cell.unstretch(frame.size)
+            CustomRows.host?.decorated(cell)  // cmux-classic: the hosted view follows its new bitmap (see the request above)
         }
         CATransaction.commit()
         reflowRows += q.count

@@ -239,9 +239,12 @@ import Testing
         let researcher = try #require(summary.participants.first(where: { $0.isChief }))
         #expect(researcher.displayName == "Research")
         #expect(researcher.id != ChiefConversationOwner.chiefID)
-        #expect(await recorder.events.contains {
-            if case .conversationChanged(let changed, .inbox, _) = $0 { return changed.id == id }
-            return false
+        // The recorder hears events on its own task: wait for the inbox change.
+        #expect(await ChiefFixture.eventually {
+            await recorder.events.contains {
+                if case .conversationChanged(let changed, .inbox, _) = $0 { return changed.id == id }
+                return false
+            }
         })
         try await ChiefFixture.send("find papers", to: owner, in: id)
         let messages = try await ChiefFixture.idleMessages(owner, in: id, count: 2)

@@ -73,7 +73,7 @@ import Testing
         await recorder.start(owner)
         try await ChiefFixture.send("look", to: owner)
         #expect(await ChiefFixture.eventually { await recorder.messages().contains { Self.work($0)?.status == .running } })
-        func typingAfterTool(_ events: [HomeEvent]) -> [Bool] {
+        @Sendable func typingAfterTool(_ events: [HomeEvent]) -> [Bool] {
             guard let posted = events.firstIndex(where: {
                 if case .message(let m, _) = $0 { return Self.work(m)?.status == .running }
                 return false

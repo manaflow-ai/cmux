@@ -643,6 +643,7 @@
 		C41EF52AC12F5805088DC79B /* ChiefHomeNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF7A8143B9AA8C11EFA73 /* ChiefHomeNavigation.swift */; };
 		F3CF0E3AB3D16A241EF1C013 /* ChiefHomeNavigationFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAEDE08274123B49899A372 /* ChiefHomeNavigationFocusTests.swift */; };
 		C41EF3C05F36AAB184B66F66 /* ChiefHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF8AADBA409A844FAEDC4 /* ChiefHomeView.swift */; };
+		F6174997FACCB1C84EDEAC1C /* ChiefListAndSettingsCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D87A49E5D25F6C8D608A7DBF /* ChiefListAndSettingsCopyTests.swift */; };
 		C41EF790B3B7235DE569DA5D /* ChiefMemoryEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF4561B0678E1F983809D /* ChiefMemoryEditor.swift */; };
 		C41EFED5D7959AAE47B35357 /* ChiefMemoryMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF04FECA1F793AF4CBF32 /* ChiefMemoryMarkdown.swift */; };
 		C41EF765C2B36FDDA1CA7241 /* ChiefMemoryNoticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFD83AB7C447B27864F7B /* ChiefMemoryNoticeView.swift */; };
@@ -5433,6 +5434,7 @@
 		C41EF7A8143B9AA8C11EFA73 /* ChiefHomeNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefHomeNavigation.swift; sourceTree = "<group>"; };
 		FEAEDE08274123B49899A372 /* ChiefHomeNavigationFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefHomeNavigationFocusTests.swift"; sourceTree = "<group>"; };
 		C41EF8AADBA409A844FAEDC4 /* ChiefHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefHomeView.swift; sourceTree = "<group>"; };
+		D87A49E5D25F6C8D608A7DBF /* ChiefListAndSettingsCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefListAndSettingsCopyTests.swift"; sourceTree = "<group>"; };
 		C41EF4561B0678E1F983809D /* ChiefMemoryEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefMemoryEditor.swift; sourceTree = "<group>"; };
 		C41EF04FECA1F793AF4CBF32 /* ChiefMemoryMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefMemoryMarkdown.swift; sourceTree = "<group>"; };
 		C41EFD83AB7C447B27864F7B /* ChiefMemoryNoticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefMemoryNoticeView.swift; sourceTree = "<group>"; };
@@ -14096,6 +14098,7 @@
 				293639DF6364D4A8F4033D79 /* ChiefControlRequestTests.swift */,
 				FEAEDE08274123B49899A372 /* ChiefHomeNavigationFocusTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
+				D87A49E5D25F6C8D608A7DBF /* ChiefListAndSettingsCopyTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18247,6 +18250,7 @@
 				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,
 				D6A4A997D5FFA4275447E76B /* ChiefControlRequestTests.swift in Sources */,
 				F3CF0E3AB3D16A241EF1C013 /* ChiefHomeNavigationFocusTests.swift in Sources */,
+				F6174997FACCB1C84EDEAC1C /* ChiefListAndSettingsCopyTests.swift in Sources */,
 				19E97DB221B879A7A25AB8AC /* ChiefPanelSessionTests.swift in Sources */,
 				F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,

@@ -118,7 +118,8 @@ import Testing
         #expect(row.fact == "m-1a2b3c4d" && row.duringTurn && !row.forgotten)
         #expect(ChiefRows.memoryText(row) == "Chief will remember: Prefers 14 pt font")
         let outside = ChiefRows.memory(WorkRef(session: ChiefRows.memoryPrefix + "s:m-1", title: "x", status: .done))
-        #expect(outside.map(ChiefRows.memoryText) == "Saved to memory: x")
+        // One wording for one event: a note saved outside a turn reads the same.
+        #expect(outside.map(ChiefRows.memoryText) == "Chief will remember: x")
         let undone = ChiefRows.memory(WorkRef(session: ChiefRows.memoryPrefix + "s:m-1", title: "x", status: .failed))
         #expect(undone.map(ChiefRows.memoryText) == "Removed from memory: x")
     }
@@ -127,10 +128,10 @@ import Testing
 
     /// P0-2: the band shows at rest while rows lie under the header, not only on hover.
     @Test func theHeaderBandShowsWhileRowsLieUnderIt() {
-        #expect(HostView.headerRevealed(hovered: false, revealsWhenScrolled: true, distanceToTop: 120))
-        #expect(!HostView.headerRevealed(hovered: false, revealsWhenScrolled: true, distanceToTop: 0))
-        #expect(!HostView.headerRevealed(hovered: false, revealsWhenScrolled: false, distanceToTop: 120))
-        #expect(HostView.headerRevealed(hovered: true, revealsWhenScrolled: false, distanceToTop: 0))
+        #expect(HostView.headerRevealed(hovered: false, revealsWhenScrolled: true, rowsTop: -40, band: 107))
+        #expect(!HostView.headerRevealed(hovered: false, revealsWhenScrolled: true, rowsTop: 400, band: 107))
+        #expect(!HostView.headerRevealed(hovered: false, revealsWhenScrolled: false, rowsTop: -40, band: 107))
+        #expect(HostView.headerRevealed(hovered: true, revealsWhenScrolled: false, rowsTop: 400, band: 107))
         let band = HeaderBackdropView(frame: CGRect(x: 0, y: 0, width: 400, height: 107))
         band.useTopFade(color: .black, maxAlpha: 0.94, solid: 89.0 / 107.0)
         #expect(band.revealOpacity == 0)

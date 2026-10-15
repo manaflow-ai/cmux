@@ -163,16 +163,17 @@ final class ChiefHomeView: NSView {
         let entries = rows.map { row -> CmuxSidebarEntry in
             let others = row.summary.participants.filter { $0.id != me }
             let marked = unreadMarks.contains(row.id.rawValue)
-            // While a card waits the row says "Waiting for you", never the typing dots (the Chief waits on the
-            // user); while a turn works it keeps the last text (its transcript shows the live line).
+            // While a card waits the row says what it waits on ("Needs your approval: …"), never the typing
+            // dots (the Chief waits on the user); while a tool runs, its line; else the newest bubble.
             let waiting = ChiefService.shared.hasPendingApproval(row.id)
             let working = ChiefService.shared.isWorking(row.id)
+            let line = ChiefService.shared.listPreview(for: row)
             return CmuxSidebarEntry(
                 id: row.id.rawValue,
                 title: row.title.isEmpty ? (others.first?.displayName ?? ChiefStrings.chiefName) : row.title,
                 people: others.map { CmuxSidebarEntry.Person(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) },
                 // No message yet: no time (the list draws none for `.distantPast`), as Messages shows a new thread.
-                preview: waiting ? ChiefPreviewText.waitingForYou : Self.listPreview(row), previewSender: nil,
+                preview: Self.listPreview(row, line: line, waiting: waiting), previewSender: nil,
                 lastAt: Self.hasNoMessages(row) ? .distantPast : row.timestamp,
                 unreadCount: marked ? max(row.unread, 1) : (visible.contains(row.id) ? 0 : row.unread), pinned: pinnedSet.contains(row.id),
                 typing: row.isTyping && !working,
@@ -206,11 +207,24 @@ final class ChiefHomeView: NSView {
     /// conversation with no message yet shows a quiet invitation (the list
     /// draws previews in the secondary color), so the row never has an empty
     /// second line.
-    static func listPreview(_ row: InboxRow) -> String {
-        // A waiting approval: "Waiting for you", not its raw prompt.
-        if !row.isSending, ChiefPreviewText.pendingApprovalPrompt(row.summary.lastMessage) != nil {
-            return ChiefPreviewText.waitingForYou
+    ///
+    /// `line` is the conversation's ``ChiefListPreview`` (``ChiefService/listPreview(for:)``): a
+    /// waiting card or a running tool says so, the newest bubble shows as its text, and a system
+    /// row or finished tool call is never the preview. A pending send of mine wins over it.
+    static func listPreview(_ row: InboxRow, line: ChiefListPreview.Line? = nil, waiting: Bool = false) -> String {
+        let waits = !row.isSending && (waiting || ChiefPreviewText.pendingApprovalPrompt(row.summary.lastMessage) != nil)
+        if !row.isSending, let line {
+            switch line {
+            case .needsApproval(let text), .needsAnswer(let text): return text.replacingOccurrences(of: "\n", with: " ")
+            case .running, .card, .message:
+                // A card waits that the line has not read yet: say so, never the older line.
+                if waits { return ChiefPreviewText.waitingForYou }
+                if let text = line.text { return text.replacingOccurrences(of: "\n", with: " ") }
+                if case .message(let message) = line { return messagePreview(message, in: row.summary) }
+            }
         }
+        // A waiting approval no line names yet: "Waiting for you", not its raw prompt.
+        if waits { return ChiefPreviewText.waitingForYou }
         let text = row.preview.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty {
             // A pending send is mine (plain text); the newest message keeps its author's rule.
@@ -220,6 +234,23 @@ final class ChiefHomeView: NSView {
         }
         if row.previewAttachments != nil { return ChiefStrings.conversationAttachmentPreview }
         return ChiefStrings.conversationEmptyPreview
+    }
+
+    /// A bubble's preview: its words as the transcript shows them (the Chief's Markdown flattened),
+    /// else its attachment label.
+    static func messagePreview(_ message: Message, in summary: ConversationSummary) -> String {
+        let text = message.parts.compactMap { part -> String? in
+            if case .text(let text, _) = part { return text }
+            return nil
+        }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty {
+            return HomeMarkdownPreview(text, author: message.author, in: summary).text.replacingOccurrences(of: "\n", with: " ")
+        }
+        if let link = message.parts.lazy.compactMap({ part -> String? in
+            if case .linkPreview(let link) = part { return link.title ?? link.url }
+            return nil
+        }).first { return link }
+        return ChiefStrings.conversationAttachmentPreview
     }
 
     private func setPinned(_ on: Bool, _ id: ConversationID) {

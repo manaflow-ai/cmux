@@ -4141,6 +4141,10 @@ class TabManager: ObservableObject {
         notificationDismissalContext: NotificationDismissalContext?
     ) {
         guard selectedTabId != tabId else {
+            // Selecting the workspace that is already selected (its sidebar row, ⌘1…9, the
+            // palette, `cmux select-workspace`) still means "show this workspace": leave Chief
+            // Home, which a selection change does through ContentView's selectedTabId observer.
+            AppDelegate.shared?.leaveChiefHome(in: self)
             notificationDismissal.setPendingSelectionContext(nil)
             if let notificationDismissalContext {
                 notificationDismissal.dismissFocusedPanelNotificationIfActive(

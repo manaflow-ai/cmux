@@ -43,6 +43,12 @@ final class ChiefSettingsPanel: NSView {
     private var effortNote = NSTextField(labelWithString: "")
     private var statsLabel = NSTextField(labelWithString: "")
     private var placeLabel = NSTextField(labelWithString: "")
+    /// Show in Finder: the Chief home folder (its path in the tooltip, never in the text).
+    private let homeLink = NSButton(title: ChiefSettingsStrings.showInFinder, target: nil, action: nil)
+    /// The avatar's text choice ("Or show an emoji or initials") and its field: hidden while a picture is set.
+    private var avatarTextLabel = NSTextField(labelWithString: "")
+    /// The bottom edge's fade while more content lies below (the panel's scroll cue).
+    private let moreBelow = ChiefSettingsFadeView()
     private let logButton = NSButton(title: ChiefSettingsStrings.showTranscriptLog, target: nil, action: nil)
     private let memorySection = ChiefMemorySectionView(width: ChiefSettingsPanel.contentWidth)
     private let newConversationButton = NSButton(title: ChiefStrings.newConversation, target: nil, action: nil)
@@ -122,6 +128,11 @@ final class ChiefSettingsPanel: NSView {
         document.addSubview(stack)
         scrollView.documentView = document
         let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled(_:)),
+                                               name: NSView.boundsDidChangeNotification, object: clip)
+        moreBelow.setAccessibilityElement(false)
+        addSubview(moreBelow)
         NSLayoutConstraint.activate([
             document.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
             document.topAnchor.constraint(equalTo: clip.topAnchor),
@@ -147,10 +158,15 @@ final class ChiefSettingsPanel: NSView {
         profile.addRow(ChiefSettingsStrings.name, nameField)
         profile.addCaption(ChiefSettingsStrings.nameHelp, describing: nameField)
         profile.addGap(12)
-        configure(avatarField, placeholder: ChiefStrings.settingsAvatarPlaceholder, action: #selector(avatarChanged))
-        profile.addRow(ChiefStrings.settingsAvatar, avatarField)
+        // A picture first (the primary choice), text in the circle second; the text field hides while a
+        // picture is set, so its placeholder never describes an avatar that is not shown.
         configure(pictureButton, action: #selector(pictureClicked))
-        profile.add(pictureButton)
+        profile.addRow(ChiefStrings.settingsAvatar, pictureButton)
+        profile.addGap(8)
+        configure(avatarField, placeholder: ChiefStrings.settingsAvatarPlaceholder, action: #selector(avatarChanged))
+        avatarTextLabel = profile.addCaption(ChiefStrings.settingsAvatarTextLabel, describing: avatarField)
+        avatarField.setAccessibilityTitleUIElement(avatarTextLabel)
+        profile.add(avatarField)
     }
 
     private func buildBrain() {
@@ -174,7 +190,14 @@ final class ChiefSettingsPanel: NSView {
         statsLabel.setAccessibilityIdentifier("ChiefSettingsLastTurn")
         statsLabel.isSelectable = true
         placeLabel = activity.addCaption("")
-        placeLabel.isSelectable = true
+        homeLink.isBordered = false
+        homeLink.bezelStyle = .inline
+        homeLink.target = self
+        homeLink.action = #selector(showHome)
+        homeLink.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        homeLink.alignment = .left
+        homeLink.setAccessibilityIdentifier("ChiefSettingsShowHome")
+        activity.box.addArrangedSubview(homeLink)
         activity.addGap(10)
         configure(logButton, action: #selector(showLog))
         logButton.toolTip = ChiefSettingsStrings.showTranscriptLogHelp
@@ -218,7 +241,7 @@ final class ChiefSettingsPanel: NSView {
     private func chainKeyViews() {
         // The memory section's own buttons (Show All…) sit between Activity and Conversation.
         let memory = Self.buttons(in: memorySection)
-        let order: [NSView] = [nameField, avatarField, pictureButton, harness, model, effort, logButton] + memory
+        let order: [NSView] = [nameField, pictureButton, avatarField, harness, model, effort, homeLink, logButton] + memory
             + [newConversationButton]
         for (view, next) in zip(order, order.dropFirst()) { view.nextKeyView = next }
     }
@@ -238,12 +261,46 @@ final class ChiefSettingsPanel: NSView {
         titleLabel.textColor = theme.textPrimary
         for card in cards { card.apply(theme) }
         memorySection.apply(theme)
+        homeLink.contentTintColor = .controlAccentColor
+        homeLink.attributedTitle = NSAttributedString(string: ChiefSettingsStrings.showInFinder, attributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.controlAccentColor,
+        ])
+        moreBelow.color = theme.panelFill
     }
 
     override func layout() {
         super.layout()
         scrollView.frame = bounds
+        moreBelow.frame = NSRect(x: 0, y: bounds.height - Self.fadeHeight, width: bounds.width, height: Self.fadeHeight)
+        updateScrollCue()
     }
+
+    // MARK: Scroll cue
+
+    /// The bottom fade's height.
+    private static let fadeHeight: CGFloat = 28
+
+    /// The fade shows while content lies below the visible part; the overlay scroller flashes
+    /// once when the panel appears with more to scroll, so a clipped panel says it scrolls.
+    private func updateScrollCue() {
+        let clip = scrollView.contentView
+        let below = document.frame.height - clip.bounds.maxY
+        moreBelow.isHidden = below <= 1
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        layoutSubtreeIfNeeded()
+        if document.frame.height > scrollView.contentView.bounds.height + 1 { scrollView.flashScrollers() }
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if document.frame.height > scrollView.contentView.bounds.height + 1 { scrollView.flashScrollers() }
+    }
+
+    @objc private func clipScrolled(_ note: Notification) { updateScrollCue() }
 
     // MARK: Values
 
@@ -252,6 +309,8 @@ final class ChiefSettingsPanel: NSView {
         if let hasPicture {
             self.hasPicture = hasPicture
             pictureButton.title = hasPicture ? ChiefStrings.settingsAvatarRemovePicture : ChiefStrings.settingsAvatarChoosePicture
+            avatarTextLabel.isHidden = hasPicture
+            avatarField.isHidden = hasPicture
         }
         if let avatar, avatarField.currentEditor() == nil {
             shownAvatar = avatar
@@ -277,8 +336,12 @@ final class ChiefSettingsPanel: NSView {
              current: settings.effort.isEmpty ? nil : settings.effort, defaultTitle: ChiefStrings.settingsDefault)
         effortNote.stringValue = ChiefSettingsStrings.effortDescription(settings.effort)
         effort.setAccessibilityHelp(effortNote.stringValue)
-        placeLabel.stringValue = ChiefService.shared.homeDisplayPath.map(ChiefSettingsStrings.runsOnThisMac) ?? ""
-        placeLabel.isHidden = placeLabel.stringValue.isEmpty
+        let path = ChiefService.shared.homeDisplayPath
+        placeLabel.stringValue = path == nil ? "" : ChiefSettingsStrings.runsOnThisMac(temporary: ChiefService.shared.homeIsTemporary)
+        placeLabel.isHidden = path == nil
+        homeLink.isHidden = path == nil
+        homeLink.toolTip = path
+        homeLink.setAccessibilityHelp(path)
         refreshStats()
     }
 
@@ -377,10 +440,47 @@ final class ChiefSettingsPanel: NSView {
     }
 
     @objc private func showLog() { onShowTranscriptLog() }
+    @objc private func showHome() { ChiefService.shared.revealHome() }
     @objc private func newConversation() { onNewConversation() }
 }
 
 /// The panel's scrolling content, top-down.
 final class ChiefSettingsDocumentView: NSView {
     override var isFlipped: Bool { true }
+}
+
+/// The settings panel's bottom fade: the panel colour from clear to opaque, over the last
+/// rows while more lies below. It never takes a click.
+final class ChiefSettingsFadeView: NSView {
+    private let gradient = CAGradientLayer()
+
+    var color: NSColor = .clear { didSet { applyColor() } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(gradient)
+        applyColor()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.frame = bounds
+        CATransaction.commit()
+    }
+
+    private func applyColor() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            gradient.colors = [color.withAlphaComponent(0).cgColor, color.cgColor]
+        }
+    }
 }

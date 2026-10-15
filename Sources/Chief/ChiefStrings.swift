@@ -123,8 +123,12 @@ enum ChiefStrings {
     static var settingsAvatarPictureFailed: String {
         String(localized: "chief.settings.avatar.pictureFailed", defaultValue: "That picture could not be used. Choose another image.")
     }
+    /// The avatar's secondary choice under Choose Picture…: text drawn in the circle.
+    static var settingsAvatarTextLabel: String {
+        String(localized: "chief.settings.avatar.textLabel", defaultValue: "Or show an emoji or initials")
+    }
     static var settingsAvatarPlaceholder: String {
-        String(localized: "chief.settings.avatar.placeholder", defaultValue: "Initials or an emoji")
+        String(localized: "chief.settings.avatar.textPlaceholder", defaultValue: "For example, 😺 or AB")
     }
     static var settingsMemory: String { String(localized: "chief.settings.memory", defaultValue: "Memory") }
     static var settingsMemoryNote: String {

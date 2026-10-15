@@ -134,7 +134,10 @@ extension CMUXCLI {
             if words == ["-"] {
                 text = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
             }
-            let fact = try store.add(text, source: "cli")
+            // `chief` when Chief's own turn runs it (the turn sets CMUX_CHIEF_TURN, ChiefTurnContextBuilder),
+            // `cli` when someone runs it in a terminal: the memory sheet names the source.
+            let inTurn = ProcessInfo.processInfo.environment["CMUX_CHIEF_TURN"].map { !$0.isEmpty } ?? false
+            let fact = try store.add(text, source: inTurn ? "chief" : "cli")
             if jsonOutput {
                 print(jsonString(fact.jsonObject))
             } else {

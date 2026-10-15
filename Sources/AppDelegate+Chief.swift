@@ -32,10 +32,10 @@ extension AppDelegate {
         guard let tabManager else { return }
         switch action {
         case .openTerminal:
-            _ = tabManager.addWorkspace(select: true)
+            _ = tabManager.addWorkspaceIfActive(select: true)
         case .startAgent:
             let command = ChiefSettings.harness == .codex ? "codex" : "claude"
-            _ = tabManager.addWorkspace(initialTerminalInput: command + "\n", select: true)
+            _ = tabManager.addWorkspaceIfActive(initialTerminalInput: command + "\n", select: true)
         }
     }
 }

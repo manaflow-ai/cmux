@@ -117,7 +117,8 @@ and render-server field animation, blurred header and native scrolling.
   collapse to a receipt; hosted rows through the vendored CustomRows seam, answered with
   `HomeOp.answerQuestion` on the approval part, `HomeProjection+Approval.swift`; an allowed
   card's receipt folds into the "Ran" row it started, "Ran … · Allowed"), and `ChiefNoticeRows`
-  (the owner's system rows: a failed turn with Try Again, a saved memory note with Undo).
+  (the owner's system rows: a failed turn with Try Again, a saved memory note with Undo), and `FooterFade`
+  (the band under the compose field, the header band's colour, shown while rows lie under the field: v3f k1).
 
 ## Blocker patches
 
@@ -141,7 +142,10 @@ and render-server field animation, blurred header and native scrolling.
 | Compose | cmux-classic: `cmuxPlaceholder`, the host's placeholder over the field's own (an approval card waits: "Allow or deny above to continue") |
 | RowDrawing | cmux-classic: ask 9's status line (`.setNotice`, the transcript's last row) draws in `HomeStatusLine`'s 10 pt medium font and attention ink (system orange, as the sidebar's "Needs you"), at the incoming bubbles' left edge (`Fixture.labelLeft`, under the card it speaks for) instead of centred, its capitals 6 pt under the card (Layout: the row's gap is 4 pt, not 8); Home sets it to "Waiting for you" while an approval card waits (`HomeProjection.applyApprovalWait`) |
 | Transcript | cmux-classic: `splice` wraps the clamped slice in `Array(...)`, so the expression type-checks on Xcode 26.6 (CI's toolchain) as well as 27 |
+| Transcript | cmux-classic: a row bitmap that lands after its configure (the off-main request, a reflow pass's flush) calls `CustomRows.host?.decorated`, so a hosted row's view placed while its bitmap was pending (transparent: `CustomRowsHost.place` shows the view only with a bitmap) shows with it; the failed turn's row stayed blank over its 38 pt after a reflow. Upstream ask |
 | WindowView | cmux-classic: `cmuxTypingOffAtOnce` (`MessagesLabHomeView.typingLeavesAtOnce`): a typing indicator that goes away gets no fade-out, so no faint ghost lingers under an approval card or the last reply when the Chief's turn ends, fails or waits |
+| WindowView, Transcript | cmux-classic: `cmuxNoticeOffAtOnce` (always on in Home, `ChatController.install`): ask 9's status line leaves the model in the commit that removes it (`TranscriptModel.cmuxDropGhosts`), no fade and no ghost row; after Allow the "Waiting for you" ghost stayed drawn faintly under "Starting Codex… · Allowed" (v3f e1). `HomeProjection.answeredApprovals` also ends the wait at the click, not at the owner's answer |
+| WindowView | cmux-classic: `cmuxBottomInset` (`MessagesLabHomeView.transcriptBottomInset`): room added to every bottom pad, applied at once (pinned rows and a flying send move with it); Chief sets 6 pt while "Working · Ns" shows above the field (v3f b1: the line sat 4 pt under the last bubble) |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |

@@ -33,6 +33,8 @@ final class ChiefService {
     /// The owner's load, set by ``start()``; it reads the conversation files off the main thread.
     @ObservationIgnored private(set) var ownerLoad: Task<ChiefConversationOwner, any Error>?
     @ObservationIgnored private(set) var home: ChiefHome?
+    /// The home is a fresh temporary folder (a scripted DEBUG run, ``resolveHome()``), not the user's.
+    @ObservationIgnored private(set) var homeIsTemporary = false
     @ObservationIgnored private var brainSwitch: ChiefBrainSwitch?
     @ObservationIgnored private var engine = ChiefSettingsAccess().current
     @ObservationIgnored private var settingsObserver: (any NSObjectProtocol)?
@@ -43,6 +45,13 @@ final class ChiefService {
     /// changes only with ``workingConversations``, so Observation tracks that.
     @ObservationIgnored private(set) var turnStarts: [ConversationID: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var started = false
+    /// The list's preview lines by conversation (ChiefService+Previews.swift), with the row state
+    /// each was read at.
+    @ObservationIgnored var previewLines: [ConversationID: ChiefPreviewEntry] = [:]
+    /// Conversations whose preview read is in flight.
+    @ObservationIgnored var previewReads: Set<ConversationID> = []
+    /// Bumped when a preview line lands: the list re-reads its rows (Observation).
+    var previewGeneration = 0
 
     /// The first-run panel's "Open a terminal" and "Start an agent" rows run
     /// this; nil hides the two rows. The app wires it to its own actions.
@@ -112,7 +121,7 @@ final class ChiefService {
     func start() {
         guard !started else { return }
         started = true
-        let home = Self.resolveHome()
+        let (home, temporary) = Self.resolveHome()
         let settings = ChiefSettingsAccess().current
         engine = settings
         let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings), settings: settings)
@@ -127,6 +136,7 @@ final class ChiefService {
                               blobCacheDirectory: home.stateDirectory.appendingPathComponent("blob-cache", isDirectory: true))
         store.start()
         self.home = home
+        self.homeIsTemporary = temporary
         self.brainSwitch = switcher
         self.ownerLoad = loading
         self.storeIfStarted = store
@@ -219,14 +229,15 @@ final class ChiefService {
 
     /// This build's Chief home. A scripted DEBUG run without `CMUX_CHIEF_HOME`
     /// gets a fresh one, so it starts empty and never touches real history.
-    private static func resolveHome() -> ChiefHome {
+    /// - Returns: The home, and whether it is that fresh temporary one.
+    private static func resolveHome() -> (ChiefHome, temporary: Bool) {
 #if DEBUG
         if usesScriptedBrain, ProcessInfo.processInfo.environment[ChiefHome.environmentKey]?.isEmpty ?? true {
-            return ChiefHome(root: FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-chief-scripted-\(UUID().uuidString)", isDirectory: true))
+            return (ChiefHome(root: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-chief-scripted-\(UUID().uuidString)", isDirectory: true)), true)
         }
 #endif
-        return ChiefHome.resolve()
+        return (ChiefHome.resolve(), false)
     }
 
     /// The settings the brain runs with now (what the settings panel shows).

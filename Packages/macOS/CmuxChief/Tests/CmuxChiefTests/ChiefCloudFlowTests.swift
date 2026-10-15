@@ -1,5 +1,5 @@
 import CmuxAgentQuestion
-import CmuxChief
+@testable import CmuxChief
 import CmuxHomeCore
 import Foundation
 import Testing

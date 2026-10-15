@@ -189,10 +189,9 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
         var events: [ChiefTurnEvent] = []
         for try await event in brain.run(turn) { events.append(event) }
         #expect(summarize(events) == [
-            "text: Got it. I'll save that to memory.",
+            "text: Got it.",
             "tool: cmux chief memory add \"Prefers 14 pt font\"",
             "tool done: Saved",
-            "text: Saved: Prefers 14 pt font. I'll keep that in mind from now on.",
             "finished",
         ])
         #expect(ChiefMemory(paths: ChiefMemoryPaths(home: home)).facts().map(\.text) == ["Prefers 14 pt font"])

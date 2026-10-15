@@ -10,8 +10,11 @@ import CmuxHomeCore
 ///   Full width, like a tool line, never folded into a run of tool calls.
 /// - The result card: a work part whose `host` is the machine and whose `session` is the
 ///   machine workspace (`ws_…`, from a `cmux-result` block): title, subtitle, the agent's
-///   state and an "Open Workspace" button (`ChatIntents.openCloudWorkspace`, the app's
-///   `cmux vm workspace open` path).
+///   state, an "Open Workspace" button (`ChatIntents.openCloudWorkspace`, the app's
+///   `cmux vm workspace open` path) and a quiet "Stop Machine" (`ChatIntents.stopCloudMachine`:
+///   the click asks the Chief, whose `cmux vm pause` shows an approval card, so stopping is
+///   still confirmed where every other state change is). A `waiting` card (the agent waits for
+///   the user's sign-in, the Chief's `needs_sign_in`) shows an orange dot and "Needs sign-in".
 ///
 /// References (cmux-design-references): topics/status-and-progress.md and
 /// apps/codex/web/tools-running-progress.png (one live progress line with elapsed time
@@ -28,7 +31,8 @@ enum ChiefCloudRows {
     /// A work part that is one of these rows, not a tool call.
     static func handles(_ work: WorkRef) -> Bool { isProvisioning(work) || isResult(work) }
 
-    enum State: String, Codable, Hashable { case running, done, failed }
+    /// `waiting`: a result card whose agent waits for the user (sign-in); a provisioning row never waits.
+    enum State: String, Codable, Hashable { case running, waiting, done, failed }
 
     static func state(_ status: WorkRef.Status) -> State {
         switch status {
@@ -36,6 +40,11 @@ enum ChiefCloudRows {
         case .done: return .done
         case .failed: return .failed
         }
+    }
+
+    /// A result card's state: the owner stores `needs_sign_in` as `.waiting`.
+    static func resultState(_ status: WorkRef.Status) -> State {
+        status == .waiting ? .waiting : state(status)
     }
 
     struct Provision: Codable, Hashable {
@@ -75,7 +84,7 @@ enum ChiefCloudRows {
         }
         guard let machine = work.host else { return nil }
         return ChiefRows.part(kind: resultKind, Result(title: work.title, subtitle: work.preview, machine: machine,
-                                                       workspace: work.session, state: state(work.status), name: machineName))
+                                                       workspace: work.session, state: resultState(work.status), name: machineName))
     }
 
     /// "40s", "1m 5s": the system's short duration.
@@ -89,7 +98,7 @@ enum ChiefCloudRows {
 
     static func provisionText(_ p: Provision, now: Date) -> String {
         switch p.state {
-        case .running: return CmuxStrings.cloudCreating(elapsed(now.timeIntervalSince1970 - p.startedAt))
+        case .running, .waiting: return CmuxStrings.cloudCreating(elapsed(now.timeIntervalSince1970 - p.startedAt))
         case .done: return [CmuxStrings.cloudReady, p.name ?? p.machine].compactMap { $0 }.joined(separator: " · ")
         case .failed: return CmuxStrings.cloudFailed
         }
@@ -98,6 +107,7 @@ enum ChiefCloudRows {
     static func statusText(_ s: State) -> String {
         switch s {
         case .running: return CmuxStrings.cloudStatusWorking
+        case .waiting: return CmuxStrings.cloudStatusNeedsSignIn
         case .done: return CmuxStrings.cloudStatusReady
         case .failed: return CmuxStrings.cloudStatusFailed
         }
@@ -172,7 +182,7 @@ final class ChiefProvisionRowView: NSView {
     }
 
     private func updateTicker() {
-        guard row?.state == .running, window != nil else {
+        guard row?.state == .running || row?.state == .waiting, window != nil else {
             stopTicker()
             spinner.stopAnimation(nil)
             return
@@ -218,13 +228,13 @@ final class ChiefProvisionRowView: NSView {
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byTruncatingTail
         let label = NSAttributedString(string: ChiefCloudRows.provisionText(row, now: Date()), attributes: [
-            .font: HomeFonts.system(ofSize: 12, weight: row.state == .running ? .regular : .medium),
+            .font: HomeFonts.system(ofSize: 12, weight: row.state == .running || row.state == .waiting ? .regular : .medium),
             .foregroundColor: row.state == .failed ? NSColor.systemRed : secondary, .paragraphStyle: style,
         ])
         let textX = ChiefToolRowView.textX
         let h = label.size().height
         label.draw(in: NSRect(x: textX, y: ((bounds.height - h) / 2).rounded(), width: max(0, width - textX - 26), height: h))
-        guard row.state != .running else { return }
+        guard row.state != .running, row.state != .waiting else { return }
         let done = row.state == .done
         let mark = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
             .applying(NSImage.SymbolConfiguration(paletteColors: [done ? secondary : .systemRed]))
@@ -323,6 +333,9 @@ final class ChiefResultCardView: NSView {
     private var result: ChiefCloudRows.Result?
     private var context: CustomRowContext?
     private let button = ChiefOptionButton(option: CmuxStrings.cloudOpenWorkspace, style: .prominent)
+    /// Stop Machine: quiet, left of Open Workspace; once clicked it stays disabled (the Chief asks next).
+    private let stopButton = ChiefOptionButton(option: CmuxStrings.cloudStopMachine, style: .plain)
+    private var stopSent: String?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -332,6 +345,10 @@ final class ChiefResultCardView: NSView {
         button.action = #selector(openClicked)
         button.setAccessibilityIdentifier("ChiefResultOpenWorkspace")
         addSubview(button)
+        stopButton.target = self
+        stopButton.action = #selector(stopClicked)
+        stopButton.setAccessibilityIdentifier("ChiefResultStopMachine")
+        addSubview(stopButton)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityRoleDescription(CmuxStrings.cloudResultRole)
@@ -343,13 +360,21 @@ final class ChiefResultCardView: NSView {
     func reset() {
         result = nil
         context = nil
+        stopSent = nil
+        stopButton.isEnabled = true
     }
 
     func show(_ r: ChiefCloudRows.Result, context: CustomRowContext) {
+        if result?.machine != r.machine || result?.workspace != r.workspace {
+            stopSent = nil
+        }
+        stopButton.isEnabled = stopSent == nil
         result = r
         self.context = context
         button.restyle() // the theme's accent may have changed
         button.toolTip = "cmux vm workspace open \(r.machine) \(r.workspace)"
+        stopButton.restyle()
+        stopButton.toolTip = "cmux vm pause \(r.machine)"
         setAccessibilityLabel(r.title)
         setAccessibilityValue(ChiefCloudRows.statusText(r.state))
         // The card shows the machine's name; its raw id is here (and in the button's command).
@@ -362,7 +387,12 @@ final class ChiefResultCardView: NSView {
         super.layout()
         let p = ChiefResultCardProvider.self
         let w = max(120, ceil(button.intrinsicContentSize.width) + 28)
-        button.frame = NSRect(x: bounds.width - p.padX - w, y: bounds.height - p.padBottom - p.buttonHeight, width: w, height: p.buttonHeight)
+        let y = bounds.height - p.padBottom - p.buttonHeight
+        button.frame = NSRect(x: bounds.width - p.padX - w, y: y, width: w, height: p.buttonHeight)
+        let sw = ceil(stopButton.intrinsicContentSize.width) + 24
+        let sx = button.frame.minX - 8 - sw
+        stopButton.frame = NSRect(x: sx, y: y, width: sw, height: p.buttonHeight)
+        stopButton.isHidden = sx < p.padX
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -378,6 +408,7 @@ final class ChiefResultCardView: NSView {
         let dot: NSColor
         switch r.state {
         case .running: dot = .systemGreen
+        case .waiting: dot = .systemOrange
         case .done: dot = Fixture.secondaryText
         case .failed: dot = .systemRed
         }
@@ -396,6 +427,19 @@ final class ChiefResultCardView: NSView {
     }
 
     @objc private func openClicked() { open() }
+
+    /// Stop Machine: the Chief hears "Stop cloud machine <name> (<id>)" and asks with its approval
+    /// card before `cmux vm pause` runs. The button stays off for this card once sent.
+    @objc private func stopClicked() {
+        guard let r = result, stopSent == nil, let intents = hostIntents else { return }
+        stopSent = r.machine
+        stopButton.isEnabled = false
+        intents.stopCloudMachine(machine: r.machine, name: r.shownMachine) { [weak self] ok in
+            guard let self, !ok, self.stopSent == r.machine else { return }
+            self.stopSent = nil
+            self.stopButton.isEnabled = true
+        }
+    }
 
     /// Opens the machine workspace (the button, or Return while the card has the focus).
     func open() {

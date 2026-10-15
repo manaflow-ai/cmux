@@ -11,8 +11,8 @@ import CmuxHomeCore
 ///   message, a "Try Again" button that runs the last message again
 ///   (`ChatIntents.retryLastTurn`).
 /// - A saved memory note: a centred 11 pt secondary line, "Chief will remember: <note> ·
-///   Undo" (saved in a turn; the owner posts it after the turn's last message) or "Saved to
-///   memory: <note> · Undo" (saved outside one), Undo in the accent (`ChatIntents.undoMemory`).
+///   Undo", whether it was saved in a turn (the owner posts it after the turn's last message)
+///   or outside one (one event, one wording), Undo in the accent (`ChatIntents.undoMemory`).
 ///   After Undo it reads "Removed from memory: <note>". It scrolls with the transcript, so it
 ///   never sits over another line.
 /// - A stopped turn: the same centred 11 pt secondary line, "Stopped" (the owner's localized
@@ -62,9 +62,10 @@ extension ChiefRows {
         return Memory(fact: String(rest.dropFirst(2)), note: work.title, duringTurn: duringTurn, forgotten: work.status == .failed)
     }
 
+    /// "Chief will remember: <note>" whether the note was saved in a turn or outside one (one event,
+    /// one wording); "Removed from memory: <note>" after Undo.
     static func memoryText(_ m: Memory) -> String {
-        m.forgotten ? CmuxStrings.memoryForgotten(m.note)
-            : m.duringTurn ? CmuxStrings.memoryWillRemember(m.note) : CmuxStrings.memorySaved(m.note)
+        m.forgotten ? CmuxStrings.memoryForgotten(m.note) : CmuxStrings.memoryWillRemember(m.note)
     }
 
     /// The row of a system work part; nil for any other work part.
@@ -151,8 +152,46 @@ final class ChiefFailureRowProvider: TranscriptCustomRowProvider {
     func plainText(_ part: CustomPart) -> String? { part.decode(ChiefRows.Failure.self)?.text }
 }
 
+/// A hosted row's view that draws itself (`draw(_:)`, redrawn only on `needsDisplay`): it draws
+/// again whenever what it shows could have gone. cmux-classic: after a reflow the failed turn's row
+/// was laid out (38 pt) but drawn blank: its container came back at a new size or into the window
+/// again (CustomRowsHost reuse) and nothing asked the view to draw.
+class ChiefDrawnRowView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+    required init?(coder: NSCoder) { nil }
+    override var isFlipped: Bool { true }
+    /// Redraws asked for (tests).
+    private(set) var redrawRequests = 0
+    /// Draws again at the next display.
+    func requestRedraw() {
+        redrawRequests += 1
+        needsDisplay = true
+    }
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { requestRedraw() }
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { requestRedraw() }
+    }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        requestRedraw()
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        requestRedraw()
+    }
+}
+
 /// The failure row's view: the red glyph, the drawn text, the Try Again button.
-final class ChiefFailureRowView: NSView {
+final class ChiefFailureRowView: ChiefDrawnRowView {
     private var failure: ChiefRows.Failure?
     private let button = ChiefOptionButton(option: CmuxStrings.failureTryAgain, style: .quiet)
     /// The failure whose Try Again went out, waiting for the next turn.
@@ -160,8 +199,6 @@ final class ChiefFailureRowView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
         button.target = self
         button.action = #selector(tryAgainClicked)
         button.toolTip = CmuxStrings.failureTryAgainHelp
@@ -174,11 +211,11 @@ final class ChiefFailureRowView: NSView {
         setAccessibilityIdentifier("ChiefFailureRow")
     }
     required init?(coder: NSCoder) { nil }
-    override var isFlipped: Bool { true }
 
     func reset() {
         failure = nil
         sent = nil
+        requestRedraw()
     }
 
     func show(_ f: ChiefRows.Failure) {
@@ -269,15 +306,13 @@ final class ChiefMemoryRowProvider: TranscriptCustomRowProvider {
 }
 
 /// The memory row's view: the centred line and its Undo link (a borderless button in the accent).
-final class ChiefMemoryRowView: NSView {
+final class ChiefMemoryRowView: ChiefDrawnRowView {
     private var memory: ChiefRows.Memory?
     private let undoButton = NSButton(title: "", target: nil, action: nil)
     private var sent = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
         undoButton.isBordered = false
         undoButton.target = self
         undoButton.action = #selector(undoClicked)
@@ -290,11 +325,11 @@ final class ChiefMemoryRowView: NSView {
         setAccessibilityIdentifier("ChiefMemoryRow")
     }
     required init?(coder: NSCoder) { nil }
-    override var isFlipped: Bool { true }
 
     func reset() {
         memory = nil
         sent = false
+        requestRedraw()
     }
 
     func show(_ m: ChiefRows.Memory) {
@@ -378,19 +413,16 @@ final class ChiefStoppedRowProvider: TranscriptCustomRowProvider {
 }
 
 /// The stopped row's view: one centred secondary line, like the memory row without its link.
-final class ChiefStoppedRowView: NSView {
+final class ChiefStoppedRowView: ChiefDrawnRowView {
     private var text = ""
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityIdentifier("ChiefStoppedRow")
     }
     required init?(coder: NSCoder) { nil }
-    override var isFlipped: Bool { true }
 
     func show(_ text: String) {
         self.text = text

@@ -52,6 +52,34 @@ extension ChiefConversationOwner {
                                                   answer: answer)))
         return card.question.summaryLines(answer)
     }
+
+    /// The user wrote instead of pressing the card's button: the newest waiting card closes, so
+    /// no live "Create" stays under the conversation. Text that names an option of every item
+    /// ("4 GB", "Machine: 4 GB") answers it as the button would (its receipt "Machine: 4 GB");
+    /// other text cancels it (the receipt says the answer came in the chat). The message itself
+    /// still goes to the Chief as the user's turn, unchanged.
+    ///
+    /// - Returns: The card's state after the change, nil when no card waited.
+    @discardableResult
+    func settlePendingQuestion(byChat text: String, in conversation: ConversationID) -> AgentQuestion? {
+        guard let card = pendingQuestion(in: conversation) else { return nil }
+        let respondent = AgentQuestionAnswer.Respondent(participant: me.id.rawValue, displayName: me.displayName)
+        let atMs = Int64(now().timeIntervalSince1970 * 1000)
+        var next = card.question
+        if let answer = ChiefQuestionAnswer.fromChat(text, question: card.question),
+           let answered = try? card.question.answering(answer, respondent: respondent, atMs: atMs) {
+            next = answered
+        } else {
+            next.state = .cancelled
+        }
+        let settled = next
+        _ = try? updateMessage(card.message, in: conversation) { message in
+            guard message.parts.indices.contains(card.part), case .question(let question) = message.parts[card.part],
+                  question.isPending else { return }
+            message.parts[card.part] = .question(settled)
+        }
+        return settled
+    }
 }
 
 /// An answer to a question card from words instead of clicks (`cmux chief answer --choice "4 GB"`).
@@ -80,6 +108,39 @@ public struct ChiefQuestionAnswer: Sendable {
         case otherNotAllowed
         /// The answer is still incomplete or contradicts the card (``AgentQuestionAnswer/problems(for:)``).
         case invalid([AgentQuestionAnswer.Problem])
+    }
+
+    /// The answer a chat message gives `question`, nil unless it names an option of every item.
+    ///
+    /// Each line (and the whole text) is tried as an option label or id, with a leading
+    /// "<header or prompt>:" and trailing punctuation dropped, so "4 GB", "4 gb." and the owner's
+    /// own "My answer to your question:\nMachine: 4 GB" all answer a one-item "Machine" card.
+    public static func fromChat(_ text: String, question: AgentQuestion) -> AgentQuestionAnswer? {
+        let labels = question.items.flatMap { item in [item.header, item.prompt].compactMap { $0 } }
+        var candidates: [String] = []
+        for raw in [text] + text.components(separatedBy: .newlines) {
+            var line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let colon = line.firstIndex(of: ":"),
+               labels.contains(where: { $0.caseInsensitiveCompare(line[..<colon].trimmingCharacters(in: .whitespaces)) == .orderedSame }) {
+                line = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            }
+            line = line.trimmingCharacters(in: CharacterSet(charactersIn: ".!").union(.whitespaces))
+            if !line.isEmpty, !candidates.contains(line) { candidates.append(line) }
+        }
+        var choices: [String] = []
+        var named = Set<String>()
+        for candidate in candidates {
+            for item in question.items {
+                guard item.options.contains(where: {
+                    $0.label.caseInsensitiveCompare(candidate) == .orderedSame || $0.id.caseInsensitiveCompare(candidate) == .orderedSame
+                }) else { continue }
+                choices.append(candidate)
+                named.insert(item.id)
+                break
+            }
+        }
+        guard !choices.isEmpty, question.items.allSatisfy({ named.contains($0.id) }) else { return nil }
+        return try? ChiefQuestionAnswer(choices: choices).answer(for: question)
     }
 
     /// The card's answer for `choices` and `text`.

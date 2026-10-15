@@ -194,7 +194,10 @@ final class ChiefFirstRunRow: NSView {
             CATransaction.begin()
             CATransaction.setAnimationDuration(quick ? 0.05 : 0.12)
             backing.backgroundColor = (isPressed ? colors.pressed : isHovered ? colors.hover : colors.fill).cgColor
-            backing.borderColor = colors.border?.cgColor
+            // No border colour is no border: a nil CALayer border draws opaque black (the light
+            // theme's heavy outlines on the status rows), so the width follows the colour.
+            backing.borderColor = (colors.border ?? .clear).cgColor
+            backing.borderWidth = style == .row && colors.border != nil ? 1 : 0
             if case .status(let status) = leading {
                 let color = statusColor ?? colors.trailing
                 dot.backgroundColor = status == .idle ? nil : color.cgColor

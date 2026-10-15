@@ -40,8 +40,8 @@ extension ChiefConversationOwner {
     }
 
     /// A memory note was saved while `conversation` shows or works: its row says so in the
-    /// transcript. During a turn the row posts after the turn's last message ("Chief will
-    /// remember: …"); outside one, now ("Saved to memory: …"). A note posts once per
+    /// transcript ("Chief will remember: …" either way). During a turn the row posts after the
+    /// turn's last message; outside one, now. A note posts once per
     /// conversation, whichever view reported it.
     ///
     /// - Parameters:

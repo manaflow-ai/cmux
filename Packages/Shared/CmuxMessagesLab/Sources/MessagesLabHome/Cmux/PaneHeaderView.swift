@@ -33,8 +33,12 @@ final class PaneHeaderView: NSView {
     var status: String? { didSet { if status != oldValue { applyStatus() } } }
     private let statusDot = NSView()
 
-    static let avatarSize: CGFloat = 40
-    static let avatarTop: CGFloat = 8
+    /// cmux-classic: 36 pt from 4 pt, so the pill (top at 44 pt) clears the avatar's chin by
+    /// `avatarPillGap`; the 40 pt disc from 8 pt ran 4 pt under the pill (v3f a-first-run).
+    static let avatarSize: CGFloat = 36
+    static let avatarTop: CGFloat = 4
+    /// The space between the avatar's bottom and the pill's top.
+    static var avatarPillGap: CGFloat { (pillCenterY - pillHeight / 2) - (avatarTop + avatarSize) }
     /// HeaderBar: Messages' pill center, 58 pt from the window top.
     static let pillCenterY: CGFloat = 58
     static let pillHeight: CGFloat = 28

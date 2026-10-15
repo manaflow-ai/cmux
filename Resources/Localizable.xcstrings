@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.vm.push.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ holds more than %2$@ to send (%3$@ counted after excludes). Nothing was sent to %4$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ enthält mehr als %2$@ zum Senden (%3$@ nach Ausschlüssen gezählt). An %4$@ wurde nichts gesendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ contient plus de %2$@ à envoyer (%3$@ comptés après exclusions). Rien n’a été envoyé à %4$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي %1$@ على أكثر من %2$@ للإرسال (%3$@ بعد الاستثناءات). لم يُرسل أي شيء إلى %4$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ contiene más de %2$@ para enviar (%3$@ contados tras las exclusiones). No se envió nada a %4$@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 要傳送的內容超過 %2$@（排除後計為 %3$@）。未傳送任何內容到 %4$@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 要发送的内容超过 %2$@（排除后计为 %3$@）。未向 %4$@ 发送任何内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 보낼 내용이 %2$@를 넘습니다(제외 후 %3$@). %4$@에 아무것도 보내지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ の送信量が %2$@ を超えています（除外後 %3$@）。%4$@ には何も送信していません。"
+          }
+        }
+      }
+    },
+    "cli.vm.push.cloneHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clone the repo on the machine instead (cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>), push a smaller folder or add --exclude, or pass --allow-large to send it anyway."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klone das Repo stattdessen auf der Maschine (cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>), sende einen kleineren Ordner oder füge --exclude hinzu, oder gib --allow-large an, um es trotzdem zu senden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clonez plutôt le dépôt sur la machine (cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>), envoyez un dossier plus petit ou ajoutez --exclude, ou passez --allow-large pour l’envoyer quand même."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استنسخ المستودع على الجهاز بدلاً من ذلك (cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>)، أو أرسل مجلداً أصغر أو أضف --exclude، أو مرّر --allow-large لإرساله على أي حال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En su lugar, clona el repositorio en la máquina (cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>), envía una carpeta más pequeña o añade --exclude, o pasa --allow-large para enviarlo de todos modos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請改為在機器上複製存放庫（cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>）、傳送較小的資料夾或加上 --exclude，或加上 --allow-large 仍要傳送。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请改为在机器上克隆仓库（cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>）、发送较小的文件夹或添加 --exclude，或添加 --allow-large 仍然发送。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대신 머신에서 저장소를 복제하세요(cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>). 더 작은 폴더를 보내거나 --exclude를 추가하거나, 그래도 보내려면 --allow-large를 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代わりにマシン上でリポジトリをクローンしてください（cmux vm exec <id> -- git clone --depth 1 --branch <branch> <url> work/<name>）。小さいフォルダを送るか --exclude を追加するか、それでも送る場合は --allow-large を指定してください。"
+          }
+        }
+      }
+    },
     "browser.omnibar.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -659055,65 +659173,6 @@
         }
       }
     },
-    "chief.settings.avatar.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Initials or an emoji"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Initialen oder ein Emoji"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Initiales ou un emoji"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أحرف أولى أو رمز تعبيري"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iniciales o un emoji"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "姓名縮寫或表情符號"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "姓名首字母或表情符号"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이니셜 또는 이모지"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "イニシャルまたは絵文字"
-          }
-        }
-      }
-    },
     "chief.settings.conversation": {
       "extractionState": "manual",
       "localizations": {
@@ -662831,65 +662890,6 @@
         }
       }
     },
-    "chief.settings.runsOnThisMac": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Runs on this Mac (%@)."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Läuft auf diesem Mac (%@)."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "S’exécute sur ce Mac (%@)."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعمل على هذا الـ Mac (%@)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se ejecuta en este Mac (%@)."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在這台 Mac 上執行（%@）。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在这台 Mac 上运行（%@）。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac에서 실행됩니다(%@)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac で実行されます（%@）。"
-          }
-        }
-      }
-    },
     "chief.settings.showTranscriptLog": {
       "extractionState": "manual",
       "localizations": {
@@ -664245,65 +664245,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "まだ何もありません。「編集」をクリックして書いてください。"
-          }
-        }
-      }
-    },
-    "chief.memory.sheet.emptyNotes": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No notes yet. Chief saves a note when it learns something worth keeping."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noch keine Notizen. Chief speichert eine Notiz, wenn es etwas Wichtiges erfährt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucun mémo pour l’instant. Chief enregistre un mémo quand il apprend quelque chose qui mérite d’être retenu."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد ملاحظات بعد. يحفظ Chief ملاحظة عندما يتعلّم شيئًا يستحق الاحتفاظ به."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún no hay notas. Chief guarda una nota cuando aprende algo que vale la pena conservar."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚無筆記。Chief 學到值得保留的事情時會儲存筆記。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还没有笔记。Chief 学到值得保留的内容时会保存笔记。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 메모가 없습니다. Chief는 기억할 만한 내용을 알게 되면 메모를 저장합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メモはまだありません。Chief は残す価値のあることを知るとメモを保存します。"
           }
         }
       }
@@ -667195,6 +667136,419 @@
           "stringUnit": {
             "state": "translated",
             "value": "タスクが長すぎる(200,000 バイト超)か、NUL バイトを含んでいます。詳細はファイルに書き、エージェントに読むよう伝えてください。"
+          }
+        }
+      }
+    },
+    "chief.memory.source.cli": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved from the command line"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Über die Befehlszeile gespeichert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré depuis la ligne de commande"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حُفظ من سطر الأوامر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardado desde la línea de comandos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從命令列儲存"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从命令行保存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령줄에서 저장함"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドラインから保存"
+          }
+        }
+      }
+    },
+    "chief.memory.sheet.emptyNotesHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No notes yet. Ask Chief to remember something, like “Remember that I prefer Codex for backend work.”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Notizen. Bitte Chief, sich etwas zu merken, zum Beispiel „Merk dir, dass ich Codex für Backend-Arbeit bevorzuge.“"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune note pour l’instant. Demandez à Chief de retenir quelque chose, par exemple « Retiens que je préfère Codex pour le backend. »"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد ملاحظات بعد. اطلب من Chief أن يتذكر شيئًا، مثل “تذكّر أنني أفضّل Codex لأعمال الواجهة الخلفية.”"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay notas. Pide a Chief que recuerde algo, como «Recuerda que prefiero Codex para el backend»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有筆記。請 Chief 記住某件事，例如「記住我做後端工作偏好用 Codex。」"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有笔记。请 Chief 记住某件事，例如“记住我做后端工作更喜欢用 Codex。”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 노트가 없습니다. Chief에게 기억해 달라고 요청하세요. 예: “백엔드 작업에는 Codex를 선호한다는 걸 기억해 줘.”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだメモはありません。Chief に覚えてほしいことを伝えてください。例:「バックエンドの作業には Codex を使いたいと覚えておいて。」"
+          }
+        }
+      }
+    },
+    "chief.settings.runsOnThisMac.plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs on this Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft auf diesem Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S’exécute sur ce Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل على جهاز Mac هذا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ejecuta en este Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在這台 Mac 上執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台 Mac 上运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 실행됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac で動作します。"
+          }
+        }
+      }
+    },
+    "chief.settings.runsOnThisMac.temporary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs on this Mac. Temporary (scripted)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft auf diesem Mac. Temporär (Skript)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S’exécute sur ce Mac. Temporaire (scripté)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل على جهاز Mac هذا. مؤقت (مبرمج)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ejecuta en este Mac. Temporal (con guion)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在這台 Mac 上執行。暫時性（腳本）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台 Mac 上运行。临时（脚本）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 실행됩니다. 임시(스크립트)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac で動作します。一時的（スクリプト）。"
+          }
+        }
+      }
+    },
+    "chief.settings.showInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Finder zeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans le Finder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار في Finder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en el Finder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中顯示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在访达中显示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 보기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder で表示"
+          }
+        }
+      }
+    },
+    "chief.settings.avatar.textLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or show an emoji or initials"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oder ein Emoji oder Initialen zeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou afficher un emoji ou des initiales"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أو اعرض رمزًا تعبيريًا أو أحرفًا أولى"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O mostrar un emoji o iniciales"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或顯示表情符號或姓名縮寫"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或显示表情符号或姓名首字母"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "또는 이모지나 이니셜 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "または絵文字かイニシャルを表示"
+          }
+        }
+      }
+    },
+    "chief.settings.avatar.textPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For example, 😺 or AB"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Beispiel 😺 oder AB"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par exemple, 😺 ou AB"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثلًا 😺 أو AB"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por ejemplo, 😺 o AB"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如 😺 或 AB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如 😺 或 AB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: 😺 또는 AB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: 😺 や AB"
           }
         }
       }

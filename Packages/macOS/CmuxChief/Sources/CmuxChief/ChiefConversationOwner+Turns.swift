@@ -242,6 +242,8 @@ extension ChiefConversationOwner {
         case .working: status = .running
         case .ready: status = .done
         case .failed: status = .failed
+        // Home draws a waiting card with the attention colour ("Needs sign-in").
+        case .needsSignIn: status = .waiting
         }
         return WorkRef(session: card.workspace, host: card.machine, title: card.title, status: status, preview: card.subtitle)
     }

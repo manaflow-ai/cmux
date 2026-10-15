@@ -16,7 +16,10 @@ import CmuxHomeCore
 /// (or Return while the card has the focus) answers: nothing is created by a stray
 /// click. Digits 1-9 choose in the first item. The answer goes to the owner as
 /// `HomeOp.answerQuestion` (`ChatIntents.answerQuestion`); once the owner stores it
-/// the chips give way to a receipt ("Chose 8 GB").
+/// (a click, `cmux chief answer`, or a typed reply that names the option) the card
+/// collapses to one receipt row in the tool rows' column, "✓ Machine: 8 GB", like a
+/// decided approval card. A typed reply that answers something else closes it as
+/// "Answered in chat": no live "Create" stays behind.
 ///
 /// References (cmux-design-references): topics/first-run.md and research/first-run.md
 /// (concrete next steps with their state, one primary action), topics/approvals.md
@@ -28,18 +31,14 @@ enum QuestionCardRow {
 
     static func part(_ question: AgentQuestion) -> CustomPart { ChiefRows.part(kind: kind, question) }
 
-    /// The receipt of an answered question: the chosen labels of every item.
+    /// The receipt of a closed question: "Machine: 8 GB" (each item's header or prompt and its
+    /// chosen labels, items joined by " · "); a Chief card the owner closed for a typed reply,
+    /// "Answered in chat"; another harness's cancelled ask, "Cancelled".
     static func receipt(_ question: AgentQuestion) -> String? {
         switch question.state {
         case .pending: return nil
-        case .cancelled: return CmuxStrings.questionCancelled
-        case .answered(let answer):
-            let labels = question.items.flatMap { item -> [String] in
-                let selection = answer.selections[item.id]
-                let chosen = item.options.filter { selection?.optionIDs.contains($0.id) == true }.map(\.label)
-                return chosen + [selection?.other].compactMap { $0 }
-            }
-            return CmuxStrings.questionChose(labels.joined(separator: ", "))
+        case .cancelled: return question.source.harness == .chief ? CmuxStrings.questionAnsweredInChat : CmuxStrings.questionCancelled
+        case .answered(let answer): return question.summaryLines(answer).joined(separator: " · ")
         }
     }
 
@@ -62,6 +61,8 @@ enum QuestionCardRow {
     static let headerFont = HomeFonts.system(ofSize: 11, weight: .semibold)
     static let chipFont = HomeFonts.system(ofSize: 13, weight: .medium)
     static let detailFont = HomeFonts.system(ofSize: 12)
+    /// The closed card's receipt row: the approval receipt's font.
+    static var receiptFont: NSFont { ChiefApprovalRowProvider.receiptFont }
 
     static func promptText(_ prompt: String, color: NSColor? = nil) -> NSAttributedString {
         let style = NSMutableParagraphStyle()
@@ -134,6 +135,8 @@ enum QuestionCardRow {
     }
 
     static func size(_ question: AgentQuestion, maxWidth: CGFloat) -> CGSize {
+        // Closed: one receipt row across the column (the decided approval's).
+        guard question.isPending else { return CGSize(width: maxWidth, height: receiptHeight) }
         let w = width(question, maxWidth: maxWidth)
         let inner = w - 2 * padX
         var h = padTop
@@ -141,7 +144,7 @@ enum QuestionCardRow {
             if i > 0 { h += itemGap }
             h += itemLayout(item, width: inner, pending: question.isPending).height
         }
-        h += question.isPending ? submitGap + submitHeight : 5 + receiptHeight
+        h += submitGap + submitHeight
         return CGSize(width: w, height: h + padBottom)
     }
 }
@@ -151,7 +154,9 @@ final class QuestionCardRowProvider: TranscriptCustomRowProvider {
 
     let kind = QuestionCardRow.kind
     var measuresOffMain: Bool { true }
-    func layout(for part: CustomPart) -> CustomRowLayout { .bubbleIncoming }
+    func layout(for part: CustomPart) -> CustomRowLayout {
+        part.decode(AgentQuestion.self)?.isPending == false ? .fullWidth : .bubbleIncoming
+    }
 
     func measure(_ part: CustomPart, maxWidth: CGFloat) -> CGSize {
         guard let q = part.decode(AgentQuestion.self) else { return CGSize(width: 220, height: 40) }
@@ -211,6 +216,7 @@ final class QuestionCardView: NSView {
         chips = []
         submit?.removeFromSuperview()
         submit = nil
+        toolTip = nil
     }
 
     func show(_ q: AgentQuestion, context: CustomRowContext) {
@@ -224,8 +230,11 @@ final class QuestionCardView: NSView {
         }
         question = q
         self.context = context
-        setAccessibilityLabel(q.items.map(\.prompt).joined(separator: " "))
-        setAccessibilityValue(QuestionCardRow.receipt(q))
+        setAccessibilityLabel(q.isPending ? q.items.map(\.prompt).joined(separator: " ") : QuestionCardRow.receipt(q))
+        setAccessibilityValue(q.isPending ? nil : QuestionCardRow.receipt(q))
+        setAccessibilityRole(q.isPending ? .group : .staticText)
+        // The closed card's question is still a hover away.
+        toolTip = q.isPending ? nil : q.items.map(\.prompt).joined(separator: "\n")
         if fresh { rebuild(q) }
         refreshControls()
         needsLayout = true
@@ -305,6 +314,7 @@ final class QuestionCardView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let q = question else { return }
+        guard q.isPending else { drawReceipt(q); return }
         let p = QuestionCardRow.self
         let inner = bounds.width - 2 * p.padX
         var y = p.padTop
@@ -328,24 +338,31 @@ final class QuestionCardView: NSView {
             }
             y += l.height
         }
+    }
+
+    /// "✓ Machine: 4 GB" (green check) or "○ Answered in chat", the tool rows' column and size.
+    private func drawReceipt(_ q: AgentQuestion) {
         guard let receipt = QuestionCardRow.receipt(q) else { return }
-        // The answer, quiet: a check and the chosen labels.
-        y += 5
-        var x = p.padX
+        let mid = QuestionCardRow.receiptHeight / 2
         let answered: Bool = { if case .answered = q.state { return true }; return false }()
-        let color: NSColor = answered ? .systemGreen : Fixture.secondaryText
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium).applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-        if let img = NSImage(systemSymbolName: answered ? "checkmark.circle.fill" : "xmark.circle", accessibilityDescription: nil)?
+        let tint: NSColor = answered ? .systemGreen : Fixture.secondaryText
+        let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium).applying(NSImage.SymbolConfiguration(paletteColors: [tint]))
+        if let img = NSImage(systemSymbolName: answered ? "checkmark.circle.fill" : "bubble.left", accessibilityDescription: nil)?
             .withSymbolConfiguration(config) {
             let s = img.size
-            img.draw(in: NSRect(x: x, y: (y + (p.receiptHeight - s.height) / 2).rounded(), width: s.width, height: s.height),
+            img.draw(in: NSRect(x: (ChiefToolRowView.glyphX + (14 - s.width) / 2).rounded(), y: (mid - s.height / 2).rounded(),
+                                width: s.width, height: s.height),
                      from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            x += s.width + 5
         }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
         let label = NSAttributedString(string: receipt, attributes: [
-            .font: HomeFonts.system(ofSize: 12, weight: .medium), .foregroundColor: Fixture.secondaryText,
+            .font: QuestionCardRow.receiptFont, .foregroundColor: Fixture.secondaryText, .paragraphStyle: style,
         ])
-        label.draw(at: NSPoint(x: x, y: (y + (p.receiptHeight - label.size().height) / 2).rounded()))
+        let limit = max(0, min(bounds.width, ChiefToolRowView.maxLineWidth) - ChiefToolRowView.textX)
+        let h = label.size().height
+        label.draw(with: NSRect(x: ChiefToolRowView.textX, y: (mid - h / 2).rounded(), width: limit, height: h),
+                   options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
     // MARK: Input

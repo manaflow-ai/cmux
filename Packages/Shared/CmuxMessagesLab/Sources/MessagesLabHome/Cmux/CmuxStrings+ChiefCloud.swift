@@ -11,9 +11,9 @@ extension CmuxStrings {
     static var questionSubmit: String {
         String(localized: "home.question.submit", defaultValue: "Submit", table: "CmuxHome", bundle: .module)
     }
-    /// The answered card's receipt: "Chose 8 GB".
-    static func questionChose(_ choice: String) -> String {
-        String(localized: "home.question.chose", defaultValue: "Chose \(choice)", table: "CmuxHome", bundle: .module)
+    /// A Chief question card the user answered by writing instead (the receipt row).
+    static var questionAnsweredInChat: String {
+        String(localized: "home.question.answeredInChat", defaultValue: "Answered in chat", table: "CmuxHome", bundle: .module)
     }
     static var questionCancelled: String {
         String(localized: "home.question.cancelled", defaultValue: "Cancelled", table: "CmuxHome", bundle: .module)
@@ -42,6 +42,19 @@ extension CmuxStrings {
     }
     static var cloudStatusReady: String {
         String(localized: "home.cloud.status.ready", defaultValue: "Ready", table: "CmuxHome", bundle: .module)
+    }
+    /// The result card's state while the agent waits for the user to sign in.
+    static var cloudStatusNeedsSignIn: String {
+        String(localized: "home.cloud.status.needsSignIn", defaultValue: "Needs sign-in", table: "CmuxHome", bundle: .module)
+    }
+    /// The result card's secondary action: pause the machine (the Chief asks first).
+    static var cloudStopMachine: String {
+        String(localized: "home.cloud.stopMachine", defaultValue: "Stop Machine", table: "CmuxHome", bundle: .module)
+    }
+    /// What the Stop Machine button sends the Chief: the machine's name and its id.
+    static func cloudStopMachineRequest(_ name: String, _ machine: String) -> String {
+        String(localized: "home.cloud.stopMachineRequest", defaultValue: "Stop cloud machine \(name) (\(machine))",
+               table: "CmuxHome", bundle: .module)
     }
     static var cloudStatusFailed: String {
         String(localized: "home.cloud.status.failed", defaultValue: "Failed", table: "CmuxHome", bundle: .module)

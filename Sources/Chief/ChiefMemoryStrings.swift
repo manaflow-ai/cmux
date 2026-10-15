@@ -31,17 +31,21 @@ enum ChiefMemoryStrings {
     static var emptyDocument: String {
         String(localized: "chief.memory.sheet.emptyDocument", defaultValue: "Nothing here yet. Click Edit to write it.")
     }
+    /// The empty notes pane: how a note gets there.
     static var emptyNotes: String {
-        String(localized: "chief.memory.sheet.emptyNotes",
-               defaultValue: "No notes yet. Chief saves a note when it learns something worth keeping.")
+        String(localized: "chief.memory.sheet.emptyNotesHint",
+               defaultValue: "No notes yet. Ask Chief to remember something, like “Remember that I prefer Codex for backend work.”")
     }
     static func updated(_ relative: String) -> String {
         String(format: String(localized: "chief.memory.sheet.updated", defaultValue: "Updated %@"), relative)
     }
-    /// Who saved a note: Chief through the CLI, the user in the app, or another tag shown as is.
+    /// Who saved a note: Chief in a turn (`chief`), someone running `cmux chief memory add` in a
+    /// terminal (`cli`; notes Chief saved before turns were told apart carry it too, so it names
+    /// the command line, not a person), the user in the app (`app`), or another tag shown as is.
     static func source(_ tag: String) -> String {
         switch tag {
-        case "cli": String(localized: "chief.memory.source.chief", defaultValue: "Saved by Chief")
+        case "chief": String(localized: "chief.memory.source.chief", defaultValue: "Saved by Chief")
+        case "cli": String(localized: "chief.memory.source.cli", defaultValue: "Saved from the command line")
         case "app": String(localized: "chief.memory.source.you", defaultValue: "Saved by you")
         default: tag
         }

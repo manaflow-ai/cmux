@@ -49,6 +49,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// cmux-classic: an approval card waits for the user (HomeProjection+Approval.swift).
     var isWaitingForApproval = false
     var onWaitingForApprovalChange: (Bool) -> Void = { _ in }
+    /// cmux-classic: approval cards answered here whose decision HomeStore has not shown yet: they no longer
+    /// wait, so "Waiting for you" leaves with the click (HomeProjection+Approval.swift).
+    var answeredApprovals: Set<PartRef> = []
 
     // Attachments (lane 16): the host owns the intake (picker, paste and
     // drop checks, preparing through HomeStore, notices); the chips, the

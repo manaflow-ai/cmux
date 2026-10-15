@@ -1,0 +1,44 @@
+import CmuxChief
+import Foundation
+import Testing
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// The v3f copy fixes around Chief: the workspace sidebar drops a subtitle that only repeats the
+/// title, Settings' Activity names the harness and prints no path, the memory sheet tells a
+/// note Chief saved from one typed in a terminal, and a turn tells the CLI it is Chief's.
+@MainActor @Suite struct ChiefListAndSettingsCopyTests {
+    @Test func aSubtitleThatOnlyRepeatsTheTitleIsDropped() {
+        let echo: [String] = SidebarWorkspaceSnapshotFactory.droppingTitleEcho(["~"], title: "~")
+        #expect(echo.isEmpty)
+        #expect(SidebarWorkspaceSnapshotFactory.droppingTitleEcho(["~"], title: "Build") == ["~"])
+        #expect(SidebarWorkspaceSnapshotFactory.droppingTitleEcho(["~/src", "src"], title: "src") == ["~/src", "src"])
+        let none: [String] = SidebarWorkspaceSnapshotFactory.droppingTitleEcho([], title: "~")
+        #expect(none.isEmpty)
+    }
+
+    @Test func activityNamesTheHarnessAndPrintsNoPath() {
+        #expect(ChiefSettingsStrings.harnessName("claude") == CmuxChief.ChiefHarness.claude.displayName)
+        #expect(ChiefSettingsStrings.harnessName("codex") == CmuxChief.ChiefHarness.codex.displayName)
+        #expect(ChiefSettingsStrings.harnessName("other") == "other")
+        #expect(!ChiefSettingsStrings.runsOnThisMac(temporary: false).contains("/"))
+        #expect(!ChiefSettingsStrings.runsOnThisMac(temporary: true).contains("/"))
+        #expect(ChiefSettingsStrings.runsOnThisMac(temporary: true) != ChiefSettingsStrings.runsOnThisMac(temporary: false))
+    }
+
+    @Test func memorySourcesTellChiefFromTheCommandLine() {
+        #expect(ChiefMemoryStrings.source("chief") != ChiefMemoryStrings.source("cli"))
+        #expect(ChiefMemoryStrings.source("cli") != "cli")
+        #expect(ChiefMemoryStrings.source("app") != ChiefMemoryStrings.source("chief"))
+        #expect(ChiefMemoryStrings.source("plugin") == "plugin")
+    }
+
+    @Test func aTurnTellsTheCLIItIsChiefs() {
+        let home = ChiefHome(root: URL(fileURLWithPath: "/tmp/chief-home", isDirectory: true))
+        let environment = ChiefTurnContextBuilder.environment(socketPath: "/tmp/cmux.sock", home: home, base: [:])
+        #expect(environment["CMUX_CHIEF_TURN"] == "1")
+    }
+}

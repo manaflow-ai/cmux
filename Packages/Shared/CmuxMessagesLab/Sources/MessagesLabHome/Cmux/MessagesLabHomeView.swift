@@ -120,6 +120,7 @@ public final class MessagesLabHomeView: NSView {
             // process-wide theme was set would keep the one it was made with.
             controller.demo?.backgroundColor = Fixture.background
             controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
+            controller.host.fieldChrome.applyGlassTint(FieldChrome.glassTint(light: theme.active.isLight, background: theme.active.background))
             controller.host.paneHeader.light = theme.active.isLight
         }
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
@@ -485,10 +486,21 @@ public final class MessagesLabHomeView: NSView {
     }
 
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points
-    /// through AppKit's scroll view.
+    /// through AppKit's scroll view. cmux-classic: within the content (the oldest
+    /// loaded row under the header to the pin), as a wheel stops there; the clip
+    /// view's `scroll(to:)` does not constrain, and `--dy 2000` showed a blank
+    /// transcript past the last row. It chooses a place as the person's scroll does.
     public func debugScroll(by dy: CGFloat) {
         guard let demo = controller.demo else { return }
-        controller.host.scrollView.scroll(toModelOffset: demo.collection.contentOffset.y + dy)
+        let y = Self.clampedScrollOffset(demo.collection.contentOffset.y + dy, min: demo.minOffset, max: demo.pinnedOffset)
+        controller.host.scrollView.scroll(toModelOffset: y)
+        controller.host.noteChosenPlace()
+    }
+
+    /// `y` within `min ... max` (`min` when the range is empty or not finite). Pure, for tests.
+    static func clampedScrollOffset(_ y: CGFloat, min lo: CGFloat, max hi: CGFloat) -> CGFloat {
+        guard y.isFinite, lo.isFinite, hi.isFinite else { return lo.isFinite ? lo : 0 }
+        return Swift.min(Swift.max(y, lo), Swift.max(lo, hi))
     }
 
     /// Returns when every bubble picture asked for so far is ready (tests).

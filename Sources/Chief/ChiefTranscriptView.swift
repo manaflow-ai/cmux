@@ -295,6 +295,8 @@ final class ChiefTranscriptView: NSView {
             // (HomeProjection.applyApprovalWait), so this line steps aside.
             workingStatus.show(since: ChiefService.shared.hasPendingApproval(id) ? nil : start)
             if workingStatus.isShown != wasShown { needsLayout = true }
+            // The newest row clears the working line by `workingLineRoom` more (v3f b1: it sat 4 pt under the bubble).
+            transcript.transcriptBottomInset = workingStatus.isShown ? Self.workingLineRoom : 0
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.observeService()
@@ -365,6 +367,8 @@ final class ChiefTranscriptView: NSView {
 
     /// The header band's strongest alpha: 15 pt text under it falls below 3:1 against the band.
     static let headerBandAlpha: CGFloat = 0.94
+    /// The room the transcript adds under its newest row while "Working · Ns" shows above the field.
+    static let workingLineRoom: CGFloat = 6
     /// How far the header band reaches: solid past the model line under the pill (its 16 pt line),
     /// then an 18 pt fade (MessagesLab's `HostView.solidFadeLength`).
     static var headerBandExtent: CGFloat { ChiefSettingsBrainHint.top + 16 + 18 }
@@ -389,6 +393,8 @@ final class ChiefTranscriptView: NSView {
                                      revealsWhenScrolled: true) { shown in
                 NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.15 : (shown ? 0.2 : 0.3)
             }
+            // The same band under the field over rows scrolled beneath it (v3f k1: a bubble showed through the composer).
+            transcript.setFooterFade(color: theme.opaqueBackground, maxAlpha: Self.headerBandAlpha)
         }
         applyAvatar()
         firstRun.apply(theme)
@@ -510,7 +516,11 @@ final class ChiefTranscriptView: NSView {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = animated ? 0.28 : 0
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
+            // Only the three frames below animate. Implicit animation also animated the transcript's own
+            // layout inside the group (its clip view's scroll origin among them): the clip then moved on its
+            // own after the transcript had pinned it, the move read as the person's scroll and dropped the
+            // pin, and later turns landed below the composer (v3f light-k).
+            context.allowsImplicitAnimation = false
             settingsPanel.animator().frame = panelFrame(open: open)
             transcript?.animator().frame = transcriptFrame(open: open)
             brainHint.label.animator().frame = brainHint.frame(in: transcriptFrame(open: open))

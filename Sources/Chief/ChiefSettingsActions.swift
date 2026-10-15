@@ -41,8 +41,14 @@ extension ChiefService {
         }
     }
 
-    /// The Chief home's path for display, `~` for the user's home.
+    /// The Chief home's path for display, `~` for the user's home (the Show in Finder link's tooltip).
     var homeDisplayPath: String? {
         home.map { ($0.root.path as NSString).abbreviatingWithTildeInPath }
+    }
+
+    /// Shows the Chief home folder in Finder.
+    func revealHome() {
+        guard let home else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([home.root])
     }
 }

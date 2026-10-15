@@ -10,7 +10,7 @@ import AppKit
 /// (terminal, document, pencil, magnifying glass, globe), the 11.5 pt text is
 /// secondary-label grey with only the command monospaced (one line, cut at a
 /// word with a trailing ellipsis), and the trailing glyph is the state: a 10 pt
-/// spinner while running, a tertiary checkmark when done, a red xmark when it
+/// spinner while running, a secondary checkmark when done, a red xmark when it
 /// failed ("Failed cmux tree --all ✗"). A call the user allowed on its approval
 /// card says so on its own line ("Ran cmux chief dispatch … · Allowed ✓"; the
 /// card's receipt is this row), and `cmux chief dispatch` reads as what it did
@@ -87,7 +87,7 @@ final class ChiefToolRowProvider: TranscriptCustomRowProvider {
 }
 
 /// The tool row's view: drawn text and glyphs, a spinner per running call.
-final class ChiefToolRowView: NSView {
+final class ChiefToolRowView: ChiefDrawnRowView {
     private var tools: ChiefRows.Tools?
     private var expanded = false
     private var context: CustomRowContext?
@@ -106,13 +106,10 @@ final class ChiefToolRowView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
     }
     required init?(coder: NSCoder) { nil }
-    override var isFlipped: Bool { true }
 
     func reset() {
         tools = nil
@@ -160,8 +157,43 @@ final class ChiefToolRowView: NSView {
     // MARK: Text
 
     private var secondary: NSColor { Fixture.secondaryText }
-    /// The done checkmark: quieter than the text (a tertiary label).
-    private var tertiary: NSColor { Fixture.secondaryText.withAlphaComponent(0.55) }
+    /// The done checkmark: the secondary label colour, at least 3:1 against the pane (a 0.55 alpha
+    /// tertiary read as nearly invisible, v3f c-turn-done).
+    private var doneColor: NSColor { Self.checkColor(secondary: Fixture.secondaryText, background: Fixture.background) }
+
+    /// The least contrast of the done checkmark against the pane (WCAG non-text contrast).
+    static let checkMinContrast: CGFloat = 3
+
+    /// `secondary`, moved toward black on a light `background` or white on a dark one until it
+    /// has `checkMinContrast` against it. Pure, for tests.
+    static func checkColor(secondary: NSColor, background: NSColor) -> NSColor {
+        let bg = background.usingColorSpace(.sRGB) ?? NSColor(white: 0.5, alpha: 1)
+        let base = secondary.usingColorSpace(.sRGB) ?? NSColor(white: 0.5, alpha: 1)
+        let toward: NSColor = luminance(bg) > 0.5 ? .black : .white
+        var color = base.withAlphaComponent(1)
+        var step: CGFloat = 0
+        while contrast(color, bg) < checkMinContrast, step < 1 {
+            step = min(1, step + 0.05)
+            color = base.withAlphaComponent(1).blended(withFraction: step, of: toward) ?? toward
+        }
+        return color
+    }
+
+    /// WCAG relative luminance of an sRGB colour (alpha ignored).
+    static func luminance(_ c: NSColor) -> CGFloat {
+        let s = c.usingColorSpace(.sRGB) ?? NSColor(white: 0.5, alpha: 1)
+        func lin(_ v: CGFloat) -> CGFloat { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        let r: CGFloat = 0.2126 * lin(s.redComponent)
+        let g: CGFloat = 0.7152 * lin(s.greenComponent)
+        let b: CGFloat = 0.0722 * lin(s.blueComponent)
+        return r + g + b
+    }
+
+    /// WCAG contrast ratio of two colours.
+    static func contrast(_ a: NSColor, _ b: NSColor) -> CGFloat {
+        let la = luminance(a), lb = luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
     private var codeColor: NSColor { Fixture.incomingText.withAlphaComponent(Fixture.lightAppearance ? 0.78 : 0.72) }
     private static let font = HomeFonts.system(ofSize: 11.5)
     private static let listFont = HomeFonts.system(ofSize: 11)
@@ -349,7 +381,7 @@ final class ChiefToolRowView: NSView {
         let image: NSImage?
         switch state {
         case .running: return  // a spinner view (rebuild)
-        case .done: image = symbol("checkmark", size: small ? 8.5 : 9, weight: .semibold, color: tertiary)
+        case .done: image = symbol("checkmark", size: small ? 9 : 10, weight: .bold, color: doneColor)
         case .failed: image = symbol("xmark", size: small ? 8.5 : 9, weight: .bold, color: .systemRed)
         }
         guard let image else { return }

@@ -18,30 +18,44 @@ extension HomeProjection {
                                        answer: ChiefApprovalAnswer.answer(choice: choice, always: always))
         let intent = HomeIntent(op: op)
         let homeStore = self.homeStore
+        // The decision ends the wait now: the status line, the header's status and the field's placeholder
+        // leave with the click, not with the owner's answer (a refusal brings them back).
+        answeredApprovals.insert(ref)
+        applyApprovalWait()
         // task-owner: one op; ends with the owner's answer
         Task { [weak self] in
             do {
                 _ = try await homeStore.perform(intent.op, key: intent.key)
                 completion(true)
             } catch let rejection as HomeRejection {
+                self?.answerFailed(ref)
                 completion(false)
                 self?.onRefusal(intent, rejection)
             } catch {
+                self?.answerFailed(ref)
                 completion(false)
             }
         }
     }
 
+    /// The answer did not reach the owner: the card waits again.
+    private func answerFailed(_ ref: PartRef) {
+        guard answeredApprovals.remove(ref) != nil else { return }
+        applyApprovalWait()
+    }
+
     /// The newest approval card still waiting, among the shown messages (a scan of the raw parts;
     /// only a found card's message is projected, for its part index).
+    /// A card answered here (`answeredApprovals`) no longer waits, though HomeStore has not shown its decision yet.
     func newestPendingApproval() -> (ref: PartRef, approval: ChiefRows.Approval)? {
         for item in shown.reversed() where !item.isRetracted {
             for (homeIndex, part) in item.parts.enumerated() {
                 guard case .approval(let ref) = part, ref.decided == nil else { continue }
                 let owners = HomeMapping.projectedParts(item, summary: shownSummary).owners
+                let shownRef = PartRef(messageId: HomeMapping.id(item, aliases: aliases), partIndex: HomeMapping.projectedIndex(homeIndex, owners))
+                if answeredApprovals.contains(shownRef) { continue }
                 let agent = shownSummary?.participants.first { $0.id == item.author }?.displayName
-                return (PartRef(messageId: HomeMapping.id(item, aliases: aliases), partIndex: HomeMapping.projectedIndex(homeIndex, owners)),
-                        ChiefRows.Approval(ref, agent: agent))
+                return (shownRef, ChiefRows.Approval(ref, agent: agent))
             }
         }
         return nil

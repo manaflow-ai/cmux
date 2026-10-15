@@ -189,7 +189,7 @@ public struct ChiefMemory: Sendable {
     ///
     /// - Parameters:
     ///   - text: The fact; newlines and runs of spaces collapse to one space.
-    ///   - source: Who saved it (`cli`, `app`, ...).
+    ///   - source: Who saved it (`chief` in a turn, `cli` from a terminal, `app`, ...).
     /// - Returns: The saved fact with its new id.
     /// - Throws: ``ChiefMemoryError`` when the text is empty, too long, looks like a secret, or the write fails.
     @discardableResult

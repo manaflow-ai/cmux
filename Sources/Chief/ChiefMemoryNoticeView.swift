@@ -10,8 +10,8 @@ import CmuxHomeCore
 /// to the owner, for the conversation whose turn saved it, or the one on screen
 /// when no Chief works
 /// (``ChiefService/noteMemorySaved(_:in:)``). The owner posts a note's row once,
-/// after the turn's last message when one runs ("Chief will remember: …"), at
-/// once otherwise ("Saved to memory: …"). Undo is on the row
+/// after the turn's last message when one runs, at once otherwise; both read
+/// "Chief will remember: …". Undo is on the row
 /// (``ChiefService/undoMemory(_:in:)``).
 @MainActor
 final class ChiefMemoryNoticeRelay {

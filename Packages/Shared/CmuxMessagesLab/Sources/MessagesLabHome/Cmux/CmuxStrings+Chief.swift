@@ -44,6 +44,18 @@ extension CmuxStrings {
     static func dispatchStarting(_ subject: String) -> String {
         String(localized: "home.tool.dispatch.starting", defaultValue: "Starting \(subject)", table: "CmuxHome", bundle: .module)
     }
+    /// `cmux chief dispatch` asked for in an approval card, in the list's preview: "Start Codex in “Scratch”".
+    static func dispatchStart(_ subject: String) -> String {
+        String(localized: "home.tool.dispatch.start", defaultValue: "Start \(subject)", table: "CmuxHome", bundle: .module)
+    }
+    /// A conversation's list preview while an approval card waits: "Needs your approval: Start Codex in “Scratch”".
+    static func previewNeedsApproval(_ subject: String) -> String {
+        String(localized: "home.preview.needsApproval", defaultValue: "Needs your approval: \(subject)", table: "CmuxHome", bundle: .module)
+    }
+    /// A conversation's list preview while a question card waits: "Needs your answer: Which machine size?".
+    static func previewNeedsAnswer(_ question: String) -> String {
+        String(localized: "home.preview.needsAnswer", defaultValue: "Needs your answer: \(question)", table: "CmuxHome", bundle: .module)
+    }
     static func dispatchStarted(_ subject: String) -> String {
         String(localized: "home.tool.dispatch.started", defaultValue: "Started \(subject)", table: "CmuxHome", bundle: .module)
     }
@@ -178,12 +190,9 @@ extension CmuxStrings {
     static var failureRole: String {
         String(localized: "home.failure.role", defaultValue: "error", table: "CmuxHome", bundle: .module)
     }
-    /// A saved memory note's row: during a turn, outside one, and after Undo.
+    /// A saved memory note's row, saved during a turn or outside one (one wording for both), and after Undo.
     static func memoryWillRemember(_ note: String) -> String {
         String(localized: "home.memory.willRemember", defaultValue: "Chief will remember: \(note)", table: "CmuxHome", bundle: .module)
-    }
-    static func memorySaved(_ note: String) -> String {
-        String(localized: "home.memory.saved", defaultValue: "Saved to memory: \(note)", table: "CmuxHome", bundle: .module)
     }
     static func memoryForgotten(_ note: String) -> String {
         String(localized: "home.memory.forgotten", defaultValue: "Removed from memory: \(note)", table: "CmuxHome", bundle: .module)

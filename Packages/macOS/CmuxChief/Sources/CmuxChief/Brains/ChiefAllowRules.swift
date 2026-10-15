@@ -14,6 +14,8 @@ import Foundation
 /// interpreter, a deleting program, `git config`, `npx`, `npm exec|run`,
 /// `make`, or the `cmux` groups that run commands or answer for the user
 /// (`vm`, `cloud`, `chief`, `browser`, `send*`; ``isEligible(program:subcommand:)``).
+/// One exception names its target: `cmux vm exec <machine>` (``vmExecRule(_:)``) runs
+/// any command on that one Cloud machine, the user's own sandbox, and never another's.
 /// The brains put a card's rule in its options (``ChiefToolPolicy/approvalOptions(command:)``);
 /// Home's card offers exactly that rule and never derives one itself.
 public final class ChiefAllowRules: @unchecked Sendable {
@@ -39,7 +41,7 @@ public final class ChiefAllowRules: @unchecked Sendable {
         guard file != url else { return }
         file = url
         let stored = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
-        for rule in stored?.rules ?? [] where (2...3).contains(rule.count) && !rules.contains(rule) { rules.append(rule) }
+        for rule in stored?.rules ?? [] where (2...4).contains(rule.count) && !rules.contains(rule) { rules.append(rule) }
     }
 
     /// The rules now.
@@ -124,6 +126,9 @@ public final class ChiefAllowRules: @unchecked Sendable {
     /// for a `cmux` group with one rule-eligible verb (``cmuxGroupVerbs``: `cmux chief dispatch`)
     /// the three words; nil when no rule may cover it.
     static func ruleWords(_ words: [String]) -> [String]? {
+        if words.count >= 3, words[0] == "cmux", ["vm", "cloud"].contains(words[1]), words[2] == "exec" {
+            return vmExecRule(words)
+        }
         guard words.count >= 2, isEligible(program: words[0], subcommand: words[1]) || words[0] == "cmux" else { return nil }
         guard words[0] == "cmux" else { return [words[0], words[1]] }
         if words.dropFirst().contains(where: ChiefToolPolicy.cmuxWordAsks) { return nil }
@@ -131,6 +136,40 @@ public final class ChiefAllowRules: @unchecked Sendable {
             return words.count >= 3 && verbs.contains(words[2]) ? Array(words.prefix(3)) : nil
         }
         return isEligible(program: words[0], subcommand: words[1]) ? [words[0], words[1]] : nil
+    }
+
+    /// The rule for `cmux vm|cloud exec [--timeout <s>] [--json] <machine> [-- <command…>]`:
+    /// `cmux vm exec <machine>`, the machine named, so allowing probes on one machine never
+    /// covers another machine or any other `vm` verb. The remote command runs on that machine
+    /// (its own sandbox) and is not checked word by word, except that it may not call `cmux`
+    /// there (a machine's `cmux vm` reaches the user's other machines). Nil for any other shape.
+    static func vmExecRule(_ words: [String]) -> [String]? {
+        guard words.count >= 4, words[0] == "cmux", ["vm", "cloud"].contains(words[1]), words[2] == "exec" else { return nil }
+        var index = 3
+        while index < words.count, words[index].hasPrefix("-"), words[index] != "--" {
+            switch words[index] {
+            case "--timeout":
+                guard index + 1 < words.count, Int(words[index + 1]) != nil else { return nil }
+                index += 2
+            case "--json":
+                index += 1
+            default:
+                return nil
+            }
+        }
+        guard index < words.count else { return nil }
+        let machine = words[index]
+        guard machine.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"#, options: .regularExpression) != nil else { return nil }
+        let remote = words.dropFirst(index + 1)
+        guard remote.isEmpty || remote.first == "--" else { return nil }
+        guard !remote.contains(where: callsCmux) else { return nil }
+        return ["cmux", "vm", "exec", machine]
+    }
+
+    /// Whether a remote word runs `cmux` (`cmux …`, `/usr/local/bin/cmux …`, `x; cmux …` inside
+    /// `sh -c`), not merely names its home (`HOME=/home/cmux`, `/home/cmux/work`).
+    static func callsCmux(_ word: String) -> Bool {
+        word.range(of: #"(^|[\s;&|(`])([^\s=;&|(`]*/)?cmux($|[\s;&|)`])"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// `cmux` groups whose rule names the verb too, so allowing `cmux chief dispatch` never

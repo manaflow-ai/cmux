@@ -88,6 +88,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// cmux-classic: a typing indicator that goes away leaves at once, with no fade (the Chief's turn ended,
     /// failed or waits on an approval card: the faded ghost lingered under the card and the last bubble).
     var cmuxTypingOffAtOnce = false
+    /// cmux-classic: the host's status line (ask 9's `.notice` row) leaves at once when it goes away: no fade and no
+    /// ghost row (Home's "Waiting for you" after an approval is decided stayed drawn faintly under the next rows).
+    var cmuxNoticeOffAtOnce = false
+    /// cmux-classic: room under the newest row for a line the host draws over the transcript's bottom (Chief's
+    /// "Working · Ns"), added to the bottom pad; 0: none. A change keeps the bottom pinned, or the first visible row in place.
+    var cmuxBottomInset: CGFloat = 0 { didSet { if cmuxBottomInset != oldValue { cmuxApplyBottomInset() } } }
     /// The host's hooks (HostHooks.swift); all off by default. A new hook set reports changes from the selection now.
     var hostHooks = HostHooks() { didSet { hostSelectionReported = hostSelection } }
     /// HostHooks.swift: the focused message (ask 10) and the selection last reported to the host.
@@ -185,7 +191,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         compose.layer.sublayers?.forEach { $0.removeAllAnimations() }
         compose.textView.layer.removeAllAnimations()
         layoutFrames()
-        layout.bottomPad = bounds.height - anchorY
+        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset  // cmux-classic
         initialRows()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -554,7 +560,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 }
             }
         }
-        layout.bottomPad = bounds.height - anchorY
+        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset  // cmux-classic
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
         restore(anchor, widthPass: ranWidthPass)
@@ -584,6 +590,23 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         CATransaction.commit()
     }
 
+    /// cmux-classic: `cmuxBottomInset` changed: the bottom pad follows at once. Pinned, the newest row moves up (or
+    /// down) with the pad, and a sent bubble still flying moves with the rows; scrolled up, the first visible row stays.
+    private func cmuxApplyBottomInset() {
+        guard laidOutSize != .zero else { return }
+        let anchor = visibleAnchor()
+        let oldOffset = collection.contentOffset.y
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset
+        _ = layout.rebaseIfNeeded(force: true)
+        layout.invalidateLayout()
+        restore(anchor)
+        let d = collection.contentOffset.y - oldOffset
+        if abs(d) > 0.001 { for mb in morphs.values { mb.scroll(by: d) } }
+        CATransaction.commit()
+        onWidthPass()
+    }
+
     /// the width this view's rows were derived for.
     private var rowsWidth: CGFloat = 0
     /// The display frame after a width pass: a width change that waited runs its pass now, at
@@ -599,7 +622,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         widthPass(changed: true)
         widthPassInFrame = true
         schedule { [weak self] in self?.widthTick() }
-        layout.bottomPad = bounds.height - anchorY
+        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset  // cmux-classic
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
         restore(anchor, widthPass: true)
@@ -966,6 +989,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                     if d.cut > 0 { rows = model.rows.lazy.filter { !$0.ghost }.prefix(d.cut).map(\.spec) + d.tail }
                     model.set(rows, at: t, ghosts: animate)
                 }
+                // cmux-classic: the host's status line leaves with no ghost (cmuxNoticeOffAtOnce).
+                if cmuxNoticeOffAtOnce { model.cmuxDropGhosts { if case .notice = $0.kind { return true }; return false } }
                 phase("modelSet")
             }
         }
@@ -985,7 +1010,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             phase("caCommit")
             return
         }
-        layout.bottomPad = bounds.height - anchorY
+        layout.bottomPad = bounds.height - anchorY + cmuxBottomInset  // cmux-classic
         let rebase = layout.rebaseIfNeeded()
 
         // Offset: pinned stays pinned; otherwise the first visible row keeps

@@ -61,11 +61,11 @@ enum ChiefSettingsStrings {
         String(localized: "chief.settings.lastTurn.none", defaultValue: "No turn yet in this session.")
     }
 
-    /// "Last turn: claude · Opus 5.5 · 3.1 s · 2 tool calls · 64% cached".
+    /// "Last turn: Claude Code · Opus 5.5 · 3.1 s · 2 tool calls · 64% cached".
     static func lastTurn(_ stats: ChiefTurnStats) -> String {
         var parts: [String] = []
         if let engine = stats.engine {
-            parts.append(engine.harness)
+            parts.append(harnessName(engine.harness))
             parts.append(modelName(engine.model, harness: engine.harness))
         }
         // "3.1s", in the locale's own unit style.
@@ -86,11 +86,23 @@ enum ChiefSettingsStrings {
                       parts.joined(separator: " · "))
     }
 
+    /// A harness id as the pickers name it ("claude" is "Claude Code"); an unknown id as written.
+    static func harnessName(_ id: String) -> String {
+        CmuxChief.ChiefHarness(rawValue: id)?.displayName ?? id
+    }
+
     // MARK: Where it runs
 
-    /// "Runs on this Mac (~/.cmux/chief/com.cmuxterm.app)."
-    static func runsOnThisMac(_ path: String) -> String {
-        String(format: String(localized: "chief.settings.runsOnThisMac", defaultValue: "Runs on this Mac (%@)."), path)
+    /// Where the brain runs, in plain words: the folder is behind Show in Finder (its path in the
+    /// tooltip), never printed (design references, `topics/settings.md`: plain labels, no paths).
+    /// A scripted DEBUG run's fresh temporary home says so instead of naming a temporary folder.
+    static func runsOnThisMac(temporary: Bool) -> String {
+        temporary
+            ? String(localized: "chief.settings.runsOnThisMac.temporary", defaultValue: "Runs on this Mac. Temporary (scripted).")
+            : String(localized: "chief.settings.runsOnThisMac.plain", defaultValue: "Runs on this Mac.")
+    }
+    static var showInFinder: String {
+        String(localized: "chief.settings.showInFinder", defaultValue: "Show in Finder")
     }
     static var showTranscriptLog: String {
         String(localized: "chief.settings.showTranscriptLog", defaultValue: "Show Transcript Log")

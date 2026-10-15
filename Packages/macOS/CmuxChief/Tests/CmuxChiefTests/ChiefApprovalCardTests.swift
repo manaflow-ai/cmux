@@ -44,11 +44,12 @@ import Testing
         #expect(ref.request.hasSuffix(":perm-1") && ref.request != "perm-1")
         #expect(await owner.pendingApproval(in: conversation) == ChiefConversationOwner.PendingApproval(message: card.id, part: 0, ref: ref))
 
-        // No typing dots under a card that waits for the user.
-        let events = await recorder.events
-        let lastTyping = events.last { if case .typing = $0 { return true }; return false }
-        guard case .typing(_, _, on: let on)? = lastTyping else { Issue.record("no typing event"); return }
-        #expect(on == false)
+        // No typing dots under a card that waits for the user (the recorder hears events on its own task).
+        #expect(await ChiefFixture.eventually {
+            let lastTyping = await recorder.events.last { if case .typing = $0 { return true }; return false }
+            guard case .typing(_, _, on: let on)? = lastTyping else { return false }
+            return on == false
+        })
 
         // Home's answer: answerQuestion on the approval part.
         try await owner.submit(HomeIntent(op: .answerQuestion(message: card.id, conversation: conversation, partIndex: 0,
@@ -153,7 +154,8 @@ import Testing
         // cmux groups that run commands, type or answer for the user
         ("cmux send --workspace workspace:2 hi", nil),
         ("cmux send-key --workspace workspace:2 enter", nil),
-        ("cmux vm exec brave-otter -- id", nil),
+        // `vm exec` gets a rule for its one machine (ChiefAllowRules.vmExecRule).
+        ("cmux vm exec brave-otter -- id", ["cmux", "vm", "exec", "brave-otter"]),
         ("cmux vm run brave-otter id", nil),
         ("cmux vm ls", nil),
         ("cmux vm new --detach", nil),

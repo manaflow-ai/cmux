@@ -101,16 +101,32 @@ extension HostView {
     var headerBandHeight: CGFloat { max(headerBackdrop.totalHeight, headerFadeExtent ?? 0) }
 
     /// Whether the band shows: the pointer is near the top, or (when the host asked for it)
-    /// rows lie under the header. Pure, for tests.
-    static func headerRevealed(hovered: Bool, revealsWhenScrolled: Bool, distanceToTop: CGFloat) -> Bool {
-        hovered || (revealsWhenScrolled && distanceToTop > 0.5)
+    /// a row lies under the band: the oldest row's top (`rowsTop`, this view's y; nil without
+    /// rows) is above the band's bottom (`band`). Pure, for tests.
+    static func headerRevealed(hovered: Bool, revealsWhenScrolled: Bool, rowsTop: CGFloat?, band: CGFloat) -> Bool {
+        guard !hovered else { return true }
+        guard revealsWhenScrolled, let rowsTop else { return false }
+        return rowsTop < band - 0.5
     }
 
-    /// Shows or hides the band for the pointer and the scroll position.
+    /// The oldest row's top in this view (nil without rows): from the transcript's own geometry,
+    /// so it is right after a scroll, a new row pushing the others up, a width pass (a panel
+    /// opening beside the pane) and a height change alike.
+    var transcriptRowsTop: CGFloat? {
+        guard let demo, demo.model.count > 0 else { return nil }
+        let y = demo.windowY(contentY: demo.layout.rowsTop) + demo.frame.minY
+        return y.isFinite ? y : nil
+    }
+
+    /// Shows or hides the band for the pointer and the rows under it. cmux-classic: called on every
+    /// scroll, every engine change (`ChatController.afterEngine`) and every layout
+    /// (`placeNativeViews`), not only on scroll events: rows that grew under the header with no
+    /// scroll left the avatar, pill and model line over bubble text.
     func applyHeaderReveal() {
+        applyFooterFade()  // the band under the field follows the same changes (FooterFade.swift)
         guard headerBackdrop.topFade != nil else { return }
-        let distance = demo?.windowGeometry.distanceToTop ?? 0
-        let shown = Self.headerRevealed(hovered: headerHovered, revealsWhenScrolled: headerRevealsWhenScrolled, distanceToTop: distance)
+        let shown = Self.headerRevealed(hovered: headerHovered, revealsWhenScrolled: headerRevealsWhenScrolled,
+                                        rowsTop: transcriptRowsTop, band: headerBandHeight)
         headerBackdrop.setRevealed(shown, duration: headerFadeDuration(shown))
     }
 

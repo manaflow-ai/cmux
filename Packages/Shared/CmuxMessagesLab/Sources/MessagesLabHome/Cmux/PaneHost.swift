@@ -58,6 +58,8 @@ final class HostView: NSView {
     let fieldChrome = FieldChrome()
     /// The blurred, darkened transcript under the header controls.
     let headerBackdrop = HeaderBackdropView(frame: .zero)
+    /// cmux-classic: the band under the compose field over rows scrolled beneath it (FooterFade.swift).
+    let footerFade = FooterFadeView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
     let paneHeader = PaneHeaderView(frame: .zero)
     private(set) var demo: MessagesWindowView?
@@ -102,6 +104,7 @@ final class HostView: NSView {
         addSubview(scrollView)
         addSubview(headerBackdrop)
         addSubview(selectionHost)
+        addSubview(footerFade)  // cmux-classic: over the rows and their hosted views, under the morph and the field
         if let c = controller { selectionHost.root.addSublayer(c.selection.layer) }
         addSubview(morphHost)
         morphHost.root.addSublayer(demo.morphView.layer)
@@ -140,6 +143,10 @@ final class HostView: NSView {
 
     override func layout() {
         super.layout()
+        // cmux-classic: a size change keeps the newest row on the field when the person was following it
+        // (PaneHost+Follow.swift).
+        let sizeChanged = followSize != bounds.size
+        if sizeChanged { followSize = bounds.size; lastSizeChange = CACurrentMediaTime() }
         for v in [below, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let demo, demo.frame != bounds {
@@ -158,6 +165,7 @@ final class HostView: NSView {
         // in the window can change with no size change of the window view (RowCell.windowPlace).
         refreshWindowPlace()
         CATransaction.commit()
+        if sizeChanged { keepFollowingNewest(sizeChanged: true) }
         placeNativeViews()
     }
 
@@ -182,6 +190,8 @@ final class HostView: NSView {
         if headerZoneArea?.rect.width != bounds.width { updateHeaderZone() }
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
+        // cmux-classic: the band follows the rows' geometry after every layout and width pass (HeaderFade.swift).
+        applyHeaderReveal()
     }
 
     /// Height of the header area over the content. cmux: the in-pane
@@ -268,6 +278,11 @@ final class HostView: NSView {
     var headerRevealsWhenScrolled = false
     var headerFadeExtent: CGFloat?
     var headerFadeDuration: (Bool) -> TimeInterval = { _ in 0 }
+    /// cmux-classic: the person chose the newest row (their last scroll ended there, or a send pinned
+    /// it), the size of the last layout, and when it last changed (PaneHost+Follow.swift).
+    var followsNewest = true
+    var followSize = CGSize.zero
+    var lastSizeChange: CFTimeInterval = 0
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         updateHeaderZone()
@@ -381,6 +396,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
     /// cmux-classic: `MessagesWindowView.cmuxTypingOffAtOnce`, kept here until the window view exists.
     var typingLeavesAtOnce = false { didSet { demo?.cmuxTypingOffAtOnce = typingLeavesAtOnce } }
+    /// cmux-classic: `MessagesWindowView.cmuxBottomInset` (room under the newest row for the host's own line over the
+    /// transcript's bottom), kept here until the window view exists; the native views follow a change.
+    var transcriptBottomInset: CGFloat = 0 {
+        didSet {
+            guard transcriptBottomInset != oldValue, let demo else { return }
+            demo.cmuxBottomInset = transcriptBottomInset
+            afterEngine()
+        }
+    }
     /// cmux-classic: an approval card waits; Stop is the quiet way out (it denies the request).
     var isWaitingForApproval = false { didSet { if isWaitingForApproval != oldValue { updateStopButton() } } }
     var clock: Double { CACurrentMediaTime() - start }
@@ -414,6 +438,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let demo = MessagesWindowView(store: store)
         self.demo = demo
         demo.cmuxTypingOffAtOnce = typingLeavesAtOnce
+        // cmux-classic: "Waiting for you" (HomeProjection.applyApprovalWait) leaves with the decision, no ghost.
+        demo.cmuxNoticeOffAtOnce = true
+        demo.cmuxBottomInset = transcriptBottomInset
         demo.clock = { [weak self] in self?.clock ?? 0 }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
@@ -465,6 +492,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
             self?.intents?.scrolled()
+            // cmux-classic: only the person's own scroll stops the following (PaneHost+Follow.swift).
+            self?.host.noteScrollPosition()
             // cmux-classic: the header's band shows while rows lie under it (HeaderFade.swift).
             self?.host.applyHeaderReveal()
         }
@@ -558,6 +587,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
+        // cmux-classic: keep following the newest row across a size change, and the header's band
+        // follows the rows (new rows push the others under it with no scroll event).
+        host.keepFollowingNewest()
+        host.applyHeaderReveal()
         scheduleWake()
     }
 

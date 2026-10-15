@@ -33,6 +33,28 @@ extension HomeProjection {
         onOpenCloudWorkspace(machine, workspace)
     }
 
+    /// Stop Machine: one message from the user to the Chief ("Stop cloud machine chief-dogfood-1
+    /// (vm-794a…)"), sent like a typed one. The click is the request, not the consent to run it: the
+    /// Chief's `cmux vm pause` shows its approval card, the one confirmation every state change gets.
+    func stopCloudMachine(machine: String, name: String, completion: @escaping (Bool) -> Void) {
+        let text = CmuxStrings.cloudStopMachineRequest(name, machine)
+        let op = HomeOp.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: nil)
+        let intent = HomeIntent(op: op)
+        let homeStore = self.homeStore
+        // task-owner: one send; ends with the owner's answer
+        Task { [weak self] in
+            do {
+                _ = try await homeStore.perform(intent.op, key: intent.key)
+                completion(true)
+            } catch let rejection as HomeRejection {
+                completion(false)
+                self?.onRefusal(intent, rejection)
+            } catch {
+                completion(false)
+            }
+        }
+    }
+
     func retryLastTurn(completion: @escaping (Bool) -> Void) {
         onRetryLastTurn(completion)
     }
