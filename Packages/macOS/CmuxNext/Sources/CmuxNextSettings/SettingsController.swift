@@ -310,6 +310,7 @@ public final class SettingsController {
             diagnostics = applier.apply(loaded.snapshot)
             let effective = loaded.effective
             snapshot = loaded.snapshot
+            LabsState.shared.update(snapshot)
             fileRoot = effective.fileRoot
             managedKeys = effective.managedKeys
             managedChatRoots = effective.managedChatRoots
