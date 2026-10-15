@@ -8,7 +8,7 @@ import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService } from "./attachmentService";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { hashLink, mergeMessages, threadOf } from "./model";
+import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
@@ -251,36 +251,28 @@ export class HomeChannelsStore {
    * conversation, the message's thread, and the message marked. Resolves true when it opened. */
   async openLink(url: string): Promise<boolean> {
     if (!this.client) return false;
+    let link: HomeResolvedLink;
     try {
-      const link = await this.client.call<HomeResolvedLink>(HomeOps.resolveLink, { url });
+      link = await this.client.call<HomeResolvedLink>(HomeOps.resolveLink, { url });
+    } catch (error) {
+      // No resolver for this owner (a Cloud conversation, G4) or an older daemon: a conversation
+      // the page knows opens at the message from its own pages (the Messages view's switch hands
+      // off this way). Any other refusal of a local link (a deleted message) stays an error.
+      const known = parseConversationLink(url);
+      const listed = known ? this.snapshot.conversations.get(known.conversation) : undefined;
+      const noResolver = isPageError(error) && error.code === "cmux.protocol.unknown_op";
+      if (known && listed && (listed.owner === "cloud" || noResolver)) return this.openKnown(known);
+      this.set({ error: describe(error) });
+      return false;
+    }
+    try {
       if (!this.snapshot.conversations.has(link.conversation)) await this.reloadInbox();
       await this.select(link.conversation);
       const target = link.message;
       // A reply from before threads has no owner root; the page shows it in its reply_to thread.
       const root = link.threadRoot ?? (target ? threadOf(target) : undefined);
-      if (target && root) {
-        await this.openThread(root);
-        await this.pageTo(
-          () => this.snapshot.threadView?.messages,
-          target,
-          async () => {
-            const view = this.snapshot.threadView;
-            if (!view?.hasMore || view.root !== root) return false;
-            await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
-            return true;
-          },
-        );
-      } else if (target) {
-        await this.pageTo(
-          () => this.snapshot.messages,
-          target,
-          async () => {
-            if (!this.snapshot.hasOlder || this.snapshot.selected !== link.conversation) return false;
-            await this.loadOlder();
-            return true;
-          },
-        );
-      }
+      if (target && root) await this.pageThreadTo(root, target.id);
+      else if (target) await this.pageTimelineTo(link.conversation, target.id);
       this.set({ highlight: target?.id });
       return true;
     } catch (error) {
@@ -289,14 +281,60 @@ export class HomeChannelsStore {
     }
   }
 
-  /** Loads more pages (at most LINK_PAGES) until `target` is in `loaded()`. */
+  /** Opens a known conversation at a message without the owner's link read: the timeline's pages
+   * until the message shows, then its thread when it is a reply. */
+  private async openKnown(link: { conversation: string; message?: string }): Promise<boolean> {
+    try {
+      await this.select(link.conversation);
+      const id = link.message;
+      if (id) {
+        await this.pageTimelineTo(link.conversation, id);
+        const found = this.snapshot.messages.find((message) => message.id === id);
+        const root = found ? threadOf(found) : undefined;
+        if (root) await this.pageThreadTo(root, id);
+        this.set({ highlight: found ? id : undefined });
+      }
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  private async pageThreadTo(root: string, id: string): Promise<void> {
+    await this.openThread(root);
+    await this.pageTo(
+      () => this.snapshot.threadView?.messages,
+      id,
+      async () => {
+        const view = this.snapshot.threadView;
+        if (!view?.hasMore || view.root !== root) return false;
+        await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
+        return true;
+      },
+    );
+  }
+
+  private async pageTimelineTo(conversation: string, id: string): Promise<void> {
+    await this.pageTo(
+      () => this.snapshot.messages,
+      id,
+      async () => {
+        if (!this.snapshot.hasOlder || this.snapshot.selected !== conversation) return false;
+        await this.loadOlder();
+        return true;
+      },
+    );
+  }
+
+  /** Loads more pages (at most LINK_PAGES) until message `id` is in `loaded()`. */
   private async pageTo(
     loaded: () => readonly HomeMessage[] | undefined,
-    target: HomeMessage,
+    id: string,
     more: () => Promise<boolean>,
   ): Promise<void> {
     for (let page = 0; page < LINK_PAGES; page += 1) {
-      if (loaded()?.some((message) => message.id === target.id)) return;
+      if (loaded()?.some((message) => message.id === id)) return;
       if (!(await more())) return;
     }
   }
