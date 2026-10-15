@@ -150,6 +150,17 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
   ];
 }).flat();
 
+/// A thought taller than the transcript's view (ThoughtRow.tsx folds it once done).
+const LONG_THOUGHT = [
+  "**Planning the retry fix**",
+  "",
+  ...Array.from(
+    { length: 40 },
+    (_, index) =>
+      `${index + 1}. ${["Read how the helper parses errors", "Check which statuses reach the retry loop", "Compare the jitter with the backoff cap", "Note what the tests already cover"][index % 4]} (step ${index + 1}).`,
+  ),
+].join("\n");
+
 const LONG_CODE = [
   "Here is the whole retry module after the change:",
   "",
@@ -570,6 +581,28 @@ export default agentPaneEntry({
           throw new Error("a thought is a row of text, not a toggle");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
+    },
+    "long-thought-streaming": {
+      note: "A long thought still streaming shows in full (with the Debug toggle agentPane.debug.foldLongThoughts on, it folds only once done).",
+      snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], { isWorking: true }),
+    },
+    "long-thought-done": {
+      note: "A long thought followed by a step. With the Debug toggle agentPane.debug.foldLongThoughts on (data-fold-long-thoughts on <html>), it folds to its first line; off, it shows in full as before.",
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(LONG_THOUGHT),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
     },
     "thought-find": {
       note: "Play: Find in Chat for a word in a thought marks the word in its text, never the row's own Thought label (cx-ncc.73).",
