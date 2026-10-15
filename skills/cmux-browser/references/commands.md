@@ -190,9 +190,11 @@ WKWebView engine.
 
 `browser.geolocation.set` (`latitude`, `longitude`, optional `accuracy`, or
 `clear: true`) and `browser.offline.set` (`enabled`) work on WebKit. The
-override applies to the loaded page at once and to every later document in
-all frames, and survives a page reload after a web content crash or a hidden
-tab discard.
+override reaches the loaded page's main frame at once and every later
+document in all frames (an iframe already loaded keeps its old values until
+it reloads, though offline blocks its loads at once). It survives a web
+content crash or a hidden tab discard. A popup the page opens shares the
+opener's emulation.
 
 See also [snapshot-refs.md](snapshot-refs.md),
 [authentication.md](authentication.md), and

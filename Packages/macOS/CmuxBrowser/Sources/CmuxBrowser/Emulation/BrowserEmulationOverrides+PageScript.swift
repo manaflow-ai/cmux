@@ -47,8 +47,7 @@ extension BrowserEmulationOverrides {
         state = { geolocation: null, offline: false, watches: new Map(), nextWatchID: 1000000000, deliver: null };
         Object.defineProperty(globalThis, key, { value: state, configurable: false, enumerable: false, writable: false });
 
-        const makePosition = () => {
-          const g = state.geolocation;
+        const makePosition = (g) => {
           const coords = {
             latitude: g.latitude, longitude: g.longitude, accuracy: g.accuracy,
             altitude: null, altitudeAccuracy: null, heading: null, speed: null,
@@ -61,10 +60,11 @@ extension BrowserEmulationOverrides {
           position.toJSON = () => ({ coords: coords.toJSON(), timestamp: position.timestamp });
           return position;
         };
+        // The position is the one set when the request was made, as a real
+        // fix is taken when requested.
         state.deliver = (callback) => {
-          setTimeout(() => {
-            if (state.geolocation) { callback(makePosition()); }
-          }, 0);
+          const g = state.geolocation;
+          setTimeout(() => { if (g) { callback(makePosition(g)); } }, 0);
         };
 
         const proto = globalThis.Geolocation && globalThis.Geolocation.prototype;
