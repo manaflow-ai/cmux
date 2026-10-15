@@ -19,7 +19,8 @@ extension TabStripView {
             lastPoint: press.start,
             originalGroup: displayed[index].groupID,
             targetGroup: displayed[index].groupID,
-            grabY: local.y
+            grabY: local.y,
+            lastMoveX: contentX
         )
         self.press = nil
         setHovered(nil)
@@ -42,7 +43,7 @@ extension TabStripView {
         guard let first = region.first, let last = region.last else { return }
         let x = min(max(contentX - drag.grabOffset, first.x), last.maxX - width)
         let entries = region.filter { $0.id != drag.id }
-        let index: Int
+        var index: Int
         var group: TabGroupID?
         if drag.isPinned {
             index = TabReorderMath.insertionIndex(draggedMinX: x, groupStart: first.x, otherWidths: entries.map(\.width))
@@ -57,8 +58,14 @@ extension TabStripView {
             index = displayed.count(where: \.isPinned) + resolution.index
             group = resolution.groupID
         }
-        motion[drag.id]?.x.follow(x, at: event?.timestamp ?? CACurrentMediaTime())
+        motion[drag.id]?.x.follow(x)
+        // Chrome: a reorder waits until the pointer moved 16 x width / 200 pt since the last one.
+        if index != drag.currentIndex, group == drag.targetGroup,
+           abs(contentX - drag.lastMoveX) <= metrics.chrome.reorderThreshold(forTabWidth: width) {
+            index = drag.currentIndex
+        }
         let moved = index != drag.currentIndex || group != drag.targetGroup
+        if moved { drag.lastMoveX = contentX }
         drag.currentIndex = index
         drag.targetGroup = group
         self.drag = drag
@@ -110,8 +117,8 @@ extension TabStripView {
         self.drag = nil
         removeEscapeMonitor()
         cells[drag.id]?.isLifted = false
-        // The release settles into the slot carrying the pointer's velocity.
-        motion[drag.id]?.x.release(at: CACurrentMediaTime())
+        // The release settles into the slot on a 200 ms ease-out from where it is (Chrome).
+        motion[drag.id]?.use(.tabMove)
         let regrouped = drag.targetGroup != drag.originalGroup
         // The model may have changed during the drag (tabs closed by the
         // daemon); indexes captured at the start no longer hold.
