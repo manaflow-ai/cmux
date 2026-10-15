@@ -467,15 +467,17 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
             typer = subprocess.Popen(["swift", os.path.join(OUT, "sp-typer.swift"), str(app.pid), typed, "3"],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         # The daemon's focus over time while the subagent panes open (the chat should keep it).
-        timeline, last = [], None
+        timeline, last, last_sample = [], None, 0.0
         deadline = time.time() + 240
         while time.time() < deadline:
             focus_now = (topo().get("focus") or {}).get("pane")
             count = len(conversation_panes())
-            if (focus_now, count) != last:
-                last = (focus_now, count)
-                timeline.append((round(time.time(), 2), focus_now, count))
-                say("SP focus timeline", timeline[-1])
+            # With typing: the chat's key count and the app's focus at each change, and every 10 s.
+            keys_now = (pane("typing_stats", pane=PANE) or {}).get("keys") if typer else None
+            if (focus_now, count) != last or (typer and time.time() > last_sample + 10):
+                last, last_sample = (focus_now, count), time.time()
+                timeline.append((round(time.time(), 2), focus_now, count, keys_now))
+                say("SP focus timeline", timeline[-1], "app focus:", json.dumps(rpc("debug.focus"))[:600] if typer else "")
             if count >= len(before) + 2 and len(timeline) and time.time() > timeline[-1][0] + 8:
                 break
             time.sleep(0.3)
