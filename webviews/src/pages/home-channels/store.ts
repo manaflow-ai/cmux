@@ -257,9 +257,11 @@ export class HomeChannelsStore {
     } catch (error) {
       // No resolver for this owner (a Cloud conversation, G4) or an older daemon: a conversation
       // the page knows opens at the message from its own pages (the Messages view's switch hands
-      // off this way).
+      // off this way). Any other refusal of a local link (a deleted message) stays an error.
       const known = parseConversationLink(url);
-      if (known && this.snapshot.conversations.has(known.conversation)) return this.openKnown(known);
+      const listed = known ? this.snapshot.conversations.get(known.conversation) : undefined;
+      const noResolver = isPageError(error) && error.code === "cmux.protocol.unknown_op";
+      if (known && listed && (listed.owner === "cloud" || noResolver)) return this.openKnown(known);
       this.set({ error: describe(error) });
       return false;
     }
