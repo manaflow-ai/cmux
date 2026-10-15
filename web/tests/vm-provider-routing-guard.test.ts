@@ -233,6 +233,24 @@ describe("Cloud Secrets provider routing guard (running machines)", () => {
     expect(envLine(m, "OPENAI_BASE_URL")).toBe("export OPENAI_BASE_URL='https://proxy.example.test/v1'");
   });
 
+  test("plane never releases a provider whose key reached the env file outside Cloud Secrets", async () => {
+    // `cmux vm env set OPENAI_API_KEY=…` (or `cmux env set` on the machine) put
+    // the key there; a later vault sync for another provider asks for plane.
+    const m = machine();
+    writeFileSync(m.envFile, `export OPENAI_API_KEY='${USER_KEY}'\nexport ANTHROPIC_AUTH_TOKEN='${USER_KEY}'\n`);
+    await guard(m, "direct", "direct");
+    await guard(m, "plane", "plane");
+    expect(envLine(m, "OPENAI_BASE_URL")).toBe("export OPENAI_BASE_URL='https://api.openai.com/v1'");
+    expect(envLine(m, "ANTHROPIC_BASE_URL")).toBe("export ANTHROPIC_BASE_URL='https://api.anthropic.com'");
+    expect(readFileSync(m.codex, "utf8")).toContain('model_provider = "cmux-openai-key"');
+    expect(readFileSync(m.codex, "utf8")).not.toContain('model_provider = "cmux"\n');
+    // Once the key is gone (a vault removal runs before the guard), plane releases.
+    await cmux(m, "env", "rm", "OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN");
+    await guard(m, "plane", "plane");
+    expect(envLine(m, "OPENAI_BASE_URL")).toBeUndefined();
+    expect(envLine(m, "ANTHROPIC_BASE_URL")).toBeUndefined();
+  });
+
   test("leaves codex to a launcher that already applies the precedence per launch", async () => {
     const m = machine({ newLauncher: true });
     const before = readFileSync(m.codex, "utf8");
