@@ -133,6 +133,21 @@ struct BrowserChromeMetrics: Equatable {
     /// Edge of an extension icon in the Extensions popover rows. Base `16`.
     var extensionsMenuIconSize: CGFloat { scaled(16) }
 
+    /// Text size of the Extensions popover (matches the profile popover). Base `12`.
+    var extensionsMenuFontSize: CGFloat { scaled(12) }
+
+    /// Horizontal padding of the Extensions popover. Base `12`.
+    var extensionsMenuHorizontalPadding: CGFloat { scaled(12) }
+
+    /// Vertical padding of the Extensions popover. Base `10`.
+    var extensionsMenuVerticalPadding: CGFloat { scaled(10) }
+
+    /// Spacing between the Extensions popover's sections and row parts. Base `8`.
+    var extensionsMenuSpacing: CGFloat { scaled(8) }
+
+    /// Corner radius of an Extensions popover row's hover fill. Base `6`.
+    var extensionsMenuRowCornerRadius: CGFloat { scaled(6) }
+
     /// Most pinned extension actions shown in the toolbar row (design spec §3a).
     static let maximumPinnedExtensionActions = 6
 

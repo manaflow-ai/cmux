@@ -35,14 +35,14 @@ struct BrowserExtensionsMenuView: View {
     @State private var pendingRemoval: BrowserExtensionInfo?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: metrics.extensionsMenuSpacing) {
             Text(String(localized: "browser.toolbar.extensions", defaultValue: "Extensions"))
-                .cmuxFont(size: 12, weight: .semibold)
+                .cmuxFont(size: metrics.extensionsMenuFontSize, weight: .semibold)
                 .foregroundStyle(.secondary)
 
             if extensions.isEmpty {
                 Text(String(localized: "browser.extensions.none", defaultValue: "No extensions installed"))
-                    .cmuxFont(size: 12)
+                    .cmuxFont(size: metrics.extensionsMenuFontSize)
                     .foregroundStyle(.secondary)
                     .frame(height: metrics.extensionsMenuRowHeight)
             } else {
@@ -73,8 +73,8 @@ struct BrowserExtensionsMenuView: View {
             footerButton(.webStore, title: String(localized: "browser.extensions.webStore", defaultValue: "Chrome Web Store"))
             footerButton(.manage, title: String(localized: "browser.extensions.manage", defaultValue: "Manage Extensions"))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, metrics.extensionsMenuHorizontalPadding)
+        .padding(.vertical, metrics.extensionsMenuVerticalPadding)
         .frame(minWidth: metrics.extensionsMenuMinimumWidth, alignment: .leading)
         .accessibilityIdentifier("browser.extensions.menu")
         .confirmationDialog(
@@ -107,7 +107,7 @@ struct BrowserExtensionsMenuView: View {
             onChoice(choice)
         } label: {
             Text(title)
-                .cmuxFont(size: 12)
+                .cmuxFont(size: metrics.extensionsMenuFontSize)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }

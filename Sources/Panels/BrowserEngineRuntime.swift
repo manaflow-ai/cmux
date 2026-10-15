@@ -75,15 +75,7 @@ final class BrowserEngineRuntime {
                     ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain && $0.parent == nil && !($0 is NSPanel) }
             },
             present: { content, icon, window in
-                // Cut the sheet out of every Chromium page in that window (their windows sit above it).
-                let overlays = (AppDelegate.shared?.allMainWindowTabManagersForDebug() ?? [])
-                    .flatMap(\.tabs)
-                    .flatMap { $0.panels.values.compactMap { $0 as? BrowserPanel } }
-                    .filter { $0.enginePage != nil && $0.extensionPageWindow === window }
-                    .map(\.pageOverlays)
-                return await BrowserExtensionDialogPresenter().present(
-                    content, icon: icon, in: window, overlays: overlays
-                )
+                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)
             }
         )
         chromiumExtensions = extensions

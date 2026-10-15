@@ -37,6 +37,21 @@ struct BrowserExtensionPromptContentTests {
     }
 
     @Test
+    func pathsAreCodeNamesAreNotAndEmptyAutomationPermissionsHide() {
+        let load = BrowserExtensionPromptContent(automation: .loadUnpacked, name: "/tmp/ext")
+        #expect(load.targetIsCode)
+        #expect(!load.showsPermissions)
+        let enable = BrowserExtensionPromptContent(automation: .enable, name: "Ext", detail: "abc",
+                                                   permissions: [.init(message: "x")])
+        #expect(!enable.targetIsCode)
+        #expect(enable.targetDetail == "abc")
+        #expect(enable.showsPermissions)
+        let chromium = BrowserExtensionPromptContent(prompt: .init(id: 1, kind: .install, extensionID: "id", name: "E"))
+        #expect(chromium.showsPermissions, "Chrome says it needs no special access")
+        #expect(chromium.targetDetail == "id")
+    }
+
+    @Test
     func manifestSummaryListsSitesAndFeatures() {
         let narrow = BrowserExtensionManifestSummary(manifest: [
             "name": "N",

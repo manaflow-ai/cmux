@@ -32,12 +32,8 @@ struct BrowserExtensionActionButton: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle(isActive: isPopupOpen))
         .frame(width: metrics.buttonIconSize, height: metrics.buttonIconSize, alignment: .center)
-        .background(BrowserExtensionAnchorReader(anchor: anchor))
-        .contextMenu {
-            Button(String(localized: "browser.extensions.siteAccess", defaultValue: "Site Access and More…")) {
-                onContextMenu(NSEvent.mouseLocation)
-            }
-        }
+        // Right-click opens Chromium's action menu directly (site access and more), as in Chrome.
+        .overlay(BrowserExtensionAnchorReader(anchor: anchor, onRightClick: onContextMenu))
         .safeHelp(helpText)
         .accessibilityLabel(helpText)
         .accessibilityIdentifier("BrowserExtensionAction.\(action.id)")

@@ -2,12 +2,13 @@ import AppKit
 import CmuxBrowser
 import SwiftUI
 
-/// The body of a cmux extension sheet (design spec §3a).
+/// The body of a cmux extension sheet (design spec §3a, §0.9 modal).
 ///
-/// Icon and question, who asked (automation only), the exact target in a
-/// monospaced well, what the extension can do, then a quiet note and the
-/// buttons. Cancel is the default (Return and Escape); the grant is a plain,
-/// non-default button so it is never pressed by accident.
+/// Icon and question, who asked (automation only), the exact target (a
+/// display name in the regular font; a folder path monospaced; the extension
+/// id on a secondary monospaced line), what the extension can do, a quiet
+/// note, then the buttons. Cancel is the default and looks it (Return and
+/// Escape); the grant is a plain button that needs a deliberate click.
 /// Refs: cmux-design-references `apps/codex/web/computer-use-app-approval.webp`,
 /// `apps/claude/web/cli-command-approval.png`, `apps/claude/web/workspace-trust.png`.
 struct BrowserExtensionPromptSheetView: View {
@@ -30,16 +31,10 @@ struct BrowserExtensionPromptSheetView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text(content.target)
-                .font(.system(.callout, design: .monospaced))
-                .textSelection(.enabled)
-                .lineLimit(3)
-                .truncationMode(.middle)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.06)))
-            permissionList
+            targetWell
+            if content.showsPermissions {
+                permissionList
+            }
             if let note = content.note {
                 Text(note)
                     .font(.footnote)
@@ -51,6 +46,7 @@ struct BrowserExtensionPromptSheetView: View {
                 Button(content.acceptTitle) { onAnswer(true) }
                     .accessibilityIdentifier("browser.extension.prompt.accept")
                 Button(content.cancelTitle) { onAnswer(false) }
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("browser.extension.prompt.cancel")
             }
@@ -58,6 +54,28 @@ struct BrowserExtensionPromptSheetView: View {
         }
         .padding(20)
         .frame(width: 400)
+        .onExitCommand { onAnswer(false) }
+    }
+
+    private var targetWell: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(content.target)
+                .font(content.targetIsCode ? .system(.callout, design: .monospaced) : .callout)
+                .lineLimit(3)
+                .truncationMode(.middle)
+            if let detail = content.targetDetail {
+                Text(detail)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .textSelection(.enabled)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.06)))
     }
 
     @ViewBuilder private var iconView: some View {

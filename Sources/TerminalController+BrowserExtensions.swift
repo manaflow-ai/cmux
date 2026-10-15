@@ -112,7 +112,7 @@ extension TerminalController {
         if policy.decision(for: operation, target: info) == .requiresConsent {
             let summary = info.path.isEmpty ? nil : BrowserExtensionManifestSummary.read(folder: info.path)
             let content = BrowserExtensionPromptContent(
-                automation: operation, name: info.name, permissions: summary?.permissions ?? []
+                automation: operation, name: info.name, detail: info.id, permissions: summary?.permissions ?? []
             )
             guard await v2BrowserExtensionConsent(content, ctx: ctx, host: host, icon: info.iconPath) else {
                 return v2BrowserExtensionDeclined()
@@ -208,14 +208,13 @@ extension TerminalController {
         let window = ctx.browserPanel.extensionPageWindow ?? ctx.webView.window
         guard let window, window.attachedSheet == nil else { return false }
         let icon = iconPath.flatMap { FileManager.default.contents(atPath: $0) }
-        let overlays = [ctx.browserPanel.pageOverlays]
         // The sheet waits at most consentSeconds (a deliberate deadline, not a
         // sync wait): when it passes, the presenter is cancelled, which
         // declines the sheet, and the caller gets "declined" before the
         // socket's own timeout.
         let accepted = await withTaskGroup(of: Bool?.self) { group in
             group.addTask { @MainActor in
-                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window, overlays: overlays)
+                await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)
             }
             group.addTask {
                 try? await Task.sleep(for: .seconds(BrowserExtensionControlRequest.consentSeconds))

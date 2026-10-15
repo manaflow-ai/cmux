@@ -14,6 +14,10 @@ public struct BrowserExtensionPromptContent: Equatable, Sendable {
     public var requester: String?
     /// The exact target: the extension name, or the folder for load unpacked.
     public var target: String
+    /// True when ``target`` is a path or id (shown monospaced); false for a display name.
+    public var targetIsCode: Bool
+    /// A second, secondary line under the target (the extension id), or nil.
+    public var targetDetail: String?
     /// The heading above ``permissions`` ("It can:"), or the no-access sentence when there are none.
     public var permissionsHeading: String
     /// What the extension can do.
@@ -25,15 +29,23 @@ public struct BrowserExtensionPromptContent: Equatable, Sendable {
     /// The decline button title (the default button).
     public var cancelTitle: String
 
+    /// True when the permissions section shows: always for Chromium prompts
+    /// ("It needs no special access" is part of Chrome's wording), and for
+    /// automation only when there are permissions to list.
+    public var showsPermissions: Bool { requester == nil || !permissions.isEmpty }
+
     /// Creates sheet content directly.
     public init(
-        title: String, requester: String? = nil, target: String, permissionsHeading: String,
+        title: String, requester: String? = nil, target: String, targetIsCode: Bool = false,
+        targetDetail: String? = nil, permissionsHeading: String,
         permissions: [BrowserExtensionInstallPrompt.Permission] = [], note: String? = nil,
         acceptTitle: String, cancelTitle: String
     ) {
         self.title = title
         self.requester = requester
         self.target = target
+        self.targetIsCode = targetIsCode
+        self.targetDetail = targetDetail
         self.permissionsHeading = permissionsHeading
         self.permissions = permissions
         self.note = note
@@ -48,6 +60,8 @@ public struct BrowserExtensionPromptContent: Equatable, Sendable {
         let name = prompt.name
         requester = nil
         target = name
+        targetIsCode = false
+        targetDetail = prompt.extensionID.isEmpty ? nil : prompt.extensionID
         permissions = prompt.permissions
         permissionsHeading = Self.heading(hasPermissions: !prompt.permissions.isEmpty)
         note = nil
@@ -80,12 +94,15 @@ public struct BrowserExtensionPromptContent: Equatable, Sendable {
     /// - Parameters:
     ///   - operation: The requested operation.
     ///   - name: The extension name, or the folder for load unpacked.
+    ///   - detail: The extension id shown under the name, or nil.
     ///   - permissions: What the extension can do, when known (from its manifest).
     public init(
-        automation operation: BrowserExtensionOperation, name: String,
+        automation operation: BrowserExtensionOperation, name: String, detail: String? = nil,
         permissions: [BrowserExtensionInstallPrompt.Permission] = []
     ) {
         target = name
+        targetIsCode = operation == .loadUnpacked
+        targetDetail = detail
         self.permissions = permissions
         permissionsHeading = Self.heading(hasPermissions: !permissions.isEmpty)
         cancelTitle = String(localized: "browser.extension.prompt.cancel", defaultValue: "Cancel", bundle: .module)
