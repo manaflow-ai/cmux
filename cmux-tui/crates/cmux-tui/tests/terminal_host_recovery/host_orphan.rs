@@ -1,7 +1,8 @@
-//! cx-hostorphan: a terminal host whose owner daemon is gone does not hold
-//! its PTY until reboot. With no client stream for the orphan grace
-//! (`CMUX_TUI_HOST_ORPHAN_GRACE_SECS`, 10 min by default) it ends its
-//! terminal and exits with an owner-gone exit record, which the next owner
+//! cx-hostorphan: a terminal host of a tagged DEV, staging or debug build
+//! whose owner daemon is gone does not hold its PTY until reboot. With no
+//! client stream for the orphan grace (`CMUX_TUI_HOST_ORPHAN_GRACE_SECS`,
+//! 10 min in those builds) it ends its terminal and exits with an
+//! owner-gone exit record, which the next owner
 //! reads as a host loss (the tab stays); a plain `SIGTERM` ends an orphaned
 //! host at once. A host its daemon serves outlives the grace, and a
 //! daemon restart inside the grace adopts the same host.
@@ -63,6 +64,63 @@ fn wait_until_gone(pid: u32, timeout: Duration) -> bool {
 
 fn kill_daemon(harness: &mut RecoveryHarness) {
     harness.sigkill();
+}
+
+/// cx-t2sqm D1 (Lawrence 2026-10-14): quitting or updating cmux never ends a
+/// terminal. A normal install's host (here an RC bundle) has no orphan
+/// grace at all; a tagged DEV build's host keeps the 10 min grace. The host
+/// records the grace it runs with, and a normal install's host outlives its
+/// killed daemon and is adopted by the next one.
+#[test]
+fn a_normal_install_host_has_no_orphan_grace_and_a_dev_host_keeps_it() {
+    let _exclusive = exclusive_process_test();
+    for (name, bundle, expected) in [
+        ("orphan-normal", "com.cmuxterm.app.rc.ptyh-test", None),
+        ("orphan-dev", "com.cmuxterm.app.debug.ptyh-test", Some(600)),
+    ] {
+        let mut harness = RecoveryHarness::start_unstarted(name);
+        let mut command = harness.daemon_command();
+        command.env("CMUX_BUNDLE_ID", bundle).env_remove("CMUX_TUI_HOST_ORPHAN_GRACE_SECS");
+        harness.child = Some(command.spawn().unwrap());
+        wait_for_socket(&harness.socket);
+        let (terminal_id, _, _, host_pid) = run_cat(&harness, &format!("{name}-before"));
+        let record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+        assert_eq!(record.orphan_grace_secs, expected, "{bundle}: the host's orphan grace");
+        if expected.is_some() {
+            continue;
+        }
+        kill_daemon(&mut harness);
+        assert!(running(host_pid), "{bundle}: the host ended with its daemon");
+        harness.child = Some({
+            let mut command = harness.daemon_command();
+            command.env("CMUX_BUNDLE_ID", bundle).env_remove("CMUX_TUI_HOST_ORPHAN_GRACE_SECS");
+            command.spawn().unwrap()
+        });
+        wait_for_socket(&harness.socket);
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+        let surface = loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"cmd":"resolve-terminal","terminal_id":&terminal_id}),
+            );
+            if resolved["lifecycle"] == "running"
+                && let Some(surface) = resolved["surface"].as_u64()
+            {
+                break surface;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{bundle}: the next owner did not adopt: {resolved}"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        request(
+            &harness.socket,
+            serde_json::json!({"cmd":"send","surface":surface,"text":"normal-after\n"}),
+        );
+        assert!(wait_for_screen(&harness.socket, surface, "normal-after").contains("normal-after"));
+        assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, host_pid);
+    }
 }
 
 #[test]
@@ -128,7 +186,7 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
 #[test]
 fn sigterm_ends_an_orphaned_host() {
     let _exclusive = exclusive_process_test();
-    // The default 10 min grace: only the SIGTERM can end the host here.
+    // A debug test daemon's 10 min grace: only the SIGTERM can end the host here.
     let mut harness = RecoveryHarness::start("orphan-sigterm");
     let (_, _, record_path, host_pid) = run_cat(&harness, "orphan-term");
     kill_daemon(&mut harness);
