@@ -15,12 +15,14 @@ import Testing
 
     final class Intents: ChatIntents {
         var opened: [(ID, ID)] = []
+        /// The pasteboards the field's Paste offered the attachment intake (taken: nothing else pastes).
+        var pasted: [NSPasteboard.Name] = []
         func send() -> String? { nil }
         func react(_ ref: PartRef, _ kind: Reaction.Kind) {}
         var canReact: Bool { true }
         var canReply: Bool { false }
         func pickAttachments() {}
-        func takeAttachments(from pasteboard: NSPasteboard) -> Bool { false }
+        func takeAttachments(from pasteboard: NSPasteboard) -> Bool { pasted.append(pasteboard.name); return true }
         func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { false }
         func draftChanged() {}
         func linkTapped(_ ref: PartRef, url: String) {}
@@ -109,9 +111,13 @@ import Testing
     // MARK: Keys after a click on a bubble (routeTranscriptKey)
 
     /// The pane in an (unshown) window, with the transcript focused by a click on its text bubble.
+    /// The fake intents of the last `focusedPane` (the controller holds its intents weakly).
+    static var lastIntents: Intents?
+
     static func focusedPane() throws -> (ChatController, NSWindow, NSView) {
         _ = NSApplication.shared
-        let (controller, _, demo) = pane()
+        let (controller, intents, demo) = pane()
+        lastIntents = intents
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.contentView = controller.host
         controller.host.layoutSubtreeIfNeeded()
@@ -185,39 +191,35 @@ import Testing
 
     // MARK: Paste after a click on a bubble (a key equivalent, not a key down)
 
-    /// Runs `body` with `text` on the general pasteboard (NSTextView's Paste reads it), restored after.
-    static func withPasteboard(_ text: String, _ body: () throws -> Void) rethrows {
-        let pb = NSPasteboard.general
-        let saved = pb.string(forType: .string)
-        pb.clearContents(); pb.setString(text, forType: .string)
-        defer { pb.clearContents(); if let saved { pb.setString(saved, forType: .string) } }
-        try body()
+    /// The field's Paste reads a pasteboard of its own here (`FieldTextView.pasteboard`, which its Paste
+    /// offers Home's attachment intake first; the fake intake takes it), so no test touches the shared
+    /// general pasteboard (other test processes on the worker use it).
+    static func privatePasteboard(_ controller: ChatController) throws -> NSPasteboard {
+        let field = try #require(controller.demo?.compose.textView.view)
+        let pb = NSPasteboard(name: NSPasteboard.Name("cmux-test-\(UUID().uuidString)"))
+        field.pasteboard = pb
+        return pb
     }
 
     /// Command-V through the window's key equivalent path (AppKit asks the window's views before the
-    /// main menu): the field takes the focus and the text.
+    /// main menu): the field takes the focus and pastes.
     @Test func commandVAfterABubbleClickPastesIntoTheField() throws {
         let (controller, window, _) = try Self.focusedPane()
-        let marker = "PASTE-\(UUID().uuidString)"
-        try Self.withPasteboard(marker) {
-            let e = Self.key(window, "v", code: 9, mods: .command)
-            #expect(window.performKeyEquivalent(with: e))
-            let field = try #require(controller.demo?.compose.textView.view)
-            #expect(window.firstResponder === field)
-            #expect(field.string == marker)
-        }
+        let pb = try Self.privatePasteboard(controller)
+        defer { pb.releaseGlobally() }
+        #expect(window.performKeyEquivalent(with: Self.key(window, "v", code: 9, mods: .command)))
+        #expect(window.firstResponder === controller.demo?.compose.textView.view)
+        #expect(Self.lastIntents?.pasted == [pb.name])
     }
 
     /// The main menu's Paste (`paste:` to the first responder) with the transcript focused.
     @Test func theMenusPasteAfterABubbleClickPastesIntoTheField() throws {
         let (controller, window, doc) = try Self.focusedPane()
-        let marker = "PASTE-\(UUID().uuidString)"
-        try Self.withPasteboard(marker) {
-            #expect(doc.tryToPerform(#selector(TranscriptDocumentView.paste(_:)), with: nil))
-            let field = try #require(controller.demo?.compose.textView.view)
-            #expect(window.firstResponder === field)
-            #expect(field.string == marker)
-        }
+        let pb = try Self.privatePasteboard(controller)
+        defer { pb.releaseGlobally() }
+        #expect(doc.tryToPerform(#selector(TranscriptDocumentView.paste(_:)), with: nil))
+        #expect(window.firstResponder === controller.demo?.compose.textView.view)
+        #expect(Self.lastIntents?.pasted == [pb.name])
     }
 
     /// With the field focused, Command-V is the menu's Paste as everywhere else: the transcript does not
@@ -226,9 +228,9 @@ import Testing
         let (controller, window, _) = try Self.focusedPane()
         let field = try #require(controller.demo?.compose.textView.view)
         window.makeFirstResponder(field)
-        try Self.withPasteboard("PASTE-\(UUID().uuidString)") {
-            _ = window.performKeyEquivalent(with: Self.key(window, "v", code: 9, mods: .command))
-            #expect(field.string.isEmpty)
-        }
+        let pb = try Self.privatePasteboard(controller)
+        defer { pb.releaseGlobally() }
+        _ = window.performKeyEquivalent(with: Self.key(window, "v", code: 9, mods: .command))
+        #expect(Self.lastIntents?.pasted.isEmpty == true)
     }
 }
