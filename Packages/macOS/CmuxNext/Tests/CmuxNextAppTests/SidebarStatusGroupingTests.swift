@@ -77,8 +77,9 @@ import Testing
 
     @Test func aRowMovesWhenItsAgentAsksAndTheActiveRowWaits() {
         var sidebar = Sidebar(Self.rows, active: WorkspaceID("shipped"))
+        // Inside a section rows keep their list order: build sits above ask in the list.
         sidebar.report("build", .waiting(kind: nil))
-        #expect(sidebar.drawn.prefix(4) == ["Needs you, 3 workspaces", "ask", "build", "broke"], "\(sidebar.drawn)")
+        #expect(sidebar.drawn.prefix(4) == ["Needs you, 3 workspaces", "build", "ask", "broke"], "\(sidebar.drawn)")
 
         // The row the person is on starts a turn: it stays under Done while they are on it.
         sidebar.report("shipped", .working(progress: nil))
