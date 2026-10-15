@@ -8,6 +8,7 @@ import type {
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
+  PromptImage,
   QueueEdit,
   StartSource,
 } from "./model";
@@ -34,7 +35,7 @@ import { translate } from "./i18n";
 import { experimentArm } from "../../experiments/experiment";
 import { sessionOffer as sessionOfferExperiment } from "./offer/sessionOffer.experiment";
 import { errorMessage } from "./transportErrors";
-import { SessionPager } from "./sessionPages";
+import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
@@ -134,8 +135,9 @@ type Listener = (snapshot: AcpmuxSnapshot) => void;
 export const PREWARM_METHOD = "_acpmux/prewarm";
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
-/// How long Stop waits for the turn to end before the pane stops showing it as working: past
-/// acpmux's own grace (`CANCEL_GRACE`, 3 s), so its forced end and its note come first.
+/// How long Stop waits for the turn to end before the pane stops showing it as working. It is
+/// shorter than acpmux's own grace (`CANCEL_GRACE`, 10 s), so a slow agent's turn stops showing
+/// as working before acpmux's forced end and its note.
 const STOP_GRACE_MS = 5_000;
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
@@ -150,6 +152,8 @@ const startsTurn = (event: EventRecord) =>
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/** How long a session list that failed to load waits before it is read once more. */
+const SESSION_REREAD_MS = 2000;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
@@ -163,12 +167,57 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
   const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
+  const claudeMeta =
+    raw.toolCall?._meta?.claude && typeof raw.toolCall._meta.claude === "object"
+      ? raw.toolCall._meta.claude
+      : undefined;
+  const suggestions = Array.isArray(claudeMeta?.suggestions)
+    ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
+        if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
+        if (!suggestion || typeof suggestion !== "object") return [];
+        const rules = (suggestion as { rules?: unknown }).rules;
+        return Array.isArray(rules)
+          ? rules.flatMap((rule: unknown) => {
+              if (typeof rule === "string" && rule.trim()) return [rule.trim()];
+              if (!rule || typeof rule !== "object") return [];
+              const value = rule as { toolName?: unknown; ruleContent?: unknown };
+              const tool = typeof value.toolName === "string" ? value.toolName.trim() : "";
+              const content = typeof value.ruleContent === "string" ? value.ruleContent.trim() : "";
+              return [content || tool].filter(Boolean);
+            })
+          : [];
+      })
+    : [];
   return {
     ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
+    command:
+      typeof raw.toolCall?.command === "string"
+        ? raw.toolCall.command
+        : typeof raw.toolCall?.rawInput?.command === "string"
+          ? raw.toolCall.rawInput.command
+          : typeof raw.command === "string"
+            ? raw.command
+            : undefined,
+    description:
+      typeof claudeMeta?.description === "string"
+        ? claudeMeta.description
+        : typeof raw.toolCall?.description === "string"
+          ? raw.toolCall.description
+          : typeof raw.description === "string"
+            ? raw.description
+            : undefined,
+    rule:
+      suggestions.length > 0
+        ? translate("permission.claude.alwaysAllowRule", { rules: suggestions.join(", ") })
+        : typeof raw.toolCall?.rule === "string"
+          ? raw.toolCall.rule
+          : typeof raw.rule === "string"
+            ? raw.rule
+            : undefined,
     kind: raw.toolCall?.kind,
     ...(typeof raw.toolCall?.toolCallId === "string" ? { toolCallId: raw.toolCall.toolCallId } : {}),
     pending: true,
@@ -177,6 +226,13 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
       kind: typeof option.kind === "string" ? option.kind : undefined,
+      description: typeof option.description === "string" ? option.description : undefined,
+      rule:
+        typeof option.rule === "string"
+          ? option.rule
+          : typeof option.suggestion === "string"
+            ? option.suggestion
+            : undefined,
     })),
   };
 }
@@ -386,6 +442,16 @@ export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActi
 let notices = 0;
 const noticeId = (kind: string) => `${kind}-${(notices += 1)}`;
 
+/// The images a `user_message` names (`images: [{id, mimeType, name?}]`), malformed entries left out.
+function promptImages(value: unknown): PromptImage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((image) =>
+    image && typeof image.id === "string" && typeof image.mimeType === "string"
+      ? [{ id: image.id, mimeType: image.mimeType, ...(typeof image.name === "string" && { name: image.name }) }]
+      : [],
+  );
+}
+
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
@@ -546,6 +612,7 @@ export class AcpmuxDirectClient {
   private sessions: Session[] = [];
   /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
   private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
+  private sessionReread: ReturnType<typeof setTimeout> | undefined;
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
   private selectedSessionId?: string;
@@ -820,7 +887,7 @@ export class AcpmuxDirectClient {
             .filter((peer: string | undefined): peer is string => Boolean(peer))
         : [];
       const first = await this.sessionPages.first();
-      let laterPages = first?.next;
+      let laterPages = first?.next ? first : undefined;
       const linkedLater =
         first !== undefined &&
         laterPages !== undefined &&
@@ -998,7 +1065,7 @@ export class AcpmuxDirectClient {
   /// agent-gui daemons send {sessionIds, watch, dropped}; older ones send only
   /// {dropped}, so a notice without sessionIds resyncs the selected session.
   private resyncAfterLag(params: any): void {
-    if (params?.watch === true) void this.refreshSessions().catch(() => undefined);
+    if (params?.watch === true) void this.refreshSessions().catch(() => this.rereadSessionsLater());
     const sessionId = this.selectedSessionId;
     // Before the attach reply lands there is no cursor; the reply carries the latest events.
     if (!sessionId || this.attachedGeneration !== this.selectionGeneration) return;
@@ -1048,7 +1115,7 @@ export class AcpmuxDirectClient {
     const add = (more: Session[]) => {
       list = [...list, ...more];
     };
-    if (first.next && !(await this.sessionPages.rest(first.next, () => list, add))) return;
+    if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
     const missing =
@@ -1072,8 +1139,18 @@ export class AcpmuxDirectClient {
 
   /// The pages after the first, read once the chat is open. acpmux owns `unread` (cx-n8ou): the
   /// pane only tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
-  private async readLaterSessions(cursor: string): Promise<void> {
-    await this.sessionPages.rest(cursor, () => this.sessions, this.addSessions).catch(() => undefined);
+  private async readLaterSessions(first: SessionPage<Session>): Promise<void> {
+    await this.sessionPages.rest(first, () => this.sessions, this.addSessions).catch(() => this.rereadSessionsLater());
+  }
+
+  /// A list that could not be read to its end (a page and the whole-list fallback both failed)
+  /// is read again once, a moment later, rather than left at the pages that came.
+  private rereadSessionsLater(): void {
+    if (this.closed || this.sessionReread) return;
+    this.sessionReread = setTimeout(() => {
+      this.sessionReread = undefined;
+      if (!this.closed) void this.refreshSessions().catch(() => undefined);
+    }, SESSION_REREAD_MS);
   }
 
   private addSessions = (more: Session[]): void => {
@@ -1627,6 +1704,7 @@ export class AcpmuxDirectClient {
           at: event.at,
           kind: "user",
           text: String(msg.text ?? ""),
+          ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
@@ -2124,9 +2202,50 @@ export class AcpmuxDirectClient {
     this.emit();
     return this.send(failed.input, failed.attachments);
   }
-  /// The original blocks for a completed turn, for the App send path to retry safely.
-  retryAttachmentsFor(rowId: string): ComposerAttachment[] {
-    return this.retryAttachments.get(rowId) ?? [];
+  /// What to send again with prompt row `rowId` (Retry, Edit): the attachments this page sent, else
+  /// its images read back from acpmux (a prompt sent before a reload, or from another window).
+  async promptAttachments(rowId: string): Promise<ComposerAttachment[]> {
+    const kept = this.retryAttachments.get(rowId);
+    if (kept?.length) return kept;
+    const images = this.rows.get(rowId)?.images ?? [];
+    const read = await Promise.all(
+      images.map(async (image, index): Promise<ComposerAttachment | undefined> => {
+        const data = await this.promptImageData(image.id);
+        if (!data) return undefined;
+        return {
+          id: `sent-${image.id}`,
+          kind: "image",
+          name: image.name ?? `image-${index + 1}`,
+          mimeType: data.mimeType,
+          size: Math.floor((data.data.length * 3) / 4),
+          data: data.data,
+        };
+      }),
+    );
+    return read.filter((attachment): attachment is ComposerAttachment => attachment !== undefined);
+  }
+  /// The image `id` a prompt of the open chat sent, as a data URL; undefined when acpmux has none.
+  /// An id names the image's bytes, so one read serves every bubble that shows it.
+  async promptImage(id: string): Promise<string | undefined> {
+    const shown = this.promptImageUrls.get(id);
+    if (shown) return shown;
+    const data = await this.promptImageData(id);
+    const url = data && `data:${data.mimeType};base64,${data.data}`;
+    if (url) this.promptImageUrls.set(id, url);
+    return url;
+  }
+  private readonly promptImageUrls = new Map<string, string>();
+  private async promptImageData(id: string): Promise<{ mimeType: string; data: string } | undefined> {
+    const sessionId = this.selectedSession;
+    if (!sessionId) return undefined;
+    try {
+      const reply = await this.request("_acpmux/attachment", { sessionId, id });
+      return typeof reply?.data === "string"
+        ? { mimeType: typeof reply.mimeType === "string" ? reply.mimeType : "image/png", data: reply.data }
+        : undefined;
+    } catch {
+      return undefined;
+    }
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
@@ -2765,6 +2884,7 @@ export class AcpmuxDirectClient {
   close(): void {
     this.closed = true;
     this.sessionPages.stop();
+    clearTimeout(this.sessionReread);
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;

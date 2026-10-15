@@ -7794,6 +7794,14 @@
      "presence": "required",
      "nullable": false
     },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
     "kind": {
      "type": {
       "kind": "ref",
@@ -7875,6 +7883,14 @@
      "nullable": false
     },
     "marked_unread": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "muted": {
      "type": {
       "kind": "scalar",
       "name": "boolean"
@@ -20846,7 +20862,19 @@
    "capability": "home-inbox-v1",
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "owners": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
     "additional_properties": false
    },
    "result": {
@@ -20867,6 +20895,14 @@
         "kind": "ref",
         "name": "HomeInboxRow"
        }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cloud": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
       },
       "presence": "required",
       "nullable": false

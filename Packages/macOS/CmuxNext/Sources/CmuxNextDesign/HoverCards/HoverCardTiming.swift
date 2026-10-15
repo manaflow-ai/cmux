@@ -4,7 +4,8 @@ public import Foundation
 /// (Lawrence 2026-10-14: "dont show the card on hover for workspaces/tabs until XYZ seconds (see
 /// how long google chrome takes for this)"). Source: Chromium
 /// chrome/browser/ui/views/tabs/hovercard/tab_hover_card_controller.cc.
-public nonisolated enum HoverCardTiming {
+public nonisolated struct HoverCardTiming {
+    public nonisolated init() {}
     /// The cold delay: what Chrome waits over a tab at its default (standard) width.
     /// `GetShowDelay`: at `tab_standard_width` the log fraction is 1, so the delay is
     /// `kMaximumTriggerDelay` (800 ms), and `tab_width >= tab_standard_width` adds
