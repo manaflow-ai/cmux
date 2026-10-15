@@ -278,7 +278,11 @@ def keep(stage, root, failures):
         legacy = home.daemon("cmux-app", None, LEGACY)
         own_state = os.path.join(home.support, f"cmux/tags/{CHANNEL}/tui")
         os.makedirs(own_state)
-        home.daemon(f"cmux-app-{CHANNEL}", own_state, ["own-1"])
+        own = home.daemon(f"cmux-app-{CHANNEL}", own_state, ["own-1"])
+        with open(own) as handle:
+            tree = json.load(handle)["tree"]
+        print(f"  keep: own state {sorted(os.listdir(own_state))}; own snapshot workspaces "
+              f"{[(w.get('name'), w.get('kind'), [t.get('kind') for s in w.get('screens', []) for p in s.get('panes', []) for t in p.get('tabs', [])]) for w in tree.get('workspaces', [])]}")
         app = App(home, legacy)
         try:
             app.wait_mark("daemon_snapshot_loaded", 60)
@@ -289,6 +293,8 @@ def keep(stage, root, failures):
         if "own-1" not in names or set(LEGACY) & names:
             failures.append(f"keep: a used channel session must stay ({sorted(n for n in names if n)})")
         if os.path.exists(home.marker()):
+            with open(home.marker()) as handle:
+                print(f"  keep: marker {handle.read()}")
             failures.append("keep: an adopt marker was recorded over a used session")
     finally:
         home.stop_all()
