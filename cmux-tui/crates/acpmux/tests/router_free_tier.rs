@@ -163,7 +163,7 @@ fn start_relay(dir: &Path, test_origin: &str) -> Relay {
 }
 
 fn admin(dir: &Path, request: Value) -> std::io::Result<Value> {
-    let mut stream = UnixStream::connect(cmux_coderouter::admin_socket_path(dir.as_ref()))?;
+    let mut stream = UnixStream::connect(cmux_coderouter::admin_socket_path(dir))?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.write_all(format!("{request}\n").as_bytes())?;
     let mut line = String::new();
@@ -236,7 +236,7 @@ fn provider_full(
     fail_store: bool,
     std_b64: bool,
 ) -> UnixStream {
-    let stream = UnixStream::connect(cmux_coderouter::admin_socket_path(dir.as_ref())).unwrap();
+    let stream = UnixStream::connect(cmux_coderouter::admin_socket_path(dir)).unwrap();
     let mut write = stream.try_clone().unwrap();
     let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true, "managed": false, "has_key": has_key, "signed_in": signed_in});
     write.write_all(format!("{register}\n").as_bytes()).unwrap();
