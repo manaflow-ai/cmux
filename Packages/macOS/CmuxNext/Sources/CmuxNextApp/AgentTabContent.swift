@@ -70,12 +70,15 @@ struct AgentTabContent {
     /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
     /// (2-5 frames of an empty pane after Cmd-N, cx-21zkz): the New Tab frame shows under it, and
     /// the page stays clear, until its next frame there.
+    /// The page's own parked frame comes first: the last New Tab page shown drew at another size
+    /// or moment. The size is the one it shows at (a Cmd-T's tab bar may not be in yet).
     private func coverMove(of view: AgentPaneView) {
-        let paneView = pane.view
-        guard paneView.launchImageView == nil,
-              let image = pane.services.agentTabs.launchImages.newTabFrame(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView))
-        else { return BenchSpans.mark("newTab.cover.none \(paneView.contentHost.bounds.size) \(String(describing: Self.appearance(of: paneView)))") }
-        BenchSpans.mark("newTab.cover")
+        let paneView = pane.view, appearance = Self.appearance(of: paneView)
+        let size = pane.services.newTabSpares.openingSize(of: view) ?? paneView.contentHost.bounds.size
+        let own = view.redraw.takeRememberedFrame(size: size, appearance: appearance)
+        guard paneView.launchImageView == nil, let image = own ?? pane.services.agentTabs.launchImages.newTabFrame(size: size, appearance: appearance)
+        else { return BenchSpans.mark("newTab.cover.none \(size) \(String(describing: appearance))") }
+        BenchSpans.mark(own != nil ? "newTab.cover.own" : "newTab.cover")
         paneView.showLaunchImage(image)
         // The image's deadline shows the page too, should its frame never be reported.
         paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() }

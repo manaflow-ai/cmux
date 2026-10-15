@@ -74,6 +74,27 @@ public final class AgentPageRedraw {
         }
     }
 
+    /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
+    private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?)?
+
+    /// Snapshots the page as WebKit draws it now at `size`, kept while `unchanged` holds when it is
+    /// ready (the page was neither moved nor resized meanwhile): the image its move into a pane
+    /// shows until it draws there is then this page at that size.
+    public func rememberFrame(size: CGSize, appearance: NSAppearance.Name?, while unchanged: @escaping @MainActor () -> Bool) {
+        // task-owner: one snapshot; `unchanged` drops it when the page moved or resized meanwhile
+        Task { @MainActor [weak self, weak webView] in
+            guard let image = try? await webView?.takeSnapshot(configuration: nil), image.size == size, unchanged() else { return }
+            self?.remembered = (image, size, appearance)
+        }
+    }
+
+    /// The remembered frame, once, when it was drawn at `size` and `appearance`.
+    public func takeRememberedFrame(size: CGSize, appearance: NSAppearance.Name?) -> NSImage? {
+        defer { remembered = nil }
+        guard let remembered, remembered.size == size, remembered.appearance == appearance else { return nil }
+        return remembered.image
+    }
+
     private func afterPresentationUpdate(_ body: @escaping () -> Void) {
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
