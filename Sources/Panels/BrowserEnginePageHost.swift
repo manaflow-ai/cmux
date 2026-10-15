@@ -39,6 +39,9 @@ struct BrowserEnginePageHost: NSViewRepresentable {
         }
         container.wantsPageFocus = shouldFocus && isVisible
         container.onPageClicked = onPageClicked
+        // The first attach runs before the container is in a window; attach
+        // again once it is, so overlays sync with the placed page.
+        container.onMovedToWindow = { [onAttach, page] in onAttach(page.contentView) }
         page.setContentVisible(isVisible)
         if container.reportedVisible != isVisible {
             container.reportedVisible = isVisible
@@ -51,6 +54,7 @@ struct BrowserEnginePageHost: NSViewRepresentable {
 
     static func dismantleNSView(_ container: BrowserEnginePageContainerView, coordinator: ()) {
         container.onPageClicked = nil
+        container.onMovedToWindow = nil
         for subview in container.subviews {
             subview.removeFromSuperview()
         }
@@ -75,12 +79,17 @@ final class BrowserEnginePageContainerView: NSView {
     var wantsPageFocus = false {
         didSet {
             guard oldValue, !wantsPageFocus else { return }
-            reclaimKeyFromPageWindowIfOverPane()
+            // Set inside a SwiftUI update: move key status after it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.wantsPageFocus else { return }
+                self.reclaimKeyFromPageWindowIfOverPane()
+            }
         }
     }
     var onPageClicked: (() -> Void)?
     /// The visibility last reported through `onVisibilityChange`.
     var reportedVisible: Bool?
+    var onMovedToWindow: (() -> Void)?
     private var keyObserver: (any NSObjectProtocol)?
 
     override func viewDidMoveToWindow() {
@@ -88,6 +97,7 @@ final class BrowserEnginePageContainerView: NSView {
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
         keyObserver = nil
         guard window != nil else { return }
+        onMovedToWindow?()
         keyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -114,20 +124,23 @@ final class BrowserEnginePageContainerView: NSView {
         }
         let paneRect = window.convertToScreen(convert(bounds, to: nil))
         let center = CGPoint(x: keyWindow.frame.midX, y: keyWindow.frame.midY)
+        // Only a press delivered to the page window itself chooses it (not a
+        // click elsewhere during which Chromium activated the page).
+        let event = NSApp.currentEvent
         let facts = ChromiumKeyWindowFacts(
             parent: parent,
             isChromiumPage: true,
-            clicked: Self.isMouseDown(NSApp.currentEvent),
+            clicked: Self.isMouseDown(event) && event?.window === keyWindow,
             overPane: paneRect.contains(center),
             thisWindowIsActive: NSApp.mainWindow === window
         )
         switch facts.decision {
-        case .chosenPage:
+        case .chosenPage where !wantsPageFocus:
             onPageClicked?()
         case .unchosenPage where facts.overPane && !wantsPageFocus:
             // Chromium took the keys for this pane's page on its own.
             window.makeKey()
-        case .unchosenPage, .devTools, .reapply, .ignore:
+        case .chosenPage, .unchosenPage, .devTools, .reapply, .ignore:
             break
         }
     }

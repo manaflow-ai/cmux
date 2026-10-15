@@ -4,12 +4,12 @@ import Testing
 @testable import CmuxBrowser
 
 @Suite struct BrowserPageOcclusionPlanTests {
-    @Test func holesAreInContentCoordinatesAndClippedToThePage() {
+    @Test func holesAreClippedToThePage() {
         let plan = BrowserPageOcclusionPlan(
-            contentRectInWindow: CGRect(x: 100, y: 50, width: 400, height: 300),
-            overlayRectsInWindow: [
-                CGRect(x: 380, y: 300, width: 200, height: 40), // find bar, partly past the right edge
-                CGRect(x: 0, y: 0, width: 50, height: 50), // outside the page
+            contentBounds: CGRect(x: 0, y: 0, width: 400, height: 300),
+            overlayRects: [
+                CGRect(x: 280, y: 250, width: 200, height: 40), // find bar, partly past the right edge
+                CGRect(x: -100, y: -50, width: 50, height: 50), // outside the page
             ]
         )
         #expect(plan.holes == [CGRect(x: 280, y: 250, width: 120, height: 40)])
@@ -17,8 +17,8 @@ import Testing
 
     @Test func nestedHolesAreDroppedButEqualOnesKeepOne() {
         let plan = BrowserPageOcclusionPlan(
-            contentRectInWindow: CGRect(x: 0, y: 0, width: 400, height: 300),
-            overlayRectsInWindow: [
+            contentBounds: CGRect(x: 0, y: 0, width: 400, height: 300),
+            overlayRects: [
                 CGRect(x: 0, y: 0, width: 400, height: 300), // crash page
                 CGRect(x: 10, y: 10, width: 100, height: 20), // a bar over it
                 CGRect(x: 0, y: 0, width: 400, height: 300), // the same page twice
@@ -29,8 +29,8 @@ import Testing
 
     @Test func fractionalFramesRoundOutward() {
         let plan = BrowserPageOcclusionPlan(
-            contentRectInWindow: CGRect(x: 0, y: 0, width: 400, height: 300),
-            overlayRectsInWindow: [CGRect(x: 10.5, y: 10.25, width: 20, height: 20)]
+            contentBounds: CGRect(x: 0, y: 0, width: 400, height: 300),
+            overlayRects: [CGRect(x: 10.5, y: 10.25, width: 20, height: 20)]
         )
         #expect(plan.holes == [CGRect(x: 10, y: 10, width: 21, height: 21)])
     }
@@ -39,6 +39,20 @@ import Testing
 @MainActor
 private final class FakeOcclusionTarget: BrowserPageOcclusionHosting {
     var pageOcclusionRects: [CGRect] = []
+}
+
+/// Runs everything already queued on the main queue (the coordinator
+/// publishes its floating placement there), with no timer.
+@MainActor
+private func drainMainQueue() async {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.main.async { continuation.resume() }
+    }
+}
+
+/// A flipped page view, like many AppKit host views.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }
 
 @MainActor
@@ -53,7 +67,7 @@ private final class FakeOcclusionTarget: BrowserPageOcclusionHosting {
         return (window, root, page)
     }
 
-    @Test func occludingOverlayMakesAHoleOnlyForAChildWindowPage() {
+    @Test func occludingOverlayMakesAHoleOnlyForAChildWindowPage() async {
         let (window, root, page) = makeWindow()
         let anchor = NSView(frame: CGRect(x: 400, y: 300, width: 180, height: 40))
         root.addSubview(anchor)
@@ -62,10 +76,14 @@ private final class FakeOcclusionTarget: BrowserPageOcclusionHosting {
 
         coordinator.registerOccluding(anchor, id: "find")
         coordinator.attach(contentView: page, target: nil)
+        await drainMainQueue()
         #expect(!coordinator.hostsFloatingOverlaysInPanels)
         #expect(target.pageOcclusionRects.isEmpty)
 
         coordinator.attach(contentView: page, target: target)
+        // Published on the next main-queue turn (attach runs inside SwiftUI updates).
+        #expect(!coordinator.hostsFloatingOverlaysInPanels)
+        await drainMainQueue()
         #expect(coordinator.hostsFloatingOverlaysInPanels)
         #expect(target.pageOcclusionRects == [CGRect(x: 300, y: 300, width: 180, height: 40)])
 
@@ -82,7 +100,7 @@ private final class FakeOcclusionTarget: BrowserPageOcclusionHosting {
         withExtendedLifetime(window) {}
     }
 
-    @Test func holesFollowThePaneAndClearWhenThePageLeaves() {
+    @Test func holesFollowThePaneAndClearWhenThePageLeaves() async {
         let (window, root, page) = makeWindow()
         let anchor = NSView(frame: CGRect(x: 100, y: 0, width: 500, height: 360))
         root.addSubview(anchor)
@@ -105,8 +123,24 @@ private final class FakeOcclusionTarget: BrowserPageOcclusionHosting {
 
         page.isHidden = false
         coordinator.detach()
+        await drainMainQueue()
         #expect(target.pageOcclusionRects.isEmpty)
         #expect(!coordinator.hostsFloatingOverlaysInPanels)
+        withExtendedLifetime(window) {}
+    }
+
+    @Test func holesFollowAFlippedPageView() {
+        let (window, root, _) = makeWindow()
+        let page = FlippedView(frame: CGRect(x: 100, y: 0, width: 500, height: 360))
+        root.addSubview(page)
+        // 40 pt bar at the top of the page (window y 320...360).
+        let anchor = NSView(frame: CGRect(x: 100, y: 320, width: 500, height: 40))
+        root.addSubview(anchor)
+        let coordinator = BrowserPageOverlayCoordinator()
+        let target = FakeOcclusionTarget()
+        coordinator.attach(contentView: page, target: target)
+        coordinator.registerOccluding(anchor, id: "bar")
+        #expect(target.pageOcclusionRects == [CGRect(x: 0, y: 0, width: 500, height: 40)])
         withExtendedLifetime(window) {}
     }
 
