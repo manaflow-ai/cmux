@@ -25,6 +25,8 @@ use serde_json::{Map, Value, json};
 pub const CAPABILITY: &str = "browser-devices-v1";
 /// `fit` on `browser.tab.emulate` and the `mode: "fit"` record (cx-va1wd).
 pub const FIT_CAPABILITY: &str = "browser-fit-v1";
+/// A fixed layout width as `fit` ("1280") and `fit.value` (cx-2ftlq).
+pub const FIT_WIDTH_CAPABILITY: &str = "browser-fit-width-v1";
 /// The resource kind of the custom device list on `session.events`.
 pub(crate) const RESOURCE: &str = "browser_device";
 /// The id of the one custom device list.
@@ -195,7 +197,8 @@ pub(crate) enum EmulationChange {
         custom: Option<Value>,
         orientation: Option<String>,
     },
-    /// Fit a desktop layout of aspect `W:H` (`fit`, "16:9") into the tab's view.
+    /// Fit a desktop layout into the tab's view (`fit`): of aspect `W:H`
+    /// ("16:9") at the view's height, or of a fixed CSS width ("1280").
     Fit(String),
     Clear,
 }
@@ -211,9 +214,15 @@ pub(crate) fn stored_emulation(
 ) -> anyhow::Result<Option<String>> {
     let (device, custom, orientation) = match change {
         EmulationChange::Clear => return Ok(None),
-        EmulationChange::Fit(aspect) => {
-            let (width, height) = parse_aspect(aspect)?;
-            return Ok(Some(serde_json::to_string(&json!({"fit": {"aspect": [width, height]}}))?));
+        EmulationChange::Fit(value) => {
+            let stored = match parse_fit_width(value) {
+                Some(width) => json!({"fit": {"width": width?}}),
+                None => {
+                    let (width, height) = parse_aspect(value)?;
+                    json!({"fit": {"aspect": [width, height]}})
+                }
+            };
+            return Ok(Some(serde_json::to_string(&stored)?));
         }
         EmulationChange::Set { device, custom, orientation } => (device, custom, orientation),
     };
@@ -417,11 +426,29 @@ const FIT_MAX_WIDTH: i64 = 1920;
 /// The largest side of a fit's aspect ratio ("16:9", "21:9", "4:3").
 const FIT_MAX_ASPECT_SIDE: i64 = 64;
 
+/// The narrowest and widest fixed layout width of a fit (`fit: "1280"`).
+const FIT_FIXED_MIN: i64 = 640;
+const FIT_FIXED_MAX: i64 = 3840;
+
+/// A fixed-width fit ("1280"): `None` when `text` is not a bare number
+/// (then it is an aspect ratio), an error when the number is out of range.
+fn parse_fit_width(text: &str) -> Option<anyhow::Result<i64>> {
+    let text = text.trim();
+    if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(text.parse::<i64>().ok().filter(|v| (FIT_FIXED_MIN..=FIT_FIXED_MAX).contains(v)).ok_or_else(|| {
+        anyhow::anyhow!(
+            "bad request: a fixed fit width is {FIT_FIXED_MIN} to {FIT_FIXED_MAX} CSS px, such as 1280"
+        )
+    }))
+}
+
 /// "W:H" (or "WxH") as whole numbers of 1 to 64 whose ratio is 1:4 to 4:1.
 fn parse_aspect(text: &str) -> anyhow::Result<(i64, i64)> {
     let bad = || {
         anyhow::anyhow!(
-            "bad request: fit takes an aspect ratio W:H such as 16:9 (whole numbers of 1 to {FIT_MAX_ASPECT_SIDE}, at most 4:1 either way)"
+            "bad request: fit takes an aspect ratio W:H such as 16:9 (whole numbers of 1 to {FIT_MAX_ASPECT_SIDE}, at most 4:1 either way) or a layout width of {FIT_FIXED_MIN} to {FIT_FIXED_MAX} CSS px such as 1280"
         )
     };
     let (width, height) = text.trim().split_once([':', 'x', 'X']).ok_or_else(bad)?;
@@ -435,7 +462,9 @@ fn parse_aspect(text: &str) -> anyhow::Result<(i64, i64)> {
     Ok((width, height))
 }
 
-/// `extra.emulation` of a stored fit `{"fit": {"aspect": [W, H]}}`: a desktop
+/// `extra.emulation` of a stored fit `{"fit": {"aspect": [W, H]}}` (or
+/// `{"fit": {"width": N}}`: min_width = max_width = N, so the layout is N CSS
+/// px wide whatever the view's height; `fit.value` names which): a desktop
 /// layout as wide as the view would be at aspect W:H at its height (between
 /// `min_width` and `max_width` CSS px), scaled down to the view's width; the
 /// layout's height is the view's height over that scale, so the page fills
@@ -443,10 +472,19 @@ fn parse_aspect(text: &str) -> anyhow::Result<(i64, i64)> {
 /// engine computes the numbers from its view size; the calls carry zeros
 /// for width, height and scale.
 fn resolve_fit(fit: &Value) -> Option<Value> {
-    let aspect = fit.get("aspect")?.as_array()?;
-    let [width, height] = aspect.as_slice() else { return None };
-    let text = format!("{}:{}", width.as_i64()?, height.as_i64()?);
-    let (width, height) = parse_aspect(&text).ok()?;
+    let (value, text, width, height, min_width, max_width) = match fit.get("width") {
+        Some(fixed) => {
+            let fixed = fixed.as_i64().filter(|v| (FIT_FIXED_MIN..=FIT_FIXED_MAX).contains(v))?;
+            (fixed.to_string(), "16:9".to_string(), 16, 9, fixed, fixed)
+        }
+        None => {
+            let aspect = fit.get("aspect")?.as_array()?;
+            let [width, height] = aspect.as_slice() else { return None };
+            let text = format!("{}:{}", width.as_i64()?, height.as_i64()?);
+            let (width, height) = parse_aspect(&text).ok()?;
+            (text.clone(), text, width, height, FIT_MIN_WIDTH, FIT_MAX_WIDTH)
+        }
+    };
     let metrics = json!({
         "width": 0,
         "height": 0,
@@ -458,11 +496,12 @@ fn resolve_fit(fit: &Value) -> Option<Value> {
     Some(json!({
         "mode": "fit",
         "fit": {
+            "value": value,
             "aspect": text,
             "aspect_width": width,
             "aspect_height": height,
-            "min_width": FIT_MIN_WIDTH,
-            "max_width": FIT_MAX_WIDTH,
+            "min_width": min_width,
+            "max_width": max_width,
         },
         "device_scale_factor": 0,
         "mobile": false,

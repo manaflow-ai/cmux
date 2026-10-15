@@ -3232,7 +3232,15 @@ jobs:
             : > "$pending"
             if ! CMUX_CHANNEL="$SIGN_CHANNEL" CMUX_NOTARY_CONTINUE_STATE="$dir/$STATE_NAME" GITHUB_OUTPUT="$pending" \
                 ./scripts/ci/notarize-nightly-dmg.sh "$dir/$APP_NAME" "$dir/$DMG_NAME" "recovered/$IMMUTABLE_NAME"; then
-              echo "::notice::run $run_id: submission $SUBMISSION_ID was not accepted, or a check after acceptance failed (see the log above); skipping"
+              # notarize-nightly-dmg.sh reports Apple's verdict once it has one.
+              notary_status="$(sed -n 's/^notary_status=//p' "$pending" | tail -n 1)"
+              if [ "$notary_status" = Accepted ]; then
+                echo "::error::run $run_id: Apple accepted submission $SUBMISSION_ID, but a check after acceptance failed (see the log above); skipping"
+              elif [ -n "$notary_status" ]; then
+                echo "::notice::run $run_id: Apple did not accept submission $SUBMISSION_ID (status $notary_status); skipping"
+              else
+                echo "::notice::run $run_id: Apple's verdict on submission $SUBMISSION_ID is unknown (see the log above); skipping"
+              fi
               echo "::endgroup::"; continue
             fi
             if grep -Fxq "submission_pending=true" "$pending"; then
@@ -3863,9 +3871,8 @@ jobs:
           # issue): Apple refused the copy, or a check, the smoke or the
           # publication failed. A submission still in Apple's queue never counts.
           # Two counted failures stop a build (the script); a newer build is tried.
-          title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)"
           : > failures.txt
-          number="$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" --jq ".[] | select(.title == \"$title\") | .number" | head -1 || true)"
+          number="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY" || echo "::warning::could not search for the failure issue; counting no failures" >&2)"
           if [ -n "$number" ]; then
             { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" --jq '.[].body'; } > failures.txt \
               || echo "::warning::could not read the failure issue #$number; counting no failures"
@@ -4332,11 +4339,25 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # Search, not a one-page listing: the issue may be past the first 100 open
+      # issues and pull requests (scripts/ci/nightly-next-legacy-failure-issue.sh).
+      - name: Find the failure issue
+        id: failure-issue
+        if: failure() && steps.resolve.outputs.real != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          number="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY")"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
       - name: Report a failed publication
         if: failure() && steps.resolve.outputs.real != 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          ISSUE_NUMBER: ${{ steps.failure-issue.outputs.number }}
+          ISSUE_SEARCH: ${{ steps.failure-issue.outcome }}
         with:
           script: |
             const title = 'cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)';
@@ -4345,10 +4366,12 @@ jobs:
             // failures of one build stop its retries); a submission still in
             // Apple's queue never reaches this step.
             const body = `Build ${process.env.BUILD} failed: it was not published to the cmux NIGHTLY-identity installs (cx-x7hwx). cmux NEXT is not affected; the old feed keeps its previous build.\n\nRun: ${run}\n\nStop it with repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.`;
-            const { data: open } = await github.rest.issues.listForRepo({ ...context.repo, state: 'open', per_page: 100, labels: '' });
-            const existing = open.find((issue) => issue.title === title);
-            if (existing) {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+            const number = Number(process.env.ISSUE_NUMBER || 0);
+            if (number > 0) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: number, body });
+            } else if (process.env.ISSUE_SEARCH !== 'success') {
+              // Without a working search a new issue could duplicate the open one.
+              core.warning(`could not search for the failure issue; not opening another one. ${body}`);
             } else {
               await github.rest.issues.create({ ...context.repo, title, body });
             }
