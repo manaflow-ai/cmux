@@ -4,7 +4,6 @@
 import os
 import sys
 import time
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -50,9 +49,9 @@ def main() -> int:
   </body>
 </html>
 """.strip()
-        data_url = local_html_url(html, "p0")
+        page_url = local_html_url(html, "p0")
 
-        c._call("browser.navigate", {"surface_id": target, "url": data_url})
+        c._call("browser.navigate", {"surface_id": target, "url": page_url})
         try:
             c._call("browser.wait", {"surface_id": target, "selector": "#btn", "timeout_ms": 5000})
         except cmuxError as exc:

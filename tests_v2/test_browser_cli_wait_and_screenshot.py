@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -75,8 +74,8 @@ def main() -> int:
   </body>
 </html>
 """.strip()
-        data_url = local_html_url(html, "cli-wait")
-        c._call("browser.navigate", {"surface_id": target, "url": data_url})
+        page_url = local_html_url(html, "cli-wait")
+        c._call("browser.navigate", {"surface_id": target, "url": page_url})
 
         wait_proc = _run_cli(
             cli,

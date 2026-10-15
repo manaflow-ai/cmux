@@ -6,7 +6,6 @@ import os
 import struct
 import sys
 import time
-import urllib.parse
 import zlib
 from pathlib import Path
 from typing import Iterable
@@ -24,7 +23,7 @@ def _must(cond: bool, msg: str) -> None:
         raise cmuxError(msg)
 
 
-def _data_url(html: str) -> str:
+def _page_url(html: str) -> str:
     return local_html_url(html, "hidden-screenshot")
 
 
@@ -193,7 +192,7 @@ def main() -> int:
         surface_id = str(opened.get("surface_id") or "")
         _must(surface_id != "", f"browser.open_split returned no surface_id: {opened}")
 
-        c._call("browser.navigate", {"surface_id": surface_id, "url": _data_url(html)})
+        c._call("browser.navigate", {"surface_id": surface_id, "url": _page_url(html)})
         _wait_until(
             lambda: str(
                 _value(c._call("browser.eval", {"surface_id": surface_id, "script": "document.readyState"})) or ""
