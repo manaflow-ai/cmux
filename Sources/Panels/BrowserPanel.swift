@@ -2133,6 +2133,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Why this panel opened in WebKit although another engine was wanted,
     /// shown once per run as a notice; `nil` otherwise.
     @Published private(set) var engineFallbackNotice: BrowserEngineUnavailableReason?
+    /// Why this panel opened (or fell back) in WebKit although another engine
+    /// was wanted; kept for automation (`engine_fallback_reason`), unlike the
+    /// once-per-run notice.
+    private(set) var engineFallbackReason: BrowserEngineUnavailableReason?
     /// Whether a Chromium page's DevTools are open (the toolbar button shows its pressed fill).
     @Published var isEngineDevToolsOpen = false
     var enginePageEventsTask: Task<Void, Never>?
@@ -3774,6 +3778,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.engineRuntime = engineRuntime ?? .shared
         self.enginePage = enginePageSetup.page
         self.engineFallbackNotice = enginePageSetup.notice
+        self.engineFallbackReason = enginePageSetup.fallback
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -6754,6 +6759,7 @@ extension BrowserPanel {
         let url = currentURL
         closeEnginePage()
         enginePage = nil
+        engineFallbackReason = reason
         if engineRuntime.fallbackNotices.recordFallback(reason) {
             engineFallbackNotice = reason
         }

@@ -14,6 +14,9 @@ extension BrowserPanel {
         var page: (any BrowserPage)?
         /// The fallback reason to show, once per run; `nil` otherwise.
         var notice: BrowserEngineUnavailableReason?
+        /// Why the panel opened in WebKit although another engine was
+        /// wanted, every time (automation reports it); `nil` otherwise.
+        var fallback: BrowserEngineUnavailableReason?
     }
 
     /// Creates the page for a new panel's engine.
@@ -41,7 +44,11 @@ extension BrowserPanel {
             }
         }
         guard resolved.engine != .webkit else {
-            return EnginePageSetup(page: nil, notice: noticeIfFirst(resolved.fallback, runtime: runtime))
+            return EnginePageSetup(
+                page: nil,
+                notice: noticeIfFirst(resolved.fallback, runtime: runtime),
+                fallback: resolved.fallback
+            )
         }
         do {
             let page = try runtime.registry.makePage(
@@ -54,10 +61,10 @@ extension BrowserPanel {
             )
             return EnginePageSetup(page: page, notice: nil)
         } catch BrowserEngineError.unavailable(_, let reason) {
-            return EnginePageSetup(page: nil, notice: noticeIfFirst(reason, runtime: runtime))
+            return EnginePageSetup(page: nil, notice: noticeIfFirst(reason, runtime: runtime), fallback: reason)
         } catch {
             let reason = BrowserEngineUnavailableReason.startFailed(String(describing: error))
-            return EnginePageSetup(page: nil, notice: noticeIfFirst(reason, runtime: runtime))
+            return EnginePageSetup(page: nil, notice: noticeIfFirst(reason, runtime: runtime), fallback: reason)
         }
     }
 

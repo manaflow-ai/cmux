@@ -113,6 +113,7 @@ import Testing
         #expect(first.engineFallbackNotice == .notBundled)
         #expect(second.engineKind == .webkit)
         #expect(second.engineFallbackNotice == nil)
+        #expect(second.engineFallbackReason == .notBundled)
     }
 
     @Test func explicitUnavailableChromiumIsRefused() {
@@ -204,6 +205,7 @@ import Testing
         #expect(panel.enginePage == nil)
         #expect(page.closeCount == 1)
         #expect(panel.engineFallbackNotice == .startFailed("NSApp does not conform to CefAppProtocol"))
+        #expect(panel.engineFallbackReason == .startFailed("NSApp does not conform to CefAppProtocol"))
         #expect(panel.page is WebKitBrowserPage)
         // Later explicit requests are refused with the reason.
         #expect(BrowserPanel.resolvedEngineChoice(requested: .chromium, runtime: engines) == nil)
