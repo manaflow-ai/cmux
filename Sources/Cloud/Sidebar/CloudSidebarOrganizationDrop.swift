@@ -2,8 +2,8 @@ import CmuxCloud
 import CmuxSurfaceCatalogModel
 import AppKit
 
-/// Converts AppKit's hierarchy-relative proposal into a move among displayed
-/// siblings. Stable IDs route to the existing descendant or machine order owner.
+/// Converts AppKit's hierarchy-relative proposal into sidebar organization or
+/// an exact Cloud browser move within one machine.
 struct CloudSidebarOrganizationDrop {
     let sourceID: String
     let parent: CloudTreeNode?
@@ -43,7 +43,15 @@ struct CloudSidebarOrganizationDrop {
             operation = .machine(drop.machineID, drop.move)
             return
         }
-        if let move = Self.browserMove(sourceID: sourceID, nodes: nodes, proposedItem: proposedItem) {
+        var nodesByID: [String: CloudTreeNode] = [:]
+        var parentsByID: [String: CloudTreeNode] = [:]
+        var pending: [(node: CloudTreeNode, parent: CloudTreeNode?)] = nodes.map { ($0, nil) }
+        while let (node, parent) = pending.popLast() {
+            nodesByID[node.id] = node
+            if node.canOrganize { parentsByID[node.id] = parent }
+            pending.append(contentsOf: node.children.map { ($0, node) })
+        }
+        if let move = Self.browserMove(source: nodesByID[sourceID], parentsByID: parentsByID, proposedItem: proposedItem) {
             self.sourceID = sourceID
             parent = move.target
             children = move.target.children
@@ -51,7 +59,7 @@ struct CloudSidebarOrganizationDrop {
             operation = .browser(move.resource.rawValue, move.tabID, move.targetWorkspaceID)
             return
         }
-        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: sourceID) else { return nil }
+        guard let parent = parentsByID[sourceID] else { return nil }
         let group = parent.organizationGroupID
         let pinned = state.isPinned(sourceID, parent: group)
         let index: Int
@@ -100,15 +108,15 @@ struct CloudSidebarOrganizationDrop {
     }
 
     private static func browserMove(
-        sourceID: String,
-        nodes: [CloudTreeNode],
+        source: CloudTreeNode?,
+        parentsByID: [String: CloudTreeNode],
         proposedItem: CloudTreeNode?
     ) -> (resource: SurfaceResourceID, tabID: String, target: CloudTreeNode, targetWorkspaceID: String)? {
-        guard let source = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == sourceID }),
+        guard let source,
               case .browser(let browser) = source.kind,
               !browser.resource.machine.isLocal,
               let view = browser.remoteView,
-              let sourceWorkspaceNode = CloudSidebarOrganizationTree(nodes: nodes).parent(of: sourceID),
+              let sourceWorkspaceNode = parentsByID[source.id],
               case .workspace(let sourceMachine, let sourceWorkspace, _, _, _) = sourceWorkspaceNode.kind,
               sourceMachine == browser.resource.machine,
               view.workspace.id == sourceWorkspace.id,
@@ -120,7 +128,7 @@ struct CloudSidebarOrganizationDrop {
                 guard machine == sourceMachine, workspace.id != sourceWorkspace.id else { return nil }
                 return (browser.resource.id, view.tabID, candidate, workspace.id)
             }
-            target = CloudSidebarOrganizationTree(nodes: nodes).parent(of: candidate.id)
+            target = parentsByID[candidate.id]
         }
         return nil
     }

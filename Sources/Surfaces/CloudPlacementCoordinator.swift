@@ -294,6 +294,7 @@ final class CloudPlacementCoordinator {
                 id: tabID,
                 intoRemoteWorkspace: remoteWorkspaceID
             )
+            guard catalog.provider(for: resource.machine) === provider else { return false }
             self.movedTabs[resource.machine, default: [:]][placement.tabID] = placement.workspaceID
             self.confirmPlacement(placement, on: resource.machine)
             var replacements: [SurfaceProjection: SurfaceProjection] = [:]

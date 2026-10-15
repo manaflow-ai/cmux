@@ -427,8 +427,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let roots = CloudTreeNodeBuilder.nodes(
             machines: [fleetRow()],
             snapshot: SurfaceCatalogSnapshot(
-                machines: [info(workspaces: [main, side])],
-                resources: [resource, terminal("side-shell", in: [side])],
+                machines: [info(workspaces: [main, side])], resources: [resource],
                 projections: []
             ),
             localWorkspaces: [],
@@ -979,7 +978,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "the machine lists it, so it exists — with nothing in it"
         )
         #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("scratch", on: machine, snapshot: snapshot) == .ambiguous([scratchA, scratchB]))
-        // Empty daemon workspaces remain resolvable, but the Cloud sidebar omits them.
-        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.isEmpty)
+        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.map(\.id) == [
+            "machine:brave-otter/ws/ws_a", "machine:brave-otter/ws/ws_b"
+        ])
     }
 }

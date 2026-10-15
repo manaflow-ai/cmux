@@ -969,8 +969,8 @@ enum CloudTreeNodeBuilder {
         }
         return children
     }
-    /// Builds every nonempty Cloud workspace from its actual layout members.
-    /// Empty daemon records remain available to lookup and persistence.
+    /// Builds every Cloud workspace from its daemon record and actual layout members.
+    /// Empty daemon records remain visible so they can receive Cloud surface drops.
     private static func workspacesGroupNode(
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo,
@@ -1004,7 +1004,7 @@ enum CloudTreeNodeBuilder {
             else { rows.displays.append(placement) }
             byWorkspace[member.workspaceID] = rows
         }
-        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty || snapshot.pendingWorkspaceCreations?[machine]?[$0.workspace.id] != nil }.sorted { lhs, rhs in
+        let workspaces = byWorkspace.values.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
         }
         let workspaceNodes = workspaces.map { rows in
