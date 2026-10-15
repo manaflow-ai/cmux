@@ -4,14 +4,28 @@
 // hides the macOS way (composerChrome.tsx): its right-click offers Hide, and a right-click on the
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
-// `plainFooter` is no cmux.json key: Debug Settings' "Agent composer: plain footer" (Swift
+// The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
+// (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
+// slider instead of its list of levels. Only Debug Settings changes it.
+// `plainFooter` is no cmux.json key either: Debug Settings' "Agent composer: plain footer" (Swift
 // AgentPaneTunables.composerPlainFooter, DEV and NIGHTLY builds) rides the same event and draws the
 // footer's chips as plain text at rest (composerLocation.css, [data-footer-look="plain"]).
 import { useSyncExternalStore } from "react";
 
-export type ComposerSettings = { showContextUsage: boolean; showDictation: boolean; plainFooter: boolean };
+export type ComposerSettings = {
+  showContextUsage: boolean;
+  showDictation: boolean;
+  reasoningSlider: boolean;
+  plainFooter: boolean;
+};
 
-export const DEFAULT_COMPOSER: ComposerSettings = { showContextUsage: true, showDictation: true, plainFooter: false };
+export const DEFAULT_COMPOSER: ComposerSettings = {
+  showContextUsage: true,
+  showDictation: true,
+  reasoningSlider: false,
+  plainFooter: false,
+};
+const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -20,6 +34,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
+    reasoningSlider: flag("reasoningSlider"),
     plainFooter: flag("plainFooter"),
   };
 }
@@ -30,7 +45,7 @@ const listeners = new Set<() => void>();
 /// The host's whole value, or a page change to some settings (the rest stay as they are).
 export function setComposerSettings(value: unknown) {
   const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : {}) });
-  if ((Object.keys(next) as (keyof ComposerSettings)[]).every((key) => next[key] === current[key])) return;
+  if (KEYS.every((key) => next[key] === current[key])) return;
   current = next;
   for (const listener of listeners) listener();
 }

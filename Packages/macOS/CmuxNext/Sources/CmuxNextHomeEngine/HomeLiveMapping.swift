@@ -42,6 +42,15 @@ nonisolated struct HomeLiveMapping {
     }
 
     private static func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
+
+    /// A run's talk rows with their text.
+    static func talkRows(_ rows: ConversationRunRows) -> [HomeLiveRunSnapshot.Step] {
+        rows.steps.compactMap { step in
+            // A cut row is not the step's text: the reply brings it.
+            guard step.kind == "talk", step.truncated != true, let text = step.text else { return nil }
+            return HomeLiveRunSnapshot.Step(step: step.id, isTalk: true, seq: 0, text: text)
+        }
+    }
 }
 
 nonisolated extension DaemonHomeSource {
@@ -54,6 +63,12 @@ nonisolated extension DaemonHomeSource {
     /// `conversation-run-changed` from the local owner.
     public func publish(_ changed: ConversationRunChanged) {
         publish(.live(HomeLiveMapping(author: { ParticipantID($0) }).event(changed)))
+    }
+
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        guard let connection = try? requireConnection(),
+              let rows = try? await ConversationClient(connection).runRows(conversation.rawValue, run: run) else { return nil }
+        return HomeLiveMapping.talkRows(rows)
     }
 
     public func requestLive(of conversation: ConversationID) async {
@@ -76,5 +91,12 @@ nonisolated extension CloudHomeSource {
     public func requestLive(of conversation: ConversationID) async {
         guard let commands = state.withLock({ $0.commands }) else { return }
         try? await commands.requestLive(conversation.rawValue)
+    }
+
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        let (commands, identity) = state.withLock { ($0.commands, $0.identity) }
+        guard let commands, let identity,
+              let rows = try? await commands.runRows(conversation.rawValue, agent: identity.toCloud(author), run: run) else { return nil }
+        return HomeLiveMapping.talkRows(rows)
     }
 }

@@ -89,6 +89,8 @@ mod bundle;
 use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
 /// `access-request-v1`, served on a Cloud host as this is.
 pub mod access_requests;
+/// `agent-update-v1`, the same kind of trusted local acpmux client.
+pub mod agent_update;
 mod ask_first;
 mod askable;
 mod landed;
@@ -148,6 +150,8 @@ pub(crate) struct AgentTransfers {
     /// Receives a receive-abort may still name after a restart (`askable.rs`).
     askable: askable::Askable,
     calls: AtomicUsize,
+    /// Update Everything's agent CLI updates (`agent_update.rs`).
+    updates: agent_update::AgentUpdates,
 }
 
 /// A guarded receive: what its finish uses.
@@ -529,6 +533,7 @@ impl From<LinkError> for Failure {
             LinkError::Closed => Self::Refusal(Refusal::Unavailable),
             LinkError::Timeout => Self::Refusal(Refusal::Timeout),
             LinkError::Busy => Self::Refusal(Refusal::Limit),
+            LinkError::MethodNotFound(message) => Self::Acpmux(message),
             LinkError::Rpc(message, data) => {
                 let moving = data["transferId"].as_str().filter(|id| is_plain_id(id));
                 match moving {
@@ -550,7 +555,9 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer)
+        .or_else(|| agent_update::try_handle(mux, client, message, writer))
+    {
         return Some(keep_open);
     }
     if !message.contains("\"agent-transfer-") {

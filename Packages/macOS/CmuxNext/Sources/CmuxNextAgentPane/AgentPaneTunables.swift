@@ -143,5 +143,13 @@ public nonisolated struct AgentPaneTunables {
         return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
     }
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, composerPlainFooter.descriptor] }
+    /// The composer's reasoning menu draws a stepped slider from Faster to Smarter instead of its
+    /// list of levels (an opt-in look, off by default). Unlike the fold above it applies live: it reaches every
+    /// agent page as the `composer` event's `reasoningSlider` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let reasoningSlider = Tunable<Bool>.toggle(
+        "agent.reasoningSlider", PageTunables.section, "Reasoning slider in the composer",
+        help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
+        default: false, code: "AgentPaneTunables.reasoningSlider")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, composerPlainFooter.descriptor] }
 }

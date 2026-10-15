@@ -13,6 +13,24 @@ extension HomeStore {
         }
         // A run record names the reply's key (Cloud: Run.turn): a reply that came first ends the run now.
         if case .run = event { settleLive(conversation) }
+        // A snapshot (a join, a reconnect, a gap) lacks the reply segments the owner freed: read the run's rows.
+        if case .snapshot = event {
+            for (key, _) in liveBook.turns(in: conversation) { readRows(conversation, run: key.run, author: key.author) }
+        }
+    }
+
+    /// The talk rows of one running run, once per run at a time (cx-kdm25).
+    private func readRows(_ conversation: ConversationID, run: String, author: ParticipantID) {
+        let id = "\(conversation.rawValue)\u{0}\(author.rawValue)\u{0}\(run)"
+        guard liveRowReads.insert(id).inserted else { return }
+        let owner = self.source
+        // task-owner: one run read; ends with its reply
+        Task { [weak self] in
+            let rows = await owner.liveRunRows(of: conversation, run: run, author: author)
+            guard let self else { return }
+            self.liveRowReads.remove(id)
+            if let rows { self.applyLive(.rows(conversation: conversation, author: author, run: run, steps: rows)) }
+        }
     }
 
     /// Ends every live run of `conversation` whose reply is already in the mirror.
