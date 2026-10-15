@@ -168,6 +168,36 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("remote") == nil)
     }
 
+    @Test("Workspace leading emoji is available to custom sidebars")
+    func workspaceEmoji() {
+        let builder = CustomSidebarDataContextBuilder()
+        let workspace = CustomSidebarWorkspaceSnapshot(
+            id: UUID(),
+            title: "🚀 Project",
+            isSelected: false,
+            isPinned: false,
+            index: 0,
+            directory: "/project",
+            listeningPorts: [],
+            unreadCount: 0,
+            surfaces: [],
+            surfaceCount: 0,
+            customDescription: nil,
+            customColor: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            pullRequestValues: [],
+            progress: nil,
+            latestConversationMessage: nil,
+            latestSubmittedMessage: nil,
+            latestSubmittedAt: nil,
+            remote: nil,
+            taskStatus: "todo"
+        )
+
+        #expect(builder.workspaceValue(workspace).member("emoji") == .string("🚀"))
+    }
+
     @Test("Empty optional strings are omitted like nil")
     func emptyOptionalStringsOmitted() {
         let builder = CustomSidebarDataContextBuilder()
