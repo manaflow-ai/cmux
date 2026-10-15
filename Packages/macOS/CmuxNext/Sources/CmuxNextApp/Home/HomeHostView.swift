@@ -99,7 +99,7 @@ final class HomeHostView: NSView {
                 // this Mac's mux home (2026-10-08: the sidebar wrote codex
                 // here while cmux-lawrence ran claude-sr).
                 return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "", service.isCloudConversation(id),
-                        row?.isTyping ?? false, row.flatMap { HomeChiefControl.namedChief(in: $0.summary.participants) })
+                        row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) })
             }) {
                 guard let self else { return }
                 // A named Chief's conversation: its panel, Stop and avatar name it (cx-327wl).

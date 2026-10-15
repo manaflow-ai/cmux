@@ -230,7 +230,7 @@ final class HomeService {
         homeCloudInbox.note(event)
         switch event {
         case .conversationChanged(let changed):
-            askBrain(after: changed)
+            if case .message(let message) = changed.change { brain.ask(after: message, in: conversations.first { $0.id == changed.conversation }) }
             updateList(changed)
             homeSource.publish(changed, summary: conversations.first { $0.id == changed.conversation })
             guard let session = sessions[changed.conversation] else { return }

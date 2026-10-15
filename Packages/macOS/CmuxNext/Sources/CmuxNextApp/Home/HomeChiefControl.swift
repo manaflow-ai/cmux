@@ -46,23 +46,8 @@ struct HomeChiefControl {
     /// is not the default; nil for the default and a cloud Chief.
     var named: String? { isCloud ? nil : chief }
 
-    /// The mux home of the brain that answers here: a named Chief's own
-    /// directory, `<home>/c/<last 8 of its id, lowercased>` (cmux-tui
-    /// chief_brains.rs `brain_home`), else the default Chief's.
-    var brainHome: URL {
-        guard let named else { return muxHome }
-        return muxHome.appendingPathComponent("c", isDirectory: true)
-            .appendingPathComponent(String(named.suffix(8)).lowercased(), isDirectory: true)
-    }
-
-    /// The local Chief of a conversation's participants when it is not the
-    /// default: nil with the default Chief (agent_mux) among them, with no
-    /// Chief, or with more than one (a group; the default rule stays).
-    static func namedChief(in participants: [Participant]) -> String? {
-        let chiefs = participants.filter(\.isChief).map(\.id.rawValue)
-        guard chiefs.count == 1, let id = chiefs.first, id != HomeService.mux.id else { return nil }
-        return id
-    }
+    /// The mux home of the brain that answers here (ChiefHome.brainHome).
+    var brainHome: URL { ChiefHome.brainHome(muxHome: muxHome, chief: named) }
 
     /// The settings panel's source for this Chief.
     func engineSource() -> any HomeChiefEngineSource {
