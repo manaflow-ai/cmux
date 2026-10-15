@@ -102,6 +102,26 @@ export const TRIAL_FACTS: readonly ProductFact[] = [
 /** The `number unit` pairs the trial facts state. */
 export const TRIAL_QUANTITIES: readonly string[] = TRIAL_FACTS.flatMap((fact) => fact.quantities.map(([value, unit]) => `${value} ${unit}`));
 
+/**
+ * The spec lines the `specList` paywall layout shows per plan, built only
+ * from the facts above. The server sends them as `planSpecs`; the copy
+ * validator checks them like any other copy.
+ */
+export const PLAN_SPECS: Readonly<Record<"pro" | "max", readonly string[]>> = {
+  pro: [
+    "Up to 5 Cloud VMs",
+    "20 vCPUs and 40 GB RAM to share",
+    "A single VM can have up to 8 vCPUs and 16 GB RAM",
+    "The iOS app and email support",
+  ],
+  max: [
+    "Up to 5 Cloud VMs",
+    "80 vCPUs and 160 GB RAM to share",
+    "A single VM can have up to 32 vCPUs and 64 GB RAM",
+    "The iOS app and email support",
+  ],
+};
+
 /** `unlimited` is allowed only in these phrases, because the facts say so. */
 export const UNLIMITED_PHRASES: readonly string[] = ["unlimited workspaces"];
 

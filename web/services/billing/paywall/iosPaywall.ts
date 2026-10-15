@@ -8,6 +8,7 @@ import { isAdminUser } from "../../admin/access";
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
 import { iosAnalyticsChannel } from "../../analytics/iosEventPolicy";
 import { isSyntheticAccountEmail } from "../../analytics/syntheticAccounts";
+import { PLAN_SPECS } from "./facts";
 import {
   isPostHogFlagsResponseAvailable,
   normalizePostHogFlagsResponse,
@@ -86,7 +87,7 @@ export function servedPaywallConfig(config: IosPaywallConfig, request: Pick<IosP
   const drawable = (layout: IosPaywallLayout | undefined) =>
     layout !== undefined && supported.includes(layout) && (layout !== "trialTimeline" || request.trialEligible === true);
   const layout = drawable(config.layout) ? config.layout : drawable(config.fallbackLayout) ? config.fallbackLayout! : "cards";
-  const served: IosPaywallConfig = { ...config, layout };
+  const served: IosPaywallConfig = { ...config, layout, ...(layout === "specList" ? { planSpecs: PLAN_SPECS } : {}) };
   delete (served as { fallbackLayout?: IosPaywallLayout }).fallbackLayout;
   return served;
 }
