@@ -32,6 +32,7 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
+              "tabs.hoverPreviews",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
               "tabs.tabBar.terminal",
@@ -325,9 +326,7 @@
               "sidebar.cards.tips",
               "sidebar.side",
               "sidebar.spacesPosition",
-              "sidebar.spacesVisibility",
-              "sidebar.hoverCards.enabled",
-              "sidebar.hoverCards.delay"
+              "sidebar.spacesVisibility"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -2037,6 +2036,81 @@
       "title" : {
         "key" : "settings.tabs.toolbarButtons",
         "text" : "Tab Bar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "compact",
+        "full"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.compact",
+            "text" : "Compact"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverPreviews.full",
+            "text" : "Full"
+          },
+          "value" : "full"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "full",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.hoverPreviews.help",
+        "text" : "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.hoverPreviews",
+      "keywords" : [
+        "tabs",
+        "hover",
+        "preview",
+        "card",
+        "tooltip",
+        "thumbnail",
+        "memory",
+        "compact"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "hoverPreviews"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.hoverPreviews",
+        "text" : "Hover Previews"
       },
       "validation" : "portable"
     },
@@ -9478,6 +9552,10 @@
         "font",
         "text",
         "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
         "chromeFontSize"
       ],
       "kind" : "number",
@@ -9497,68 +9575,6 @@
       "refuses" : [
         4,
         22,
-        "1"
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.interfaceSize",
-        "text" : "Interface Size"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        0.9,
-        1.25,
-        1.075
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : null,
-      "default_label" : {
-        "key" : "settings.default.density",
-        "text" : "Density default"
-      },
-      "group" : {
-        "key" : "settings.group.densityMotion",
-        "text" : "Density and Motion"
-      },
-      "help" : {
-        "key" : "settings.appearance.interfaceSize.help",
-        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.interfaceScale",
-      "keywords" : [
-        "font",
-        "text",
-        "size",
-        "zoom",
-        "scale",
-        "bigger",
-        "smaller",
-        "interfaceScale"
-      ],
-      "kind" : "number",
-      "page_hidden" : true,
-      "path" : [
-        "appearance",
-        "interfaceScale"
-      ],
-      "range" : {
-        "max" : 1.25,
-        "min" : 0.9,
-        "placeholder" : 1,
-        "step" : 0.05,
-        "unit" : "fraction"
-      },
-      "refuses" : [
-        -0.09999999999999998,
-        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -15049,113 +15065,6 @@
       "title" : {
         "key" : "settings.sidebar.steppingWraps",
         "text" : "Wrap Around"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.enabled.help",
-        "text" : "A card with details opens when the pointer rests on a workspace or a tab."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.enabled",
-      "keywords" : [
-        "hover",
-        "card",
-        "preview",
-        "tooltip",
-        "workspace",
-        "tab"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "enabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.enabled",
-        "text" : "Show Hover Cards"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        0,
-        5000,
-        2500
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 1300,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.delay.help",
-        "text" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.delay",
-      "keywords" : [
-        "hover",
-        "card",
-        "delay",
-        "wait",
-        "milliseconds"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "delay"
-      ],
-      "range" : {
-        "max" : 5000,
-        "min" : 0,
-        "placeholder" : 0,
-        "step" : 100,
-        "unit" : "milliseconds"
-      },
-      "refuses" : [
-        -5000,
-        10000,
-        "1"
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.delay",
-        "text" : "Hover Card Delay"
       },
       "validation" : "portable"
     },
@@ -23997,7 +23906,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fc56c4fea858de0e8912bfab9adf86bb9257dc12d1863f26beaa423157c7dd63",
+  "schema_hash" : "289847d9af6f6a7da104f301b51448a7e17abe9eb3b8a7a6c3e2550a4726eb91",
   "sections" : [
     {
       "id" : "general",

@@ -144,7 +144,10 @@ public final class HoverCardCoordinator {
         // so the window under it hit-tests): it holds the card.
         let onCard = card?.contains(now) == true
         // A held mouse button (a press, a drag, a selection) gives no target a card, as in Chrome.
-        send(.hit(onCard || mouseButtonDown() ? nil : hitTest()?.target, moved: true, aiming: aiming))
+        let hit = onCard || mouseButtonDown() ? nil : hitTest()
+        // Between a source's targets (not on the card): a card that hides on leave waits for the next.
+        let bridging = !onCard && hit == nil && !mouseButtonDown() && bridges(at: now)
+        send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
     }
 
     /// The shown card's frame on screen, nil while none shows.
@@ -330,8 +333,7 @@ public final class HoverCardCoordinator {
     private func hitTest() -> HoverCardHit? {
         guard appIsActive(), hoverCardsEnabled() else { return nil }
         let point = currentPointer()
-        let top = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
-            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
+        let top = topWindowNumber(at: point)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
                   let hit = source.hoverCardHit(at: point) else { continue }
@@ -339,6 +341,22 @@ public final class HoverCardCoordinator {
             return hit
         }
         return nil
+    }
+
+    /// Whether `point` is between the targets of a source in the window on top there.
+    private func bridges(at point: CGPoint) -> Bool {
+        guard appIsActive(), hoverCardsEnabled() else { return false }
+        let top = topWindowNumber(at: point)
+        return sources.values.contains { entry in
+            guard let source = entry.source, source.hoverCardWindow?.windowNumber == top else { return false }
+            return source.hoverCardBridges(at: point)
+        }
+    }
+
+    /// The window on top at a screen point, never the card.
+    private func topWindowNumber(at point: CGPoint) -> Int {
+        (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
+            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
     }
 
     /// The front one of this app's windows under a screen point. A

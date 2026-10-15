@@ -173,6 +173,8 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `tabs.hoverPreviews`: the facts card, or the card with a thumbnail.
+    public var tabHoverPreviews: TabHoverPreviews = .full
 
     public init() {}
 

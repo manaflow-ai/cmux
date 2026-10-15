@@ -644,13 +644,6 @@
       "title" : "Hue",
       "type" : "number"
     },
-    "appearance.interfaceScale" : {
-      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
-      "maximum" : 1.25,
-      "minimum" : 0.9,
-      "title" : "Interface Size",
-      "type" : "number"
-    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
@@ -2130,20 +2123,6 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
-    "sidebar.hoverCards.delay" : {
-      "default" : 1300,
-      "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
-      "maximum" : 5000,
-      "minimum" : 0,
-      "title" : "Hover Card Delay",
-      "type" : "number"
-    },
-    "sidebar.hoverCards.enabled" : {
-      "default" : true,
-      "description" : "A card with details opens when the pointer rests on a workspace or a tab.",
-      "title" : "Show Hover Cards",
-      "type" : "boolean"
-    },
     "sidebar.minimal" : {
       "default" : false,
       "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
@@ -2760,6 +2739,17 @@
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
+    },
+    "tabs.hoverPreviews" : {
+      "default" : "full",
+      "description" : "What resting the pointer on a tab shows: its title, memory and what it is doing, with a thumbnail in Full.",
+      "enum" : [
+        "off",
+        "compact",
+        "full"
+      ],
+      "title" : "Hover Previews",
+      "type" : "string"
     },
     "tabs.newTabPosition" : {
       "default" : "end",
