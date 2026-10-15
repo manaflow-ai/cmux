@@ -85,7 +85,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Allow Once / Allow for This Chat / Deny | permission cards | works | Allow needs the phone's Face ID signature (pairing). |
 | Queue: Edit / Remove / Send now | queue remove | partial | |
 | Fork Conversation, Archive Chat, Checkpoints, Commit, Push | Checkpoints shown as unavailable | missing | The link carries no checkpoints; fork and archive have no phone UI. |
-| Trust this folder ("Trust / Don't trust") | — | not from a phone | acpmux refuses `acp.trust.set` from a remote connection; answer on the Mac. |
+| Trust this folder ("Trust / Don't trust") | the toast says how; `claude` in the terminal works | partial | acpmux refuses `acp.trust.set` from a remote connection (finding 2). |
 
 ## Chief and the Feed
 
@@ -97,6 +97,56 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Show Feed, Jump to Latest Unread, Mark read | Feed tab, swipe | works | |
 | Clear All Notifications, Mute workspace | — | missing | Resource op `notification.clear` is not on the lane. |
 
-## Verification
+## Live run (2026-10-14/15)
 
-See "Live run" below for what ran against the real link.
+- **Mac:** a real tagged cmux-next build of this branch (`cnx-e2e-dc79f937`, fleet job
+  `632570e0c07656235e782c58`, with `feat-cnx-ios` 3d2a8581: the browser host fix and
+  the media lane) on `mini-cmux11s-mac-mini`, hidden, launched with `open --env`
+  only (no bundle edit, `verify/parity/rmac.py`). Agents reach Claude through the
+  team subrouter server (real model calls).
+- **Phone:** this branch's Demo build in one headless simulator (`cnx-parity-1`)
+  on the laptop, over the real link (TeamHub signaling, WebRTC direct). Taps and
+  typing are HID events (`axe`); driver `verify/parity/pq.py`.
+- **Videos:** `~/cnx-ios-e2e/parity-raw/*.mp4` (not committed).
+
+| Flow | Result | Video |
+| --- | --- | --- |
+| New Agent Chat (Mac default `claude`, Opus 5.5) in a workspace folder | Pass after fixes: chat open in 3-12 s, "PONG" in 42 s; Mac lists the session (`claude`, `claude-opus-5-5`, policy `ask`, the workspace folder) | `agent-default.mp4` |
+| New Agent Chat With… (sheet: Harness, Model; Codex rows "Unavailable" with the Mac's reason) | Pass: loads in 0.8 s; Claude Code + Claude Haiku 5.5: open 3.1 s, "PONG" 3.6 s; Mac session `claude-haiku-5-5` | `agent-chooser.mp4`, `agent-chooser-model.mp4` |
+| Another harness: `cmux` (open-source model through the cmux model router) | Opens (session `cmux`, `qwen/qwen3.7-flash`), then Working with no reply for 2.5 min: see finding 3 | `agent-chooser.mp4` |
+| New Browser Tab, address bar, navigate, Back, Forward, Reload | Pass: example.com and iana.org render; Back, Forward (second tap; see finding 5), Reload | `browser.mp4`, `browser-forward.mp4`, `browser-reload.mp4` |
+| New Terminal | Pass: opens in the workspace folder in 5 s; `echo parity-$((6*7))` prints `parity-42` | `terminal.mp4` |
+| New Workspace > Recent Directories > proj | Pass: `proj` on the Mac in 1 s, terminal at `proj %` (cd + clear) | `workspace-folder.mp4` |
+| New Workspace (tap), then New Agent Chat in it | Pass (the tap reuses the last folder) | `workspace-home-agent.mp4` |
+| Rename Tab… (card menu) | Pass on the Mac (`rename-surface`); the field then started with the old name and the typed text landed mid-name, so it now starts empty | `tab-edits.mp4` |
+| Duplicate Tab | Pass: Mac tabs 12 -> 13, the copy opens | `tab-edits.mp4` |
+| Drag to reorder | Unit-tested only: the simulated drag opened the card menu, then left the workspace | — |
+| A new folder's trust question | Refused by acpmux (`trust.pending`) until answered; answered from the phone by running `claude` in the workspace's terminal and choosing "Yes, I trust this folder" | `trust-from-phone-terminal.mp4` |
+
+### Findings
+
+1. **Fixed: acpmux replies over 16 KiB never reached the phone.** cnx-link writes
+   in 16 KiB chunks since the input lane (e1eb3562), and
+   `AcpmuxConnection.MessageJoiner` dropped any chunk under 256 KiB that did not
+   parse, so `_acpmux/models` (23 KB) never answered and New Agent Chat sat on
+   "Opening…". Transcripts and event pages over 16 KiB were lost the same way.
+   Fixed with a red/green test (`sixteenKiBChunksJoin`), also on `feat-cnx-ios`.
+   The catalog reads now give up after 15 s.
+2. **A new folder's trust question needs the Mac (or the terminal).** acpmux
+   refuses `acp.trust.set` from a remote connection, so a phone cannot answer
+   "Trust / Don't trust". The phone now says so ("Trust proj on <Mac> first:
+   answer its trust question in cmux on the Mac, or run claude in this
+   workspace's terminal and accept it."). Answering it on the phone with the
+   phone's Face ID signature is a trust decision for #13742.
+3. **Harnesses whose API is behind a loopback proxy hang when a phone starts
+   them.** acpmux runs a phone-started Claude in its remote-chain Seatbelt
+   profile, which shuts loopback except Claude's own `ANTHROPIC_BASE_URL` port.
+   The `cmux` harness (the cmux model router through the local relay) and
+   `claude-sr` (`sr claude proxy`) reach their APIs another way: `cmux` worked
+   and never answered; `claude-sr` closed ("agent process closed"); `claude`
+   through a loopback `ANTHROPIC_BASE_URL` failed with "Unable to connect to API
+   (EPERM)". Owner: acpmux remote sandbox (`hub/remote_sandbox.rs`).
+4. The streamed browser tab's address control reads "Address, about:blank" to
+   VoiceOver after navigation, while it shows the page's host.
+5. Forward once did nothing on the first tap right after Back (the next tap
+   worked).
