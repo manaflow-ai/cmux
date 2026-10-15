@@ -1,7 +1,6 @@
 public import Foundation
 
-/// The page-world JavaScript that applies ``BrowserEmulationOverrides`` in
-/// one frame.
+/// The page-world JavaScript that applies the overrides in one frame.
 ///
 /// The first run in a document wraps `Geolocation.prototype`
 /// (`getCurrentPosition`, `watchPosition`, `clearWatch`) and the
@@ -13,39 +12,36 @@ public import Foundation
 ///
 /// Requests are answered from the stored position without a permission
 /// prompt, like Chromium's geolocation override for an automated tab.
-public enum BrowserEmulationScript {
+extension BrowserEmulationOverrides {
     /// The global symbol key of the per-document state (`Symbol.for`).
-    public static let stateKey = "cmux.browser.emulation"
+    public static let pageScriptStateKey = "cmux.browser.emulation"
 
-    /// The script for `overrides`.
+    /// The script for these overrides.
     /// - Parameter dispatchesChangeEvents: `true` for a run in a loaded
     ///   document: fires `offline`/`online` on `window` when the network state
     ///   flips and reports a new position to active `watchPosition` callers.
     ///   Document-start runs pass `false`.
-    public static func source(for overrides: BrowserEmulationOverrides, dispatchesChangeEvents: Bool) -> String {
-        "(\(installer))(\(configurationJSON(overrides)), \(dispatchesChangeEvents ? "true" : "false"));"
+    public func pageScript(dispatchesChangeEvents: Bool) -> String {
+        "(\(Self.pageScriptInstaller))(\(pageScriptConfigurationJSON), \(dispatchesChangeEvents ? "true" : "false"));"
     }
 
-    static func configurationJSON(_ overrides: BrowserEmulationOverrides) -> String {
-        let geolocation: String
-        if let position = overrides.geolocation {
-            geolocation = "{\"latitude\":\(number(position.latitude)),\"longitude\":\(number(position.longitude)),\"accuracy\":\(number(position.accuracy))}"
+    var pageScriptConfigurationJSON: String {
+        let geolocationJSON: String
+        if let position = geolocation {
+            // `description` round-trips a finite Double and never uses a locale.
+            geolocationJSON = "{\"latitude\":\(position.latitude.description),"
+                + "\"longitude\":\(position.longitude.description),"
+                + "\"accuracy\":\(position.accuracy.description)}"
         } else {
-            geolocation = "null"
+            geolocationJSON = "null"
         }
-        return "{\"geolocation\":\(geolocation),\"offline\":\(overrides.offline ? "true" : "false")}"
+        return "{\"geolocation\":\(geolocationJSON),\"offline\":\(offline ? "true" : "false")}"
     }
 
-    /// A finite double as a JavaScript number literal.
-    private static func number(_ value: Double) -> String {
-        // `description` round-trips and never uses a locale.
-        value.description
-    }
-
-    private static let installer = #"""
+    private static let pageScriptInstaller = #"""
     function (config, notify) {
       'use strict';
-      const key = Symbol.for('\#(stateKey)');
+      const key = Symbol.for('\#(pageScriptStateKey)');
       let state = globalThis[key];
       if (!state) {
         state = { geolocation: null, offline: false, watches: new Map(), nextWatchID: 1000000000, deliver: null };

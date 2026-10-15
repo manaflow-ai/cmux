@@ -23,7 +23,7 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct BrowserWebKitEmulationTests {
-    private static let page = """
+    private nonisolated static let page = """
     <!doctype html><title>emulation</title>
     <script>
       window.networkEvents = [];
@@ -206,7 +206,7 @@ struct BrowserWebKitEmulationTests {
 
         #expect(harness.controller.overrides.isDefault)
         #expect(try await value(
-            "return Symbol.for('\(BrowserEmulationScript.stateKey)') in globalThis;",
+            "return Symbol.for('\(BrowserEmulationOverrides.pageScriptStateKey)') in globalThis;",
             in: replacement
         ) as? Bool == false)
         #expect(try await fetchData(in: replacement) == "ok")

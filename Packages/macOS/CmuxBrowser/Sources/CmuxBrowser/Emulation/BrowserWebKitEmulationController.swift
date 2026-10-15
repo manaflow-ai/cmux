@@ -1,21 +1,6 @@
 public import Foundation
 public import WebKit
 
-/// The content-blocker rules that cut a page off from the network while
-/// ``BrowserEmulationOverrides/offline`` is set: every http(s) and ws(s) load
-/// fails, as it does with no connection. Local schemes (`file:`, `data:`,
-/// `blob:`, `about:`, cmux's own handlers) keep working.
-public enum BrowserOfflineContentRules {
-    /// The rule-list store identifier.
-    public static let identifier = "cmux.browser.emulation.offline"
-
-    /// The rules as content-blocker JSON.
-    public static let encodedRules = """
-    [{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},\
-    {"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}}]
-    """
-}
-
 /// Applies ``BrowserEmulationOverrides`` to a WKWebView and keeps them for
 /// the web views that later replace it (a discarded or crashed page).
 ///
@@ -23,6 +8,18 @@ public enum BrowserOfflineContentRules {
 /// at once and in every document loaded after it, in all frames.
 @MainActor
 public final class BrowserWebKitEmulationController {
+    /// The rule-list store identifier of the offline rules.
+    public static let offlineRuleListIdentifier = "cmux.browser.emulation.offline"
+
+    /// The content-blocker rules that cut a page off from the network while
+    /// ``BrowserEmulationOverrides/offline`` is set: every http(s) and ws(s)
+    /// load fails, as it does with no connection. Local schemes (`file:`,
+    /// `data:`, `blob:`, `about:`, cmux's own handlers) keep working.
+    public static let offlineEncodedRules = """
+    [{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},\
+    {"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}}]
+    """
+
     public private(set) var overrides = BrowserEmulationOverrides()
 
     private let ruleListStore: () -> WKContentRuleListStore?
@@ -56,7 +53,7 @@ public final class BrowserWebKitEmulationController {
         // that overwrites the values the earlier ones stored.
         userContentController.addUserScript(Self.userScript(for: newOverrides))
         _ = try? await webView.evaluateJavaScript(
-            BrowserEmulationScript.source(for: newOverrides, dispatchesChangeEvents: true),
+            newOverrides.pageScript(dispatchesChangeEvents: true),
             in: nil,
             contentWorld: .page
         )
@@ -82,7 +79,7 @@ public final class BrowserWebKitEmulationController {
 
     private static func userScript(for overrides: BrowserEmulationOverrides) -> WKUserScript {
         WKUserScript(
-            source: BrowserEmulationScript.source(for: overrides, dispatchesChangeEvents: false),
+            source: overrides.pageScript(dispatchesChangeEvents: false),
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false,
             in: .page
@@ -93,8 +90,8 @@ public final class BrowserWebKitEmulationController {
         guard let store = ruleListStore() else { throw BrowserEmulationError.offlineRulesUnavailable }
         return try await withCheckedThrowingContinuation { continuation in
             store.compileContentRuleList(
-                forIdentifier: BrowserOfflineContentRules.identifier,
-                encodedContentRuleList: BrowserOfflineContentRules.encodedRules
+                forIdentifier: Self.offlineRuleListIdentifier,
+                encodedContentRuleList: Self.offlineEncodedRules
             ) { list, _ in
                 if let list {
                     continuation.resume(returning: list)
