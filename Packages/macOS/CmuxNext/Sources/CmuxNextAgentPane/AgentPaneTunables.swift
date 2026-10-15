@@ -10,12 +10,15 @@ public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, 
     case bump
     /// Plain muted text a few px above the card, no fill or rim, on the card's content edge.
     case plain
+    /// A filled tray tucked under the card's top edge, its text on the card's content edge.
+    case tray
 
     public var tunableTitle: String {
         switch self {
         case .default: "Default (tab on the card)"
         case .bump: "Bump (tab a few px above, own hairline)"
         case .plain: "Plain (floating text, no chrome)"
+        case .tray: "Tray (filled, tucked under the card)"
         }
     }
 }
@@ -65,7 +68,7 @@ public nonisolated struct AgentPaneTunables {
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
         "agentPane.debug.topStripStyle", PageTunables.section, "Composer top strip style",
-        help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, or plain text. New agent tabs.",
+        help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, plain text, or a tray tucked under the card. New agent tabs.",
         default: .default, code: "AgentPaneTunables.topStripStyle")
 
     /// The page's `<html>` `data-*` attributes from these tunables.
