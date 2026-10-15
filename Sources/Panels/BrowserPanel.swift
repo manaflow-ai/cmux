@@ -2143,6 +2143,10 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserAutomationStyleScriptCount = 0
     /// Where `browser.input_mouse` left the pointer in this panel.
     let browserRawInputPointer = BrowserRawInputPointerState()
+    /// Geolocation and offline emulation set by `browser.geolocation.set` /
+    /// `browser.offline.set`; follows the tab across web view replacements
+    /// the same way automation init scripts do.
+    let browserEmulation = BrowserWebKitEmulationController()
     var webViewDidRequestClose: (() -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]

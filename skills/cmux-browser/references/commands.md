@@ -183,7 +183,7 @@ sizing.
 
 ## Known WKWebView gaps (`not_supported`)
 
-`browser.geolocation.set`, `browser.offline.set`, `browser.trace.start|stop`,
+`browser.trace.start|stop`,
 `browser.network.route|unroute|requests`, `browser.screencast.start|stop`, and
 `browser.input_touch` are not supported by the WKWebView engine.
 
@@ -204,6 +204,14 @@ cmux browser surface:2 input keyboard inserttext "héllo"
 ```
 
 Moving with a button held (a drag) returns `not_supported`; use `cmux browser repl` for drags.
+
+`browser.geolocation.set` (`latitude`, `longitude`, optional `accuracy`, or
+`clear: true`) and `browser.offline.set` (`enabled`) work on WebKit. The
+override reaches the loaded page's main frame at once and every later
+document in all frames (an iframe already loaded keeps its old values until
+it reloads, though offline blocks its loads at once). It survives a web
+content crash or a hidden tab discard. A popup the page opens shares the
+opener's emulation.
 
 See also [snapshot-refs.md](snapshot-refs.md),
 [authentication.md](authentication.md), and

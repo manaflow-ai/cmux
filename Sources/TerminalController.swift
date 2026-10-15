@@ -1968,7 +1968,8 @@ class TerminalController {
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
              "browser.addinitscript", "browser.addscript", "browser.addstyle",
-             "browser.input_mouse", "browser.input_keyboard":
+             "browser.input_mouse", "browser.input_keyboard",
+             "browser.geolocation.set", "browser.offline.set":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
@@ -3631,10 +3632,6 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserTabClose(params: params))
         case "browser.viewport.set":
             return v2Result(id: id, self.v2BrowserViewportSet(params: params))
-        case "browser.geolocation.set":
-            return v2Result(id: id, self.v2BrowserGeolocationSet(params: params))
-        case "browser.offline.set":
-            return v2Result(id: id, self.v2BrowserOfflineSet(params: params))
         case "browser.trace.start":
             return v2Result(id: id, self.v2BrowserTraceStart(params: params))
         case "browser.trace.stop":
@@ -10531,6 +10528,8 @@ class TerminalController {
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
         case "browser.input_mouse": return v2BrowserInputMouse(params: params)
         case "browser.input_keyboard": return v2BrowserInputKeyboard(params: params)
+        case "browser.geolocation.set": return v2BrowserGeolocationSet(params: params)
+        case "browser.offline.set": return v2BrowserOfflineSet(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -11902,14 +11901,6 @@ class TerminalController {
 
     private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
         v2BrowserViewportSetWKWebView(params: params)
-    }
-
-    private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.geolocation.set", details: "WKWebView does not expose per-tab geolocation spoofing hooks equivalent to Playwright/CDP")
-    }
-
-    private func v2BrowserOfflineSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.offline.set", details: "WKWebView does not expose reliable per-tab offline emulation")
     }
 
     private func v2BrowserTraceStart(params _: [String: Any]) -> V2CallResult {
