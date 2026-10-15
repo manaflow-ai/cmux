@@ -163,6 +163,15 @@ run with fewer arms.
   deployments report to the same project), `is_internal_user` (registered by
   the route tracker for verified company accounts), `is_synthetic`, and
   headless user agents.
+- **Paid accounts:** everyone is bucketed and keeps their arm, but an exposure
+  counts only when the visitor can still convert. The route tracker registers
+  `account_plan` (the signed-in account's plan when the event is sent), and
+  exposures with a paid plan (`go`, `pro`, `max`, `team`) are left out. A
+  person whose only exposures were on a paid plan is therefore outside both
+  the exposure count and the primary metric. A free account that later buys
+  keeps its earlier free exposure, so its conversion counts. A signed-out
+  visitor counts as free; a paying customer who browses signed out is a
+  known, small leak.
 - **Hypotheses:** `yearly-emphasis`: a note that yearly billing costs less per
   month raises paid conversion. `highlight-pro`: one recommended plan raises
   Pro checkouts. `outcome-headline`: an outcome headline (agents keep working

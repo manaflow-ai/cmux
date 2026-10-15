@@ -8,7 +8,8 @@ import { markAnalyticsCaptureBuffered, posthog } from "../lib/posthog-client";
 import {
   STACK_AUTH_CHANGED_EVENT,
   STACK_IDENTITY_STORAGE_KEY,
-  syncInternalUserProperty,
+  isStackAnalyticsPlan,
+  syncAccountEventProperties,
   syncStackAnalyticsIdentity,
   type StackAnalyticsIdentity,
 } from "../../services/analytics/stackIdentity";
@@ -158,7 +159,7 @@ function PageviewTracker() {
           const plan = payload.user?.plan;
           if (
             typeof payload.user?.id !== "string"
-            || (plan !== "free" && plan !== "pro" && plan !== "team")
+            || !isStackAnalyticsPlan(plan)
           ) {
             recoverAsAnonymous(!hadAuthenticatedIdentity);
             return;
@@ -167,7 +168,7 @@ function PageviewTracker() {
         }
         posthog.set_config({ before_send: (event) => event });
         syncStackAnalyticsIdentity(posthog, identityStorage, identity);
-        syncInternalUserProperty(posthog, identity);
+        syncAccountEventProperties(posthog, identity);
         const identityUnchanged = !hadAuthenticatedIdentity
           || identity?.id === previousPostHogUserId;
         flushBufferedCaptures(identityUnchanged);

@@ -1,8 +1,16 @@
 export const STACK_IDENTITY_STORAGE_KEY = "cmux.posthog.stack-user-id";
 
+/** Every plan the identity route reports. Go and Max were added after this list first shipped. */
+export const STACK_ANALYTICS_PLANS = ["free", "go", "pro", "max", "team"] as const;
+export type StackAnalyticsPlan = (typeof STACK_ANALYTICS_PLANS)[number];
+
+export function isStackAnalyticsPlan(value: unknown): value is StackAnalyticsPlan {
+  return typeof value === "string" && (STACK_ANALYTICS_PLANS as readonly string[]).includes(value);
+}
+
 export type StackAnalyticsIdentity = {
   readonly id: string;
-  readonly plan: "free" | "pro" | "team";
+  readonly plan: StackAnalyticsPlan;
   /** A verified company account; its events are excluded from experiment counts. */
   readonly internal?: boolean;
 };
@@ -70,11 +78,14 @@ export function syncStackAnalyticsIdentity(
 }
 
 /**
- * Registers `is_internal_user` on every later event of a company account and
- * clears it otherwise, so pricing-experiment and funnel queries can exclude
- * staff traffic with one property filter.
+ * Registers account properties on every later event of this browser, and
+ * clears them when signed out, so experiment and funnel queries can filter
+ * with one event property:
+ * - `is_internal_user` for a company account (staff traffic is excluded);
+ * - `account_plan`, the plan at the time of the event (a pricing experiment
+ *   counts only visitors who can still convert, so paid plans are excluded).
  */
-export function syncInternalUserProperty(
+export function syncAccountEventProperties(
   posthog: Pick<PostHogIdentityClient, "register"> & { unregister(property: string): void },
   identity: StackAnalyticsIdentity | null,
 ): void {
@@ -82,6 +93,11 @@ export function syncInternalUserProperty(
     posthog.register({ is_internal_user: true });
   } else {
     posthog.unregister("is_internal_user");
+  }
+  if (identity) {
+    posthog.register({ account_plan: identity.plan });
+  } else {
+    posthog.unregister("account_plan");
   }
 }
 

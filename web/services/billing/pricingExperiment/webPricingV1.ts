@@ -207,6 +207,9 @@ export const WEB_PRICING_V1_DEFINITION: Omit<ExperimentDefinition, "policy"> = {
     NOT_TRUE("properties.is_internal_user"),
     NOT_TRUE("properties.paywall_internal"),
     NOT_TRUE("properties.is_synthetic"),
+    // Only visitors who can still convert: anonymous or on the free plan
+    // when exposed. Paid accounts stay bucketed (sticky) but are not counted.
+    "coalesce(toString(properties.account_plan), 'free') = 'free'",
     // Bots are refused cookies by the proxy and most run no JavaScript; this
     // drops the headless browsers that do.
     "NOT match(lower(coalesce(toString(properties.$raw_user_agent), '')), 'bot|crawl|spider|headless|lighthouse|playwright|puppeteer')",
