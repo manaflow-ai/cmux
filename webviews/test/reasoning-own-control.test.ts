@@ -93,13 +93,13 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
       test(`${where} at ${width} px: the reasoning chip opens the reasoning menu, the model chip the model menu`, async () => {
         const page = await open(entry, variant, width);
         await pressCentre(page, ".acpmux-chips .acpmux-effort");
-        await page.waitForTimeout(150);
+        await page.locator(".acpmux-effort-menu").waitFor();
         expect(await menus(page)).toEqual({ reasoning: true, model: false });
         await page.keyboard.press("Escape");
-        await page.waitForTimeout(150);
+        await page.locator(".acpmux-effort-menu").waitFor({ state: "detached" });
         expect(await menus(page)).toEqual({ reasoning: false, model: false });
         await pressCentre(page, ".acpmux-chips .acpmux-model .acpmux-picker-button");
-        await page.waitForTimeout(150);
+        await page.locator(".acpmux-mp").waitFor();
         expect(await menus(page)).toEqual({ reasoning: false, model: true });
         await page.close();
       });
