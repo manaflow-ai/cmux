@@ -80,9 +80,9 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     ...todoWrite("todo-live"),
     ["in", "agent_message_chunk", say("Adding retry now.")],
   ];
-  // A running turn between calls, with Labs on: the activity line under the card names the todo in
-  // progress by Claude's present-tense `activeForm` (cx-ncc.105), which acpmux keeps under
-  // `_meta.claude`.
+  // A running turn between calls, with the in-session status on: the activity line under the card
+  // names the todo in progress by Claude's present-tense `activeForm` (cx-ncc.105), which acpmux
+  // keeps under `_meta.claude`.
   const DOING = "0190a000-0000-7000-8000-0000000000a3";
   const doing = (content: string, status: string, activeForm: string) => ({
     ...todo(content, status),
@@ -242,13 +242,14 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     expect(list).toBeLessThan(await top("Adding retry now."));
     await page.close();
   });
-  test("with Labs on, the activity line names the todo in progress in its present tense", async () => {
+  test("with the in-session status on, the activity line names the todo in progress in its present tense", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(DOING));
     await page.locator(".cv-plan").waitFor();
-    await page.evaluate(() =>
-      (window as { cmuxAcpmuxBridge?: { applyPreview?(on: boolean): void } }).cmuxAcpmuxBridge?.applyPreview?.(true),
-    );
+    await page.evaluate(() => {
+      const bridge = (window as { cmuxAcpmuxBridge?: { applySessionStatus?(on: boolean): void } }).cmuxAcpmuxBridge;
+      bridge?.applySessionStatus?.(true);
+    });
     const label = page.locator(".cv-activity__label");
     await label.waitFor();
     expect(await label.textContent()).toBe("Covering it with a test");
