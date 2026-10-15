@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSwiftRender
 import Testing
 
@@ -8,17 +9,53 @@ import Testing
 #endif
 
 @MainActor
+@Suite(.serialized)
 struct CmuxSidebarActionDispatchTests {
-    @Test func logActionReachesWorkspaceLogCommand() async {
-        let commands = AsyncStream<String>.makeStream()
-        let dispatch = makeCmuxSidebarActionDispatch { line in
-            commands.continuation.yield(line)
-            return "OK"
+    @Test func logActionReachesWorkspaceLogCommand() async throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
+        window.isReleasedWhenClosed = false
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        AppDelegate.shared = app
+        TerminalController.shared.setActiveTabManager(manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        let message = "row \"tapped\"\nnext"
+
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            window.orderOut(nil)
+            AppDelegate.shared = previousAppDelegate
         }
 
-        dispatch.run(ButtonAction(commands: [.log("row \"tapped\"\nnext")]))
-        let command = await commands.stream.first
+        makeCmuxSidebarActionDispatch().run(ButtonAction(commands: [.log(message)]))
 
-        #expect(command == "log --source=custom-sidebar -- \"row \\\"tapped\\\"\\nnext\"")
+        for _ in 0..<20 {
+            if workspace.logEntries.last?.message == message { break }
+            await Task.yield()
+        }
+
+        let entry = try #require(workspace.logEntries.last)
+        #expect(entry.message == message)
+        #expect(entry.level == .info)
+        #expect(entry.source == "custom-sidebar")
     }
 }

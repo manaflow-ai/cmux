@@ -33,9 +33,7 @@ private let sidebarSelectCoalescer = SidebarSelectCoalescer()
 /// through the same plain-text pasteboard helper as the built-in Copy
 /// Workspace ID / Link commands.
 @MainActor
-func makeCmuxSidebarActionDispatch(
-    commandRunner: (@Sendable (String) -> String)? = nil
-) -> SidebarActionDispatch {
+func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
     let quotedLogMessage: @Sendable (String) -> String = { message in
         // The v1 sidebar command parser accepts a quoted argument and decodes
         // these escapes. Keep the message as one positional argument even
@@ -49,9 +47,6 @@ func makeCmuxSidebarActionDispatch(
         return "\"\(escaped)\""
     }
     let controller = TerminalController.shared
-    let runCommand: @Sendable (String) -> String = commandRunner ?? { line in
-        controller.handleSocketLine(line)
-    }
 
     SidebarActionDispatch(run: { action in
         // Capture the controller on the main actor, then run the whole command
@@ -94,7 +89,7 @@ func makeCmuxSidebarActionDispatch(
                     }
                     guard let data = try? JSONSerialization.data(withJSONObject: payload),
                           let line = String(data: data, encoding: .utf8) else { continue }
-                    _ = runCommand(line)
+                    _ = controller.handleSocketLine(line)
                 case let .openURL(urlString):
                     // NSWorkspace.open is main-only; run it synchronously to keep the
                     // command's position in the sequence.
@@ -103,7 +98,7 @@ func makeCmuxSidebarActionDispatch(
                     }
                 case let .log(message):
                     let quotedMessage = quotedLogMessage(message)
-                    _ = runCommand(
+                    _ = controller.handleSocketLine(
                         "log --source=custom-sidebar -- \(quotedMessage)"
                     )
                 }
