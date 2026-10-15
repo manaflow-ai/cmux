@@ -26,6 +26,10 @@ mod claude_allow_always;
 // The background-process registry over Claude's shells, which shares these helpers too.
 #[path = "processes.rs"]
 mod processes;
+// The same registry over Codex's background terminals (the fake app-server).
+#[cfg(unix)]
+#[path = "codex_processes.rs"]
+mod codex_processes;
 // Claude's skills in the slash command list, which share these helpers too.
 #[path = "claude_skill_commands.rs"]
 mod claude_skill_commands;
