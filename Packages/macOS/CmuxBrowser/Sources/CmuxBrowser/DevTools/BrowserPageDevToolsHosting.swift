@@ -1,4 +1,4 @@
-import Foundation
+public import CoreGraphics
 
 /// A ``BrowserPage`` whose engine shows developer tools inside the pane and can dock them
 /// (Chromium). WebKit pages do not conform; their inspector stays owned by the panel.
@@ -18,4 +18,10 @@ public protocol BrowserPageDevToolsHosting: BrowserPage {
     /// Gives keyboard focus to the open tools, or returns it to the page.
     /// - Parameter focused: `true` to focus the tools.
     func setDevToolsFocused(_ focused: Bool)
+
+    /// Applies the app's settings to the tools' divider and dock menu.
+    /// - Parameters:
+    ///   - dividerThickness: The pane divider thickness setting.
+    ///   - closeShortcut: The Toggle Developer Tools shortcut for the dock menu's Close row.
+    func configureDevTools(dividerThickness: CGFloat, closeShortcut: BrowserDevToolsMenuShortcut?)
 }

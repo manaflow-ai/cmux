@@ -39,6 +39,23 @@ public final class BrowserDevToolsLayoutStore {
         return layout
     }
 
+    /// The defaults key holding the last undocked DevTools window frame.
+    public static let windowFrameKey = "browser.devTools.windowFrame"
+
+    /// The frame the user last left the undocked DevTools window at (AppKit screen coordinates).
+    /// - Returns: The frame, or `nil` when none is stored.
+    public func loadWindowFrame() -> CGRect? {
+        guard let values = defaults.array(forKey: Self.windowFrameKey) as? [Double], values.count == 4,
+              values.allSatisfy(\.isFinite) else { return nil }
+        return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
+    /// Remembers the undocked DevTools window frame.
+    /// - Parameter frame: The window frame.
+    public func saveWindowFrame(_ frame: CGRect) {
+        defaults.set([frame.minX, frame.minY, frame.width, frame.height].map(Double.init), forKey: Self.windowFrameKey)
+    }
+
     /// Remembers `layout` for the next DevTools.
     /// - Parameter layout: The layout to keep.
     public func save(_ layout: BrowserDevToolsLayout) {

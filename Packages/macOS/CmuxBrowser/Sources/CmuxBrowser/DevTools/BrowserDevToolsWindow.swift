@@ -9,11 +9,24 @@ public import AppKit
 public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting {
     /// Called when the user closes the window.
     public var onClose: (() -> Void)?
+    /// Called when the user moved or resized the window.
+    public var onFrameChange: ((CGRect) -> Void)?
+    private var frameObservers: [any NSObjectProtocol] = []
 
-    /// Creates a window over `owner` (inset), or centered on the main screen.
-    /// - Parameter owner: The cmux window the page shows in.
-    public convenience init(near owner: NSWindow?) {
-        self.init(contentRect: Self.frame(near: owner))
+    /// Creates a window beside `owner` (``BrowserDevToolsWindowPlacement``), or at `remembered`.
+    /// - Parameters:
+    ///   - owner: The cmux window the page shows in.
+    ///   - remembered: The frame the user last left the window at.
+    public convenience init(near owner: NSWindow?, remembered: CGRect? = nil) {
+        self.init(contentRect: Self.frame(near: owner, remembered: remembered))
+        for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification] {
+            frameObservers.append(NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    guard let self else { return }
+                    self.onFrameChange?(self.frame)
+                }
+            })
+        }
     }
 
     private init(contentRect frame: CGRect) {
@@ -65,6 +78,9 @@ public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting 
 
     public func dismiss() {
         onClose = nil
+        onFrameChange = nil
+        for observer in frameObservers { NotificationCenter.default.removeObserver(observer) }
+        frameObservers = []
         orderOut(nil)
     }
 
@@ -76,16 +92,14 @@ public final class BrowserDevToolsWindow: NSPanel, BrowserDevToolsWindowHosting 
         onClose?()
     }
 
-    /// Where the window opens: over the cmux window inset by 40 points (AppKit screen
-    /// coordinates), or 900 x 600 centered on the main screen.
-    /// - Parameter window: The cmux window.
+    /// Where the window opens (AppKit screen coordinates): the remembered frame, else beside the
+    /// cmux window so it doesn't cover the page it inspects (``BrowserDevToolsWindowPlacement``).
+    /// - Parameters:
+    ///   - window: The cmux window.
+    ///   - remembered: The frame the user last left the window at.
     /// - Returns: The frame.
-    public static func frame(near window: NSWindow?) -> CGRect {
-        if let window {
-            let frame = window.frame.insetBy(dx: 40, dy: 40)
-            if frame.width >= 400, frame.height >= 300 { return frame }
-        }
-        let screen = window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
-        return CGRect(x: screen.midX - 450, y: screen.midY - 300, width: 900, height: 600)
+    public static func frame(near window: NSWindow?, remembered: CGRect? = nil) -> CGRect {
+        let visible = window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
+        return BrowserDevToolsWindowPlacement().frame(owner: window?.frame, visible: visible, remembered: remembered)
     }
 }

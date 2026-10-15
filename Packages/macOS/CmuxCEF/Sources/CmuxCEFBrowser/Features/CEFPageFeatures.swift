@@ -58,7 +58,9 @@ public final class CEFPageFeatures {
         browserID: @escaping @MainActor () -> Int32?,
         pageView: CEFHostView,
         layoutStore: BrowserDevToolsLayoutStore,
-        makeWindow: @escaping (NSWindow?) -> any BrowserDevToolsWindowHosting = { BrowserDevToolsWindow(near: $0) }
+        makeWindow: @escaping (NSWindow?, CGRect?) -> any BrowserDevToolsWindowHosting = {
+            BrowserDevToolsWindow(near: $0, remembered: $1)
+        }
     ) {
         self.shim = shim
         self.browserID = browserID

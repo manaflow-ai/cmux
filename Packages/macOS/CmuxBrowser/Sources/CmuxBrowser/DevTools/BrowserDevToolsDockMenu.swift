@@ -30,9 +30,14 @@ struct BrowserDevToolsDockMenu {
         }
         menu.addItem(.separator())
         let closeTitle = String(localized: "browser.devTools.close", defaultValue: "Close Developer Tools", bundle: .module)
-        menu.addItem(BrowserMenuActionTarget.item(title: closeTitle) { [weak controller] in
+        let close = BrowserMenuActionTarget.item(title: closeTitle) { [weak controller] in
             controller?.perform(.close)
-        })
+        }
+        if let shortcut = controller.closeShortcut {
+            close.keyEquivalent = shortcut.key
+            close.keyEquivalentModifierMask = shortcut.modifiers
+        }
+        menu.addItem(close)
         return menu
     }
 }
