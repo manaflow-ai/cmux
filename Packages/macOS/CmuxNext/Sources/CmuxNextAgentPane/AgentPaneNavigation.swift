@@ -49,6 +49,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.applyZoom()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
     }
