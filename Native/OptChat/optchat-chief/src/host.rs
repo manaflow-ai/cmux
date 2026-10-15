@@ -823,15 +823,8 @@ fn start(
     let mut preset = turn_preset(paths, home, &turn_profile, family, isolate, &claude_text);
     // A harness without the project settings' env (codex) reads its tools'
     // env from the acpmux daemon and the preset: the preset pins cmux.
-    // The turn key (chief_profile.rs TURN_KEY_ENV): this host's own turn
-    // sessions only, never a subagent's preset or the launcher file.
-    let turn_key = (
-        crate::chief_profile::TURN_KEY_ENV.to_owned(),
-        chief_tools.turn_key().to_owned(),
-    );
     if let Some(preset) = preset.as_mut() {
         preset.env.extend(pinned.clone());
-        preset.env.insert(turn_key.0.clone(), turn_key.1.clone());
     }
     let claude_preset_name = turn_preset_name(home, Family::Claude);
     // The other family's turn preset, for a swap between turns.
@@ -845,7 +838,6 @@ fn start(
         .and_then(|p| turn_preset(paths, home, &p, other_family, isolate, &claude_text))
         .map(|mut p| {
             p.env.extend(pinned.clone());
-            p.env.insert(turn_key.0.clone(), turn_key.1.clone());
             p
         });
     let claude_installed =

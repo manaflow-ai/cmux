@@ -38,9 +38,10 @@ const TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/tool.jso
 /// The `chiefs` tool's definition (schemas/chief-profile/chiefs-tool.json).
 const CHIEFS_TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/chiefs-tool.json");
 
-/// The env key of this host's turn key: the host puts it in its own turn
-/// sessions' presets only (never a subagent's, never the launcher file), and
-/// the tools socket answers `chiefs` only to a caller that sends it.
+/// The env key of this host's turn key: the host gives it to its own turn
+/// sessions only (session env, never a subagent's, never a preset or the
+/// launcher file), and the tools socket answers `chiefs` only to a caller
+/// that sends it.
 // Not named *KEY*/*TOKEN*/*SECRET*: codex's default shell environment
 // policy drops such names, and its `chief chiefs` call would lose it.
 pub const TURN_KEY_ENV: &str = "OPTCHAT_TURN_SEAL";
@@ -53,8 +54,20 @@ pub fn chiefs_tool() -> Value {
         .unwrap_or_else(|| json!({"name": "chiefs"}))
 }
 
-/// A fresh turn key: 32 random bytes, hex.
+/// This host process's turn seal: made once, given to its own turn
+/// sessions only (their acpmux `session/new` env, brain/turns.rs), never to
+/// a preset (acpmux keeps those readable) or a file.
+pub fn process_turn_seal() -> &'static str {
+    static SEAL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SEAL.get_or_init(fresh_turn_key)
+}
+
 fn new_turn_key() -> String {
+    process_turn_seal().to_owned()
+}
+
+/// A fresh turn key: 32 random bytes, hex.
+fn fresh_turn_key() -> String {
     use ring::rand::SecureRandom;
     let mut bytes = [0_u8; 32];
     // No randomness: an empty key, which no caller can match.
