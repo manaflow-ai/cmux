@@ -38,6 +38,10 @@ final class SessionAutosaveCoordinator {
 
     private var deferredRetryTask: Task<Void, Never>?
     private var activeAttempt: ActiveAttempt?
+    /// A tick that arrived while an attempt was still scanning processes. It
+    /// runs as soon as that attempt ends instead of waiting a whole interval,
+    /// so a change is not left unsaved for two or more intervals.
+    private var rerunAfterActiveAttempt = false
     private var processDetectedSaveGeneration: UInt64 = 0
     private var lastFingerprint: Int?
     private var lastPersistedAt = Date.distantPast
@@ -130,6 +134,7 @@ final class SessionAutosaveCoordinator {
         timer = nil
         deferredRetryTask = nil
         activeAttempt = nil
+        rerunAfterActiveAttempt = false
         if hadActiveAttempt {
             processDetectedSaveGeneration &+= 1
         }
@@ -152,7 +157,10 @@ final class SessionAutosaveCoordinator {
         ) else {
             return
         }
-        guard activeAttempt == nil else { return }
+        guard activeAttempt == nil else {
+            rerunAfterActiveAttempt = true
+            return
+        }
         if let remainingQuietPeriod = remainingTypingQuietPeriod() {
 #if DEBUG
             cmuxDebugLog(
@@ -221,9 +229,7 @@ final class SessionAutosaveCoordinator {
         var fingerprintMs: Double = 0
         var saveMs: Double = 0
         defer {
-            if activeAttempt?.generation == generation {
-                activeAttempt = nil
-            }
+            attemptEnded(generation: generation)
             let totalMs = (ProcessInfo.processInfo.systemUptime - phaseStart) * 1000.0
             CmuxTypingTiming.logBreakdown(
                 path: "session.autosaveTick.phase",
@@ -243,11 +249,7 @@ final class SessionAutosaveCoordinator {
             )
         }
 #else
-        defer {
-            if activeAttempt?.generation == generation {
-                activeAttempt = nil
-            }
-        }
+        defer { attemptEnded(generation: generation) }
 #endif
 
         let now = Date()
@@ -313,6 +315,18 @@ final class SessionAutosaveCoordinator {
             fingerprint: autosaveFingerprint
         )
     }
+
+    /// Clears the finished attempt and runs a tick that arrived meanwhile.
+    private func attemptEnded(generation: UInt64) {
+        guard activeAttempt?.generation == generation else { return }
+        activeAttempt = nil
+        guard rerunAfterActiveAttempt else { return }
+        rerunAfterActiveAttempt = false
+        run(source: "rerun")
+    }
+
+    /// The running attempt, for tests that wait for it.
+    var activeAttemptTask: Task<Void, Never>? { activeAttempt?.task }
 
     private func remainingTypingQuietPeriod(
         nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime

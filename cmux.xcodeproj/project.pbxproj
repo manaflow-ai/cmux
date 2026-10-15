@@ -3206,6 +3206,7 @@
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
 		2203CA564DDC71B31131038D /* SessionAutosaveBrowserFingerprintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3360E16A243F473BF60F29A7 /* SessionAutosaveBrowserFingerprintTests.swift */; };
 		E7E300000000000000000001 /* SessionAutosaveCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E300000000000000000002 /* SessionAutosaveCoordinator.swift */; };
+		DD55FFD6977189DDCDAD62E5 /* SessionAutosaveRerunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60E13743297C220273007EE /* SessionAutosaveRerunTests.swift */; };
 		F39581155797426199C03CFF /* SessionBrowserPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19FE2238F1F44DE98D6501DB /* SessionBrowserPanelSnapshot.swift */; };
 		A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000006 /* SessionConfigFrameEntry.swift */; };
 		A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000008 /* SessionConfigFrameRing.swift */; };
@@ -7767,6 +7768,7 @@
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
 		3360E16A243F473BF60F29A7 /* SessionAutosaveBrowserFingerprintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionAutosaveBrowserFingerprintTests.swift"; sourceTree = "<group>"; };
 		E7E300000000000000000002 /* SessionAutosaveCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAutosaveCoordinator.swift; sourceTree = "<group>"; };
+		D60E13743297C220273007EE /* SessionAutosaveRerunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionAutosaveRerunTests.swift"; sourceTree = "<group>"; };
 		19FE2238F1F44DE98D6501DB /* SessionBrowserPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionBrowserPanelSnapshot.swift"; sourceTree = "<group>"; };
 		A74770010000000000000006 /* SessionConfigFrameEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameEntry.swift; sourceTree = "<group>"; };
 		A74770010000000000000008 /* SessionConfigFrameRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameRing.swift; sourceTree = "<group>"; };
@@ -13930,6 +13932,7 @@
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 				3360E16A243F473BF60F29A7 /* SessionAutosaveBrowserFingerprintTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
+				D60E13743297C220273007EE /* SessionAutosaveRerunTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18827,6 +18830,7 @@
 				EE114DDACC6CBA385064EE27 /* SearchIndexAgentSessionTests.swift in Sources */,
 				3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */,
 				2203CA564DDC71B31131038D /* SessionAutosaveBrowserFingerprintTests.swift in Sources */,
+				DD55FFD6977189DDCDAD62E5 /* SessionAutosaveRerunTests.swift in Sources */,
 				C71510010000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift in Sources */,
 				992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */,
 				850000000000000000000004 /* SessionIndexJSONLReaderTests.swift in Sources */,
