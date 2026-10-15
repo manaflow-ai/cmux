@@ -127,7 +127,7 @@ extension FocusEvent.Source {
     /// later programmatic responder change read a typed key as its cause).
     static var current: FocusEvent.Source {
         guard (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true else { return .programmatic }
-        switch NSApp.currentEvent?.type {
+        return switch NSApp.currentEvent?.type {
         case .keyDown, .keyUp, .flagsChanged: .keyboard
         case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp, .leftMouseDragged: .mouse
         default: .programmatic
