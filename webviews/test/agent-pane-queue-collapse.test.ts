@@ -253,7 +253,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
                   const foldClear = fold.top >= box.bottom - 1 && fold.bottom <= innerHeight + 1;
                   const isFold = focused.classList.contains("acpmux-queue-fold");
                   const rect = focused.getBoundingClientRect();
+                  // A row the list does not draw (cut while it scrolls) is not a half row.
                   const cut = [...list.querySelectorAll<HTMLElement>(".acpmux-queued")]
+                    .filter((row) => getComputedStyle(row).opacity !== "0")
                     .map((row) => row.getBoundingClientRect())
                     .filter((row) => row.bottom > top + 1 && row.top < edge - 1)
                     .filter((row) => row.top < top - 1 || row.bottom > edge + 1).length;
@@ -333,7 +335,10 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
                 const shows = (el: Element) => {
                   const r = el.getBoundingClientRect();
                   return (
-                    getComputedStyle(el).visibility !== "hidden" && r.bottom > box.top + 1 && r.top < box.bottom - 1
+                    getComputedStyle(el).visibility !== "hidden" &&
+                    getComputedStyle(el).opacity !== "0" &&
+                    r.bottom > box.top + 1 &&
+                    r.top < box.bottom - 1
                   );
                 };
                 const whole = (r: DOMRect) => r.top >= box.top - 1 && r.bottom <= box.bottom + 1;

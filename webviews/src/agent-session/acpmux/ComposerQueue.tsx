@@ -32,6 +32,68 @@ const FOLD_SHOWS = 2;
 /** The chats whose long queue is open, for this page's life. */
 const openQueues = new Set<string>();
 
+// The list shows whole rows only (captures of 436917b, 2026-10-15). Its height is the bottom of the
+// last row that fits under its cap: the CSS cap folded, the third row's bottom opened (so opening
+// moves the chat above by about a row, whatever the rows' heights). A row the list cuts at an edge
+// while it scrolls is not drawn (data-cut), and a row that takes focus scrolls in whole, its
+// "Queued" header with it at the top.
+
+/** Where `el` sits in the list's content, from its top (not moved by scrolling). */
+function offsets(list: HTMLElement, el: Element) {
+  const origin = list.getBoundingClientRect().top - list.scrollTop;
+  const rect = el.getBoundingClientRect();
+  return { top: rect.top - origin, bottom: rect.bottom - origin };
+}
+
+/** Marks the parts the list's edges cut, which it then does not draw. */
+function markCut(list: HTMLElement) {
+  const box = list.getBoundingClientRect();
+  for (const el of list.children) {
+    const rect = el.getBoundingClientRect();
+    const cut = rect.top < box.top - 0.5 || rect.bottom > box.bottom + 0.5;
+    if (cut !== el.hasAttribute("data-cut")) el.toggleAttribute("data-cut", cut);
+  }
+}
+
+/** Sizes the list to whole rows under its cap. */
+function fitList(list: HTMLElement) {
+  // The list's own window (a test's DOM has no global one).
+  const style = list.ownerDocument.defaultView?.getComputedStyle(list);
+  if (!style) return;
+  const pad = parseFloat(style.paddingBottom) || 0;
+  const items = [...list.children].filter((el) => !el.hasAttribute("hidden"));
+  const rows = items.filter((el) => el.classList.contains("acpmux-queued"));
+  const opened = list.hasAttribute("data-unfolded") && rows.length > 3;
+  const cap = opened
+    ? offsets(list, rows[2]).bottom + pad
+    : parseFloat(style.getPropertyValue("--acpmux-queue-max")) || 132;
+  let fit = 0;
+  for (const el of items) {
+    const bottom = offsets(list, el).bottom + pad;
+    if (bottom <= cap + 0.5) fit = bottom;
+  }
+  const height = `${fit > 0 ? fit : cap}px`;
+  if (list.style.maxHeight !== height) list.style.maxHeight = height;
+  markCut(list);
+}
+
+/** Scrolls the list so `row` shows whole, starting at a row's top (its header's, for the first). */
+function reveal(list: HTMLElement, row: HTMLElement) {
+  const { top, bottom } = offsets(list, row);
+  const view = list.clientHeight;
+  let to = list.scrollTop;
+  if (top < to - 0.5) {
+    const before = row.previousElementSibling;
+    const anchor = before && !before.classList.contains("acpmux-queued") ? before : row;
+    to = anchor === list.firstElementChild ? 0 : offsets(list, anchor).top;
+  } else if (bottom > to + view + 0.5) {
+    const starts = [...list.children].map((el) => offsets(list, el).top);
+    to = starts.find((start) => start >= bottom - view - 0.5) ?? bottom - view;
+  }
+  if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
+  markCut(list);
+}
+
 /** Shows the full prompt as a tooltip only when its two lines (the button's inner text) cut it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
@@ -104,6 +166,27 @@ export function ComposerQueue({
       setEditing(undefined);
     }
   }, [queue, editing, onLost]);
+  // Whole rows only: the list's height, after every draw and when its width changes.
+  const watched = useRef<{ list: HTMLElement; observer: ResizeObserver }>(undefined);
+  useLayoutEffect(() => {
+    const current = list.current;
+    if (current) fitList(current);
+    if (watched.current?.list !== current) {
+      watched.current?.observer.disconnect();
+      watched.current = undefined;
+      if (current && typeof ResizeObserver !== "undefined") {
+        let width = current.clientWidth;
+        const observer = new ResizeObserver(() => {
+          if (current.clientWidth === width) return;
+          width = current.clientWidth;
+          fitList(current);
+        });
+        observer.observe(current);
+        watched.current = { list: current, observer };
+      }
+    }
+  });
+  useEffect(() => () => watched.current?.observer.disconnect(), []);
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
@@ -366,6 +449,12 @@ export function ComposerQueue({
         ref={list}
         className="acpmux-composer-queue"
         data-unfolded={foldable && !folded ? "" : undefined}
+        // A row that takes focus (keys, a move, ↑ from the prompt) scrolls in whole.
+        onFocus={(event) => {
+          const row = (event.target as HTMLElement).closest("li");
+          if (row && list.current) reveal(list.current, row);
+        }}
+        onScroll={(event) => markCut(event.currentTarget)}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
         {paused && (
