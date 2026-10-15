@@ -82,7 +82,7 @@ final class HomeDockTab: InternalPageProvider {
 }
 
 /// The first of the page's answer and the deadline: later ones are dropped.
-private final class HomeDockOnce: Sendable {
+private nonisolated final class HomeDockOnce: Sendable {
     private struct State {
         var done = false
         var value: CmuxNextSettings.JSONValue?
@@ -145,9 +145,8 @@ final class HomeSwitchPageRoute: PageProvider {
         if let conversation, !HomeDockLinkID.isValid(conversation) || !(message.map(HomeDockLinkID.isValid) ?? true) {
             throw PageError(code: "cmux.home.invalid_selection", message: "not a conversation or message id", retryable: false)
         }
-        dock.switchTo(view)
+        dock.switchTo(view, selection: conversation.map { HomeDockView.Selection(conversation: $0, message: message) })
         await dock.settled()
-        if let conversation { dock.open(HomeDockView.Selection(conversation: conversation, message: message)) }
         return .object(["view": .string(dock.mode.rawValue)])
     }
 }

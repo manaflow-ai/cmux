@@ -16,8 +16,16 @@ extension DebugHome {
             let frame = view.header.convert(control.frame, to: nil)
             return CGRect(x: frame.minX, y: height - frame.maxY, width: frame.width, height: frame.height)
         }
+        let dockFrame = view.window.map { _ -> CGRect in
+            let frame = view.convert(view.bounds, to: nil)
+            return CGRect(x: frame.minX, y: height - frame.maxY, width: frame.width, height: frame.height)
+        }
+        let box: (CGRect) -> CmuxNextSettings.JSONValue = {
+            .object(["x": .number(Double($0.minX)), "y": .number(Double($0.minY)), "width": .number(Double($0.width)), "height": .number(Double($0.height))])
+        }
         return .object([
             "mode": .string(view.mode.rawValue),
+            "dock_frame": dockFrame.map(box) ?? .null,
             "visible": .bool(view.window != nil && !view.isHiddenOrHasHiddenAncestor),
             "messages_shown": view.messages?.shown.map { .string($0.rawValue) } ?? .null,
             "messages_visible": .bool(view.messages.map { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil } ?? false),
@@ -27,8 +35,7 @@ extension DebugHome {
             "channels_visible": .bool(view.channels.map { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil } ?? false),
             "switch_selected": .number(Double(control.selectedSegment)),
             "switch_labels": .array((0..<control.segmentCount).map { .string(control.label(forSegment: $0) ?? "") }),
-            "switch_frame": header.map { .object(["x": .number(Double($0.minX)), "y": .number(Double($0.minY)), "width": .number(Double($0.width)),
-                                                  "height": .number(Double($0.height))]) } ?? .null,
+            "switch_frame": header.map(box) ?? .null,
         ])
     }
 }

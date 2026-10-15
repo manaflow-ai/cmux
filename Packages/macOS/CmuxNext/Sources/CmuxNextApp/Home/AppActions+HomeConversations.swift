@@ -63,7 +63,12 @@ extension AppActions {
                     page.show(next)
                 }
                 // The docked Home steps its Messages list; Channels has its own keys (j/k).
-                guard services.home.dock.isClassic else { return withDock(services) { $0.messages.map(step) } }
+                guard services.home.dock.isClassic else {
+                    return withDock(services) { dock in
+                        guard dock.mode == .messages, let page = dock.messages else { return }
+                        step(page)
+                    }
+                }
                 guard let page = homePage(services) else { return }
                 step(page)
             }

@@ -92,6 +92,12 @@ def drive(action, **params):
     return rpc("debug.home.drive", dict(params, action=action)) or {}
 
 
+def page_fragment():
+    # The page's own location (debug.page), not the route the host asked for.
+    state = rpc("debug.page", {"page": "cmux.home-channels", "action": "state"}) or {}
+    return str(state.get("fragment") or state.get("hash") or state.get("route") or (state.get("url") or "").partition("#")[2])
+
+
 def in_mode(mode, conversation=None):
     def ready():
         state = dock()
@@ -100,7 +106,7 @@ def in_mode(mode, conversation=None):
         if mode == "messages":
             ok = state.get("messages_visible") and (conversation is None or state.get("messages_shown") == conversation)
         else:
-            ok = state.get("channels_visible") and (conversation is None or ("/conversation/" + conversation) in str(state.get("channels_route")))
+            ok = state.get("channels_visible") and (conversation is None or ("/conversation/" + conversation) in page_fragment())
         return state if ok else None
     return poll(ready, 30)
 
@@ -149,9 +155,10 @@ try:
     state = state or dock()
     check("the switch reads Messages | Channels", state.get("switch_labels") == ["Messages", "Channels"], state)
     check("the switch has Messages selected", state.get("switch_selected") == 0, state)
-    frame = state.get("switch_frame") or {}
-    check("the switch is at the top left of the dock", frame.get("width", 0) > 0 and frame.get("x", 999) < 120 and frame.get("y", 999) < 140,
-          frame)
+    frame, box = state.get("switch_frame") or {}, state.get("dock_frame") or {}
+    check("the switch is at the top left of the dock",
+          frame.get("width", 0) > 0 and box.get("width", 0) > 0 and 0 <= frame["x"] - box["x"] <= 16 and 0 <= frame["y"] - box["y"] <= 16,
+          {"switch": frame, "dock": box})
     chief = poll(lambda: dock().get("messages_shown"), 120)
     check("the Messages view shows the Chief conversation", bool(chief), dock())
     shot("1-messages-default")
@@ -210,7 +217,7 @@ try:
 finally:
     quit_app(app)
 
-# Relaunch while Channels was shown: a new window opens Messages (home.rememberViewPerWindow is off by default).
+# Relaunch while Channels was shown: the dock opens Messages again.
 app = launch(2)
 try:
     run("home.show")

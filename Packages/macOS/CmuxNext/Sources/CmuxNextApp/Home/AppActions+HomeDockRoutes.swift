@@ -62,7 +62,7 @@ extension AppActions {
     /// `home.switchView {view?}`: the docked Home shows `view` (the other one when absent), with
     /// the selection handed over. Classic Home has one view: refused there.
     static func switchHomeView(_ services: AppServices, _ invocation: ActionInvocation) {
-        guard !services.home.dock.isClassic else { return services.registry.refuse(RefusalStrings.homeNotReady) }
+        guard !services.home.dock.isClassic else { return services.registry.refuse(HomeDockStrings.classicHasOneView) }
         let named = invocation["view"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let view = named.flatMap(HomeDockView.Mode.init(rawValue:))
         guard named == nil || view != nil else { return services.registry.refuse(HomeDockStrings.invalidView) }

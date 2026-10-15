@@ -15,7 +15,7 @@ import CmuxNextPages
 /// Channels -> Messages asks the page for its selection (`home.currentSelection`).
 @MainActor
 final class HomeDockView: NSView {
-    /// The two views of the docked Home (`home.switchView`, `home.defaultView`).
+    /// The two views of the docked Home (`home.switchView`).
     enum Mode: String, CaseIterable, Sendable {
         case messages, channels
 
@@ -33,7 +33,7 @@ final class HomeDockView: NSView {
 
     private weak var services: AppServices?
     let header = NSView()
-    let control: NSSegmentedControl
+    let control: HomeDockSwitchControl
     private let content = NSView()
     private(set) var mode: Mode
     private(set) var messages: TopHomePageView?
@@ -41,8 +41,6 @@ final class HomeDockView: NSView {
     /// Asks the Channels page for its selection (`home.currentSelection`); nil when it has none
     /// or does not answer. Set by the provider (the page's reply path).
     var channelsSelection: (@MainActor (PageWebView) async -> Selection?)?
-    /// Called after every switch (the provider records the window's choice).
-    var onSwitch: (@MainActor (Mode) -> Void)?
     /// A switch in flight: a second one waits for it, so two quick clicks end on the last choice.
     private var switching: Task<Void, Never>?
     static let headerHeight: CGFloat = 30
@@ -50,7 +48,7 @@ final class HomeDockView: NSView {
     init(services: AppServices, mode: Mode) {
         self.services = services
         self.mode = mode
-        control = NSSegmentedControl(labels: [HomeDockStrings.messages, HomeDockStrings.channels], trackingMode: .selectOne,
+        control = HomeDockSwitchControl(labels: [HomeDockStrings.messages, HomeDockStrings.channels], trackingMode: .selectOne,
                                      target: nil, action: nil)
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.homeDock")
@@ -96,25 +94,28 @@ final class HomeDockView: NSView {
     }
 
     @objc private func controlChanged() {
-        guard let picked = Mode.allCases[safe: control.selectedSegment], picked != mode else { return }
+        // Not compared with `mode`: a switch in flight has not changed it yet, and the last click wins.
+        guard let picked = Mode.allCases[safe: control.selectedSegment] else { return }
         switchTo(picked)
     }
 
-    /// Switches to `target` (the other view when nil) with the current selection handed over.
-    /// Returns once the switch is shown.
-    func switchTo(_ target: Mode?) {
+    /// Switches to `target` (the other view when nil) with `selection`, else the current selection
+    /// handed over. Two quick switches run in order, so the last one wins.
+    func switchTo(_ target: Mode?, selection given: Selection? = nil) {
         let previous = switching
         // task-owner: one switch; a page answer is bounded by `channelsSelection`'s deadline.
         switching = Task { [weak self] in
             await previous?.value
             guard let self else { return }
             let target = target ?? mode.other
-            guard target != mode else { return syncControl() }
-            let selection = await currentSelection()
+            guard target != mode else {
+                if let given { open(given) }
+                return syncControl()
+            }
+            let selection = given ?? (await currentSelection())
             show(target)
             if let selection { open(selection) }
             focusPrimaryInput()
-            onSwitch?(target)
         }
     }
 
@@ -209,6 +210,12 @@ final class HomeDockView: NSView {
     }
 }
 
+/// The header switch: a click on it works in a window that is not key (no first click lost to
+/// window activation), like a toolbar control.
+final class HomeDockSwitchControl: NSSegmentedControl {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 private extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
@@ -224,6 +231,10 @@ nonisolated enum HomeDockStrings {
 
     static var invalidView: String {
         String(localized: "homeDock.switch.invalidView", defaultValue: "Home has two views: messages and channels.", table: "Handlers", bundle: .module)
+    }
+
+    static var classicHasOneView: String {
+        String(localized: "homeDock.switch.classic", defaultValue: "Classic Home has only the Messages view.", table: "Handlers", bundle: .module)
     }
 
     static var switchHelp: String {
