@@ -55,6 +55,31 @@ struct CloudTerminalExitPresentation: Equatable {
         headline + "\n" + String(localized: "cloudTree.terminal.exit.help", defaultValue: "Click to see its last lines.")
     }
 
+    /// The one failure predicate for a terminal: its process exited badly
+    /// (`SurfaceTerminalExit.isFailure`), or its agent reported an error this
+    /// Mac has not read yet. The second case matters because `cmux vm clone`
+    /// keeps a login shell after the agent, so a failed agent leaves a live
+    /// terminal whose own exit never shows the failure. The tree's terminal
+    /// row, its workspace row and the Get started checklist all read this.
+    /// - Parameters:
+    ///   - resource: The terminal.
+    ///   - hasUnreadFailureNotification: Its machine holds an unread
+    ///     notification for it that reports a failure.
+    /// - Returns: Whether the terminal reports a failed run.
+    static func reportsFailure(_ resource: SurfaceResource, hasUnreadFailureNotification: Bool) -> Bool {
+        guard resource.kind == .terminal else { return false }
+        if hasUnreadFailureNotification { return true }
+        return resource.lifecycle == .exited && resource.exit?.isFailure == true
+    }
+
+    /// The tooltip line for a live terminal whose agent reported an error.
+    static var reportedErrorHelp: String {
+        String(
+            localized: "cloudTree.terminal.agentError.help",
+            defaultValue: "The agent reported an error. Open the terminal to see what happened."
+        )
+    }
+
     /// Whether a failed tabless run is still recent enough to list.
     static func isListed(_ resource: SurfaceResource, now: Date) -> Bool {
         guard resource.isFailedExitedTerminal else { return true }

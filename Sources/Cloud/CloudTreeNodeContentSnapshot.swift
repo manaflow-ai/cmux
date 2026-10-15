@@ -9,6 +9,9 @@ struct CloudTreeNodeContentSnapshot: Equatable {
     let explicitDragGroup: SurfaceResourceGroup?
     let isPinned: Bool
     let hasUnreadAttention: Bool
+    /// The amber failure mark; part of the signature so a workspace row
+    /// reloads when a terminal under it fails.
+    let hasFailureAttention: Bool
     let resourceSection: CloudTreeMachineResourceSection?
     /// Terminal provider icons are a separately observed projection. Keep the
     /// value in the row signature so an agent lifecycle update always reloads
@@ -22,6 +25,7 @@ struct CloudTreeNodeContentSnapshot: Equatable {
         explicitDragGroup: SurfaceResourceGroup?,
         isPinned: Bool = false,
         hasUnreadAttention: Bool = false,
+        hasFailureAttention: Bool = false,
         resourceSection: CloudTreeMachineResourceSection? = nil
     ) {
         self.id = id
@@ -29,6 +33,7 @@ struct CloudTreeNodeContentSnapshot: Equatable {
         self.explicitDragGroup = explicitDragGroup
         self.isPinned = isPinned
         self.hasUnreadAttention = hasUnreadAttention
+        self.hasFailureAttention = hasFailureAttention
         self.resourceSection = resourceSection
         if case .terminal(let row) = kind {
             self.terminalIconAssetName = row.resource.terminalAgentIconAssetName

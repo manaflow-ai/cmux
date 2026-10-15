@@ -424,15 +424,20 @@ struct CloudTreeTerminalRowContent: View {
     /// A failed run keeps its row in the attention color with its exit status,
     /// instead of greying out like an ordinary exited shell.
     private var failure: CloudTerminalExitPresentation? { row.exitFailure }
+    /// The amber mark: a tabless failed run, an exited run still in a tab, or
+    /// a live terminal whose agent reported an error (the shell `vm clone`
+    /// keeps after the agent). Only a tabless run swaps the click for the
+    /// exit popover; the others still open their pane.
+    private var reportsFailure: Bool { row.reportsFailure }
 
     var body: some View {
         CloudTreeLeafRow(
             style: style,
-            icon: failure == nil ? glyph : "exclamationmark.triangle.fill",
-            tint: failure == nil ? CloudTreeIconPalette.terminal : CloudTreeIconPalette.attention,
-            iconAsset: failure == nil ? terminal.terminalAgentIconAssetName : nil,
+            icon: reportsFailure ? "exclamationmark.triangle.fill" : glyph,
+            tint: reportsFailure ? CloudTreeIconPalette.attention : CloudTreeIconPalette.terminal,
+            iconAsset: reportsFailure ? nil : terminal.terminalAgentIconAssetName,
             title: resolvedTitle,
-            titleDimmed: failure == nil && (terminal.lifecycle == .exited || showsDetachedState),
+            titleDimmed: !reportsFailure && (terminal.lifecycle == .exited || showsDetachedState),
             detail: failure?.shortStatus ?? row.workspaceLabel
         )
         .help(toolTip)
@@ -449,6 +454,10 @@ struct CloudTreeTerminalRowContent: View {
         var details = [row.directoryHelp, agentLabel].compactMap { $0 }
         if let failure {
             details.append(failure.help)
+        } else if row.hasUnreadFailureNotification {
+            details.append(CloudTerminalExitPresentation.reportedErrorHelp)
+        } else if reportsFailure, let exit = terminal.exit {
+            details.append(CloudTerminalExitPresentation(exit: exit).headline)
         } else if showsDetachedState {
             details.append(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
         } else if let views = Self.multiplierBadge(row.viewBadge) {

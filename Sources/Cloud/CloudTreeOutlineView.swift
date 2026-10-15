@@ -20,6 +20,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let localWorkspaces: [CloudTreeLocalWorkspace]
     /// Machine id to terminal ids with a notification this Mac has not read.
     var unreadTerminalIDs: [String: Set<String>] = [:]
+    var unreadFailureTerminalIDs: [String: Set<String>] = [:]
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
@@ -73,6 +74,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
+            unreadFailureTerminalIDs: unreadFailureTerminalIDs,
             source: source,
             devicesSection: devicesSection,
             coderouter: coderouter,

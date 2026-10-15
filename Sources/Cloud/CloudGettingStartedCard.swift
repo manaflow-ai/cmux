@@ -17,10 +17,14 @@ struct CloudGettingStartedActions {
 
 /// The Cloud panel's "Get started" card, pinned under the machine list.
 ///
-/// One quiet card with a progress count, a row per step, and an action only
-/// on the current step. Finished steps keep their row with a check so the
-/// user sees what already happened; later steps stay one dim line. The close
-/// button shows on hover, and the card never comes back once closed.
+/// One quiet card in Cursor's getting-started shape: the title is the
+/// strongest text, with a progress count and ring beside it; one row per
+/// step; and only the current step opens into one line of why, one compact
+/// action and a subtle "Learn more". Finished steps keep their row with a
+/// check so the user sees what already happened; later steps stay one dim
+/// line. Once every step is done the card reads "You're set up" with a quiet
+/// check until the panel retires it on a later open. The close button shows
+/// on hover, and the card never comes back once closed.
 struct CloudGettingStartedCard: View {
     let checklist: CloudGettingStartedChecklist
     let actions: CloudGettingStartedActions
@@ -32,10 +36,15 @@ struct CloudGettingStartedCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-                .padding(.bottom, 6)
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(checklist.steps, id: \.self) { step in
-                    stepRow(step)
+                .padding(.bottom, checklist.isComplete ? 2 : 6)
+            if checklist.isComplete {
+                completedBody
+                    .transition(.opacity)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(checklist.steps, id: \.self) { step in
+                        stepRow(step)
+                    }
                 }
             }
         }
@@ -65,17 +74,29 @@ struct CloudGettingStartedCard: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Text(String(localized: "cloud.gettingStarted.title", defaultValue: "Get started with cmux Cloud"))
-                .cmuxFont(size: 12, weight: .semibold)
-                .foregroundStyle(.secondary)
+            if checklist.isComplete {
+                // Quiet: the accent check, not a celebration.
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.accentColor)
+                    .accessibilityHidden(true)
+            }
+            // The strongest text on the card: primary and semibold, a step
+            // above the step titles (Cursor's card leads with its title).
+            Text(checklist.isComplete ? CloudGettingStartedChecklist.completedTitle : Self.title)
+                .cmuxFont(size: 12.5, weight: .semibold)
+                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("CloudGettingStartedTitle")
             Spacer(minLength: 4)
-            Text(progressLabel)
-                .cmuxFont(size: 11, monospacedDigit: true)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel(progressAccessibilityLabel)
-            progressRing
+            if !checklist.isComplete {
+                Text(progressLabel)
+                    .cmuxFont(size: 11, monospacedDigit: true)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(progressAccessibilityLabel)
+                progressRing
+            }
             // Hover-only close, like a footer nudge: present when wanted,
             // invisible otherwise. Its slot is kept so the count never jumps.
             CloudBannerDismissButton(action: actions.dismiss)
@@ -83,6 +104,20 @@ struct CloudGettingStartedCard: View {
                 .accessibilityIdentifier("CloudGettingStartedDismissButton")
         }
         .frame(height: 20)
+    }
+
+    static var title: String {
+        String(localized: "cloud.gettingStarted.title", defaultValue: "Get started with cmux Cloud")
+    }
+
+    /// The finished card: one secondary line under "You're set up".
+    private var completedBody: some View {
+        Text(CloudGettingStartedChecklist.completedDetail)
+            .cmuxFont(size: 11)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 18)
+            .accessibilityIdentifier("CloudGettingStartedCompleted")
     }
 
     private var progressLabel: String {
@@ -127,7 +162,7 @@ struct CloudGettingStartedCard: View {
             HStack(spacing: 7) {
                 stepMark(isDone: isDone, isCurrent: isCurrent)
                 Text(step.title)
-                    .cmuxFont(size: 12, weight: isCurrent ? .semibold : .regular)
+                    .cmuxFont(size: 12, weight: isCurrent ? .medium : .regular)
                     .foregroundStyle(isCurrent ? AnyShapeStyle(HierarchicalShapeStyle.primary) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
                     .strikethrough(isDone, color: Color.secondary.opacity(0.6))
                     .lineLimit(1)
@@ -172,76 +207,99 @@ struct CloudGettingStartedCard: View {
         .accessibilityHidden(true)
     }
 
+    /// One line of why, one compact action, and a subtle "Learn more" on
+    /// the action's line. The action hugs its label: the card is a nudge
+    /// beside the tree, not a call to action that outweighs its title.
     @ViewBuilder
     private func currentStepBody(_ step: CloudGettingStartedChecklist.Step) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(step.detail)
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             switch step {
             case .addKeys:
                 if let openSecrets = actions.openSecrets {
-                    primaryButton(
-                        String(localized: "cloud.gettingStarted.keys.action", defaultValue: "Add API Keys…"),
-                        identifier: "CloudGettingStartedAddKeysButton",
-                        action: openSecrets
-                    )
+                    actionLine(step) {
+                        compactButton(
+                            String(localized: "cloud.gettingStarted.keys.action", defaultValue: "Add API Keys…"),
+                            identifier: "CloudGettingStartedAddKeysButton",
+                            action: openSecrets
+                        )
+                    }
                 } else {
                     commandRow(CloudGettingStartedChecklist.importKeysCommand)
+                    actionLine(step) { EmptyView() }
                 }
             case .createMachine:
-                primaryButton(
-                    String(localized: "cloudTree.action.newCloudMachine", defaultValue: "New Cloud Machine"),
-                    identifier: "CloudGettingStartedNewMachineButton",
-                    action: actions.createMachine
-                )
-            case .startAgent:
-                commandRow(CloudGettingStartedChecklist.startAgentCommand())
-                if let openLocalAgent = actions.openLocalAgent {
-                    secondaryButton(
-                        String(
-                            localized: "cloud.gettingStarted.agent.askClaude",
-                            defaultValue: "Ask Claude Code Instead"
-                        ),
-                        help: String(
-                            localized: "cloud.gettingStarted.agent.askClaude.help",
-                            defaultValue: "Opens Claude Code on this Mac with the cmux Cloud skill, so it can start agents on your machines for you."
-                        ),
-                        identifier: "CloudGettingStartedAskClaudeButton",
-                        action: openLocalAgent
+                actionLine(step) {
+                    compactButton(
+                        String(localized: "cloudTree.action.newCloudMachine", defaultValue: "New Cloud Machine"),
+                        identifier: "CloudGettingStartedNewMachineButton",
+                        action: actions.createMachine
                     )
                 }
+            case .startAgent:
+                commandRow(CloudGettingStartedChecklist.startAgentCommand())
+                actionLine(step) {
+                    if let openLocalAgent = actions.openLocalAgent {
+                        quietButton(
+                            String(
+                                localized: "cloud.gettingStarted.agent.askClaude",
+                                defaultValue: "Ask Claude Code Instead"
+                            ),
+                            help: String(
+                                localized: "cloud.gettingStarted.agent.askClaude.help",
+                                defaultValue: "Opens Claude Code on this Mac with the cmux Cloud skill, so it can start agents on your machines for you."
+                            ),
+                            identifier: "CloudGettingStartedAskClaudeButton",
+                            action: openLocalAgent
+                        )
+                    }
+                }
             }
+        }
+    }
+
+    /// The step's control followed by "Learn more", on one line.
+    private func actionLine<Control: View>(
+        _ step: CloudGettingStartedChecklist.Step,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        HStack(spacing: 10) {
+            control()
             Link(String(localized: "cloud.security.learnMore", defaultValue: "Learn more"), destination: step.learnMoreURL)
                 .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
                 .accessibilityIdentifier("\(step.accessibilityIdentifier).learnMore")
+            Spacer(minLength: 0)
         }
     }
 
     // MARK: Controls
 
-    private func primaryButton(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
+    /// A small bordered button sized to its label (Cursor's neutral fill).
+    private func compactButton(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .cmuxFont(size: 12)
+                .cmuxFont(size: 11.5, weight: .medium)
                 .lineLimit(1)
-                .frame(maxWidth: .infinity)
         }
-        .cloudProminentButtonStyle()
+        .buttonStyle(.bordered)
         .controlSize(.small)
         .accessibilityIdentifier(identifier)
     }
 
-    private func secondaryButton(_ title: String, help: String, identifier: String, action: @escaping () -> Void) -> some View {
+    /// A text-weight alternative next to "Learn more".
+    private func quietButton(_ title: String, help: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .cmuxFont(size: 12)
+                .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .help(help)
         .accessibilityIdentifier(identifier)
     }

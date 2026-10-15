@@ -10,6 +10,9 @@ extension CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
+        /// Unread terminals whose notification reports a failure (a subset
+        /// of `unreadTerminalIDs`): the rows' amber mark.
+        unreadFailureTerminalIDs: [String: Set<String>] = [:],
         /// Pin state supplied by the account-scoped machine store for rows that
         /// are present only in the catalog during a fleet refresh.
         pinnedMachineIDs: Set<String> = [],
@@ -24,7 +27,9 @@ extension CloudTreeNodeBuilder {
         now: Date = .now,
         resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()
     ) -> [CloudTreeNode] {
-        let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
+        let projectionIndex = LocalProjectionIndex(
+            snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs, unreadFailureTerminalIDs: unreadFailureTerminalIDs
+        )
         var identities = adoptedOperationIDs
         for operation in pendingCreates where !operation.request.isBaseSetup &&
             (operation.isRunning || operation.isReconciling) {

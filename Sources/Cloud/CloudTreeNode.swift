@@ -157,6 +157,7 @@ final class CloudTreeNode: NSObject {
             explicitDragGroup: explicitDragGroup,
             isPinned: isPinned,
             hasUnreadAttention: hasUnreadAttention,
+            hasFailureAttention: hasFailureAttention,
             resourceSection: resourceSection
         )
     }
@@ -390,6 +391,9 @@ struct CloudTreeTerminalRow: Equatable {
     var machineDisplayName: String? = nil
     /// Unread remote notification, scoped to this Mac's read state.
     var hasUnreadNotification: Bool = false
+    /// The unread notification reports a failure ("Claude reported an
+    /// error"). Set even when the terminal is alive in a fallback shell.
+    var hasUnreadFailureNotification: Bool = false
     /// The exact daemon tab represented by a workspace pointer row. Pool rows
     /// leave this nil because one terminal may have several placement names.
     var remoteView: SurfaceRemoteView? = nil
@@ -414,6 +418,13 @@ struct CloudTreeTerminalRow: Equatable {
     var exitFailure: CloudTerminalExitPresentation? {
         guard resource.isFailedExitedTerminal, let exit = resource.exit else { return nil }
         return CloudTerminalExitPresentation(exit: exit)
+    }
+
+    /// Whether the row carries the amber failure mark. One predicate for
+    /// the terminal row, its workspace and the Get started checklist:
+    /// ``CloudTerminalExitPresentation/reportsFailure(_:hasUnreadFailureNotification:)``.
+    var reportsFailure: Bool {
+        CloudTerminalExitPresentation.reportsFailure(resource, hasUnreadFailureNotification: hasUnreadFailureNotification)
     }
 }
 
@@ -491,21 +502,38 @@ enum CloudTreeNodeBuilder {
         private var workspaceCountsByResource: [SurfaceResourceID: [UUID: Int]] = [:]
         /// Terminals whose machine holds a notification this Mac has not read.
         private var unreadTerminals: Set<SurfaceResourceID> = []
+        /// The unread terminals whose notification reports a failure.
+        private var unreadFailureTerminals: Set<SurfaceResourceID> = []
 
-        init(snapshot: SurfaceCatalogSnapshot, unreadTerminalIDs: [String: Set<String>]) {
+        init(
+            snapshot: SurfaceCatalogSnapshot,
+            unreadTerminalIDs: [String: Set<String>],
+            unreadFailureTerminalIDs: [String: Set<String>] = [:]
+        ) {
             self.init(snapshot: snapshot)
-            for (machineID, terminalIDs) in unreadTerminalIDs {
-                // Hub keys are machine raw values: a Cloud machine id or a
-                // device's `device:` id.
+            unreadTerminals = Self.terminalIDs(unreadTerminalIDs)
+            unreadFailureTerminals = Self.terminalIDs(unreadFailureTerminalIDs)
+        }
+
+        /// Hub keys are machine raw values: a Cloud machine id or a device's
+        /// `device:` id.
+        private static func terminalIDs(_ byMachine: [String: Set<String>]) -> Set<SurfaceResourceID> {
+            var result = Set<SurfaceResourceID>()
+            for (machineID, terminalIDs) in byMachine {
                 let machine = SurfaceMachineID(rawValue: machineID)
                 for terminalID in terminalIDs {
-                    unreadTerminals.insert(SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID))
+                    result.insert(SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID))
                 }
             }
+            return result
         }
 
         func hasUnreadNotification(_ id: SurfaceResourceID) -> Bool {
             unreadTerminals.contains(id)
+        }
+
+        func hasUnreadFailureNotification(_ id: SurfaceResourceID) -> Bool {
+            unreadFailureTerminals.contains(id)
         }
 
         init(snapshot: SurfaceCatalogSnapshot) {
@@ -1236,6 +1264,7 @@ enum CloudTreeNodeBuilder {
                 directoryIsCurrent: !snapshot.staleMachineIDs.contains(resource.machine),
                 machineDisplayName: snapshot.machines.first { $0.id == resource.machine }?.name,
                 hasUnreadNotification: projectionIndex.hasUnreadNotification(resource.id),
+                hasUnreadFailureNotification: projectionIndex.hasUnreadFailureNotification(resource.id),
                 remoteView: remoteView,
                 hiddenTabCount: hiddenTabCount
             ))

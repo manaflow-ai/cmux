@@ -34,6 +34,9 @@ extension CmuxTuiSurfaceProvider {
             unreadChanged: { terminalIDs in
                 hub.setUnread(terminalIDs, machineID: machineID)
             },
+            failuresChanged: { terminalIDs in
+                hub.setUnreadFailures(terminalIDs, machineID: machineID)
+            },
             withdraw: { ids in
                 // `cmux notify --clear` on the machine, or ledger eviction:
                 // the local banners for those rows go with them.

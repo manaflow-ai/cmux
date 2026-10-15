@@ -363,7 +363,7 @@ struct SidebarCloudButton: View {
                 hasOpenedCloud: hasOpenedCloud
             )
             Button {
-                hasOpenedCloud = true
+                SidebarCloudButtonPresentation.recordCloudOpened()
                 AppDelegate.shared?.performSidebarCloudButtonAction(preferredWindow: anchorView?.window)
             } label: {
                 SidebarCloudButtonLabel(title: title, presentation: presentation)

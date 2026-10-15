@@ -8,19 +8,33 @@ import Foundation
 /// The mark is the attention dot when a machine's status needs the person
 /// (the same rule the Machines tree uses for its amber rows), otherwise a
 /// one-time accent dot introducing Cloud to someone who has never opened it
-/// and has no machines. Opening Cloud once retires the introduction for good,
-/// so the footer never nags.
+/// and has no machines. Showing the Cloud panel once, by any path, retires the
+/// introduction for good (``recordCloudOpened(defaults:)``), so the footer
+/// never nags.
 struct SidebarCloudButtonPresentation: Equatable {
     enum Mark: Equatable {
         case quiet
         /// A machine reports a status that is neither ready nor starting.
         case attention
-        /// Cloud has never been opened from the sidebar and has no machines.
+        /// The Cloud panel has never been shown and there are no machines.
         case introduction
     }
 
-    /// Persists that the person has opened Cloud from the sidebar at least once.
+    /// Persists that the person has opened the Cloud panel at least once.
     static let introductionSeenKey = "sidebar.cloud.introductionSeen"
+
+    /// Records that the Cloud panel was shown, retiring the footer's
+    /// introduction dot. The one write for every path that shows the panel:
+    /// the footer button, the right sidebar's mode button, its shortcut, the
+    /// command palette, menus and socket reveals all mount
+    /// `MachinesPanelView`, which calls this when it appears. The footer
+    /// reads the key through `@AppStorage`, so the dot clears in the same turn.
+    /// - Parameter defaults: The store the footer reads; `.standard` in the app.
+    @MainActor
+    static func recordCloudOpened(defaults: UserDefaults = .standard) {
+        guard !defaults.bool(forKey: introductionSeenKey) else { return }
+        defaults.set(true, forKey: introductionSeenKey)
+    }
 
     let runningCount: Int
     let mark: Mark

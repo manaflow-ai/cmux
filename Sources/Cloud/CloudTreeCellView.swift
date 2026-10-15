@@ -299,7 +299,7 @@ final class CloudTreeCellView: NSTableCellView {
                 onRefresh: Self.sectionRefreshAction(node.kind, configuredNodeActions),
                 onInteractiveFrame: { [weak displayHost] frame in displayHost?.interactiveRects = frame.map { [$0] } ?? [] }
             )
-                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, attentionSlot: style.rowGrid.attentionSlot))
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, reportsFailure: node.hasFailureAttention, attentionSlot: style.rowGrid.attentionSlot))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .coordinateSpace(.named(CloudTreePassthroughHostingView.coordinateSpace))
         )

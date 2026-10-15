@@ -116,6 +116,9 @@ struct MachinesPanelView: View {
     var body: some View {
         activationContent
         .onAppear {
+            // Every path that shows the panel lands here, so the footer's
+            // first-run dot retires however Cloud was opened.
+            SidebarCloudButtonPresentation.recordCloudOpened()
             activationCoordinator.reconcile()
             syncPolling(for: authState)
         }
@@ -513,6 +516,7 @@ struct MachinesPanelView: View {
             snapshot: treeSnapshot,
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
+            unreadFailureTerminalIDs: viewModel.unreadFailureTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,

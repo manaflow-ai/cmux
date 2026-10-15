@@ -144,4 +144,110 @@ struct CloudTerminalExitPresentationTests {
         #expect(response["message"] as? String == "process exited (code 1)")
         #expect(CloudTerminalExitedScreenResponse.exitReceipt(["state": "pending", "lifecycle": "running"]) == nil)
     }
+
+    // MARK: Agent failure mark (one predicate for terminal, workspace and checklist)
+
+    private static func notification(_ id: String, level: String, terminal: String = "term_ws_1", readBy: [String] = []) -> CloudVMNotificationRow {
+        CloudVMNotificationRow(
+            id: "notification_\(String(repeating: "0", count: max(0, 32 - id.count)))\(id)",
+            title: "Claude reported an error",
+            body: "",
+            level: level,
+            createdAtMs: 1,
+            terminalID: terminal,
+            readBy: readBy
+        )
+    }
+
+    @Test("A failed exit, or an unread error report on a live terminal, is one failure predicate")
+    func failurePredicate() {
+        let now = Date()
+        #expect(CloudTerminalExitPresentation.reportsFailure(Self.failedTerminal(exitedAt: now), hasUnreadFailureNotification: false))
+        var clean = Self.failedTerminal(code: 0, exitedAt: now)
+        clean.remoteViews = nil
+        #expect(!CloudTerminalExitPresentation.reportsFailure(clean, hasUnreadFailureNotification: false))
+        // The shell `vm clone` keeps after the agent: alive, exit unknown.
+        let shell = SurfaceResource(
+            id: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_shell"),
+            title: "bash",
+            lifecycle: .running
+        )
+        #expect(!CloudTerminalExitPresentation.reportsFailure(shell, hasUnreadFailureNotification: false))
+        #expect(CloudTerminalExitPresentation.reportsFailure(shell, hasUnreadFailureNotification: true))
+    }
+
+    @Test("Only unread error-level rows mark a terminal as failed")
+    func unreadFailureRows() {
+        #expect(Self.notification("a", level: "error").reportsFailure)
+        #expect(Self.notification("a", level: " Error ").reportsFailure)
+        #expect(!Self.notification("a", level: "warning").reportsFailure)
+        let rows = [
+            Self.notification("a", level: "error", terminal: "term_a"),
+            Self.notification("b", level: "info", terminal: "term_b"),
+            Self.notification("c", level: "error", terminal: "term_c", readBy: ["mac"]),
+        ]
+        let state = CloudNotificationSyncState()
+        let failures = CloudNotificationSyncReducer.unreadFailureTerminalIDs(rows: rows, clientID: "mac", state: state)
+        #expect(failures == ["term_a"])
+        #expect(failures.isSubset(of: CloudNotificationSyncReducer.unreadTerminalIDs(rows: rows, clientID: "mac", state: state)))
+    }
+
+    @Test("The sync reports failure terminals before the unread set, and clears them on read")
+    func syncPublishesFailures() {
+        let defaults = UserDefaults(suiteName: "CloudTerminalExitPresentationTests.\(UUID().uuidString)")!
+        var failures: Set<String> = []
+        var unreadSeenWithFailures: [Set<String>] = []
+        let sync = CloudNotificationSync(
+            machineID: "vm-1",
+            clientID: "mac",
+            store: CloudNotificationSyncStore(defaults: defaults),
+            resolveTarget: { _ in nil },
+            deliver: { _, _ in .declined },
+            send: { _ in },
+            unreadChanged: { _ in unreadSeenWithFailures.append(failures) },
+            failuresChanged: { failures = $0 }
+        )
+        let error = Self.notification("a", level: "error")
+        sync.apply(rows: [error])
+        #expect(sync.unreadFailureTerminalIDs == ["term_ws_1"])
+        #expect(failures == ["term_ws_1"])
+        #expect(unreadSeenWithFailures.last == ["term_ws_1"], "the unread change already sees the failure")
+        sync.apply(rows: [Self.notification("a", level: "error", readBy: ["mac"])])
+        #expect(sync.unreadFailureTerminalIDs.isEmpty)
+        #expect(failures.isEmpty)
+        sync.retire()
+    }
+
+    @Test("A workspace whose agent reported an error carries the amber mark, not only the blue dot")
+    func workspaceCarriesFailureMark() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let snapshot = fixture.snapshot()
+        let unread = [fixture.machine.rawValue: Set(["term_ws_1", "term_ws_2"])]
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [],
+            unreadTerminalIDs: unread,
+            unreadFailureTerminalIDs: [fixture.machine.rawValue: ["term_ws_1"]],
+            includeLocalMachine: false
+        )
+        let flat = CloudTreeNodeBuilder.flattened(nodes)
+        let failed = try #require(flat.first { $0.id == fixture.folderID("ws_1") })
+        let unreadOnly = try #require(flat.first { $0.id == fixture.folderID("ws_2") })
+        #expect(failed.hasFailureAttention)
+        #expect(failed.hasUnreadAttention)
+        #expect(!unreadOnly.hasFailureAttention, "an ordinary unread notification stays a blue dot")
+        #expect(unreadOnly.hasUnreadAttention)
+        #expect(failed.contentSnapshot != CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [],
+            unreadTerminalIDs: unread, includeLocalMachine: false
+        )).first { $0.id == failed.id }?.contentSnapshot, "the row reloads when its agent fails")
+        let terminal = try #require(flat.first {
+            if case .terminal(let row) = $0.kind { return row.resource.id.key == "term_ws_1" }
+            return false
+        })
+        #expect(terminal.hasFailureAttention)
+        guard case .terminal(let row) = terminal.kind else { return }
+        #expect(row.reportsFailure)
+        #expect(row.exitFailure == nil, "a live terminal still opens its pane instead of the exit popover")
+    }
 }

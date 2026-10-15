@@ -40,6 +40,8 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var localWorkspaces: [CloudTreeLocalWorkspace] = []
     /// Machine ids to unread terminal ids from notification syncs.
     @Published private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
+    /// Unread terminals whose notification reports a failure, per machine.
+    @Published private(set) var unreadFailureTerminalIDs: [String: Set<String>] = [:]
     private var unreadObserver: NSObjectProtocol?
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
@@ -423,6 +425,8 @@ final class MachinesPanelViewModel: ObservableObject {
         localWorkspaces = updated
     }
     private func readUnreadTerminalIDs() {
+        let failures = CloudNotificationSyncHub.shared.unreadFailureTerminalIDs
+        if failures != unreadFailureTerminalIDs { unreadFailureTerminalIDs = failures }
         let unread = CloudNotificationSyncHub.shared.unreadTerminalIDs
         guard unread != unreadTerminalIDs else { return }
         #if DEBUG

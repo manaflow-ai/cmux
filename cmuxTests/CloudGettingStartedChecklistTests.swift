@@ -61,12 +61,51 @@ struct CloudGettingStartedChecklistTests {
         #expect(outOfOrder.current == .addKeys)
     }
 
-    @Test("finishing every step hides the card")
-    func completeHides() {
+    @Test("finishing every step shows the finished card instead of vanishing")
+    func completeShowsSetUp() {
         let done = Checklist(Self.input(secretCount: 3, machineCount: 1, hasCloudAgent: true))
         #expect(done.isComplete)
         #expect(done.current == nil)
-        #expect(!done.isVisible)
+        #expect(done.completedCount == 3)
+        #expect(done.isVisible, "the person sees \"You're set up\" before the card retires")
+        #expect(!Checklist.completedTitle.isEmpty)
+        #expect(!Checklist.completedDetail.isEmpty)
+    }
+
+    @Test("a finished card retires on the next open after it was seen, never while on screen")
+    func completionRetiresOnNextOpen() {
+        let done = Checklist(Self.input(secretCount: 3, machineCount: 1, hasCloudAgent: true))
+        let twoOfThree = Checklist(Self.input(secretCount: 3, machineCount: 1, hasCloudAgent: false))
+        // Closing the panel on the finished card is what "seen" means.
+        #expect(Checklist.marksCompletionSeen(done))
+        #expect(!Checklist.marksCompletionSeen(twoOfThree), "a card at 2/3 is never marked finished")
+        let dismissed = Checklist(Self.input(secretCount: 3, machineCount: 1, hasCloudAgent: true, isDismissed: true))
+        #expect(!Checklist.marksCompletionSeen(dismissed), "a card that was not on screen was not seen")
+        let loading = Checklist(Self.input(secretCount: 3, machineCount: 1, hasCloudAgent: true, hasLoadedMachines: false))
+        #expect(!Checklist.marksCompletionSeen(loading))
+        // The next open retires it; an unseen finished card shows once first.
+        #expect(Checklist.retiresOnOpen(hasSeenCompletion: true))
+        #expect(!Checklist.retiresOnOpen(hasSeenCompletion: false))
+    }
+
+    @Test("the machine step reads the tree's rows and the header's count, whichever is ahead")
+    func machineStepMatchesTheHeader() {
+        // The round-2 report: header at 1/5 while the fleet list had not
+        // returned the machine yet. The header count alone checks the step.
+        #expect(Checklist.machineCount(listedMachines: 0, headerActiveCount: 1, creatingCount: 0) == 1)
+        // A catalog discovery the list has not returned, before the plan loads.
+        #expect(Checklist.machineCount(listedMachines: 1, headerActiveCount: nil, creatingCount: 0) == 1)
+        // A paused machine is listed but not counted by the header.
+        #expect(Checklist.machineCount(listedMachines: 1, headerActiveCount: 0, creatingCount: 0) == 1)
+        // A create in flight checks the step before its row exists.
+        #expect(Checklist.machineCount(listedMachines: 0, headerActiveCount: 0, creatingCount: 1) == 1)
+        #expect(Checklist.machineCount(listedMachines: 0, headerActiveCount: nil, creatingCount: 0) == 0)
+        let checked = Checklist(Self.input(
+            secretCount: 1,
+            machineCount: Checklist.machineCount(listedMachines: 0, headerActiveCount: 1, creatingCount: 0)
+        ))
+        #expect(checked.isDone(.createMachine))
+        #expect(checked.current == .startAgent)
     }
 
     @Test("a build without the secrets vault leaves the keys step out instead of never finishing")
@@ -77,7 +116,7 @@ struct CloudGettingStartedChecklistTests {
         #expect(checklist.totalCount == 2)
         let done = Checklist(Self.input(secretCount: nil, machineCount: 1, hasCloudAgent: true))
         #expect(done.isComplete)
-        #expect(!done.isVisible)
+        #expect(done.isVisible)
     }
 
     @Test("the card waits for the first read, yields to list errors, and stays closed once dismissed")
@@ -122,6 +161,44 @@ struct CloudGettingStartedChecklistTests {
         #expect(!Checklist.hasCloudAgent(in: snapshot([resource(.local, agent: badge)])))
         #expect(!Checklist.hasCloudAgent(in: snapshot([resource(.cloud("vm-1"), agent: nil)])))
         #expect(Checklist.hasCloudAgent(in: snapshot([resource(.cloud("vm-1"), agent: badge)])))
+    }
+
+    @Test("a failed agent run never completes step 3; a running or clean run does")
+    func failedAgentRunDoesNotCount() {
+        let machine = SurfaceMachineID.cloud("vm-1")
+        func terminal(lifecycle: SurfaceLifecycle, exitCode: Int? = nil, state: String = "working") -> SurfaceResource {
+            var resource = SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1"),
+                title: "claude",
+                lifecycle: lifecycle,
+                agent: SurfaceAgentBadge(state: state, agent: "claude")
+            )
+            resource.exit = exitCode.map { SurfaceTerminalExit(kind: .exit, code: $0) }
+            return resource
+        }
+        func snapshot(_ resource: SurfaceResource) -> SurfaceCatalogSnapshot {
+            SurfaceCatalogSnapshot(machines: [], resources: [resource], projections: [])
+        }
+        #expect(Checklist.hasCloudAgent(in: snapshot(terminal(lifecycle: .running))))
+        #expect(Checklist.hasCloudAgent(in: snapshot(terminal(lifecycle: .exited, exitCode: 0, state: "done"))),
+                "an agent that finished cleanly counts")
+        #expect(!Checklist.hasCloudAgent(in: snapshot(terminal(lifecycle: .exited, exitCode: 1))),
+                "an agent whose process exited non-zero does not")
+        // `vm clone` keeps a login shell after the agent, so the terminal
+        // stays alive: only the agent's error notification shows the failure.
+        let alive = snapshot(terminal(lifecycle: .running, state: "blocked"))
+        #expect(!Checklist.hasCloudAgent(in: alive, unreadFailureTerminalIDs: ["vm-1": ["term_1"]]))
+        #expect(Checklist.hasCloudAgent(in: alive, unreadFailureTerminalIDs: ["vm-2": ["term_1"]]),
+                "a failure on another machine's terminal of the same id does not count against this one")
+        let input = Self.input(
+            secretCount: 1,
+            machineCount: 1,
+            hasCloudAgent: Checklist.hasCloudAgent(in: alive, unreadFailureTerminalIDs: ["vm-1": ["term_1"]])
+        )
+        let checklist = Checklist(input)
+        #expect(!checklist.isComplete)
+        #expect(checklist.current == .startAgent)
+        #expect(!Checklist.marksCompletionSeen(checklist), "a failed run cannot retire the card")
     }
 }
 
@@ -212,6 +289,17 @@ struct CloudGettingStartedCardTests {
         let button = try #require(Self.element("CloudGettingStartedNewMachineButton", in: hosted))
         try #require(Self.press(button))
         #expect(log.events == ["machine"])
+    }
+
+    @Test("the finished card says so and offers no step action")
+    func finishedCardShowsSetUp() {
+        var input = Self.input(secretCount: 1, machineCount: 1)
+        input.hasCloudAgent = true
+        let hosted = Self.host(input, log: Log())
+        #expect(Self.element("CloudGettingStartedCompleted", in: hosted) != nil)
+        #expect(Self.element("CloudGettingStartedNewMachineButton", in: hosted) == nil)
+        #expect(Self.element("CloudGettingStartedAddKeysButton", in: hosted) == nil)
+        #expect(Self.element("CloudGettingStartedCopyCommandButton", in: hosted) == nil)
     }
 
     @Test("the agent step shows the command and the local agent shortcut")

@@ -41,6 +41,24 @@ extension CloudTreeNode {
         }
     }
 
+    /// The amber failure mark: a terminal that reports a failed run
+    /// (``CloudTreeTerminalRow/reportsFailure``), or a workspace holding one.
+    /// Wins over the blue unread dot in the same slot.
+    var hasFailureAttention: Bool {
+        switch kind {
+        case .terminal(let row): return row.reportsFailure
+        case .workspace: return hasFailureDescendant
+        default: return false
+        }
+    }
+
+    var hasFailureDescendant: Bool {
+        children.contains { child in
+            if case .terminal(let row) = child.kind { return row.reportsFailure }
+            return child.hasFailureDescendant
+        }
+    }
+
     /// The key a row's children are ordered and pinned under. The sidebar
     /// shows a machine's workspaces directly under its row
     /// (`CloudTreeMachineDetailLayout`), but their saved order stays keyed by

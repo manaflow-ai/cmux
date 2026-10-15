@@ -35,6 +35,10 @@ final class CloudNotificationSyncHub {
         ))
     }
     private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
+    /// The unread terminals whose notification reports a failure ("Claude
+    /// reported an error"), per machine: the Cloud tree's amber mark. A
+    /// subset of `unreadTerminalIDs` for each machine.
+    private(set) var unreadFailureTerminalIDs: [String: Set<String>] = [:]
     private var storeSubscription: AnyCancellable?
     private weak var store: TerminalNotificationStore?
     private var unreadCloudKeys: Set<String>?
@@ -46,7 +50,8 @@ final class CloudNotificationSyncHub {
 
     func unregister(machineID: String) {
         syncs.removeValue(forKey: machineID)
-        if unreadTerminalIDs.removeValue(forKey: machineID) != nil {
+        let hadFailures = unreadFailureTerminalIDs.removeValue(forKey: machineID) != nil
+        if unreadTerminalIDs.removeValue(forKey: machineID) != nil || hadFailures {
             NotificationCenter.default.post(name: .cmuxCloudNotificationUnreadDidChange, object: nil)
         }
     }
@@ -65,6 +70,19 @@ final class CloudNotificationSyncHub {
         #if DEBUG
         cmuxDebugLog("cloud.notifications.unread machine=\(machineID) terminals=\(terminalIDs.count)")
         #endif
+        NotificationCenter.default.post(name: .cmuxCloudNotificationUnreadDidChange, object: nil)
+    }
+
+    /// Records which unread terminals carry a failure notification. Posts the
+    /// same change notification as the unread index, so every reader of one
+    /// re-reads both.
+    func setUnreadFailures(_ terminalIDs: Set<String>, machineID: String) {
+        if terminalIDs.isEmpty {
+            guard unreadFailureTerminalIDs.removeValue(forKey: machineID) != nil else { return }
+        } else {
+            guard unreadFailureTerminalIDs[machineID] != terminalIDs else { return }
+            unreadFailureTerminalIDs[machineID] = terminalIDs
+        }
         NotificationCenter.default.post(name: .cmuxCloudNotificationUnreadDidChange, object: nil)
     }
 

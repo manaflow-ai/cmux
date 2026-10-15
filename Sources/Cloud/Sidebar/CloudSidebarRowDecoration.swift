@@ -10,6 +10,11 @@ struct CloudSidebarRowDecoration: ViewModifier {
     let isPinned: Bool
     let showsAttentionSlot: Bool
     let hasUnreadNotification: Bool
+    /// A terminal here reports a failed run: the slot shows the amber
+    /// attention dot (the tree's color for "needs you") instead of the blue
+    /// unread dot, even after the notification is read when the exit itself
+    /// failed.
+    var reportsFailure = false
     var attentionSlot: CGFloat = CloudTreeStyle.compact.rowGrid.attentionSlot
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
@@ -18,12 +23,12 @@ struct CloudSidebarRowDecoration: ViewModifier {
         // leading slot only while it has unread attention, so the compact tree
         // does not carry an empty gutter between the caret and its identity.
         HStack(spacing: 2) {
-            if showsAttentionSlot && hasUnreadNotification {
+            if showsAttentionSlot && (hasUnreadNotification || reportsFailure) {
                 Circle()
-                    .fill(cmuxAccent.color)
+                    .fill(reportsFailure ? CloudTreeIconPalette.attention : cmuxAccent.color)
                     .frame(width: 6, height: 6)
-                    .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
-                    .help(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
+                    .accessibilityLabel(attentionLabel)
+                    .help(attentionLabel)
                     .frame(width: GlobalFontMagnification.scaledSize(attentionSlot, percent: magnification))
                     .allowsHitTesting(false)
             }
@@ -42,5 +47,11 @@ struct CloudSidebarRowDecoration: ViewModifier {
             }
             content
         }
+    }
+
+    private var attentionLabel: String {
+        reportsFailure
+            ? String(localized: "cloudTree.organization.failure", defaultValue: "An agent reported an error")
+            : String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification")
     }
 }
