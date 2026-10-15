@@ -76,7 +76,11 @@ final class ChiefApprovalRowProvider: TranscriptCustomRowProvider {
             if let color { out[.foregroundColor] = color }
             return out
         }
-        if let command = a.command { return NSAttributedString(string: ChiefRows.wrappable(command), attributes: attrs(codeFont)) }
+        if let command = a.command {
+            // A shell prompt makes the approval block read as an executable command while
+            // keeping the command itself selectable and monospaced.
+            return NSAttributedString(string: "$ " + ChiefRows.wrappable(command), attributes: attrs(codeFont))
+        }
         let out = NSMutableAttributedString()
         for (text, code) in ChiefRows.promptRuns(ChiefRows.displayPrompt(a.prompt)) {
             out.append(NSAttributedString(string: text, attributes: attrs(code ? HomeFonts.code : Fixture.bodyFont)))
@@ -228,6 +232,7 @@ final class ChiefApprovalCardView: NSView {
                     c.target = self
                     c.action = #selector(showMore(_:))
                     c.setAccessibilityLabel(CmuxStrings.approvalMoreOptions)
+                    c.toolTip = a.alwaysAllowPrefix.map(CmuxStrings.approvalAlwaysAllow)
                     c.setAccessibilityIdentifier("ChiefApprovalOption.More")
                     addSubview(c)
                     chevron = c
