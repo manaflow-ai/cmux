@@ -303,3 +303,139 @@ Findings fixed in round 2:
   (a hidden rig app has no person to pick on its New Tab page).
 - **A Mac-started Codex chat in Agent mode** is refused for phone prompts by cnx-hostd
   (unit-tested); not driven live.
+
+## Round 3 sweep (2026-10-15, branch `feat-cnx-ios-p3sweep`)
+
+Code-level comparison of the phone with the cmux-next Mac app beyond workspaces and
+tabs, with the fixes made on this branch. Every row is **code-checked; live pending**:
+the orchestrator drives the steps below and finalizes the state. Mac sources: the agent
+pane (`webviews/src/agent-session/acpmux`, strings from `generated/strings.json`), the
+Chief settings and Home in `Packages/macOS/CmuxNext`, acpmux and the relay in `cmux-tui`.
+
+Commits: phone `5ccaa08c` (failure copy, retries), `0e81e2ce` (permissions),
+`b1aa7008` (diffs, artifacts), `e9e4bb97` (teams, devices), `c4403fc3` (read timeout);
+Mac-side `f3ff65e0` (relay). Tests: CnxKit `swift test` on mini-cmux11s (TurnFailureCopyTests,
+TurnFailureLiveTests, PermissionRound3Tests, Round3DiffArtifactTests, plus AgentChatTests,
+DiffLayoutTests, DiffViewedStoreTests, FeedPendingTests, ChatFeedRoundOneTests, ParityTests,
+FeedRefreshTests, FeedReadMarksTests, AcpmuxParityTests: 120 pass); iOS compile of the
+CnxShell scheme (generic iOS Simulator, Xcode 27) succeeded; Rust `cmux-coderouter`
+test, fmt and clippy on rbx.
+
+### 1. Files and artifacts
+
+| Mac action (wording) | Phone | State | Notes |
+| --- | --- | --- | --- |
+| "Files" (`header.files`): a folder split of the workspace | title menu or More > **Files and Artifacts** (chips All / Files / Folders / Images / Videos / Documents / Code / Links; Grid / List) | partial (different design) | The Mac has no list of what a session touched; the phone builds one from the transcript (edits, reads, tool input and output, attachments, links) and reads bytes over the link's `file` service (24 MB cap). Folders say "Folder listings aren't available…". No "Search files". code-checked; live pending |
+| "Document preview" (HTML, SVG, Markdown from a reply; "Preview" / "Code", versions, "Save") | Preview / Source toggle, More: Copy Path, Copy Contents, Share | partial | No versions or Save on the phone; a document that only came in a reply (not a file) is not offered. Fixed: SVG previews as markup (was "Not an image"). code-checked; live pending |
+| "Image too large to show" | "This file is larger than 24 MB, too large to preview on the phone." | works | code-checked; live pending |
+| (no Mac equivalent) a read that stalls | "Can't open this file" with Try Again | works (fixed) | A read with no bytes for 20 s now gives up ("<Mac> stopped sending this file…"); it used to spin forever if the Mac slept mid-read. code-checked; live pending |
+
+### 2. Diff viewer
+
+| Mac action (wording) | Phone | State | Notes |
+| --- | --- | --- | --- |
+| "Changes: Last turn" (the transcript's tool diffs, one per edit, pending edits skipped) | **Changes · This turn** card, **Agent Edits** ("Edits in this chat") | works (fixed) | Same source of truth for this scope: acpmux tool-call diffs. Fixed: a file edited twice compared the first snippet's old text with the last one's new text (a wrong diff), numbered lines from 1, and Agent Edits kept only the last turn's version of a file; each snippet edit is now its own hunk without line numbers, a written-then-edited file shows as written, and edits waiting on a permission or refused are left out. code-checked; live pending |
+| "Uncommitted / Staged / Unstaged / Committed / Branch" (`git.diff`, `git.status`, `git.checkpoint.diff` through cmux-git) | — | missing | The phone makes no `git.*` calls: shell-made edits and edits older than the loaded history are not on the phone. Needs a read-only git diff on the phone's lane (hostd allowlist, a #13742 decision). |
+| "Changed files", "File tree", "Filter files…" | flat list, "N files changed", "N of M viewed" | partial | No tree or filter. |
+| "Mark {path} as viewed" | **Mark as viewed** / **Viewed** | works | code-checked; live pending |
+| "Switch to split diff" / "Switch to unified diff", "Word wrap" | **Diff options**: Unified / Split, Wrap, Hide Whitespace | works (fixed) | Word-level marks on both (`intraline.ts`, `WordDiff.mark`). Fixed: Hide Whitespace after Expand could index past the end. code-checked; live pending |
+| "New" / "Deleted" badges, renames, "Binary file not shown", untracked skipped | A / M badges | partial | ACP diffs carry no delete, rename or binary; those come with git scopes. |
+| "Stage", "Unstage", "Create PR", "Undo", "Open in editor" | Copy Path, Copy Line, Copy with Line Number | not from a phone | Read-only on the phone. |
+
+### 3. Chief
+
+| Mac action (wording) | Phone | State | Notes |
+| --- | --- | --- | --- |
+| Chief conversation | Home > Chief | works | code-checked; live pending |
+| Chief Settings "Harness" / "Model" / "Effort" (`chief.engine.set`) | Chief settings **Harness**, **Model**, **Effort** | works | Same params; on hostd's list and forwarded by the daemon. code-checked; live pending |
+| "Stop the Chief" (`chief.stop`) | **Stop Chief** (while Chief is typing) | works | Wording differs a little. code-checked; live pending |
+| "Recent replies, answered by:" | **Recent Turns** | works | Wording differs. |
+| "Name" | **Name** | works | code-checked; live pending |
+| "Avatar" | (hidden) | not from a phone | The phone shows its editor only when `chief.engine.get` reports `avatarSupported`, which no daemon sends, and hostd refuses `avatar`. Left hidden. |
+| Answer a Chief question (`conversation-op question.answer`) | **Answer** > sheet > **Send Answer** (Face ID) | works | Signed `cnx-chief-answer-v1` approval, checked and stripped by hostd. Failures say why ("Not sent: Face ID was cancelled.", "Chief no longer needs this answer.", "Couldn't confirm. Chief may have it." + Check). code-checked; live pending |
+| Skip a Chief question | — | missing | The phone has no decline for a Chief question. |
+| "Open traces", "Show memory", New Chief…, Archive Chief | text: "Chief's memory and traces open on the Mac." | not from a phone | |
+
+### 4. Feed: questions and permissions
+
+| Mac action (wording) | Phone | State | Notes |
+| --- | --- | --- | --- |
+| "Allow once" | Feed **Allow once** (Face ID), chat bar **Allow once** | works (fixed wording) | Signed `approverDecision` after Face ID. Was "Allow" / acpmux's option name. code-checked; live pending |
+| "Allow for this chat" | — | not from a phone (fixed) | acpmux refuses every lasting grant from a paired device (`remote.lasting_grant_refused`). The phone offered "Always" / "Allow for this session", which cost a Face ID and then failed; it now offers only Allow once and Deny. Answering it from the phone is a #13742 decision. |
+| "Deny" | **Deny**, full swipe | works | Unsigned, at once. code-checked; live pending |
+| Question "Submit" / "Skip" | QuestionCard **Answer**; **Decline** after an error | partial | Same `permissionId` from the Feed and the chat. Wording differs; the answer shows before Face ID (rolled back on failure). |
+| Answered on the Mac first | card closes "Already answered on your Mac" | works (fixed) | Was: the card reopened with "no pending permission perm_…". With two open asks, one answered on the Mac still shows live until tapped (the session's change notice carries no permission id). |
+| "Answered by {name} on {device}" | "Answered" | partial | No attribution on the phone. |
+
+### 5. Settings
+
+| Mac action (wording) | Phone | State | Notes |
+| --- | --- | --- | --- |
+| Settings > Mobile > "Phones" > "Remove" (drops links, forgets the pairing) | Settings > **Devices** > Phones row: swipe **Remove** / **Remove iPhone** | partial | The phone removes it from the account's devices only; each Mac keeps allowing it (paired list, Face ID approvers) until removed there. Fixed: the alert now says so. Revoking from the phone needs a Mac-side change (the hub telling hostd a phone was removed) and a #13742 decision. code-checked; live pending |
+| Mac removed from the account | Macs row **Remove Mac** | works | hostd stops (4002); the phone forgets the pin. code-checked; live pending |
+| (revoke this phone) | **Remove This iPhone from My Macs** | partial | Unpairs only on the Mac linked now; errors are ignored. |
+| Settings > Mobile "Status" | Settings > **Transport** | works | Phone-only setting. |
+| Notification kinds | Settings > **Notifications**: Questions and permissions, Finished tasks, Errors | works | Match the push kinds. |
+
+### 6. Team switching
+
+| Mac action (wording) | Phone | State | Notes |
+| --- | --- | --- | --- |
+| Team Picker (⌥⇧⌘T), "Choose a Team" | hamburger **Teams** > a team row | works (fixed) | Macs, link, presence, workspaces and Chief reload. Fixed: the Feed kept the old team's items (an old ask answered went to the new team's Mac); it now empties on a team change and refills from the new team's Macs. A switch by tap or by following a Mac closes an open workspace and a chat opened from the Feed. code-checked; live pending |
+| — | Teams row menu: Change color and icon, Invite to team, Copy team name; **Add team** | works | |
+
+### 7. The `cmux` harness and the model service's 403
+
+From code: Claude Code does not retry a 403, so its result is `is_error` with
+"API Error: 403 {"error":{"code":"auth.forbidden","message":"this team cannot use the
+model router on this deployment yet",…}}". acpmux's claude bridge turns that into a
+failed prompt, the hub records `turn_error` and `turn_result {status: failed, errorText}`
+and `lastTurn.errorText`. So the turn ends; it does not hang. What did hang: when the
+local relay has no upstream or its sign-in expired, it answered 503, which Claude Code
+retries up to 10 times (about 2.5 minutes of "Working", the round 1 observation).
+
+| Mac (wording) | Phone | State | Notes |
+| --- | --- | --- | --- |
+| Failed turn note: "The provider refused cmux’s credentials (403)." + Details, Copy error | **Agent stopped**: "cmux's model service isn't available for this team yet." + **Details** (the agent's text), Retry | works (fixed) | Was the raw "API Error: 403 {json}". The phone ports the Mac's `failureCopy` kinds and sentences, plus the model service's own cases (not connected, sign-in expired, didn't answer). Mac-side gap: the Mac's sentence for this case blames credentials; the same case belongs in `failureCopy.ts`. code-checked; live pending |
+| Feed | failed item with the same sentence | works (fixed) | Was the chat's previous reply (the preview) or "The turn failed.". |
+| (no Mac display) Claude Code's `api_retry` | running turn reads "Retrying (2 of 10, error 503)" | works (new) | From acpmux's raw `claude.system.api_retry` record. |
+| Relay with no upstream / expired sign-in | turn ends at once with "cmux's model service isn't connected on the Mac…" | works (fixed, Mac-side `f3ff65e0`) | The relay's own 503s now carry `x-should-retry: false`, and the hosted service's `x-should-retry` is forwarded. Relies on Claude Code honoring the header (the Anthropic SDK's behavior). |
+
+### Live steps for the orchestrator (simulator, real link, rig Mac)
+
+Taps by accessibility label or identifier. Mac checks through the rig's daemon socket
+and its acpmux socket (`pq_ws.acp`).
+
+1. **cmux harness 403** (the test account reproduces it): workspace > + > **New Agent
+   Chat With…** > Harness **cmux** > **Start Chat**; send "PONG". Expect within seconds:
+   the card **Agent stopped** with "cmux's model service isn't available for this team
+   yet.", **Details** expanding to "API Error: 403 …", and **Retry**; no "Working" left.
+   Mac: `_acpmux/sessions` shows the session with `lastTurn.status` `failed` and
+   `errorText` containing `403`. Feed tab: the newest item reads the same sentence.
+   If the rig's relay has no upstream, expect "cmux's model service isn't connected on
+   the Mac…" at once (not minutes; needs a rig built with `f3ff65e0`).
+2. **Permissions**: in a Claude chat, ask "run `echo p3 > p3.txt`". Chat bar shows
+   exactly **Allow once** and **Deny** (no "Allow for this session"). Tap **Allow once**,
+   Face ID (simulator match); Mac: `p3.txt` exists. Repeat with the chat closed: Feed card
+   shows **Allow once** and **Deny** only. Then ask again and answer on the Mac
+   (`_acpmux/permission_respond` on the rig socket, `allow_once`), then tap **Allow once**
+   on the phone: the card closes "Already answered on your Mac" with no error.
+3. **Agent Edits**: ask Claude to create `p3-notes.txt` with three lines, then in the next
+   prompt to change line 2, then in a third to change line 3 of it and another file.
+   Title menu > **Agent Edits**: `p3-notes.txt` shows the written file with both edits
+   applied (A badge, numbered 1-3); a file that existed before shows each edit as its
+   own hunk separated by "⋯", no line numbers. **Diff options** > Hide Whitespace on a
+   file after tapping an **Expand N hidden lines** row: no crash.
+4. **Files and Artifacts**: ask Claude to write `p3.svg` (a circle). Title menu >
+   **Files and Artifacts** > the SVG: it draws (was "Not an image"). Open a large text
+   file and the PNG: previews load; **Preview**/**Source** toggle (`artifact.sourceToggle`).
+5. **Chief**: Home > Chief; send a message; settings (`chief.settings`): change
+   `chief.settings.model`, then `chief.settings.stop` while Chief types. Mac:
+   `chief.engine.get` shows the model. A Chief question: `chief.question.bar` > answer >
+   `chief.question.send` (Face ID); Mac: the question answered.
+6. **Team switch**: with a Feed item from team A, hamburger **Teams** > team B row. The
+   Feed is empty until team B's Macs fill it; an open workspace screen closed. Switch
+   back: team A's last turns return.
+7. **Devices**: Settings > `settings.devices` > a second phone row > swipe **Remove**:
+   the alert says the Macs still allow it until removed in Settings → Mobile on each Mac.
+   Mac: the phone is still in its Phones list (expected; the gap above).
