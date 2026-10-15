@@ -1997,6 +1997,7 @@ export class AcpmuxDirectClient {
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
             steering: summary.steering === true,
             queuePaused: summary.queuePaused === true,
+            ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
