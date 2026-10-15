@@ -4,7 +4,8 @@
 //   - the strip's bottom edge is the card's top edge, and it stays within the card's sides;
 //   - the card holds one controls row and no location row;
 //   - the strip is as tall with no project, with one and while the host loads;
-//   - queued prompts sit above the strip, never over it;
+//   - only a new chat has the strip, before its first send: a started chat's card stands alone,
+//     with nothing drawn and no gap above it, and its queued prompts sit on the card;
 //   - while the session has not reported effort and access, no skeleton or placeholder draws, and
 //     the controls keep their places when the values arrive;
 //   - the folder popover filters with its search field and tells duplicate names apart;
@@ -88,6 +89,11 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       locationInCard: box?.querySelectorAll(".acpmux-composer-context, .acpmux-location-picker").length ?? -1,
       stripFolder: document.querySelector(".acpmux-composer-strip .acpmux-location-picker") !== null,
       queue: rect(document.querySelector(".acpmux-composer-queue")),
+      form: rect(document.querySelector(".acpmux-composer")),
+      formPaddingTop: (() => {
+        const form = document.querySelector(".acpmux-composer");
+        return form ? parseFloat(getComputedStyle(form).paddingTop) || 0 : 0;
+      })(),
     };
   }
 
@@ -137,13 +143,24 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(values.every((height) => height > 0 && Math.abs(height - values[0]!) < 0.5)).toBe(true);
   });
 
-  test("queued prompts sit above the strip, never over it", async () => {
+  test("a started chat has no strip and no gap where it stood", async () => {
+    const page = await open("agent-pane.composer-strip", "started", 720);
+    await page.locator(".acpmux-composer-box").waitFor();
+    const measured = await page.evaluate(measureStrip, ".acpmux-composer-box");
+    await page.close();
+    expect(measured.strip).toBeNull();
+    const { form, card } = measured as { form: Rect; card: Rect };
+    expect(Math.abs(card.top - form.top - measured.formPaddingTop)).toBeLessThanOrEqual(0.5);
+  });
+
+  test("a started chat's queued prompts sit on the card, with no strip between", async () => {
     const page = await open("agent-pane.composer-strip", "queued", 720);
     await page.locator(".acpmux-composer-queue").waitFor();
     const measured = await page.evaluate(measureStrip, ".acpmux-composer-box");
     await page.close();
-    const { queue, strip } = measured as { queue: Rect; strip: Rect };
-    expect(queue.bottom).toBeLessThanOrEqual(strip.top + 1);
+    expect(measured.strip).toBeNull();
+    const { queue, card } = measured as { queue: Rect; card: Rect };
+    expect(Math.abs(card.top - queue.bottom)).toBeLessThanOrEqual(0.5);
   });
 
   test("effort and access: no placeholder while they load, and the controls hold their places", async () => {

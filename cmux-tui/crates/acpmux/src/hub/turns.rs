@@ -273,12 +273,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
             clear_sent_draft(&mut m, &text);
-            if m.title.is_none() {
-                let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-                if !first.is_empty() {
-                    m.title = Some(short_text(first, 80));
-                }
-            }
+            super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
