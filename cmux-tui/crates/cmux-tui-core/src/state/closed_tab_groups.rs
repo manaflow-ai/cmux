@@ -4,9 +4,16 @@
 //! screen, pane or workspace, or the last tab of a group.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
+use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
+
+use crate::mux::tab_groups::{group_members, move_members_into, pane_by_public_id, tab_public_id};
+use crate::mux::tab_strip::{StripRequest, StripResult};
+use crate::mux::*;
+use crate::{Actor, SurfaceId};
 
 /// The archives of the live tab groups holding a tab that closes: one in
 /// `tabs`, or in a screen of `screens` or a workspace of `workspaces`.
@@ -33,7 +40,7 @@ pub(super) fn closing_tab_groups(
     let rows = {
         let mut statement = connection.prepare(
             "SELECT g.group_id, g.pane_id, g.name, g.color, g.collapsed, g.icon,
-                    m.tab_id, s.public_id, s.workspace_id
+                    m.tab_id, s.public_id, s.workspace_id, g.saved_id
              FROM tab_group_members AS m
              JOIN tab_groups AS g ON g.group_id = m.group_id
              JOIN resource_tabs AS t ON t.public_id = m.tab_id AND t.deleted_revision IS NULL
@@ -54,12 +61,13 @@ pub(super) fn closing_tab_groups(
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
                     row.get::<_, String>(8)?,
+                    row.get::<_, Option<String>>(9)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?
     };
     let mut archives: Vec<Value> = Vec::new();
-    for (group, pane, name, color, collapsed, icon, tab, screen, workspace) in rows {
+    for (group, pane, name, color, collapsed, icon, tab, screen, workspace, saved) in rows {
         if !(tabs.contains(&tab) || screens.contains(&screen) || workspaces.contains(&workspace))
             || super::closed_history_store::is_ephemeral(connection, &workspace)?
         {
@@ -79,9 +87,101 @@ pub(super) fn closing_tab_groups(
                 "color": color,
                 "collapsed": collapsed != 0,
                 "icon": icon,
+                "saved_id": saved,
                 "tab_ids": [tab],
             })),
         }
     }
     Ok(archives)
+}
+
+impl Mux {
+    /// Add `added` (reopened tabs, each back at its recorded place) to the
+    /// live group `id`, which an earlier partial reopen formed. The block
+    /// keeps the order of the strip, so the group keeps the order it closed
+    /// in.
+    pub(super) fn rejoin_closed_tab_group(
+        self: &Arc<Self>,
+        actor: &Actor,
+        id: &str,
+        added: Vec<SurfaceId>,
+    ) -> anyhow::Result<()> {
+        let group_id = id.to_string();
+        self.commit_tab_strip_change(
+            StripRequest::local(actor, "closed.reopen"),
+            None,
+            move |mux, state, edit| {
+                let record =
+                    edit.groups.groups.get(&group_id).cloned().ok_or_else(|| {
+                        crate::state::commit::state_not_found("tab_group", &group_id)
+                    })?;
+                let pane =
+                    pane_by_public_id(state, &record.pane_id).context("tab group pane is gone")?;
+                let mut members = group_members(state, &edit.groups, &group_id);
+                for surface in &added {
+                    if !members.contains(surface) {
+                        members.push(*surface);
+                    }
+                }
+                let strip = state.panes[&pane].tabs.clone();
+                // A tab reopened in another pane goes to the end of the block.
+                members.sort_by_key(|surface| {
+                    strip.iter().position(|tab| tab == surface).unwrap_or(usize::MAX)
+                });
+                let anchor = strip
+                    .iter()
+                    .take_while(|tab| Some(*tab) != members.first())
+                    .filter(|tab| !members.contains(tab))
+                    .count();
+                move_members_into(mux, state, &members, pane, anchor)?;
+                for surface in &added {
+                    edit.groups.members.insert(tab_public_id(state, *surface)?, group_id.clone());
+                }
+                // The saved record (if any) still names every closed tab:
+                // a partial reopen never rewrites it from the tabs back so far.
+                edit.result = StripResult::Group(group_id);
+                Ok(())
+            },
+        )?;
+        Ok(())
+    }
+
+    /// Link the group `id` a reopen formed again to the saved group `saved`
+    /// it was linked to when it closed, unless that saved group is gone or
+    /// another live group took it (Reopen Saved Group since the close). The
+    /// saved record stays as it is: it names every closed tab, not only the
+    /// ones this reopen brought back.
+    pub(super) fn relink_saved_tab_group(
+        self: &Arc<Self>,
+        actor: &Actor,
+        id: &str,
+        saved: &str,
+    ) -> anyhow::Result<()> {
+        let (group_id, saved) = (id.to_string(), saved.to_string());
+        self.commit_tab_strip_change(
+            StripRequest::local(actor, "closed.reopen"),
+            None,
+            move |mux, _, edit| {
+                let exists = mux
+                    .presentation_snapshot()
+                    .saved_tab_groups
+                    .iter()
+                    .any(|record| record.id == saved);
+                let taken = edit
+                    .groups
+                    .groups
+                    .values()
+                    .any(|group| group.saved_id.as_deref() == Some(&saved));
+                if exists
+                    && !taken
+                    && let Some(record) = edit.groups.groups.get_mut(&group_id)
+                {
+                    record.saved_id = Some(saved);
+                }
+                edit.result = StripResult::Group(group_id);
+                Ok(())
+            },
+        )?;
+        Ok(())
+    }
 }
