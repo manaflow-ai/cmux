@@ -1,6 +1,6 @@
 import AppKit
-import CmuxNextAgentPane
-import CmuxNextDesign
+public import CmuxNextAgentPane
+public import CmuxNextDesign
 
 // One row on top (`ChromeTunables.tabRowTools`; Leo 2026-10-14, "why is there even a top bar"):
 // content that draws its own tools in the pane's tab row (``PaneTabRowSharing``, a chat's header
