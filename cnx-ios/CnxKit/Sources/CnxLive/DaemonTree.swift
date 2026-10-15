@@ -23,6 +23,10 @@ public struct DaemonTree: Sendable {
     public var panes: [String: Int] = [:]
     /// Each tab's pane and position in it (`move-tab`, a duplicate next to it).
     public var tabPlaces: [String: TabPlace] = [:]
+    /// Each workspace's numeric daemon id by app workspace id (`move-tab-to-workspace`).
+    public var workspaceNumbers: [String: Int] = [:]
+    /// Each tab group's pane (`tab_groups`), by group id.
+    public var groupPanes: [String: Int] = [:]
     public var revision: Int?
     /// This session's registry id (`registry_id`): the session of the Mac's
     /// personal rows and layout refs.
@@ -76,10 +80,13 @@ public struct DaemonTree: Sendable {
         var panes: [String: Int] = [:]
         var places: [String: TabPlace] = [:]
         var markers: [Int: NotificationMarker] = [:]
+        var numbers: [String: Int] = [:]
+        var groupPanes: [String: Int] = [:]
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
         for case let ws as [String: Any] in data["workspaces"] as? [Any] ?? [] {
             let key = (ws["key"] as? String) ?? (ws["id"] as? Int).map { "w\($0)" } ?? UUID().uuidString
+            if let number = ws["id"] as? Int { numbers[key] = number }
             var tabs: [WorkspaceTab] = []
             var activeTab: [String: Any]?
             var working = false
@@ -93,6 +100,8 @@ public struct DaemonTree: Sendable {
                     focusOrder = max(focusOrder, pane["focused_at"] as? Int ?? 0)
                     if panes[key] == nil, let id = pane["id"] as? Int { panes[key] = id }
                     let paneTabs = pane["tabs"] as? [[String: Any]] ?? []
+                    let groups = Self.groups(pane["tab_groups"])
+                    if let paneID = pane["id"] as? Int { for id in groups.keys { groupPanes[id] = paneID } }
                     for (index, tab) in paneTabs.enumerated() {
                         guard let surface = tab["surface"] as? Int, tab["dead"] as? Bool != true else { continue }
                         if screen["active"] as? Bool == true, pane["id"] as? Int == activePane, pane["active_tab"] as? Int == index {
@@ -110,8 +119,10 @@ public struct DaemonTree: Sendable {
                         if state?.state == "blocked" { blocked = true }
                         // Activity: the Mac's last agent report, else what the phone saw (titles).
                         for seen in [activity[surface], state?.updatedAt].compactMap(\.self) { observed = max(observed ?? seen, seen) }
-                        guard let mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
+                        guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
+                        if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
+                        if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
                     }
                 }
@@ -157,7 +168,20 @@ public struct DaemonTree: Sendable {
         self.directories = directories
         self.panes = panes
         self.tabPlaces = places
+        workspaceNumbers = numbers
+        self.groupPanes = groupPanes
         notificationMarkers = markers
+    }
+
+    /// A pane's `tab_groups` (`tab-groups-v1`) by group id.
+    static func groups(_ value: Any?) -> [String: WorkspaceTab.TabGroupRef] {
+        var out: [String: WorkspaceTab.TabGroupRef] = [:]
+        for case let group as [String: Any] in value as? [Any] ?? [] {
+            guard let id = group["id"] as? String else { continue }
+            out[id] = WorkspaceTab.TabGroupRef(id: id, name: group["name"] as? String ?? "", color: group["color"] as? String ?? "grey",
+                                               isSaved: group["saved_id"] is String)
+        }
+        return out
     }
 
     /// One daemon tab as an app tab, or nil for tabs the phone does not show (pages, conversations).

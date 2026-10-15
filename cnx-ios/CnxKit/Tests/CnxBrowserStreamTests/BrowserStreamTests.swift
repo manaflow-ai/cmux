@@ -153,3 +153,77 @@ final class SinkBox: @unchecked Sendable {
         #expect(!LinkErrorText.noBrowserHost(LinkError(code: "no-link", message: "Not connected to the Mac")))
     }
 }
+
+/// Parity findings 4 and 5 (verify/parity-mac.md): Forward right after Back, and the address
+/// while a navigation loads.
+@MainActor @Suite struct BrowserHistoryTests {
+    func page(_ url: String, loading: Bool, back: Bool, forward: Bool) -> RemoteBrowserPage {
+        RemoteBrowserPage(json: ["t": "rb.page", "url": url, "title": "", "loading": loading, "can_go_back": back, "can_go_forward": forward])!
+    }
+
+    func model() async throws -> (StreamedBrowserModel, FakeStream) {
+        let stream = FakeStream()
+        let box = SinkBox()
+        let model = StreamedBrowserModel(tab: "s4", url: nil) { sink in
+            box.lock.withLock { box.sinks.append(sink) }
+            return stream
+        }
+        model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
+        for _ in 0..<200 where box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
+        let sink = try #require(box.last)
+        sink.browserMessage(Data(#"{"t":"welcome","caps":[]}"#.utf8))
+        for _ in 0..<20 { await Task.yield() }
+        return (model, stream)
+    }
+
+    func ops(_ stream: FakeStream) -> [String] {
+        stream.lock.withLock { stream.messages.filter { $0["t"] as? String == "rb.history" }.compactMap { $0["op"] as? String } }
+    }
+
+    /// Finding 5: the browser reports the old history while Back loads, so Forward stayed
+    /// disabled (or was ignored) until a second tap. Forward is offered at once, and a tap
+    /// before Back commits is sent once it does, exactly once.
+    @Test func forwardRightAfterBackNeedsOneTap() async throws {
+        let (model, stream) = try await model()
+        model.apply(page("https://iana.org/", loading: false, back: true, forward: false))
+        model.goBack()
+        #expect(model.canGoForward)
+        // The Mac starts loading the previous page and still reports no forward entry.
+        model.apply(page("https://iana.org/", loading: true, back: true, forward: false))
+        #expect(model.canGoForward)
+        model.goForward()
+        #expect(ops(stream) == ["back"])
+        model.apply(page("https://example.com/", loading: false, back: false, forward: true))
+        #expect(ops(stream) == ["back", "forward"])
+        #expect(model.canGoBack)
+        model.apply(page("https://example.com/", loading: true, back: false, forward: true))
+        model.apply(page("https://iana.org/", loading: false, back: true, forward: false))
+        #expect(ops(stream) == ["back", "forward"])
+        #expect(model.canGoBack && !model.canGoForward)
+    }
+
+    /// A step the Mac committed without a loading report (a cached page) still counts.
+    @Test func aCachedStepCommitsOnTheNewAddress() async throws {
+        let (model, stream) = try await model()
+        model.apply(page("https://iana.org/", loading: false, back: true, forward: false))
+        model.goBack()
+        model.apply(page("https://example.com/", loading: false, back: false, forward: true))
+        model.goForward()
+        #expect(ops(stream) == ["back", "forward"])
+    }
+
+    /// Finding 4: a new tab reports about:blank while the typed address loads; the address
+    /// stays the one asked for, then follows the page.
+    @Test func theAddressIsTheOneAskedForWhileItLoads() async throws {
+        let (model, _) = try await model()
+        model.apply(page("about:blank", loading: false, back: false, forward: false))
+        model.navigate(to: "example.com")
+        model.apply(page("about:blank", loading: true, back: false, forward: false))
+        #expect(model.url?.absoluteString == "https://example.com" && model.host == "example.com")
+        model.apply(page("https://example.com/", loading: false, back: true, forward: false))
+        #expect(model.url?.absoluteString == "https://example.com/")
+        // Later reports follow the page again.
+        model.apply(page("https://example.com/next", loading: false, back: true, forward: false))
+        #expect(model.host == "example.com" && model.url?.path() == "/next")
+    }
+}

@@ -324,6 +324,17 @@ public final class AppStore {
         return old
     }
 
+    /// Changes a tab in place; returns it as it was (for a rollback).
+    @discardableResult
+    public func updateTab(_ tabID: String, in workspaceID: String, _ change: (inout WorkspaceTab) -> Void) -> WorkspaceTab? {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              let position = workspaces[index].tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        let old = workspaces[index].tabs[position]
+        change(&workspaces[index].tabs[position])
+        return old
+    }
+
     /// Moves a tab to `position` in its workspace; returns where it was (for a rollback).
     @discardableResult
     public func moveTab(_ tabID: String, in workspaceID: String, to position: Int) -> Int? {

@@ -33,14 +33,17 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | --- | --- | --- | --- | --- |
 | Close Tab (⌘W) | `close-surface` | grid ×, page menu Close Tab | works | Asks first when a program runs. |
 | Rename Tab… (⌘R) | `rename-surface` | page and card menu **Rename Tab…** | works (this branch) | Rolls back on refusal. |
-| Duplicate Tab | `new-tab` / browser duplicate | page and card menu **Duplicate Tab** | partial (this branch) | Terminal: a new terminal in the tab's pane (hostd's folder choice). Browser: the same http(s) page. Agent chat: none; use Continue in…. |
-| Move Tab Left / Right, drag | `move-tab` | drag in the grid | partial (this branch) | Within the tab's pane (insertion index as the daemon reads it); a drag onto another pane's tab says to move it on the Mac. Unit-tested, not driven live. |
-| Move Tab to Pane / New Workspace / another workspace | `move-tab-to-split`, `move-tab-to-new-workspace`, `move-tab-to-workspace` | — | missing | Allowlisted; no phone UI yet (the phone shows a workspace's tabs as one list, no panes). |
-| Pin / Unpin Tab | `set-tab-pinned` | — | missing | Allowlisted; no UI. |
+| Duplicate Tab | `new-tab` / browser duplicate / a second tab of the chat | page and card menu **Duplicate Tab** | works (parity2 tabs) | Terminal: a new terminal in the tab's pane (hostd's folder choice). Browser: the same http(s) page. Agent chat: a second tab of the same chat (`new-conversation-tab` with the tab's session), as the Mac's `duplicateAgentTab`; never a copy of the conversation (that is Fork). |
+| Move Tab Left / Right, drag | `move-tab` | drag in the grid | works (parity2 tabs; live run pending) | Within the tab's pane (insertion index as the daemon reads it); a drag onto another pane's tab says to move it on the Mac. A real long press and drag is proven by an XCUITest (`CnxAppUITests/TabReorderUITests`: first card to the third slot, iOS 26.5 simulator, mock data); `pq_tabs.reorder` runs it against the rig Mac. |
+| Move Tab to Workspace… / Move Tab to New Workspace | `move-tab-to-workspace {surface, workspace}`, `move-tab-to-new-workspace {surface, name}` | page menu **Move Tab to Workspace…** (a picker of this Mac's other workspaces), **Move Tab to New Workspace** | works (parity2 tabs; live run pending) | The Mac's More rows, so on the phone they are in the page menu (the card menu has no room). The new workspace is named by the Mac's rule (`NewWorkspaceName`: a last tab keeps its workspace's name; else the tab's name, page title or host, terminal title unless a bare shell, then its folder). The tab keeps its terminal, page or chat; the phone stays in the source workspace (the Mac's own view is its own) and says "Moved <tab> to <workspace>."; leaving it when that was the last tab. |
+| Move Tab to New Split / Column, Move Tab to Pane Left / Right / Above / Below, Previous / Next Pane | `move-tab-to-split`, `move-tab-to-column`, `move-tab` across panes | — | not applicable (decision) | The phone shows a workspace's tabs as one list and has no panes to aim at; a pane move would change the Mac's layout with nothing on the phone to show it. Left off the phone on purpose; the commands stay allowlisted for a future pane view. |
+| Pin Tab / Unpin Tab | `set-tab-pinned` | page and card menu **Pin Tab** / **Unpin Tab** | works (parity2 tabs; live run pending) | Here at once, rolled back on refusal. A pinned tab's card icon is a pin; the Mac sorts pinned tabs first in their pane. |
 | Split Right / Down, New Column / Row, Zoom Pane | `split`, `new-pane-right`, `new-row`, `zoom-pane` | — | not applicable | The phone shows one tab at a time; panes are a Mac layout. |
 | Reopen Last Closed Tab (⇧⌘T) | resource `closed.reopen` | — | not from a phone (yet) | The resource API is not on the phone's lane. |
 | Restart Shell Here | `restart-tab` | — | not from a phone | Respawns a program; the remote relay rules need live verification on the Mac first (CLAUDE.md "Remote CLI relay"). |
-| Tab groups (create, rename, close, save, reopen) | `*-tab-group*` | — | missing | Allowlisted; no UI. |
+| New Tab Group, Add Tab to Group…, Remove Tab from Group | `create-tab-group {surfaces, color}`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group` | page and card menu, the Mac's group rows | works (parity2 tabs; live run pending) | New Tab Group takes the Mac's next color (`GroupColor.automatic`, never blue or grey) and no name. A pinned tab offers no group rows ("Pinned tabs cannot be grouped." on the Mac). A member's card carries the group's chip (name, else "<Color> group"). |
+| The group's chip menu: Rename Tab Group…, Pin Group / Unpin Group, Ungroup Tabs, Close Tab Group | `update-tab-group {name}`, `save-tab-group`, `unsave-tab-group`, `ungroup-tab-group`, `close-tab-group` | a member's menu > **Tab Group: <name>…** (the group's actions) | works (parity2 tabs; live run pending) | The phone has no group chip to hold, so a member's row opens the same actions. Close Tab Group waits for the Mac, then removes every member. Collapse / Expand, color and icon, Move Tab Group … and New Tab in Group: not on the phone (the phone has no strip to collapse or arrange; a new tab in a group starts a terminal by another path). |
+| Reopen Saved Tab Group…, Delete Saved Tab Group… | `reopen-saved-tab-group`, `delete-saved-tab-group` | — | not from a phone (yet) | Reopening recreates terminals from the saved record (a respawn path); the remote rules need live verification of it on the Mac first (orchestrator decision 2026-10-15). Pin Group on the phone saves the group; it is reopened on the Mac. |
 
 ## Workspaces
 
@@ -72,7 +75,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 
 | Mac action | Phone | State | Notes |
 | --- | --- | --- | --- |
-| Address bar, Back (⌘[), Forward (⌘]), Reload (⌘R) | TabsKit address bar and toolbar | works on a streaming Mac | `browser-navigate` (http/https only), `browser-back`, `browser-forward`, `browser-reload`. |
+| Address bar, Back (⌘[), Forward (⌘]), Reload (⌘R) | TabsKit address bar and toolbar | works on a streaming Mac | `browser-navigate` (http/https only), `browser-back`, `browser-forward`, `browser-reload`. Forward right after Back is one tap (finding 5, fixed in parity2 tabs). The address reads the page's host, and a new tab's about:blank reads "Search or enter website" (finding 4). |
 | Open Link in New Tab | — | missing | The streamed page sends no link targets to the phone. |
 | Hard Reload, Open in Default Browser, Incognito | — | not applicable | |
 
@@ -86,7 +89,9 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Continue in… (handoff) | page menu Continue in… | works | `_acpmux/handoff_*`. |
 | Allow Once / Allow for This Chat / Deny | permission cards | works | Allow needs the phone's Face ID signature (pairing). |
 | Queue: Edit / Remove / Send now | queue remove | partial | |
-| Fork Conversation, Archive Chat, Checkpoints, Commit, Push | Checkpoints shown as unavailable | missing | The link carries no checkpoints; fork and archive have no phone UI. |
+| Fork (chat menu "Fork"; palette Fork Conversation to New Tab) | page menu **Fork** | works (parity2 tabs; live run pending) | acpmux `session/fork` (the whole chat), then `new-conversation-tab` of the copy in the chat's pane; the copy comes to the front, as the Mac opens a fork in a tab of its own. A Claude chat the Mac started is refused for a remote connection (acpmux D13, `remote_guard.rs`); the phone shows acpmux's own reason: "This chat runs with <Mac>'s Claude permissions. Start a new chat from this device to control it remotely." Fork from an earlier turn (Fork from here) is not on the phone. |
+| Archive (chat menu "Archive", Archive Chat ⌃⌘A) | page menu **Archive** | works (parity2 tabs; live run pending) | acpmux `_acpmux/archive {archived: true}`, then `close-surface`, as the Mac's pane asks its app to close the tab. Unarchive is on the Mac (its archived list). |
+| Checkpoints, Commit, Push | Checkpoints shown as unavailable | missing | The link carries no checkpoints. |
 | Trust this folder ("Trust / Don't trust") | the toast says how, step by step; `claude` in the terminal works | partial | acpmux refuses `acp.trust.set` from a remote connection (finding 2). The phone now says: "Claude hasn't been trusted in <folder> yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. Or 2. Here, open this workspace's terminal, type claude, press Return, choose "Yes, I trust this folder", then type /exit. Then start the chat again." Whether a Face ID answer from the phone may count is the person's decision (#13742). |
 
 ## Chief and the Feed
@@ -159,10 +164,17 @@ does not know yet (cached, mock) keep the old newest-activity order under
    and never answered; `claude-sr` closed ("agent process closed"); `claude`
    through a loopback `ANTHROPIC_BASE_URL` failed with "Unable to connect to API
    (EPERM)". Owner: acpmux remote sandbox (`hub/remote_sandbox.rs`).
-4. The streamed browser tab's address control reads "Address, about:blank" to
-   VoiceOver after navigation, while it shows the page's host.
-5. Forward once did nothing on the first tap right after Back (the next tap
-   worked).
+4. Fixed (parity2 tabs): the streamed browser tab's address control read "Address,
+   about:blank" to VoiceOver after navigation. The Mac's browser reports the old page
+   (a new tab's about:blank) while a navigation loads, and that report replaced the
+   address the person typed. The model now keeps the asked-for address until the page
+   reports another one or stops loading, and an about:blank tab reads "Search or enter
+   website". Unit tests `theAddressIsTheOneAskedForWhileItLoads`, `aBlankBrowserTabHasNoAddress`.
+5. Fixed (parity2 tabs): Forward once did nothing on the first tap right after Back.
+   The browser reports the old history (no forward entry) until Back commits, so the
+   button was disabled, or the Mac ignored the step. Back now offers Forward at once,
+   and a step tapped before the previous one commits is sent when it does (bounded at
+   2 s). Unit tests `forwardRightAfterBackNeedsOneTap`, `aCachedStepCommitsOnTheNewAddress`.
 
 ### Review (correctness-first subagent, 2026-10-15)
 
@@ -175,3 +187,23 @@ chunk; a renamed Codex profile showed as startable; a plain New Workspace tap
 typed `cd` to the last folder; the Mac kept the folder list after iPhone
 connections turned off when no approvers were paired. Those fixes have unit
 tests and were not driven live again.
+
+## Parity round 2: tabs lane (2026-10-15)
+
+Branch `feat-cnx-ios-p2tabs`. No daemon allowlist change: every command used was already
+allowed (`move-tab-to-workspace`, `move-tab-to-new-workspace`, `set-tab-pinned`, the
+`*-tab-group*` commands, `new-conversation-tab`, `close-surface`). acpmux's Fork and
+Archive go over the phone's acpmux lane as a remote (Web) connection: `session/fork`
+passes `remote_guard.rs` (folder and policy checks, D13 refusal for a Mac-started
+Claude chat) and `_acpmux/archive` sets one tag.
+
+Phone menus, following the Mac's tab menu (`ContextMenuEssentials`): the card menu has the
+top rows (Rename Tab…, Pin Tab / Unpin Tab, Duplicate Tab) and the group rows; TabsKit adds
+Close Tab and Close Other Tabs. The page menu adds the Mac's More rows that make sense on a
+phone (Move Tab to Workspace…, Move Tab to New Workspace), and on an agent chat the chat
+menu's Fork and Archive.
+
+Live flows: `verify/parity/pq_tabs.py` (`pin`, `move-to-workspace`, `move-to-new-workspace`,
+`tab-groups`, `tab-groups-2`, `reorder`, `browser-forward`, `chat-fork-duplicate-archive`),
+each checked on the Mac's daemon tree and recorded. Status: ready; not yet run against the
+rig Mac.

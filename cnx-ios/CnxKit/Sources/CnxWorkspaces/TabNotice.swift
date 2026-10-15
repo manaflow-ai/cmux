@@ -15,6 +15,10 @@ public struct TabNotice: Equatable, Sendable {
         case rename(title: String)
         /// Moving the tab named `title`.
         case move(title: String)
+        /// A tab group action, by its Mac title ("New Tab Group").
+        case group(String)
+        /// Another tab action: "Couldn't <verb> <title>."
+        case other(verb: String, title: String)
     }
 
     /// The one line the toast shows.
@@ -67,10 +71,17 @@ public struct TabNotice: Equatable, Sendable {
             case .notAllowed: return "\(macName) didn't allow \(thing) from your iPhone."
             case .other: return "Couldn't open \(thing) on \(macName)."
             }
-        case .close(let title), .rename(let title), .move(let title):
+        case .group(let actionTitle):
+            switch cause {
+            case .offline: return "Connect to \(macName) first."
+            case .gone: return "This workspace is no longer on \(macName)."
+            default: return "\(actionTitle.replacingOccurrences(of: "…", with: "")) didn't work on \(macName)."
+            }
+        case .close(let title), .rename(let title), .move(let title), .other(_, let title):
             let verb = switch action {
             case .rename: "rename"
             case .move: "move"
+            case .other(let verb, _): verb
             default: "close"
             }
             switch cause {

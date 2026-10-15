@@ -118,6 +118,43 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What a `.waiting` agent waits for, when the Mac's acpmux says (agent tabs).
     /// Nil for a terminal agent, whose report says only that it is blocked.
     public var waitingFor: WaitingFor?
+    /// Pinned on the Mac (`set-tab-pinned`): pinned tabs sort first in their pane.
+    /// Optional so older saved copies still decode; nil reads as not pinned.
+    public var pinned: Bool?
+    /// The Mac tab group the tab is in (`tab_groups`), if any.
+    public var group: TabGroupRef?
+
+    public var isPinned: Bool { pinned == true }
+
+    /// A Mac tab group, as a member tab sees it.
+    public struct TabGroupRef: Hashable, Sendable, Codable {
+        public var id: String
+        /// Empty: the Mac shows the color only.
+        public var name: String
+        public var color: String
+        /// Saved ("Pin Group" on the Mac): `saved_id` is set.
+        public var isSaved: Bool
+
+        public init(id: String, name: String = "", color: String = "grey", isSaved: Bool = false) {
+            self.id = id
+            self.name = name
+            self.color = color
+            self.isSaved = isSaved
+        }
+
+        /// The Mac's next group color (`GroupColor.automatic`): the first of its automatic order
+        /// not used in the pane, never blue or grey; grey when every one is used.
+        public static func nextColor(used: Set<String>) -> String {
+            ["red", "green", "yellow", "purple", "cyan", "orange", "pink"].first { !used.contains($0) } ?? "grey"
+        }
+
+        /// The group's name, else its color ("Red group"), as a phone line reads it.
+        public var displayName: String {
+            if !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+            let color = color.hasPrefix("#") ? "Tab" : color.prefix(1).uppercased() + color.dropFirst()
+            return "\(color) group"
+        }
+    }
 
     /// An agent's state as the Mac reports it.
     public enum AgentStatus: String, Hashable, Sendable, Codable {
@@ -139,7 +176,9 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     }
 
     public init(id: String, kind: Kind, title: String, subtitle: String? = nil, harness: String? = nil, url: URL? = nil,
-                agentStatus: AgentStatus? = nil, waitingFor: WaitingFor? = nil) {
+                agentStatus: AgentStatus? = nil, waitingFor: WaitingFor? = nil, pinned: Bool? = nil, group: TabGroupRef? = nil) {
+        self.pinned = pinned
+        self.group = group
         self.url = url
         self.agentStatus = agentStatus
         self.waitingFor = waitingFor
