@@ -1,5 +1,6 @@
 #if os(iOS)
 import CNCore
+import CNDesign
 import GameController
 import SwiftUI
 import UIKit
@@ -556,31 +557,18 @@ final class PageKeyboardDismissHost: UIScrollView, UIScrollViewDelegate {
 
     // MARK: Shell tab bar
 
-    private weak var hiddenTabBar: UITabBarController?
-
     /// The page's keyboard covers the shell's tab bar and its bottom
     /// accessory: out of the accessibility tree while it is up (layout and
-    /// visibility untouched).
-    func coversTabBar(_ covered: Bool) {
-        let controller = covered ? enclosingTabBarController : hiddenTabBar
-        guard let controller else { return }
-        controller.tabBar.accessibilityElementsHidden = covered
-        controller.bottomAccessory?.contentView.accessibilityElementsHidden = covered
-        hiddenTabBar = covered ? controller : nil
-    }
+    /// visibility untouched). Shared with the terminal (CNDesign).
+    private let tabBarCover = CNTabBarCover()
 
-    private var enclosingTabBarController: UITabBarController? {
-        var responder: UIResponder? = self
-        while let r = responder {
-            if let controller = r as? UITabBarController { return controller }
-            responder = r.next
-        }
-        return nil
+    func coversTabBar(_ covered: Bool) {
+        tabBarCover.setCovered(covered, from: self)
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
-        if newWindow == nil { coversTabBar(false) }
+        if newWindow == nil { tabBarCover.release() }
     }
 
     /// The page scrolls on the Mac, not here: while the pan drags the
