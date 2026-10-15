@@ -84,6 +84,26 @@ describe("founder revocation (database)", () => {
     expect(await activePersonalPlanForUser(USER)).toBeNull();
   });
 
+  dbTest("an old Founder row behind many newer personal rows is still found and revoked", async () => {
+    const db = sql!;
+    // Inserted after the newer rows so a capped, unordered read returns it last.
+    for (let index = 0; index < 120; index += 1) {
+      await db`insert into stripe_subscriptions (id, customer_id, stack_user_id, status, plan, scope, raw, updated_at)
+        values (${`sub_newer_${index}`}, 'cus_founder_revocation', ${USER}, 'active', 'pro', 'user',
+          ${db.json({ metadata: { app: "cmux", plan: "pro" } })}, now() + make_interval(secs => ${index + 1}))`;
+    }
+    await db`insert into stripe_subscriptions (id, customer_id, stack_user_id, status, plan, scope, raw, updated_at)
+      values ('sub_founder_old', 'cus_founder_revocation', ${USER}, 'active', 'pro', 'user',
+        ${db.json({ metadata: { founders_edition: "true" } })}, now() - interval '400 days')`;
+    const store = makeFounderPurchaseStore();
+    expect(await store.activeFounderPurchaseIds(USER)).toEqual(["sub_founder_old"]);
+    expect((await stripeBillingStatusForUser(USER)).hasFounderEntitlement).toBe(true);
+    expect(await store.revokeActiveFounderPurchases(USER, REVOCATION)).toEqual(["sub_founder_old"]);
+    const [{ count }] = await db<{ count: string }[]>`
+      select count(*)::text as count from stripe_subscriptions where stack_user_id = ${USER} and status = 'active'`;
+    expect(count).toBe("120");
+  });
+
   dbTest("the guarded recorder upsert cannot re-activate a revoked row", async () => {
     const db = sql!;
     await seed(db, "sub_founder_replay", "pro", { metadata: { founders_edition: "true" } });

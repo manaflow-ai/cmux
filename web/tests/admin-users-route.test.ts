@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 import { accountMutationLeases, adminAuditLog, adminPlanGrants, stripeSubscriptions } from "../db/schema";
 import { withAccountMutationLeaseSupport } from "./helpers/account-mutation-db-mock";
@@ -116,6 +118,12 @@ let subscriptionListRows: Array<Record<string, unknown>> = [];
 let subscriptionUpdates: Array<Record<string, unknown>> = [];
 let auditInserts: Array<Record<string, unknown>> = [];
 const ACTIVE_STATUSES = ["active", "trialing", "past_due"];
+const dialect = new PgDialect();
+
+/** The bound parameters of a drizzle predicate, so updates hit only the rows it names. */
+function predicateParams(condition: unknown): unknown[] {
+  return condition ? dialect.sqlToQuery(condition as SQL).params : [];
+}
 const stripeSubscriptionUpdate = mock(async (id: unknown, params: unknown) => ({
   id,
   cancel_at_period_end: (params as { cancel_at_period_end?: boolean }).cancel_at_period_end,
@@ -177,7 +185,7 @@ function adminDbMock() {
       }),
       update: (table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
-          where: () => {
+          where: (condition?: unknown) => {
             const run = async () => {
               if (table === adminPlanGrants) {
                 if (grantsTableMissing) {
@@ -189,15 +197,11 @@ function adminDbMock() {
               }
               if (table === stripeSubscriptions) {
                 subscriptionUpdates.push(values);
-                // The Founder store writes one row per update; apply it to
-                // the next active, unrevoked row so later reads see it.
-                const row = subscriptionRows.find((candidate) =>
-                  candidate.status === "active" &&
-                  (candidate.raw as Record<string, unknown> | undefined)?.cmux_admin_revocation == null
-                );
-                if (row && typeof values.status === "string" && values.raw) {
-                  row.status = values.status;
-                  row.raw = values.raw;
+                // Apply the write only to rows whose id the predicate binds,
+                // so a test can prove an unrelated row is left alone.
+                const params = predicateParams(condition);
+                for (const row of subscriptionRows) {
+                  if (params.includes(row.id)) Object.assign(row, values);
                 }
               }
               return [];
@@ -327,6 +331,18 @@ describe("admin users route", () => {
     const response = await GET(getRequest("p"));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  test("GET reports a paying team as a recurring subscription, never a Founder entitlement", async () => {
+    subscriptionRows = [{ id: "sub_team", stackTeamId: "t1", scope: "team", plan: "team", status: "active" }];
+    const response = await GET(getRequest("acme"));
+    const body = (await response.json()) as { teams: Array<{ id: string; stripe: Record<string, unknown> }> };
+    expect(body.teams[0]?.id).toBe("t1");
+    expect(body.teams[0]?.stripe).toMatchObject({
+      hasActiveSubscription: true,
+      hasRecurringSubscription: true,
+      hasFounderEntitlement: false,
+    });
   });
 
   test("GET returns matching users, teams, and pending grants for admins", async () => {
@@ -565,20 +581,34 @@ describe("admin subscriptions route", () => {
         clientReadOnlyMetadata: { cmuxPlan: "pro" },
       }),
     ];
-    subscriptionRows = [{
-      id: "founders_cs_1",
+    const recurring = {
+      id: "sub_max_recurring",
       stackUserId: "u1",
       scope: "user",
-      plan: "pro",
+      plan: "max",
       status: "active",
-      raw: { metadata: { founders_edition: "true" } },
-    }];
+      raw: { metadata: { app: "cmux", plan: "max" } },
+    };
+    subscriptionRows = [
+      { ...recurring, raw: { ...recurring.raw, metadata: { ...recurring.raw.metadata } } },
+      {
+        id: "founders_cs_1",
+        stackUserId: "u1",
+        scope: "user",
+        plan: "pro",
+        status: "active",
+        raw: { metadata: { founders_edition: "true" } },
+      },
+    ];
 
     const response = await POST_SUBSCRIPTIONS(
       postRequest({ scope: "user", ownerId: "u1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
     );
 
     expect(response.status).toBe(200);
+    // The paying recurring subscription is untouched; only the Founder row changed.
+    expect(subscriptionRows[0]).toEqual(recurring);
+    expect(subscriptionRows[1]).toMatchObject({ id: "founders_cs_1", status: "canceled" });
     expect(await response.json()).toEqual({ ok: true, action: "revoke-founder" });
     expect(subscriptionUpdates).toHaveLength(1);
     expect(subscriptionUpdates[0]).toMatchObject({ status: "canceled", cancelAtPeriodEnd: false });
@@ -587,7 +617,6 @@ describe("admin subscriptions route", () => {
       byEmail: "admin@manaflow.ai",
       previousStatus: "active",
     });
-    expect(directory[0]?.clientReadOnlyMetadata).toEqual({});
     expect(auditInserts.map((row) => row.action)).toEqual(["founders_revoke", "founder_access_revoke"]);
     expect(auditInserts[0]).toMatchObject({
       targetKind: "user",
