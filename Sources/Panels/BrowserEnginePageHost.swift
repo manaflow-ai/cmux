@@ -38,7 +38,9 @@ struct BrowserEnginePageHost: NSViewRepresentable {
         if page.contentView.superview !== container {
             attach(page.contentView, to: container)
         }
-        container.wantsPageFocus = shouldFocus && isVisible
+        let wantsFocus = shouldFocus && isVisible
+        let wantedFocus = container.wantsPageFocus
+        container.wantsPageFocus = wantsFocus
         container.onPageClicked = onPageClicked
         // The first attach runs before the container is in a window; attach
         // again once it is, so overlays sync with the placed page.
@@ -48,8 +50,13 @@ struct BrowserEnginePageHost: NSViewRepresentable {
             container.reportedVisible = isVisible
             onVisibilityChange(isVisible)
         }
-        if shouldFocus, isVisible {
+        if wantsFocus {
             page.setFocused(true)
+        } else if wantedFocus {
+            // Withdraw the page's focus request, so showing or re-creating
+            // it later (a tab switch, Memory Saver) doesn't take the keys
+            // from where cmux moved them.
+            page.setFocused(false)
         }
     }
 

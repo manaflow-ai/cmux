@@ -172,11 +172,13 @@ public final class CEFBrowser {
         } else if contentRelease.isReleasing || contentRelease.isReleased {
             // The owner restores released content (it may wait for the person to ask).
             return
-        } else if browserID == nil {
-            createNow()
-        } else {
+        } else if let id = browserID {
             reactivate()
             hostView.postGeometryChange()
+            // Focus asked for while the page was off screen applies now.
+            if pendingFocus { grantFocus(id) }
+        } else {
+            createNow()
         }
     }
 
