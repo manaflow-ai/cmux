@@ -108,6 +108,7 @@ extension HomeNativeTranscriptView {
     public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] { transcript.debugRowFrames() }
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
+    public var debugStatusLine: String? { transcript.debugStatusLine }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
     public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
     /// The open thread's root (the transcript's id), nil when none is open.

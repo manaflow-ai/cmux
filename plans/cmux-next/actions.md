@@ -41,7 +41,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `screen`: 65
 - `tab`: 90
 - `terminal`: 36
-- `browser`: 170
+- `browser`: 171
 - `sidebar`: 75
 - `notifications`: 21
 - `agents`: 60
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 11
 - `settings`: 84
 
-## Counts (969 actions)
+## Counts (970 actions)
 
-Palette 933, CLI verbs 526, right-click 501, MCP tools 451.
+Palette 934, CLI verbs 527, right-click 502, MCP tools 452.
 
 ## Menus
 
@@ -64,7 +64,7 @@ Palette 933, CLI verbs 526, right-click 501, MCP tools 451.
 - **workspaceGroup**: workspaceGroup.newWorkspace workspaceGroup.duplicate | workspaceGroup.rename workspaceGroup.togglePin [appearance] > (workspaceGroup.setColor > (workspaceGroup.color.grey workspaceGroup.color.blue workspaceGroup.color.red workspaceGroup.color.yellow workspaceGroup.color.green workspaceGroup.color.pink workspaceGroup.color.purple workspaceGroup.color.cyan workspaceGroup.color.orange) workspaceGroup.setIcon workspaceGroup.clearIcon) [options] > (workspaceGroup.markRead workspaceGroup.markUnread workspaceGroup.clearNotifications) | toggleFocusedWorkspaceGroupCollapsed [group] > (workspaceGroup.collapseAll workspaceGroup.expandAll) | [move] > (workspaceGroup.moveUp workspaceGroup.moveDown workspaceGroup.moveToNewWindow workspaceGroup.moveToWindow workspaceGroup.moveToSpace workspaceGroup.addToSection) | workspaceGroup.editConfig workspaceGroup.copyID | [close] > (workspaceGroup.ungroup workspaceGroup.closeWorkspaces workspaceGroup.delete workspaceGroup.closeOthers)
 - **sidebarBackground**: newTab newBrowserWorkspace openFolder newWorkspaceGroup [new] > (workspace.newAtTop workspace.newAtBottom workspace.newOnMachine space.new reopenClosedWorkspace reopenPreviousSession | newCloudWorkspace remote.connect | sidebar.home.add sidebar.item.add sidebar.section.add) | [options] > (sidebar.workspaceTabs.toggle palette.enableMinimalMode palette.disableMinimalMode sidebar.density.compact sidebar.density.comfortable sidebar.density.expanded | sidebar.layout.reset) | [group] > (workspaceGroup.collapseAll workspaceGroup.expandAll sidebar.groupBy.none sidebar.groupBy.folder) | [sort] > (workspace.sortByName workspace.sortByLastUsed workspace.sortByDirectory) | sidebar.projects.hide sidebar.sections.showHidden | toggleSidebar appStore.show
 - **terminalSelection**: terminalCopy terminalPaste terminal.selectAll useSelectionForFind terminal.sendText | [split] > (splitRight splitDown splitLeft splitUp) [agent] > (palette.forkAgentConversationRight palette.forkAgentConversationNewTab palette.forkAgentConversationLeft palette.forkAgentConversationTop palette.forkAgentConversationBottom palette.forkAgentConversationNewWorkspace) | [options] > (clearScreenKeepScrollback resetTerminal terminal.clear) | toggleSplitZoom | palette.terminalOpenDirectory
-- **browserPage**: browserBack browserForward browserReload browserHardReload browser.copyURL browser.openLocally | browserTheme[choices] [options] > (toggleBrowserFocusMode toggleBrowserDesignMode) | browserPrint | bookmark.addPage | toggleBrowserDeveloperTools [tools] > (palette.browserOpenDefault browserScreenshotPage browserScreenshotSection browserDevice browserFitDesktop browserFitDesktop1280 | browser.pageInfo > (browser.pageInfo browser.pageInfo.connection browser.pageInfo.certificate browser.pageInfo.reenableCertificateWarnings | browser.pageInfo.setPermission browser.pageInfo.resetPermissions | browser.pageInfo.cookies browser.pageInfo.manageSiteData browser.pageInfo.deleteSiteData | browser.pageInfo.siteSettings browser.pageInfo.aboutThisPage) showBrowserJavaScriptConsole inspectBrowserElement | browser.extensions.menu browser.extensions.manage browser.extensions.webStore browser.extensions.loadUnpacked)
+- **browserPage**: browserBack browserForward browserReload browserHardReload browser.copyURL browser.openLocally | browserTheme[choices] [options] > (toggleBrowserFocusMode toggleBrowserDesignMode) | browserPrint | bookmark.addPage | toggleBrowserDeveloperTools [tools] > (palette.browserOpenDefault browserScreenshotPage browserScreenshotSection browserDevice browserFitDesktop browserFitDesktop1280 browserFit[choices] | browser.pageInfo > (browser.pageInfo browser.pageInfo.connection browser.pageInfo.certificate browser.pageInfo.reenableCertificateWarnings | browser.pageInfo.setPermission browser.pageInfo.resetPermissions | browser.pageInfo.cookies browser.pageInfo.manageSiteData browser.pageInfo.deleteSiteData | browser.pageInfo.siteSettings browser.pageInfo.aboutThisPage) showBrowserJavaScriptConsole inspectBrowserElement | browser.extensions.menu browser.extensions.manage browser.extensions.webStore browser.extensions.loadUnpacked)
 - **browserLink**: browser.link.openInNewTab browser.link.openInNewWindow browser.link.openInNewSpace browser.link.openInNewWorkspace browser.link.openInSplit openLinkInDefaultBrowser | browser.link.openInIncognitoWindow | browser.link.saveAs browser.link.copy browser.link.copyText
 - **browserImage**: browser.image.openInNewTab | browser.image.saveAs browser.image.copy browser.image.copyAddress
 - **browserSelection**: browser.selection.copy | browser.selection.search browser.selection.lookUp

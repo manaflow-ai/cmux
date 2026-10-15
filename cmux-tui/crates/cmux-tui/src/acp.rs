@@ -128,27 +128,30 @@ fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
 }
 
 /// Gives the session daemon its acpmux [`daemon_acpmux_starter`] and
-/// [`daemon_acpmux_handoff`].
+/// [`daemon_acpmux_handoff`], both naming the daemon's `socket`.
 #[cfg(unix)]
-pub(crate) fn install_daemon_acpmux(mux: &cmux_tui_core::Mux) {
-    mux.set_acpmux_starter(daemon_acpmux_starter());
-    mux.set_acpmux_handoff(daemon_acpmux_handoff());
+pub(crate) fn install_daemon_acpmux(mux: &cmux_tui_core::Mux, socket: &Path) {
+    mux.set_acpmux_starter(daemon_acpmux_starter(socket));
+    mux.set_acpmux_handoff(daemon_acpmux_handoff(socket));
 }
 
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
 /// names when an `agent-session-start` finds nothing there: this binary's
 /// `acp daemon start` with that home, as `cmux acp` starts it (acpmux bounds
-/// the wait for its socket), without the daemon's terminal identity. None
-/// with `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does
-/// not own.
+/// the wait for its socket), without the daemon's terminal identity, and with
+/// `CMUX_TUI_SOCKET` naming this daemon's `socket`, which mints each agent's
+/// launch credential (acpmux `launch_credential.rs`). None with
+/// `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does not
+/// own.
 #[cfg(unix)]
-pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxStarter> {
+pub(crate) fn daemon_acpmux_starter(socket: &Path) -> Option<cmux_tui_core::server::AcpmuxStarter> {
     if env_value("ACPMUX_SOCKET").is_some() {
         return None;
     }
     let home = daemon_acpmux_home()?;
     let exe = std::env::current_exe().ok()?;
-    Some(std::sync::Arc::new(move || run_acp_daemon(&exe, &home, &["start"])))
+    let socket = socket.to_path_buf();
+    Some(std::sync::Arc::new(move || run_acp_daemon(&exe, &home, &socket, &["start"])))
 }
 
 /// How the session daemon hands the machine's acpmux off before an
@@ -160,17 +163,19 @@ pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxSta
 /// newer build (on Linux the running image reads `<path> (deleted)`). None
 /// with `ACPMUX_SOCKET`, as the starter.
 #[cfg(unix)]
-pub(crate) fn daemon_acpmux_handoff()
--> Option<cmux_tui_core::server::agent_transfer::agent_update::AcpmuxHandoff> {
+pub(crate) fn daemon_acpmux_handoff(
+    socket: &Path,
+) -> Option<cmux_tui_core::server::agent_transfer::agent_update::AcpmuxHandoff> {
     if env_value("ACPMUX_SOCKET").is_some() {
         return None;
     }
     let home = daemon_acpmux_home()?;
     let exe = std::env::current_exe().ok()?;
+    let socket = socket.to_path_buf();
     Some(std::sync::Arc::new(move || {
         let installed = installed_exe(&exe)?;
-        run_acp_daemon(&installed, &home, &["shutdown", "--keep-agents"])?;
-        run_acp_daemon(&installed, &home, &["start"])
+        run_acp_daemon(&installed, &home, &socket, &["shutdown", "--keep-agents"])?;
+        run_acp_daemon(&installed, &home, &socket, &["start"])
     }))
 }
 
@@ -188,9 +193,10 @@ fn installed_exe(exe: &Path) -> Result<PathBuf, String> {
     }
 }
 
-/// This binary's `acp daemon <args>` with `home`, blocking.
+/// This binary's `acp daemon <args>` with `home` and the session `socket`,
+/// blocking.
 #[cfg(unix)]
-fn run_acp_daemon(exe: &Path, home: &Path, args: &[&str]) -> Result<(), String> {
+fn run_acp_daemon(exe: &Path, home: &Path, socket: &Path, args: &[&str]) -> Result<(), String> {
     let mut command = std::process::Command::new(exe);
     // acpmux and every agent it starts outlive this call: none of them
     // may claim the terminal this daemon was started from.
@@ -200,6 +206,7 @@ fn run_acp_daemon(exe: &Path, home: &Path, args: &[&str]) -> Result<(), String> 
     let what = format!("acpmux daemon {}", args.join(" "));
     let status = command
         .env("ACPMUX_HOME", home)
+        .env(acpmux::launch_credential::SESSION_SOCKET_ENV, socket)
         .args(["acp", "daemon"])
         .args(args)
         .stdin(std::process::Stdio::null())
@@ -365,7 +372,11 @@ pub(crate) fn build_home(home: &Path) -> Option<PathBuf> {
         |name| std::env::var(name).ok(),
         std::env::current_exe().ok().as_deref(),
     )?;
-    Some(identity.build().acpmux_home(home))
+    let build = identity.build();
+    let acpmux_home = build.acpmux_home(home);
+    // cmux NEXT adopts its pre-isolation home once (build_adopt.rs).
+    crate::build_adopt::acpmux_for_cli(&build, &acpmux_home);
+    Some(acpmux_home)
 }
 
 #[cfg(test)]
