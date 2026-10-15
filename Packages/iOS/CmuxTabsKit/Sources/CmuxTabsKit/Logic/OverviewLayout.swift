@@ -12,6 +12,11 @@ struct OverviewLayout: Equatable, Sendable {
     var safeTop: CGFloat
     var safeBottom: CGFloat
     var count: Int
+    /// The first `pinned` items are pinned: Safari shows them as capsules
+    /// (177 x 30, two per row, 16 pt apart) above the grid.
+    var pinned: Int = 0
+
+    static let pinnedHeight: CGFloat = 30
 
     static let gridInset: CGFloat = 16
     static let titleRow: CGFloat = 23
@@ -26,7 +31,7 @@ struct OverviewLayout: Equatable, Sendable {
     /// wide at x 72.7 on a 440 pt iPhone 17 Pro Max, top 124; simulator:
     /// 268 pt at x 66.7 on 402, top 122), with the same aspect, close button
     /// insets and title row, and "1 Tab" in the bar.
-    var isLone: Bool { count == 1 }
+    var isLone: Bool { count - pinned == 1 }
 
     /// Two-column card width: 177 pt on a 402 pt screen, 196 pt on 440.
     var columnWidth: CGFloat { ((size.width - 3 * Self.gridInset) / 2).rounded(.down) }
@@ -34,22 +39,40 @@ struct OverviewLayout: Equatable, Sendable {
     /// column width.
     var cardWidth: CGFloat { isLone ? (size.width * 2 / 3).rounded() : columnWidth }
     var cardHeight: CGFloat { cardWidth * Self.cardAspect }
+    /// Page points (from the page's top) a card shows.
+    var cardPageHeight: CGFloat { size.width * Self.cardAspect }
+
+    /// How far a rect `width` wide is from full screen (0) to a grid card
+    /// (1): a card's content anchor moves with the zoom, so it never jumps.
+    func cardAnchorFraction(_ width: CGFloat) -> CGFloat {
+        guard size.width > cardWidth, cardWidth > 0 else { return 0 }
+        return min(1, max(0, (size.width - width) / (size.width - cardWidth)))
+    }
     /// 18 pt at 177 pt wide, scaled with the card.
     var cardRadius: CGFloat { Self.baseCardRadius * cardWidth / 177 }
     var pitch: CGFloat { cardHeight + Self.titleRow + Self.rowGap }
     /// Card top of the first row (122 on a 62 pt safe area).
-    var top: CGFloat { safeTop + 60 }
+    var top: CGFloat { pinnedTop + CGFloat(pinnedRows) * (Self.pinnedHeight + Self.rowGap) }
+    /// The pinned area's first row (where the grid starts without pins).
+    var pinnedTop: CGFloat { safeTop + 60 }
+    var pinnedRows: Int { (pinned + 1) / 2 }
     var barRect: CGRect {
         let bottom = size.height - max(safeBottom, 20) - 4
         return CGRect(x: 0, y: bottom - Self.control, width: size.width, height: Self.control)
     }
     var bottomPadding: CGFloat { size.height - barRect.minY + 12 }
-    var rows: Int { (count + 1) / 2 }
+    var rows: Int { (count - pinned + 1) / 2 }
     var contentHeight: CGFloat { top + CGFloat(rows) * pitch - Self.rowGap + bottomPadding }
     var maxOffset: CGFloat { max(0, contentHeight - size.height) }
 
     /// Card frame in content coordinates.
     func card(_ index: Int) -> CGRect {
+        if index < pinned {
+            let col = index % 2, row = index / 2
+            let x = col == 0 ? Self.gridInset : size.width - Self.gridInset - columnWidth
+            return CGRect(x: x, y: pinnedTop + CGFloat(row) * (Self.pinnedHeight + Self.rowGap), width: columnWidth, height: Self.pinnedHeight)
+        }
+        let index = index - pinned
         if isLone, index == 0 {
             return CGRect(x: (size.width - cardWidth) / 2, y: top, width: cardWidth, height: cardHeight)
         }

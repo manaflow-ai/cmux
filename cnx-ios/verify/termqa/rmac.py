@@ -12,7 +12,8 @@ import os
 import subprocess
 import sys
 
-BASE = os.path.expanduser("~/cnx-ios-e2e/termqa")
+# The rig instance is the folder this script sits in (~/cnx-ios-e2e/termqa on mini-2).
+BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(BASE, "repo/cnx-ios/verify/e2e"))
 from mac import Mac, pb  # noqa: E402
 

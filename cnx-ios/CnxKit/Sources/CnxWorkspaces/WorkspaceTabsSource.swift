@@ -484,6 +484,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
+    public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
+        guard let tab = workspaceTab(id), tab.kind == .terminal else { return false }
+        return terminal.showsStaticCard(for: tab)
+    }
+
     // MARK: Toolbar actions
 
     public func goBack(_ id: TabsKitTab.ID) {

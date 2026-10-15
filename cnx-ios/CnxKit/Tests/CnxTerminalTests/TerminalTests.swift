@@ -229,6 +229,53 @@ import Testing
     /// Signatures of a viewport `top` of `count` rows of numbered stream rows.
     func rows(top: Int, count: Int = 120) -> [UInt64] { (top..<(top + count)).map { UInt64(1000 + $0) } }
 
+    /// termqa round 7 (following cost): following still read all 151 rows of
+    /// every frame (p99 3.36 ms). Only the rows on screen and a margin are
+    /// read; the rows outside the band are `unread` and never compared.
+    func banded(_ rows: [UInt64], _ band: Range<Int>) -> [UInt64] {
+        rows.indices.map { band.contains($0) ? rows[$0] : TerminalPresentMatch.unread }
+    }
+
+    @Test func bandLimitedFramesMatchFollowingShifts() {
+        let t = 900
+        let band = TerminalPresentMatch.readBand(visible: 54..<96, rowCount: 120, margin: 16)
+        #expect(band == 38..<112)
+        for (current, reported) in [(t + 3, t + 3), (t - 1, t), (t + 1, t + 1), (t, t)] {
+            let match = TerminalPresentMatch(presentedTop: t, reportedTop: reported, requestedTop: 780, recentRequests: [],
+                                             activeTop: reported)
+            let result = match.match(previous: banded(rows(top: t), band), current: banded(rows(top: current), band))
+            #expect(result.top == current)
+            #expect(result.matched)
+        }
+    }
+
+    @Test func unreadRowsAreNeverCountedAsBlankOrEqual() {
+        let band = 50..<60
+        let previous = banded(rows(top: 0), band)
+        // Everything outside the band is `unread` in both: only the band counts.
+        #expect(TerminalPresentMatch.score(previous, banded(rows(top: 0), band), shift: 0) == 1)
+        #expect(TerminalPresentMatch.score(previous, banded(rows(top: 40), band), shift: 0) == 0)
+        #expect(TerminalPresentMatch.readBand(visible: 0..<10, rowCount: 20, margin: 16) == 0..<20)
+    }
+
+    /// VERIFY-round6 V6-2: following at the history cap, Ghostty pruned 886
+    /// rows (17740 -> 16854). The viewport followed the output, so no prune
+    /// was detected and the frame on screen kept its top in the old numbering
+    /// (17589). The next frame (one new row) matched shift +1 and was placed
+    /// at 17590, past the document's end: a black page until the next touch.
+    /// A frame's top is never past the active area's top.
+    @Test func aFrameIsNeverPlacedPastTheActiveTop() {
+        let stale = 17589
+        let match = TerminalPresentMatch(presentedTop: stale, reportedTop: 16703, requestedTop: stale, recentRequests: [],
+                                         activeTop: 16703)
+        let result = match.match(previous: rows(top: 0), current: rows(top: 1))
+        #expect(result.top == 16703)
+        #expect(result.top <= match.activeTop)
+        // Any candidate past the active top is out, even a perfect one.
+        let same = match.match(previous: rows(top: 0), current: rows(top: 0))
+        #expect(same.top == 16703)
+    }
+
     @Test func aStaleFrameOneRowOlderStaysWhereItsRowsBelong() {
         let t = 900
         let match = TerminalPresentMatch(presentedTop: t, reportedTop: t, requestedTop: 780, recentRequests: [700, 740],
@@ -243,5 +290,51 @@ import Testing
         #expect(match.top(previous: rows(top: t), current: rows(top: t + 1)) == t + 1)
         // The same picture again: no move.
         #expect(match.top(previous: rows(top: t), current: rows(top: t)) == t)
+    }
+    /// termqa round 6 (scroll while streaming): every present read the
+    /// frame's pixels on the main thread (about 1 ms a frame). While the page
+    /// reads scrollback, Ghostty does not move the viewport on its own, so once
+    /// a read frame confirmed the requested and reported viewport, the frames
+    /// after it show that viewport until a request, a report or the surface
+    /// (epoch) moves it: they are placed without a read.
+    @Test func aConfirmedViewportInScrollbackPlacesFramesWithoutAPixelRead() {
+        let match = TerminalPresentMatch(presentedTop: 400, reportedTop: 400, requestedTop: 400, recentRequests: [360],
+                                         activeTop: 900)
+        let result = match.match(previous: rows(top: 400), current: rows(top: 400))
+        #expect(result.top == 400)
+        #expect(result.matched)
+        let steady = match.confirmed(result, epoch: 7)
+        #expect(steady == TerminalSteadyViewport(top: 400, epoch: 7))
+        #expect(match.knownTop(steady: steady, epoch: 7) == 400)
+        // The surface moved its viewport (a request, a resize, a font change).
+        #expect(match.knownTop(steady: steady, epoch: 8) == nil)
+        // A report or a request for another viewport.
+        var moved = match
+        moved.reportedTop = 380
+        #expect(moved.knownTop(steady: steady, epoch: 7) == nil)
+        moved = match
+        moved.requestedTop = 420
+        #expect(moved.knownTop(steady: steady, epoch: 7) == nil)
+    }
+
+    /// Following (the viewport in the active area), Ghostty moves the
+    /// viewport with the output and stale frames arrive (D7): always read.
+    @Test func followingAlwaysReadsThePixels() {
+        let match = TerminalPresentMatch(presentedTop: 900, reportedTop: 900, requestedTop: 900, recentRequests: [],
+                                         activeTop: 900)
+        let result = match.match(previous: rows(top: 900), current: rows(top: 900))
+        #expect(match.confirmed(result, epoch: 1) == nil)
+        #expect(match.knownTop(steady: TerminalSteadyViewport(top: 900, epoch: 1), epoch: 1) == nil)
+    }
+
+    /// A frame placed by the fallback (no candidate matched) confirms nothing.
+    @Test func aFallbackPlacementConfirmsNothing() {
+        let match = TerminalPresentMatch(presentedTop: 400, reportedTop: 400, requestedTop: 400, recentRequests: [],
+                                         activeTop: 900)
+        let unrelated = (0..<120).map { UInt64(77_000 + $0 * 13) }
+        let result = match.match(previous: rows(top: 400), current: unrelated)
+        #expect(!result.matched)
+        #expect(result.top == 400)
+        #expect(match.confirmed(result, epoch: 1) == nil)
     }
 }

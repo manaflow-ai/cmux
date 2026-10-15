@@ -104,7 +104,9 @@ class Sim:
     # ---- touches ---------------------------------------------------------
     def tap(self, x, y):
         t = time.time()
-        sh("axe", "tap", "--udid", self.udid, "-x", f"{x:.1f}", "-y", f"{y:.1f}", timeout=25)
+        # --tap-style simulator: the default (automatic) asks accessibility what is
+        # under the point first, and that query hung for minutes on the rig (round 6).
+        sh("axe", "tap", "--udid", self.udid, "-x", f"{x:.1f}", "-y", f"{y:.1f}", "--tap-style", "simulator", timeout=25)
         return t
 
     def press(self, x, y, hold=0.08):

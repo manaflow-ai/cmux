@@ -110,7 +110,7 @@ public final class TerminalFeed {
         }
         self.tree = tree
         var resumed: Set<Int> = []
-        for workspace in tree.workspaces {
+        for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs where tab.kind == .terminal {
                 guard let surface = tree.surfaces[tab.id] else { continue }
                 if let harness = tab.harness { harnesses[surface] = harness }
@@ -296,7 +296,8 @@ public final class TerminalFeed {
 
     static func places(_ tree: DaemonTree) -> [Int: Place] {
         var places: [Int: Place] = [:]
-        for workspace in tree.workspaces {
+        // The Mac's home workspace too: an agent there still reaches the Feed.
+        for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs {
                 if let surface = tree.surfaces[tab.id] { places[surface] = Place(workspace: workspace, tab: tab) }
             }

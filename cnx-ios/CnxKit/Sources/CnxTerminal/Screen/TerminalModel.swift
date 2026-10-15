@@ -114,8 +114,10 @@ public final class TerminalModel {
     /// the next cold launch.
     func liveOutputDrawn() {
         if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
+        lastDrawnOutput = CACurrentMediaTime()
         saveFrameSoon()
     }
+    @ObservationIgnored private var lastDrawnOutput: CFTimeInterval = 0
 
     /// Saves the page's frame (for the next cold launch) at most every few seconds.
     public var frameSaver: (@MainActor (UIImage) -> Void)?
@@ -129,10 +131,17 @@ public final class TerminalModel {
 
     func saveFrameSoon() {
         guard frameSaver != nil, !frameSavePending else { return }
-        let wait = max(0, 3 - (CACurrentMediaTime() - lastFrameSave))
+        let wait = TerminalFrameSaveSchedule.delay(sinceLastSave: lastFrameSave == 0 ? .infinity : CACurrentMediaTime() - lastFrameSave)
         frameSavePending = true
+        let requested = CACurrentMediaTime()
         Task { @MainActor [weak self] in
-            if wait > 0 { try? await ContinuousClock().sleep(for: .seconds(wait)) }
+            try? await ContinuousClock().sleep(for: .seconds(wait))
+            // Not while output streams (a 370 ms main-thread render): after
+            // it pauses, or at most `maxWait` after the save was wanted.
+            while let self, let more = TerminalFrameSaveSchedule.remainingWait(
+                sinceLastOutput: CACurrentMediaTime() - self.lastDrawnOutput, sinceRequested: CACurrentMediaTime() - requested) {
+                try? await ContinuousClock().sleep(for: .seconds(more))
+            }
             guard let self else { return }
             frameSavePending = false
             lastFrameSave = CACurrentMediaTime()
@@ -243,7 +252,14 @@ public final class TerminalModel {
 
     /// Refreshes `snapshot` from the live page (the grid is about to show it).
     public func captureSnapshot() {
-        if let image = controller?.snapshot() { snapshot = image }
+        if let image = controller?.snapshot() {
+            snapshot = image
+            #if DEBUG
+            if CommandLine.arguments.contains("-CnxDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? image.pngData()?.write(to: dir.appendingPathComponent("card-snapshot.png"))
+            }
+            #endif
+        }
     }
 
     public func focusComposer() {

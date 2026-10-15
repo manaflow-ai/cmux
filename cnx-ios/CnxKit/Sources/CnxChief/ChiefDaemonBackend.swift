@@ -359,7 +359,12 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
                 objects = page["messages"] as? [[String: Any]] ?? []
             } else {
                 let snapshot = try await call("conversation-snapshot", ["conversation": id, "tail": min(500, max(1, limit))])
-                if let summary = snapshot["conversation"] as? [String: Any] { absorb(summary) }
+                // Not the event cursor: this page goes to whoever asked (a
+                // resync, a test, not always the store) and covers only its
+                // tail, so an event the snapshot already counted must still
+                // be applied when it lands. Only `connect` moves `rev` off a
+                // snapshot, and its `.connected` makes the store refetch.
+                if let summary = snapshot["conversation"] as? [String: Any] { absorb(summary, movingRev: false) }
                 objects = snapshot["messages"] as? [[String: Any]] ?? []
             }
             var messages: [ConversationMessage] = []
@@ -402,8 +407,11 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             yieldReadState(lastRead: preferences.sendsReadReceipts(id) ? server : max(server, lastReadHere ?? 0))
         }
 
-        private func absorb(_ summary: [String: Any]) {
-            rev = max(rev, (summary["rev"] as? NSNumber)?.uint64Value ?? 0)
+        /// Takes a conversation summary's counters. `movingRev` advances the
+        /// live-event cursor too, so events up to that `rev` are dropped as
+        /// already seen: right only when the store refetches from it.
+        private func absorb(_ summary: [String: Any], movingRev: Bool = true) {
+            if movingRev { rev = max(rev, (summary["rev"] as? NSNumber)?.uint64Value ?? 0) }
             lastSeq = max(lastSeq, (summary["last_seq"] as? NSNumber)?.intValue ?? 0)
             peerReadSeq = max(peerReadSeq, wire.readCursor(summary, of: identity.chiefID))
         }

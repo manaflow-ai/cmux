@@ -1,5 +1,6 @@
 #if os(iOS)
 import CnxDesign
+import GhosttyNextKit
 import SwiftUI
 import UIKit
 import OSLog
@@ -90,6 +91,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The session's document: absolute rows from the first row with text
     /// (never the blank rows above the Mac's screen) to the cursor's row.
     private var document: TerminalDocumentLayout?
+    /// Text selection over the rows (G-14).
+    let selection = TerminalSelectionController()
     private var documentRows: Int { document?.rowCount ?? 0 }
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
@@ -98,8 +101,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var presentedTop = 0
     private var documentTotal = 0
     private var outputSinceProbe = false
-    /// Row signatures of the frame on screen.
+    /// Row signatures of the frame on screen (the last one read).
     private var presentedRows: [UInt64]?
+    /// The scrollback viewport a read frame confirmed: frames after it are
+    /// placed without a pixel read until something moves the viewport.
+    private var steadyViewport: TerminalSteadyViewport?
+    /// Presents placed with and without a pixel read (the frame log reports them).
+    private(set) var presentReads = 0
+    private(set) var presentSkips = 0
     #if DEBUG
     var presentLog: [String] = []
     private var presentDebug = ""
@@ -114,6 +123,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// have no earlier primary-screen frame to be matched against, and the
     /// first report after the switch can still describe the alternate screen.
     private var placesFromReport = false
+    /// V5-1 rule switch for A/B on the rig (`-CnxNoJumpAwait` turns it off).
+    private static let jumpAwaitsFrame = !CommandLine.arguments.contains("-CnxNoJumpAwait")
     private var refreshAfterTUI = false
     private(set) var started = false
     private var fling: FlingAnimator?
@@ -152,6 +163,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .interacting: return "interacting"
             }
         }
+        log.blankProvider = { [weak self] in self?.blankWatch.uncoveredSince != nil }
         return log
     }()
 
@@ -462,6 +474,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         scrollView.addGestureRecognizer(tap)
         let tuiTap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         tuiClip.addGestureRecognizer(tuiTap)
+        installSelection()
 
         surface.configurePasteControlTarget()
         surface.onInput = { [weak self] data in self?.model.session.send(data) }
@@ -503,6 +516,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         frameLog.start()
         #endif
+        startBlankWatch()
         // Back on screen (a tab switch, the grid): output that arrived while
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
@@ -544,6 +558,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             updateViewport(visibleMinY: scrollView.contentOffset.y)
             return
         }
+        // A move whose rows the frame on screen does not show (Jump to
+        // bottom from deep history, a restore) waits for the frame that
+        // does; moved at once, the page was black for a frame (V5-1).
+        // Only a jump: none of the target's rows are in the frame on screen
+        // (following output moves a row or a few and keeps its own rule).
+        if Self.jumpAwaitsFrame, !forceScroll, !fromOutput, freezeView == nil, let document, surfaceRows > 0, abs(scrollView.contentOffset.y - target) > 0.5,
+           TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows)
+               .isDisjoint(visibleTop: min(document.endRow - 1, originRow + Int(floor(max(0, target) / cell.height))),
+                           visibleBottom: min(document.endRow, originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height)))) {
+            followAwaitsPresent = true
+            armFollowFallback(ticks: 6)
+            updateViewport(visibleMinY: target)
+            return
+        }
+        forceScroll = false
         followAwaitsPresent = false
         if abs(scrollView.contentOffset.y - target) > 0.5 {
             settingOffset = true
@@ -637,6 +666,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     /// How much taller the composer card is now than at rest.
+    /// The composer card's SwiftUI height changed (V6-1): the hosting view's
+    /// size is measured again, and the page's insets follow in this pass.
+    func composerCardHeightChanged(_ height: CGFloat) {
+        guard let host = composerHost else { return }
+        host.view.invalidateIntrinsicContentSize()
+        host.view.setNeedsLayout()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        applyScroll()
+    }
+
     private var composerGrowth: CGFloat {
         max(0, composerHost.view.bounds.height - restingComposerHeight)
     }
@@ -660,8 +700,36 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The frame kept for a cold launch has no cursor block: it is not
         // where typing goes until the live screen is back (R3-4).
         let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
+        let presented = surface.presentedImage(clip: view.convert(view.bounds, to: surface))
         return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { context in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+            if let presented {
+                // The page's layers in order, with the terminal surface drawn
+                // from the frame Ghostty presented: the render server's copy
+                // of a live Metal surface came out black on the rig (V5-6).
+                CnxGhosttyApp.background.setFill()
+                context.fill(view.bounds)
+                for sub in view.subviews where !sub.isHidden && sub.alpha > 0.01 {
+                    if surface.isDescendant(of: sub) {
+                        let clip = sub.convert(sub.bounds, to: view)
+                        let frame = surface.convert(presented.frame, to: view)
+                        context.cgContext.saveGState()
+                        context.cgContext.clip(to: clip.intersection(view.bounds))
+                        UIImage(cgImage: presented.image).draw(in: frame)
+                        context.cgContext.restoreGState()
+                    } else {
+                        // `layer.render`, not `drawHierarchy`: the render
+                        // server's copy is opaque black while the grid
+                        // covers the page, and a full-page overlay (the
+                        // joystick thumb's host) then blacked out everything.
+                        context.cgContext.saveGState()
+                        context.cgContext.translateBy(x: sub.frame.minX, y: sub.frame.minY)
+                        sub.layer.render(in: context.cgContext)
+                        context.cgContext.restoreGState()
+                    }
+                }
+            } else {
+                view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+            }
             if let cursor {
                 CnxGhosttyApp.background.setFill()
                 context.fill(cursor.insetBy(dx: -0.5, dy: -0.5))
@@ -696,6 +764,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         frameLog.stop()
         #endif
+        stopBlankWatch()
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
     }
 
@@ -723,6 +792,31 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     #if DEBUG
+    /// DEBUG (termqa round 8): what each Ghostty point tag reads for a few rows.
+    var debugRowProbe: String {
+        func short(_ text: String?) -> String {
+            guard let text else { return "nil" }
+            let line = text.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
+            return "\"" + String(line.prefix(24)) + "\""
+        }
+        let rows = surface.grid.rows
+        let total = scrollbar.total
+        var parts = ["sb=\(total)/\(scrollbar.offset)/\(scrollbar.visible) grid.rows=\(rows) pinned=\(viewportTop) doc=\(originRow)+\(documentRows)"]
+        for y in [0, 1, rows - 1, rows, rows + 1, total - rows, total - 1] where y >= 0 {
+            parts.append("screen[\(y)]=" + short(surface.debugReadRow(tag: GHOSTTY_POINT_SCREEN, y: y)))
+        }
+        for y in [0, 1, rows - 1] { parts.append("viewport[\(y)]=" + short(surface.debugReadRow(tag: GHOSTTY_POINT_VIEWPORT, y: y))) }
+        for y in [0, 1, rows - 1] { parts.append("active[\(y)]=" + short(surface.debugReadRow(tag: GHOSTTY_POINT_ACTIVE, y: y))) }
+        for y in [0, rows - 1] { parts.append("history[\(y)]=" + short(surface.debugReadRow(tag: GHOSTTY_POINT_SURFACE, y: y))) }
+        if let rect = surface.debugScreenRectangle() {
+            let lines = rect.split(separator: "\n", omittingEmptySubsequences: false)
+            parts.append("rect.lines=\(lines.count) rect[0]=\(short(lines.first.map(String.init))) rect[last]=\(short(lines.last.map(String.init)))")
+            if total > 0, total - 1 < lines.count { parts.append("rect[total-1]=" + short(String(lines[total - 1]))) }
+        }
+        if let full = surface.screenText() { parts.append("screenText.lines=\(full.split(separator: "\n", omittingEmptySubsequences: false).count)") }
+        return parts.joined(separator: " | ")
+    }
+
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
@@ -846,6 +940,40 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         outputLink = nil
     }
 
+    /// Ghostty pruned `rows` of its oldest rows (`TerminalHistoryPrune`):
+    /// everything held in absolute rows moves up by them, and the offset with
+    /// the document, in this transaction, so the rows on screen stay put
+    /// (also mid-fling: UIKit's deceleration and the fling continue from the
+    /// moved offset).
+    private func historyPruned(_ rows: Int) {
+        sizingLog.notice("history pruned \(rows, privacy: .public) rows at the top (total \(self.scrollbar.total, privacy: .public)): rows held move up")
+        scroll.shiftRows(by: -rows)
+        presentedTop -= rows
+        viewportTop = max(0, viewportTop - rows)
+        recentTops = recentTops.map { max(0, $0 - rows) }
+        steadyViewport = nil
+        restoredMark = nil
+        guard let current = document, cell.height > 0 else { return }
+        let next = TerminalDocumentLayout(originRow: current.originRow - rows, endRow: current.endRow - rows)
+        let reference = max(current.originRow, presentedTop + rows)
+        let shiftY = next.contentY(ofRow: reference - rows, cellHeight: cell.height) - current.contentY(ofRow: reference, cellHeight: cell.height)
+        document = next
+        documentTotal = max(0, documentTotal - rows)
+        settingOffset = true
+        setContentHeight(next.contentHeight(cellHeight: cell.height))
+        if shiftY != 0 { scrollView.contentOffset.y += shiftY }
+        settingOffset = false
+        place(atRow: presentedTop)
+        selection.shiftRows(by: -rows)
+    }
+
+    /// Ghostty's rows in the scrollbar's numbering (`TerminalRowSpace`): the
+    /// last reported total and viewport top. Each read goes to Ghostty in a
+    /// numbering that addresses the row, or reads nil.
+    private var rowReader: TerminalRowReader {
+        surface.rowReader(totalRows: scrollbar.total, viewportTop: scrollbar.offset)
+    }
+
     /// The reader's rows kept over a mirror reset (V2-3).
     private var readingMark: TerminalReadingMark?
     /// The replay is parsed; the mark is placed at the next scrollbar report.
@@ -858,8 +986,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         readingMarkAwaitsReport = false
         guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
         let total = scrollbar.total
-        let surface = surface
-        guard let anchor = mark.locate(totalRows: total, rowText: { surface.rowText($0) }) else { return }
+        let reader = rowReader
+        guard let anchor = mark.locate(totalRows: total, rowText: { reader.text(TerminalAbsoluteRow($0)) }) else { return }
         sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
         restoredMark = (mark, anchor)
@@ -905,8 +1033,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // ones a misplaced restore put on screen.
             readingMark = restored.mark
         } else {
-            let surface = surface
-            readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { surface.rowText($0) }
+            let reader = rowReader
+            readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
         }
         restoredMark = nil
         sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
@@ -983,6 +1111,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func scrollbarReported(total: Int, offset: Int, visible: Int) {
+        if !model.isTUI, !replayGate.isReplaying,
+           let pruned = TerminalHistoryPrune.prunedRows(previousTotal: scrollbar.total, previousOffset: scrollbar.offset,
+                                                         total: total, offset: offset, requestedTop: viewportTop,
+                                                         rows: max(1, surfaceRows)) {
+            historyPruned(pruned)
+        }
         scrollbar = (total, offset, visible)
         let restoring = readingMarkAwaitsReport
         if restoring { restoreReadingMark() }
@@ -1048,7 +1182,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// once it has any text.
     private func replayHasContent() -> Bool {
         let rows = model.isTUI ? max(1, tuiRows) : max(1, surface.grid.rows)
-        guard let text = surface.screenRowsText(through: rows - 1) else { return true }
+        guard let text = surface.activeAreaText() else { return true }
         return TerminalHeldFrame().shouldRelease(isAlternate: model.isTUI,
                                                  nonBlankRows: TerminalHeldFrame.nonBlankRows(in: text, limit: rows),
                                                  rows: rows, elapsed: CACurrentMediaTime() - freezeStarted)
@@ -1166,7 +1300,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             measureAfterGesture = true
             if next != current {
                 document = next
-                scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+                setContentHeight(next.contentHeight(cellHeight: cell.height))
             }
             return
         }
@@ -1195,12 +1329,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // being redrawn and resized: read the top again on every update,
             // so earlier output is never left above an origin read too early (R2-1).
             let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
-            blank = surface.leadingBlankRows(through: max(0, last)) ?? blank
+            blank = rowReader.leadingBlankRows(through: TerminalAbsoluteRow(max(0, last))) ?? blank
         }
         // Rows an inline TUI draws below the cursor (Codex CLI's hints).
         var lastContent: Int?
         if let cursor, cursor + 1 <= scrollbar.total - 1 {
-            lastContent = surface.lastNonBlankRow(from: cursor + 1, through: scrollbar.total - 1)
+            lastContent = rowReader.lastNonBlankRow(from: TerminalAbsoluteRow(cursor + 1), through: TerminalAbsoluteRow(scrollbar.total - 1))?.index
         }
         let measured = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
                                                    lastContentRow: lastContent)
@@ -1212,11 +1346,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil
         document = next
-        scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+        setContentHeight(next.contentHeight(cellHeight: cell.height))
         if hadDocument, shift != 0 {
             // The top moved (cleared, or found): the frame on screen goes
             // where its rows now belong.
             place(atRow: presentedTop)
+            selection.redraw()
         }
         // The scroll model places the rows: the bottom when following, the
         // anchored rows when reading, nothing while a finger owns the page.
@@ -1249,7 +1384,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// both sides, once the visible rows come within half a margin of the
     /// requested viewport's edges. The surface itself moves only when a frame
     /// for the new viewport is presented (`surfacePresented`).
-    private func updateViewport(visibleMinY: CGFloat) {
+    private func updateViewport(visibleMinY: CGFloat, force: Bool = false) {
         guard !model.isTUI, cell.height > 0, surfaceRows > 0 else { return }
         let maxTop = max(0, scrollbar.total - surfaceRows)
         let visibleTop = originRow + Int(floor(max(0, visibleMinY) / cell.height))
@@ -1262,9 +1397,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             || (visibleTop < current + margin / 2 && current > 0)
             || (visibleBottom > current + surfaceRows - margin / 2 && current < maxTop)
             || current > maxTop
-        guard needsNew else { return }
+        guard needsNew || force else { return }
         let top = min(max(0, visibleTop - margin), maxTop)
-        guard top != current else { return }
+        guard top != current || force else { return }
         // Ghostty reports a viewport other than the one last asked for (a
         // cursor probe or a reset moved it): ask again rather than wait for a
         // report that will not come, which left the visible rows blank.
@@ -1301,11 +1436,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         presentDebug = ""
         #endif
-        if let rows = surface.presentedRowSignatures(rowHeight: rowPixels) {
+        let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
+                                         recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
+        let epoch = surface.viewportEpoch
+        if !placesFromReport, let known = match.knownTop(steady: steadyViewport, epoch: epoch) {
+            // Reading scrollback while output streams: the viewport has not
+            // moved since a read frame confirmed it, so no pixel read.
+            top = known
+            presentSkips += 1
+            #if DEBUG
+            presentDebug = " steady"
+            #endif
+        } else if let rows = measured("present-read", { surface.presentedRowSignatures(rowHeight: rowPixels, band: presentReadBand) }) {
+            steadyViewport = nil
             if let previous = presentedRows {
-                let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
-                                                 recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
-                top = match.top(previous: previous, current: rows)
+                let result = match.match(previous: previous, current: rows)
+                top = result.top
+                steadyViewport = placesFromReport ? nil : match.confirmed(result, epoch: epoch)
                 #if DEBUG
                 if CommandLine.arguments.contains("-CnxPresentLog") {
                     presentDebug = match.candidateShifts.map { String(format: " %d:%.2f", $0, TerminalPresentMatch.score(previous, rows, shift: $0)) }.joined()
@@ -1313,6 +1460,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 #endif
             }
             presentedRows = rows
+            presentReads += 1
         }
         #if DEBUG
         if CommandLine.arguments.contains("-CnxPresentLog") {
@@ -1323,25 +1471,110 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if followAwaitsPresent { applyScroll() }
     }
 
+    /// While following, a present reads only the rows on screen and 16 rows
+    /// on each side (round 7: the full 151-row read cost p99 3.36 ms a
+    /// frame). Every other phase reads the whole frame. `-CnxFullPresentRead`
+    /// for A/B.
+    private var presentReadBand: Range<Int>? {
+        guard following, !scroll.isInteracting, cell.height > 0, surfaceRows > 0,
+              !Self.fullPresentRead else { return nil }
+        let visibleTop = scrollView.contentOffset.y - surface.frame.minY
+        let first = Int(floor(visibleTop / cell.height))
+        let last = Int(ceil((visibleTop + scrollView.bounds.height) / cell.height))
+        return TerminalPresentMatch.readBand(visible: first..<max(first, last), rowCount: surfaceRows, margin: 16)
+    }
+    private static let fullPresentRead = CommandLine.arguments.contains("-CnxFullPresentRead")
+
     /// Following output waits for the frame that shows it; if none comes
     /// within two display frames (nothing visible changed), it moves anyway.
     private var followAwaitsPresent = false
     private var followFallback: CADisplayLink?
     private var followFallbackTicks = 0
+    private var followFallbackLimit = 2
+    /// The fallback moves the page even if no frame covers it yet.
+    private var forceScroll = false
 
-    private func armFollowFallback() {
+    private func armFollowFallback(ticks: Int = 2) {
+        followFallbackLimit = max(ticks, followFallback == nil ? 0 : followFallbackLimit)
         guard followFallback == nil else { return }
         followFallbackTicks = 0
         let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
             guard let self else { return }
             self.followFallbackTicks += 1
-            guard self.followFallbackTicks >= 2 || !self.followAwaitsPresent else { return }
+            guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
             self.followFallback?.invalidate()
             self.followFallback = nil
-            if self.followAwaitsPresent { self.applyScroll() }
+            if self.followAwaitsPresent {
+                self.forceScroll = true
+                self.applyScroll()
+                self.forceScroll = false
+            }
         }, selector: #selector(DisplayLinkProxy.step))
         link.add(to: .main, forMode: .common)
         followFallback = link
+    }
+
+    // MARK: Blank page watch (V6-2, V6-3, V6-4)
+
+    private var blankWatch = TerminalBlankWatch()
+    private var blankToken: FrameClock.Token?
+
+    private func startBlankWatch() {
+        guard blankToken == nil else { return }
+        blankToken = FrameClock.shared.subscribe { [weak self] tick in self?.checkBlankPage(now: tick.timestamp) }
+    }
+
+    private func stopBlankWatch() {
+        if let blankToken { FrameClock.shared.unsubscribe(blankToken) }
+        blankToken = nil
+        blankWatch = TerminalBlankWatch()
+    }
+
+    /// The visible rows (absolute) for the page's offset.
+    private var visibleRowRange: Range<Int> {
+        let minY = max(0, scrollView.contentOffset.y)
+        let top = originRow + Int(floor(minY / cell.height))
+        let bottom = originRow + Int(ceil((minY + scrollView.bounds.height) / cell.height))
+        return top..<max(top, bottom)
+    }
+
+    /// Every display frame: does the frame on screen cover the rows the page
+    /// shows? A held frame (`freezeView`) covers the page by itself.
+    private func checkBlankPage(now: CFTimeInterval) {
+        guard !model.isTUI, cell.height > 0, surfaceRows > 0, let document, surface.surface != nil,
+              view.window != nil, freezeView == nil else {
+            _ = blankWatch.observe(covered: true, now: now)
+            return
+        }
+        let visible = visibleRowRange
+        let covered = TerminalBlankWatch.covers(presentedTop: presentedTop, surfaceRows: surfaceRows, visibleTop: visible.lowerBound,
+                                                visibleBottom: visible.upperBound, documentRows: document.originRow..<document.endRow)
+        guard blankWatch.observe(covered: covered, now: now) else { return }
+        recoverBlankPage(visible: visible)
+    }
+
+    /// The page has shown uncovered rows past the deadline: nothing it waits
+    /// for is coming (a frame placed in a stale numbering, a request whose
+    /// frame never arrived). Place the frame by Ghostty's report when that
+    /// covers the rows, forget the frame used for matching (the next one is
+    /// placed by the report), and ask Ghostty for a viewport and a frame.
+    private func recoverBlankPage(visible: Range<Int>) {
+        let reportCovers = TerminalBlankWatch.covers(presentedTop: scrollbar.offset, surfaceRows: surfaceRows, visibleTop: visible.lowerBound,
+                                                     visibleBottom: visible.upperBound, documentRows: originRow..<(document?.endRow ?? Int.max))
+        sizingLog.notice("blank page: rows \(visible.lowerBound, privacy: .public)..<\(visible.upperBound, privacy: .public) not in the frame at \(self.presentedTop, privacy: .public) (report \(self.scrollbar.offset, privacy: .public), request \(self.viewportTop, privacy: .public)) for \(Int((self.blankWatch.uncoveredSince.map { CACurrentMediaTime() - $0 } ?? 0) * 1000), privacy: .public) ms: \(reportCovers ? "placed by the report" : "asked again", privacy: .public) (event \(self.blankWatch.events, privacy: .public))")
+        steadyViewport = nil
+        presentedRows = nil
+        if reportCovers {
+            place(atRow: scrollbar.offset)
+        } else {
+            updateViewport(visibleMinY: scrollView.contentOffset.y, force: true)
+        }
+        if followAwaitsPresent {
+            forceScroll = true
+            applyScroll()
+            forceScroll = false
+        }
+        surface.setNeedsTerminalDraw()
     }
 
     private func place(atRow top: Int) {
@@ -1355,6 +1588,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private func applyMode(tui: Bool) {
         presentedRows = nil
+        steadyViewport = nil
         // Moving the surface to another superview resigns first responder:
         // typing into vim, then `:q`, used to drop the keyboard's input on the
         // floor (the composer still said "Typing into terminal").
@@ -1398,6 +1632,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     // MARK: Scrolling
 
+    /// The document's height changed under the page (output, a prune, a
+    /// clear). While a shorter height clamps the offset, the scroll that
+    /// UIKit reports is the content moving, not the finger or a fling: it
+    /// never counts as a fling reaching the bottom (V5-2).
+    private var contentShrinking = false
+    private var lastDidScrollY: CGFloat = 0
+
+    private func setContentHeight(_ height: CGFloat) {
+        let shrinking = height < scrollView.contentSize.height
+        if shrinking { contentShrinking = true }
+        scrollView.contentSize = CGSize(width: view.bounds.width, height: height)
+        if shrinking { contentShrinking = false }
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         measured("did-scroll") { didScroll(scrollView) }
     }
@@ -1432,7 +1680,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
         // end and leave the page short of it.
-        if !settingOffset, scroll.isInteracting, !scrollView.isTracking, scrollView.isDecelerating,
+        // Only a fling moving toward newer rows reaches the bottom; a prune
+        // shrinking the document under it does not (V5-2: logged in the same
+        // millisecond as a prune, a fling up from the live bottom snapped
+        // back to following).
+        let movingDown = scrollView.contentOffset.y > lastDidScrollY + 0.01
+        lastDidScrollY = scrollView.contentOffset.y
+        if !settingOffset, !contentShrinking, movingDown, scroll.isInteracting, !scrollView.isTracking, scrollView.isDecelerating,
            scrollView.contentOffset.y >= maxOffsetY - 0.5 {
             settingOffset = true
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
@@ -1567,7 +1821,106 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Keyboard
 
     @objc private func terminalTapped() {
+        // A tap outside the menu ends a selection, like iOS text.
+        if selection.selection != nil {
+            selection.clear()
+            return
+        }
         focusTerminal()
+    }
+
+    private func installSelection() {
+        selection.isEnabled = { [weak self] in
+            guard let self else { return false }
+            return !self.model.isTUI && self.document != nil && self.cell.height > 0
+        }
+        selection.columns = { [weak self] in max(1, self?.surface.grid.columns ?? 1) }
+        selection.documentRows = { [weak self] in
+            guard let document = self?.document else { return 0..<0 }
+            return document.originRow..<document.endRow
+        }
+        selection.cellAt = { [weak self] point in
+            guard let self, let document, cell.height > 0, cell.width > 0 else { return nil }
+            let padding = surface.gridPadding
+            // Within the document and the rows the surface holds (a handle
+            // stops at the edge of the rendered rows).
+            let top = max(document.originRow, scrollbar.offset)
+            let bottom = min(document.endRow, scrollbar.offset + surface.grid.rows) - 1
+            guard bottom >= top else { return nil }
+            let row = min(max(top, document.row(atContentY: point.y - padding.y, cellHeight: cell.height)), bottom)
+            let column = Int(floor((point.x - Self.sidePadding - padding.x) / cell.width))
+            return TerminalCellPoint(row: row, column: min(max(0, column), max(0, surface.grid.columns - 1)))
+        }
+        selection.rectFor = { [weak self] point in
+            guard let self, let document else { return .zero }
+            let padding = surface.gridPadding
+            return CGRect(x: Self.sidePadding + padding.x + CGFloat(point.column) * cell.width,
+                          y: document.contentY(ofRow: point.row, cellHeight: cell.height) + padding.y,
+                          width: cell.width, height: cell.height)
+        }
+        // Rows go to Ghostty as viewport rows (absolute row - the viewport's
+        // top): the rows the surface holds, the visible ones and the margins.
+        selection.rowText = { [weak self] row in
+            guard let self else { return nil }
+            return rowReader.text(TerminalAbsoluteRow(row))
+        }
+        selection.text = { [weak self] start, end in
+            guard let self, let document else { return nil }
+            let columns = max(1, surface.grid.columns)
+            // Select All: the whole screen, scrollback included.
+            if start == TerminalCellPoint(row: document.originRow, column: 0),
+               end == TerminalCellPoint(row: document.endRow - 1, column: columns - 1) {
+                return surface.screenText()
+            }
+            let top = scrollbar.offset, last = surface.grid.rows - 1
+            // Rows outside the ones the surface holds (a selection the edge
+            // autoscroll carried across the scrollback): Ghostty clamps an
+            // exact point to its grid, so read the whole screen once (G-14).
+            if start.row < top || end.row > top + last {
+                return surface.screenRows()?.text(from: start, to: end)
+            }
+            let from = TerminalCellPoint(row: min(max(0, start.row - top), last), column: start.row < top ? 0 : start.column)
+            let to = TerminalCellPoint(row: min(max(0, end.row - top), last), column: end.row - top > last ? columns - 1 : end.column)
+            return surface.viewportText(from: from, to: to)
+        }
+        selection.visibleBand = { [weak self] in
+            guard let self else { return 0...0 }
+            let top = scrollView.adjustedContentInset.top
+            return top...max(top, scrollView.bounds.height - scrollView.adjustedContentInset.bottom)
+        }
+        selection.offsetRange = { [weak self] in
+            guard let self else { return 0...0 }
+            let lower = -scrollView.contentInset.top
+            return lower...max(lower, maxOffsetY)
+        }
+        // The page reads while the selection scrolls it, like a finger drag.
+        selection.autoscrollBegan = { [weak self] in
+            guard let self else { return }
+            fling?.stop()
+            fling = nil
+            placesFromReport = false
+            restoredMark = nil
+            scroll.began()
+        }
+        selection.autoscrollEnded = { [weak self] in self?.settleScroll() }
+        selection.install(in: scrollView)
+        if let press = selection.longPress {
+            press.addTarget(self, action: #selector(selectionPressChanged(_:)))
+        }
+    }
+
+    /// While a long press selects, the page does not scroll under the finger.
+    @objc private func selectionPressChanged(_ press: UILongPressGestureRecognizer) {
+        switch press.state {
+        case .began:
+            scrollView.panGestureRecognizer.isEnabled = false
+            scrollView.panGestureRecognizer.isEnabled = true
+            scrollView.isScrollEnabled = false
+        case .ended, .cancelled, .failed:
+            scrollView.isScrollEnabled = true
+        default:
+            break
+        }
     }
 
     func focusTerminal() {

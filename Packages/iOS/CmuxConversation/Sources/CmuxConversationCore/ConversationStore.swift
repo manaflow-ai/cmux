@@ -158,7 +158,7 @@ public final class ConversationStore {
     let makeClientMessageID: @Sendable () -> String
 
     private var lastEventSeq = 0
-    var indexByID: [String: Int] = [:]
+    var indexByID: ConversationMessagePositions = [:]
     private var eventTask: Task<Void, Never>?
     private var olderTask: Task<Void, Never>?
     private var newestTask: Task<Void, Never>?
@@ -637,16 +637,64 @@ public final class ConversationStore {
 
     private func applyOlder(_ page: ConversationHistoryPage, expectedOldest: Int) {
         olderWanted = false
-        var inserted = false
+        var olderMessages: [ConversationMessage] = []
         for message in page.messages where indexByID[message.id] == nil && !deletedMessageIDs.contains(message.id) {
             guard let seq = message.seq, seq < expectedOldest else { continue }
-            messages.append(message)
-            inserted = true
+            olderMessages.append(message)
         }
-        if inserted { sortAndReindex() }
+        if !olderMessages.isEmpty { prependOlder(olderMessages) }
         older = page.hasMore ? .idle : .exhausted
         notify(.prepended)
         refreshReadState()
+    }
+
+    /// Puts an older page's messages in place. When every one of them goes
+    /// in front of the loaded window in the order `sortAndReindex` gives (the
+    /// window keeps that order), only the page is sorted and indexed and the
+    /// loaded positions move as one: a page landing costs its own size, not
+    /// the window's, however long the reader has scrolled. Otherwise the
+    /// window sorts in full, as before.
+    private func prependOlder(_ page: [ConversationMessage]) {
+        let sorted = page.sorted { $0.seq! < $1.seq! }
+        guard olderPageGoesInFront(sorted) else {
+            messages.append(contentsOf: page)
+            sortAndReindex()
+            return
+        }
+        messages.insert(contentsOf: sorted, at: 0)
+        indexByID.shift(by: sorted.count)
+        for (index, message) in sorted.enumerated() { indexByID[message.id] = index }
+    }
+
+    /// Whether `sortAndReindex` would put `page` (acknowledged, sorted by
+    /// seq) in front of every loaded message: all of it is older than the
+    /// oldest acknowledged message, and no failed send would move into it
+    /// (one stays after the newest message stored when it failed, or after
+    /// the messages sent before it).
+    private func olderPageGoesInFront(_ page: [ConversationMessage]) -> Bool {
+        guard let newest = page.last?.seq, let oldest = messages.first(where: { $0.seq != nil })?.seq, newest < oldest else { return false }
+        let newestSentAt = page.lazy.map(\.sentAt).max() ?? .distantPast
+        for index in messages.indices where messages[index].seq == nil {
+            guard !messages[index].isScheduled, messages[index].delivery?.isFailed == true else { continue }
+            if let anchor = failedAnchorSeq[messages[index].id] {
+                if newest > anchor { return false }
+            } else if newestSentAt > messages[index].sentAt {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Indices of the messages from `start` on that reply to one of `ids`
+    /// (a reply below an older page whose quoted message just arrived).
+    public func messageIndices(from start: Int, replyingTo ids: Set<String>) -> [Int] {
+        guard !ids.isEmpty, start < messages.count else { return [] }
+        var found: [Int] = []
+        for index in max(0, start)..<messages.count {
+            guard let target = messages[index].replyToID, ids.contains(target) else { continue }
+            found.append(index)
+        }
+        return found
     }
 
     // MARK: Window bound
@@ -1662,5 +1710,33 @@ extension ConversationStore {
     private func rederivePoll(messageID: String) {
         guard let index = indexByID[messageID], let server = polls.server[messageID] else { return }
         messages[index].poll = overlaid(server, messageID: messageID)
+    }
+}
+
+/// Where each message sits in `ConversationStore.messages`, by id. An older
+/// page goes in front of the loaded window, so every loaded position moves
+/// by the page's size: `shift(by:)` moves them all at once instead of
+/// rewriting each one.
+struct ConversationMessagePositions: ExpressibleByDictionaryLiteral {
+    private var stored: [String: Int] = [:]
+    private var base = 0
+
+    init(dictionaryLiteral elements: (String, Int)...) {
+        for (id, position) in elements { stored[id] = position }
+    }
+
+    subscript(id: String) -> Int? {
+        get { stored[id].map { $0 + base } }
+        set { stored[id] = newValue.map { $0 - base } }
+    }
+
+    mutating func removeAll(keepingCapacity: Bool) {
+        stored.removeAll(keepingCapacity: keepingCapacity)
+        base = 0
+    }
+
+    /// Every position moves `count` places down (a page went in front).
+    mutating func shift(by count: Int) {
+        base += count
     }
 }

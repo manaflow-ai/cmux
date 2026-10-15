@@ -41,3 +41,47 @@ import Testing
                                            screenText: nil) == .placeholder)
     }
 }
+
+/// VERIFY-round5 V5-6 / T-TABS-01: a grid card shows the top of the page
+/// (TabsKit lays a page-sized card out top-aligned in a 177 x 249.3 card),
+/// so the newest rows and the agent's prompt were cut off. The snapshot is
+/// placed so its bottom is the card's bottom edge.
+@Suite struct TerminalCardCropTests {
+    @Test func theCardShowsTheBottomOfThePage() {
+        let crop = TerminalCardCrop(width: 402, imageHeight: 874)
+        #expect(abs(crop.visibleHeight - 402 * 249.3 / 177) < 0.01)
+        // The image moves up by what the card cannot show.
+        #expect(abs(crop.imageTop - (crop.visibleHeight - 874)) < 0.01)
+        // A short image is not moved.
+        #expect(TerminalCardCrop(width: 402, imageHeight: 300).imageTop == 0)
+    }
+
+    /// V5-6 (round 7): the band under the composer is the page's toolbar
+    /// inset, blank in a snapshot; the card ends at the composer instead.
+    @Test func theCardEndsAtTheComposerNotTheToolbarBand() {
+        let crop = TerminalCardCrop(width: 402, imageHeight: 874, bottomTrim: 82)
+        #expect(abs(crop.imageTop - (crop.visibleHeight - (874 - 82))) < 0.01)
+        // Never past the image's top.
+        #expect(TerminalCardCrop(width: 402, imageHeight: 500, bottomTrim: 82).imageTop == 0)
+    }
+}
+
+/// D11: a kill without backgrounding relaunched to no saved frame. The save
+/// on output ran in the same turn as the first output batch, before Ghostty
+/// presented it, so a tab whose replay was its only output saved the frame
+/// from before the replay. Every save now waits for the frame (0.5 s) and
+/// saves at most every 3 s.
+@Suite struct TerminalFrameSaveScheduleTests {
+    /// Round 8: a 370 ms render every 3 s while output streamed.
+    @Test func noSaveWhileOutputStreamsUntilTheMaxWait() {
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.02, sinceRequested: 3) != nil)
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.6, sinceRequested: 3) == nil)
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.02, sinceRequested: 15) == nil)
+    }
+
+    @Test func theFirstSaveWaitsForTheFrameToBePresented() {
+        #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: .infinity) == 0.5)
+        #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: 10) == 0.5)
+        #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: 1) == 2)
+    }
+}

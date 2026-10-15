@@ -225,6 +225,17 @@ public final class MockTerminalSession: TerminalSession {
             let delay = parts.count > 2 ? Int(parts[2]) ?? 20 : 20
             let lines = (1...max(1, count)).map { String(format: "#%07d \u{1B}[3%dmstreamed row\u{1B}[0m %@", $0, 1 + $0 % 6, String(repeating: "x", count: $0 % 30)) }
             try await stream(lines, lineDelay: delay)
+        case "codex":
+            // An inline TUI like Codex CLI's fresh session (termqa D1): a short
+            // document whose cursor sits in an input box with rows below it.
+            // `codex N`: N rows of an earlier answer above the box.
+            let rule = String(repeating: "-", count: max(10, min(40, columns - 2)))
+            let earlier = (0..<(parts.count > 1 ? Int(parts[1]) ?? 0 : 0)).map { "• earlier answer row \($0 + 1)\r\n" }.joined()
+            write("\u{1B}[H\u{1B}[2J\u{1B}[3J" + earlier + "╭\(rule)╮\r\n│ >_ OpenAI Codex (mock)\r\n│ model: gpt-6 high   /model to change\r\n│ directory: ~/cmux-next\r\n╰\(rule)╯\r\n\r\n"
+                + "  To get started, describe a task or try one of these commands:\r\n\r\n  /init - create an AGENTS.md file\r\n  /status - show current session configuration\r\n\r\n"
+                + "› Ask Codex to do anything\r\n\r\n  ? for shortcuts                          100% context left")
+            write("\u{1B}[2A\r\u{1B}[2C")
+            return
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))

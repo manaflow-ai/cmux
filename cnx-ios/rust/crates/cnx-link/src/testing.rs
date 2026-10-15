@@ -12,6 +12,8 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 #[derive(Debug, Clone, Default)]
 pub struct FakeOptions {
@@ -134,12 +136,31 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
         let _ = sink.close().await;
     });
     let _ = out_tx.send(Message::Text(json!({"type":"hello","you":device,"macs":[]}).to_string().into()));
-    state
+    let replaced = state
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .devices
         .insert(device.clone(), Device { user: user.clone(), out: out_tx.clone() });
+    // One live socket per device, as in the backend (team-hub.ts): a
+    // reconnect closes the old socket with 4000 "replaced".
+    if let Some(old) = replaced {
+        let _ = old.out.send(Message::Close(Some(CloseFrame {
+            code: CloseCode::Library(4000),
+            reason: "replaced".into(),
+        })));
+    }
     while let Some(Ok(message)) = source.next().await {
+        // A replaced socket is closing: the backend ignores what it still
+        // sends (team-hub.ts `replaced`).
+        let current = state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .devices
+            .get(&device)
+            .is_some_and(|d| d.out.same_channel(&out_tx));
+        if !current {
+            continue;
+        }
         match message {
             Message::Text(text) => {
                 let Ok(mut value) = serde_json::from_str::<Value>(&text) else { continue };

@@ -30,6 +30,17 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
             }
         }
 
+        /// The step in script syntax, for its signpost interval. Written
+        /// out rather than `String(describing:)`, whose first use scans
+        /// protocol conformances on the main thread mid-scroll.
+        public var scriptText: String {
+            switch self {
+            case let .hold(seconds): return "hold:\(seconds)"
+            case let .drag(points, seconds): return "drag:\(Double(points)):\(seconds)"
+            case let .flick(velocity): return "flick:\(Double(velocity))"
+            }
+        }
+
         /// UIScrollView's normal deceleration, per millisecond.
         public static let decelerationRate: Double = 0.998
         /// A flick ends once it is slower than this (points per second).
@@ -112,5 +123,39 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
         }
         guard !steps.isEmpty else { return nil }
         self.steps = Array(repeating: steps, count: repeats).flatMap { $0 }
+    }
+}
+
+/// Moves the transcript for one scripted step, frame by frame. A finger and
+/// UIScrollView's deceleration move the content by a delta from wherever it
+/// is now, so an offset written between frames (an older page landing above
+/// restores the reader's anchor, shifting the offset by the page's height)
+/// carries on from there instead of being undone.
+public struct ConversationAutoScrollMotion: Equatable, Sendable {
+    /// The step's distance already applied to the content.
+    private var applied: CGFloat = 0
+
+    public init() {}
+
+    public struct Frame: Equatable, Sendable {
+        /// The content offset to show this frame.
+        public var offsetY: CGFloat
+        /// Whether the motion ran into `top` or `bottom` this frame.
+        public var reachedEdge: Bool
+
+        public init(offsetY: CGFloat, reachedEdge: Bool) {
+            self.offsetY = offsetY
+            self.reachedEdge = reachedEdge
+        }
+    }
+
+    /// The offset for this frame, `distance` points into the step (positive
+    /// into history): the transcript's `currentOffsetY` moved by the
+    /// distance not yet applied, kept within `top...bottom`.
+    public mutating func frame(distance: CGFloat, currentOffsetY: CGFloat, top: CGFloat, bottom: CGFloat) -> Frame {
+        let delta = distance - applied
+        applied = distance
+        let y = min(bottom, max(top, currentOffsetY - delta))
+        return Frame(offsetY: y, reachedEdge: delta != 0 && (y == top || y == bottom))
     }
 }
