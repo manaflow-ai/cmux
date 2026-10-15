@@ -1254,7 +1254,7 @@ struct BrowserPanelView: View {
                             reset: { _ = panel.resetZoomResult() }
                         )
                     }
-                    if activeToolbarMode != .design {
+                    if activeToolbarMode != .design, supportsDesignMode {
                         BrowserDesignModeToolbarButton(
                             controller: panel.designModeController,
                             iconPointSize: devToolsButtonIconSize,
@@ -1495,6 +1495,18 @@ struct BrowserPanelView: View {
         }
     }
 
+    /// Design Mode runs on WebKit only. A Chromium panel hides its button and
+    /// menu row instead of showing them dimmed (design spec §0.10).
+    private var supportsDesignMode: Bool {
+        supportsWebKitPageTools
+    }
+
+    /// Tools that work on the panel's WKWebView only (Design Mode, the
+    /// toolbar's page and section screenshots).
+    private var supportsWebKitPageTools: Bool {
+        panel.enginePage == nil
+    }
+
     private var activeToolbarModeCanToggle: Bool {
         switch activeToolbarMode {
         case .focus:
@@ -1617,30 +1629,36 @@ struct BrowserPanelView: View {
             }
             .disabled(!panel.canToggleBrowserFocusMode)
             .accessibilityIdentifier("BrowserOverflowFocusModeButton")
-            Button(action: handleScreenshotPageButtonAction) {
-                Label(
-                    String(localized: "browser.contextMenu.screenshotPage", defaultValue: "Screenshot Page"),
-                    systemImage: "camera"
-                )
+            // The toolbar screenshots capture the WKWebView; a Chromium panel
+            // hides them rather than dimming them (design spec §0.10).
+            if supportsWebKitPageTools {
+                Button(action: handleScreenshotPageButtonAction) {
+                    Label(
+                        String(localized: "browser.contextMenu.screenshotPage", defaultValue: "Screenshot Page"),
+                        systemImage: "camera"
+                    )
+                }
+                .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
+                .accessibilityIdentifier("BrowserScreenshotPageButton")
+                Button(action: handleScreenshotSectionButtonAction) {
+                    Label(
+                        String(localized: "browser.contextMenu.screenshotSection", defaultValue: "Screenshot Section"),
+                        systemImage: "viewfinder"
+                    )
+                }
+                .disabled(!panel.shouldRenderWebView)
+                .accessibilityIdentifier("BrowserScreenshotSectionButton")
             }
-            .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
-            .accessibilityIdentifier("BrowserScreenshotPageButton")
-            Button(action: handleScreenshotSectionButtonAction) {
-                Label(
-                    String(localized: "browser.contextMenu.screenshotSection", defaultValue: "Screenshot Section"),
-                    systemImage: "viewfinder"
-                )
-            }
-            .disabled(!panel.shouldRenderWebView)
-            .accessibilityIdentifier("BrowserScreenshotSectionButton")
             BrowserLocalFileFinderMenu(fileURL: panel.currentURL)
             if isChromeCompact {
                 Divider()
-                BrowserDesignModeOverflowMenuButton(
-                    controller: panel.designModeController,
-                    onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "overflowMenu") }
-                )
-                .accessibilityIdentifier("BrowserOverflowDesignModeButton")
+                if supportsDesignMode {
+                    BrowserDesignModeOverflowMenuButton(
+                        controller: panel.designModeController,
+                        onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "overflowMenu") }
+                    )
+                    .accessibilityIdentifier("BrowserOverflowDesignModeButton")
+                }
                 Button(action: openDevTools) {
                     Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
                 }
@@ -2868,11 +2886,11 @@ struct BrowserPanelView: View {
         }
 
         let query = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-        let historyEntries: [BrowserHistoryStore.Entry]
+        let fetchedHistoryEntries: [BrowserHistoryStore.Entry]
         if query.isEmpty {
-            historyEntries = panel.historyStore.recentSuggestions(limit: 12)
+            fetchedHistoryEntries = panel.historyStore.recentSuggestions(limit: 12)
         } else {
-            historyEntries = await panel.historyStore.suggestionsAsync(for: query, limit: 12)
+            fetchedHistoryEntries = await panel.historyStore.suggestionsAsync(for: query, limit: 12)
             guard !Task.isCancelled,
                   addressBarFocused,
                   !omnibarHasMarkedText,
@@ -2880,6 +2898,12 @@ struct BrowserPanelView: View {
                 return
             }
         }
+        // History is shared by both engines; a WebKit panel cannot open the
+        // chrome:// pages Chromium panels visited, so it never offers them.
+        let historyEntries = BrowserPanel.omnibarHistoryEntries(
+            fetchedHistoryEntries,
+            allowsChromiumPages: panel.allowsChromiumInternalPages
+        )
         let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
         let isSingleCharacterQuery = omnibarSingleCharacterQuery(for: query) != nil
         let remoteSuggestionsEngine = searchConfiguration.remoteSuggestionsEngine
