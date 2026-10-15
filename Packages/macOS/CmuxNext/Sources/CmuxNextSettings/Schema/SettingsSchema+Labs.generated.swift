@@ -5,11 +5,14 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.sessionRail`: A rail beside the agent chat with the session's environment, context use and changed files (Claude Code desktop parity).
+    public nonisolated static let sessionRailPath = ["labs", "sessionRail"]
+    public nonisolated static let sessionRailDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum LabsSettingsSchema {
-    /// Settings > Advanced > Labs: surfaces still being shaped, off by default.
+    /// Settings > Experimental > Labs: new looks and behaviors that a person turns on; each row is a LabsFlag.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.labs", "Labs")
         return [
@@ -23,6 +26,66 @@ nonisolated enum LabsSettingsSchema {
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.sessionRailPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.sessionRail", "Session side rail"),
+                help: SettingsText.keyed("settings.labs.sessionRail.help", "Shows the chat's environment, context use and the files it changed in a rail beside the chat."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.sessionRailDefault),
+                keywords: ["labs", "rail", "sidebar", "environment", "context", "outputs"]
+            ),
         ]
+    }
+}
+
+/// The Labs flags (schemas/settings/source/labs.json): read one with
+/// `CmuxConfigSnapshot.lab(_:)`, never its key path.
+public nonisolated enum LabsFlag: String, CaseIterable, Sendable {
+    case previewFeatures
+    case sessionRail
+
+    /// The cmux.json key: `labs.<name>`.
+    public var key: String { "labs." + rawValue }
+
+    /// Who answers for the flag (a lane or a person).
+    public var owner: String {
+        switch self {
+        case .previewFeatures: "leo"
+        case .sessionRail: "op-next-parity-surface-cx"
+        }
+    }
+
+    /// The one line Settings shows: what turning it on changes.
+    public var intent: String {
+        switch self {
+        case .previewFeatures: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+        case .sessionRail: "Shows the chat's environment, context use and the files it changed in a rail beside the chat."
+        }
+    }
+
+    /// YYYY-MM-DD.
+    public var created: String {
+        switch self {
+        case .previewFeatures: "2026-10-03"
+        case .sessionRail: "2026-10-14"
+        }
+    }
+
+    /// YYYY-MM-DD: past it, gen-settings-sources.py warns until the flag is promoted, extended or deleted.
+    public var expires: String {
+        switch self {
+        case .previewFeatures: "2026-10-27"
+        case .sessionRail: "2026-10-28"
+        }
+    }
+
+    /// Who has it on with nothing in cmux.json.
+    public var cohort: LabsCohort {
+        switch self {
+        case .previewFeatures: .off
+        case .sessionRail: .off
+        }
     }
 }

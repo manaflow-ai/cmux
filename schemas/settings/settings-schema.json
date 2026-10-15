@@ -907,6 +907,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.sessionRail",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -22164,6 +22165,55 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.sessionRail.help",
+        "text" : "Shows the chat's environment, context use and the files it changed in a rail beside the chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.sessionRail",
+      "keywords" : [
+        "labs",
+        "rail",
+        "sidebar",
+        "environment",
+        "context",
+        "outputs"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "sessionRail"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.sessionRail",
+        "text" : "Session side rail"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23562,7 +23612,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f590edffcb3e42e89831d8e96c6ba3eece1917143936341f49819ccb666cb37c",
+  "schema_hash" : "e9cbddac3c24f1a42e0f40c7ede22cbbd57211a70d06533e0c9e45d5aaa2c62c",
   "sections" : [
     {
       "id" : "general",

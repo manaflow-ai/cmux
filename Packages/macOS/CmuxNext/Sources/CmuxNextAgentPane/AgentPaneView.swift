@@ -137,13 +137,11 @@ public final class AgentPaneView: NSView {
                 WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
             }
             source.register(on: configuration)
-            // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
-            // background is the one surface token, or clear over a see-through
-            // window (plans/cmux-next/windows.md).
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            // The shared web theme: the page background is the one surface token, or clear over a
+            // see-through window (plans/cmux-next/windows.md); and the Labs flags (AgentPaneLabs).
+            AgentPaneLabs.addScripts(to: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
-            webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
+            webView = AgentPaneLabs.follow(AgentPaneWKWebView(frame: .zero, configuration: configuration))
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
             // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).

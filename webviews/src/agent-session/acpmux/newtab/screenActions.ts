@@ -69,6 +69,9 @@ export function newTabScreenActions(deps: {
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),
+    // Labs (team builds): the app saves the toggle and answers with a new `data-labs`.
+    onSetLab: (flag, on) => ignore(callNative("newTab.setLab", { flag, on })),
+    onShowLabs: () => ignore(callNative("action.run", { id: "help.featureFlags" })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
     onCreate: (kind) =>
       ignore(
