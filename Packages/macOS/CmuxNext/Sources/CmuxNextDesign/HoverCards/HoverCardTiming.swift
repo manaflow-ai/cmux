@@ -17,3 +17,8 @@ public nonisolated enum HoverCardTiming {
     /// `UpdateOrShowCard` slides the visible card over).
     public static let reshowWindow: Duration = .milliseconds(300)
 }
+
+extension DesignSettings {
+    /// Posted when `hoverCardsEnabled` changes (the hover card coordinator hides a shown card).
+    public static let hoverCardsDidChange = Notification.Name("CmuxNextDesign.DesignSettings.hoverCardsDidChange")
+}

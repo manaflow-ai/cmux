@@ -69,7 +69,6 @@ public final class DesignSettings {
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Chrome's tab hover card delay at its default tab width (`HoverCardTiming.chromeDelay`).
     public var hoverCardDelay: Duration = HoverCardTiming.chromeDelay
-    public static let hoverCardsDidChange = Notification.Name("CmuxNextDesign.DesignSettings.hoverCardsDidChange")
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
