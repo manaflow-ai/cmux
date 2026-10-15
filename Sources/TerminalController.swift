@@ -6997,11 +6997,19 @@ class TerminalController {
         workspaceId: UUID,
         focusedPanelId: UUID?,
         panels: [any Panel],
+        requestedSurfaceId: UUID? = nil,
         paneIdForPanel: (UUID) -> PaneID?
     ) -> [String: Any] {
         // A browser that session restore kept as a placeholder is still a browser
         // tab: list it with its restored URL, as `tree` does.
         let browserPanels = panels.filter(Self.v2IsBrowserTab)
+        // The surface the result names is a browser: the one the caller asked
+        // about, else the focused panel when it is a browser, else none. The
+        // focused panel alone would name a terminal when one has focus.
+        let browserIDs = Set(browserPanels.map(\.id))
+        let reportedSurfaceId = [requestedSurfaceId, focusedPanelId]
+            .compactMap { $0 }
+            .first { browserIDs.contains($0) }
         let tabs: [[String: Any]] = browserPanels.enumerated().map { index, panel in
             let paneId = paneIdForPanel(panel.id)
             let url = (panel as? BrowserPanel)?.currentURL?.absoluteString
@@ -7021,8 +7029,8 @@ class TerminalController {
         return [
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-            "surface_id": v2OrNull(focusedPanelId?.uuidString),
-            "surface_ref": v2Ref(kind: .surface, uuid: focusedPanelId),
+            "surface_id": v2OrNull(reportedSurfaceId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: reportedSurfaceId),
             "tabs": tabs
         ]
     }
@@ -11254,6 +11262,7 @@ class TerminalController {
                     workspaceId: dock.workspaceId,
                     focusedPanelId: dock.focusedPanelId,
                     panels: orderedPanels(in: dock),
+                    requestedSurfaceId: v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id"),
                     paneIdForPanel: { dock.paneId(forPanelId: $0) }
                 ))
                 return
@@ -11264,6 +11273,7 @@ class TerminalController {
                 workspaceId: ws.id,
                 focusedPanelId: ws.focusedPanelId,
                 panels: orderedPanels(in: ws),
+                requestedSurfaceId: v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id"),
                 paneIdForPanel: { ws.paneId(forPanelId: $0) }
             ))
         }
