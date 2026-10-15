@@ -16,22 +16,28 @@ enum ChromiumHangRecoveryAction: Equatable {
 ///
 /// Chromium only reports a hang when input goes unanswered, and a hung
 /// renderer never acknowledges a reload or a navigation, so without this the
-/// pane stays frozen until it is closed. A reload or navigation in a Chromium
-/// panel starts a responsiveness probe: when the page does not answer a
-/// trivial script within `chromiumHangProbeTimeout`, the panel shows the
-/// "Page unresponsive" card, ends the renderer and then performs the reload or
-/// navigation in a new one, as Chrome's Exit page does. A reload or navigation
-/// while the card shows does the same at once. Exit page ends the renderer
-/// even when Chromium has no pending hang callback (an agent-only session
-/// sends no input), by ending the page's renderer process. WebKit panels keep
-/// their own recovery (`BrowserPanel+AutomationRecovery.swift`).
+/// pane stays frozen until it is closed.
+///
+/// - A reload or navigation starts a responsiveness probe. When the page does
+///   not answer a trivial script within `chromiumHangProbeTimeout` and no new
+///   document started meanwhile, the pane shows the "Page unresponsive" card.
+///   The probe never ends a renderer by itself: a page can be legitimately
+///   busy, or blocked in a "Leave site?" dialog guarding unsaved work, and
+///   Chrome asks first too.
+/// - With the card showing, Exit page, a second Reload or a navigation (the
+///   person's or an agent's explicit choice) ends the hung renderer, through
+///   Chromium's hang callback when it has one and otherwise by ending the
+///   page's renderer process, then runs the reload or navigation in a new one.
+/// - Wait clears the card and probes again.
+///
+/// WebKit panels keep their own recovery (`BrowserPanel+AutomationRecovery.swift`).
 extension BrowserPanel {
-    /// How long a Chromium page may take to answer a trivial script before it
-    /// counts as hung. Chromium's own input hang timeout is 15 s; a page that
-    /// is merely busy loading still answers a script within this.
+    /// How long a Chromium page may take to answer a trivial script before
+    /// the card offers to end it.
     static let chromiumHangProbeTimeout: Duration = .seconds(8)
 
-    /// Reloads the Chromium page, recovering it first when it is hung.
+    /// Reloads the Chromium page; on a page the card marks hung, ends the
+    /// renderer first and reloads in a new one.
     func reloadEnginePageRecoveringHang(fromOrigin: Bool) {
         guard let enginePage else { return }
         let action = ChromiumHangRecoveryAction.reload(fromOrigin: fromOrigin)
@@ -39,11 +45,14 @@ extension BrowserPanel {
             endHungChromiumRenderer(then: action)
             return
         }
+        pendingChromiumHangRecovery = nil
+        if case .crashed = chromiumPageFailure.failure { chromiumPageFailure.userReloaded() }
         if fromOrigin { enginePage.reloadFromOrigin() } else { enginePage.reload() }
-        probeChromiumResponsiveness(recovering: action)
+        probeChromiumResponsiveness()
     }
 
-    /// Loads a request in the Chromium page, recovering it first when it is hung.
+    /// Loads a request; on a page the card marks hung, ends the renderer
+    /// first and loads in a new one.
     func loadEnginePageRecoveringHang(_ request: URLRequest) {
         guard let enginePage else { return }
         let action = ChromiumHangRecoveryAction.load(request)
@@ -51,33 +60,34 @@ extension BrowserPanel {
             endHungChromiumRenderer(then: action)
             return
         }
+        pendingChromiumHangRecovery = nil
+        if case .crashed = chromiumPageFailure.failure { chromiumPageFailure.userReloaded() }
         enginePage.load(request)
-        probeChromiumResponsiveness(recovering: action)
+        probeChromiumResponsiveness()
     }
 
     /// Asks the page to run a trivial script; when it does not answer within
-    /// the timeout and no new document committed meanwhile, the page is hung:
-    /// the card shows, and with an `action` the panel also recovers with it.
+    /// the timeout and no new document started meanwhile, the card shows.
     func probeChromiumResponsiveness(
-        recovering action: ChromiumHangRecoveryAction?,
         timeout: Duration = BrowserPanel.chromiumHangProbeTimeout,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         guard let enginePage else { return }
         chromiumHangProbeTask?.cancel()
-        let commitsBefore = enginePageCommitCount
+        let documentsBefore = enginePageCommitCount
         chromiumHangProbeTask = Task { @MainActor [weak self] in
             let answered = await Self.answersScript(enginePage, within: timeout, clock: clock)
             guard let self, !Task.isCancelled, !answered,
-                  self.enginePageCommitCount == commitsBefore,
-                  self.chromiumPageFailure.failure == nil || self.chromiumPageFailure.failure == .unresponsive
+                  self.enginePage === enginePage,
+                  self.enginePageCommitCount == documentsBefore,
+                  self.chromiumPageFailure.failure == nil
             else { return }
             self.chromiumPageFailure.apply(.unresponsiveChanged(true), at: Date(), paneVisible: self.isEnginePageVisible)
-            if let action { self.endHungChromiumRenderer(then: action) }
         }
     }
 
-    /// Whether `page` answers `1` within `timeout`.
+    /// Whether `page` answers `1` within `timeout`. Whichever side finishes
+    /// first cancels the other.
     private static func answersScript(
         _ page: any BrowserPage,
         within timeout: Duration,
@@ -86,13 +96,17 @@ extension BrowserPanel {
         let once = ChromiumProbeOnce()
         return await withCheckedContinuation { continuation in
             once.continuation = continuation
-            Task { @MainActor in
+            once.evaluation = Task { @MainActor in
                 _ = try? await page.evaluateJavaScript("1", in: .page)
                 once.finish(true)
             }
-            Task { @MainActor in
-                try? await clock.sleep(for: timeout)
-                once.finish(false)
+            once.timer = Task { @MainActor in
+                do {
+                    try await clock.sleep(for: timeout)
+                    once.finish(false)
+                } catch {
+                    // Cancelled because the page answered.
+                }
             }
         }
     }
@@ -102,32 +116,62 @@ extension BrowserPanel {
         guard let enginePage else { return }
         chromiumHangProbeTask?.cancel()
         chromiumHangProbeTask = nil
-        pendingChromiumHangRecovery = action
         chromiumPageFailure.answeredUnresponsive(terminate: true)
         // Chromium's own hang callback, when it has one (input went unanswered).
         enginePage.answerUnresponsive(terminate: true)
-        // Without one (no input was sent), end the page's renderer process; the
-        // app owns it as a child.
-        if let pid = (enginePage as? any BrowserPageMemoryReclaiming)?.contentProcessIdentifier, pid > 0 {
+        // Without one (no input was sent), end the page's renderer process: a
+        // direct child of cmux, checked to still be a tab renderer right before.
+        let pid = (enginePage as? any BrowserPageMemoryReclaiming)?.contentProcessIdentifier
+        if let pid, pid > 0, ChromiumHelperIdentity.read(pid: Int32(pid))?.processType == "renderer" {
+            pendingChromiumHangRecovery = action
             kill(pid_t(pid), SIGKILL)
+        } else if case .showCrashPage = action {
+            // Nothing to end but a callback that may not exist; the card stays
+            // until the page answers or the person reloads.
+            pendingChromiumHangRecovery = action
+        } else {
+            // No renderer to end: try the action directly rather than wait for
+            // an end that never comes.
+            pendingChromiumHangRecovery = nil
+            chromiumPageFailure.userReloaded()
+            perform(action, on: enginePage)
         }
     }
 
-    /// Runs the pending recovery once the hung renderer has ended.
+    /// Runs or drops the pending recovery after a page event: it runs once the
+    /// hung renderer has ended, and is dropped when the page moved on by
+    /// itself (a new document, or it answered again).
     func finishChromiumHangRecoveryIfNeeded(after event: BrowserPageEvent) {
-        guard case .processTerminated = event, let action = pendingChromiumHangRecovery,
-              let enginePage else { return }
-        pendingChromiumHangRecovery = nil
+        guard let action = pendingChromiumHangRecovery, let enginePage else { return }
+        switch event {
+        case .processTerminated:
+            pendingChromiumHangRecovery = nil
+            guard action != .showCrashPage else { return }
+            chromiumPageFailure.userReloaded()
+            perform(action, on: enginePage)
+        case .navigationStarted, .navigationCommitted, .unresponsiveChanged(false):
+            pendingChromiumHangRecovery = nil
+        default:
+            break
+        }
+    }
+
+    private func perform(_ action: ChromiumHangRecoveryAction, on enginePage: any BrowserPage) {
         switch action {
         case .reload(let fromOrigin):
-            chromiumPageFailure.userReloaded()
             if fromOrigin { enginePage.reloadFromOrigin() } else { enginePage.reload() }
         case .load(let request):
-            chromiumPageFailure.userReloaded()
             enginePage.load(request)
         case .showCrashPage:
             break
         }
+    }
+
+    /// Stops hang work for a page that is closing.
+    func cancelChromiumHangRecovery() {
+        chromiumHangProbeTask?.cancel()
+        chromiumHangProbeTask = nil
+        pendingChromiumHangRecovery = nil
     }
 
     /// An agent's call into the Chromium page timed out: check whether the
@@ -135,17 +179,22 @@ extension BrowserPanel {
     /// recovers it.
     func noteChromiumAutomationTimeout() {
         guard enginePage != nil, chromiumPageFailure.failure == nil else { return }
-        probeChromiumResponsiveness(recovering: nil, timeout: .seconds(2))
+        probeChromiumResponsiveness(timeout: .seconds(2))
     }
 }
 
-/// Resumes a probe's continuation once, with whichever answer comes first.
+/// Resumes a probe's continuation once, with whichever answer comes first,
+/// and cancels the other side.
 @MainActor
 private final class ChromiumProbeOnce {
     var continuation: CheckedContinuation<Bool, Never>?
+    var evaluation: Task<Void, Never>?
+    var timer: Task<Void, Never>?
 
     func finish(_ answered: Bool) {
-        continuation?.resume(returning: answered)
-        continuation = nil
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(returning: answered)
+        if answered { timer?.cancel() } else { evaluation?.cancel() }
     }
 }

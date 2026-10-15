@@ -16,6 +16,8 @@ Legs (CMUX_CRASH_E2E_LEGS, comma-separated, default all that apply):
   gpu       (Chromium) SIGKILL the GPU process: Chromium starts a new one, the page
             still answers, the crash log records a gpu-process exit. The
             chrome://gpucrash equivalent.
+  hangreload (Chromium) with no input, a reload of a spinning page shows the "Page unresponsive" card;
+            a second reload ends the hung renderer and loads the page in a new one.
   hang      (Chromium) a page that spins its main thread gets the "Page unresponsive"
             prompt after input; Exit page ends the renderer and shows the crash page.
             The chrome://hang equivalent.
@@ -238,15 +240,23 @@ def leg_gpu(h: Harness, sid: str) -> None:
 def leg_hang_reload(h: Harness, sid: str) -> None:
     h.c._call("browser.eval", {"surface_id": sid, "script": "setTimeout(() => { for (;;) {} }, 0); 'spinning'"})
     started = time.time()
-    try:
-        h.c._call("browser.reload", {"surface_id": sid}, timeout_s=10)
-    except cmuxError as error:
-        # The command's own navigation wait can end before the recovery does;
-        # what matters is that the page comes back.
-        print(f"note hangreload: browser.reload answered {error}")
+
+    def reload(label: str) -> None:
+        try:
+            h.c._call("browser.reload", {"surface_id": sid}, timeout_s=10)
+        except cmuxError as error:
+            # The command's own navigation wait can end before the recovery
+            # does; what matters is that the page comes back.
+            print(f"note hangreload: {label} reload answered {error}")
+
+    # The first reload finds the hang and shows the card (never ends a page by itself);
+    # the second, with the card showing, ends the hung renderer and reloads.
+    reload("first")
+    _wait_for(lambda: h.status(sid).get("prompt") == "unresponsive", 30, "hangreload: card after the first reload")
+    reload("second")
     _wait_for(lambda: h.page_answers(sid), 45, "hangreload: page answers again after Reload")
     h.app_still_runs("hangreload")
-    print(f"PASS hangreload: a reload of a hung page recovered it in {time.time() - started:.1f}s without input")
+    print(f"PASS hangreload: card on the first reload, recovered by the second in {time.time() - started:.1f}s without input")
 
 
 def leg_hang(h: Harness, sid: str) -> None:

@@ -40,7 +40,7 @@ final class BrowserPanelChromiumHangRecoveryTests: XCTestCase {
         func reloadFromOrigin() { reloads += 1 }
         func stop() {}
         func evaluateJavaScript(_ script: String, in world: BrowserPageScriptWorld) async throws -> Any? {
-            if isHung { try await Task.sleep(for: .seconds(3600)) }
+            if isHung { try await Task.sleep(for: .seconds(30)) }
             return 1
         }
         func callAsyncJavaScript(
@@ -94,26 +94,42 @@ final class BrowserPanelChromiumHangRecoveryTests: XCTestCase {
 
     private let renderedEnd = BrowserPageEvent.processTerminated(BrowserPageProcessExit(kind: .killed, status: 9))
 
-    func testProbeFindsAHangWithoutInputAndReloadRunsInANewRenderer() async throws {
+    func testProbeShowsTheCardWithoutEndingTheRenderer() async throws {
         let (panel, page) = try makePanel()
         page.isHung = true
 
-        panel.probeChromiumResponsiveness(recovering: .reload(fromOrigin: false), timeout: .milliseconds(50))
+        panel.probeChromiumResponsiveness(timeout: .milliseconds(50))
         await panel.chromiumHangProbeTask?.value
 
         XCTAssertEqual(panel.pageRecoveryPromptName, "unresponsive")
-        XCTAssertEqual(page.hangAnswers, [true], "the hung renderer is ended")
-        XCTAssertEqual(page.reloads, 0, "the reload waits for the renderer's end")
+        XCTAssertEqual(page.hangAnswers, [], "a busy page or a Leave-site dialog is never ended by the probe alone")
+    }
 
-        page.isHung = false
-        panel.noteEnginePageSafetyEvent(renderedEnd)
+    func testSecondReloadOnTheCardEndsTheRendererAndReloads() async throws {
+        let (panel, page) = try makePanel()
+        page.isHung = true
+        panel.probeChromiumResponsiveness(timeout: .milliseconds(50))
+        await panel.chromiumHangProbeTask?.value
+
+        panel.reloadEnginePageRecoveringHang(fromOrigin: false)
+        XCTAssertEqual(page.hangAnswers, [true], "the hung renderer is ended")
+        // The fake page has no renderer process to end, so the reload runs at once.
         XCTAssertEqual(page.reloads, 1)
+        XCTAssertNil(panel.chromiumPageFailure.failure)
+    }
+
+    func testNewDocumentDuringTheProbeKeepsTheCardAway() async throws {
+        let (panel, page) = try makePanel()
+        page.isHung = true
+        panel.probeChromiumResponsiveness(timeout: .milliseconds(200))
+        panel.noteEnginePageSafetyEvent(.navigationStarted(URL(string: "https://example.com/next")))
+        await panel.chromiumHangProbeTask?.value
         XCTAssertNil(panel.chromiumPageFailure.failure)
     }
 
     func testResponsivePageIsLeftAlone() async throws {
         let (panel, page) = try makePanel()
-        panel.probeChromiumResponsiveness(recovering: .reload(fromOrigin: false), timeout: .seconds(5))
+        panel.probeChromiumResponsiveness(timeout: .seconds(5))
         await panel.chromiumHangProbeTask?.value
         XCTAssertNil(panel.chromiumPageFailure.failure)
         XCTAssertEqual(page.hangAnswers, [])
@@ -125,11 +141,18 @@ final class BrowserPanelChromiumHangRecoveryTests: XCTestCase {
         let target = try XCTUnwrap(URL(string: "https://example.com/next"))
 
         panel.loadEnginePageRecoveringHang(URLRequest(url: target))
-        XCTAssertEqual(page.loads, [], "the load waits for the renderer's end")
         XCTAssertEqual(page.hangAnswers, [true])
-
-        panel.noteEnginePageSafetyEvent(renderedEnd)
         XCTAssertEqual(page.loads, [target])
+        XCTAssertNil(panel.pendingChromiumHangRecovery)
+    }
+
+    func testStalePendingRecoveryIsDroppedWhenThePageMovesOn() throws {
+        let (panel, _) = try makePanel()
+        panel.noteEnginePageSafetyEvent(.unresponsiveChanged(true))
+        panel.exitUnresponsiveChromiumPage()
+        XCTAssertEqual(panel.pendingChromiumHangRecovery, .showCrashPage)
+        panel.noteEnginePageSafetyEvent(.unresponsiveChanged(false))
+        XCTAssertNil(panel.pendingChromiumHangRecovery)
     }
 
     func testExitPageShowsTheCrashPage() throws {
