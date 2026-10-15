@@ -2002,7 +2002,9 @@ w("\r\x1b[2KSTREAMDONE\n")
         deadline = time.time() + 30
         while time.time() < deadline:
             text = " ".join(o[4] for o in self.sim.ocr())
-            if "Example Domain" in text:
+            # example.com's copy changed in 2026 (the heading scrolls off; the body says
+            # "This domain is for use in documentation examples").
+            if any(n in text for n in ("Example Domain", "use in documentation", "documentation examples")):
                 seen = time.time() - t
                 break
             time.sleep(0.5)
