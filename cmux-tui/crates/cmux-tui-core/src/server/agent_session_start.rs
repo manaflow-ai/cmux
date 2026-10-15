@@ -404,11 +404,14 @@ fn start_and_bind(
         return Err(end(Refusal::UntrustedFolder));
     }
     // The agent the session runs, as acpmux answered it (`_meta.acpmux.harness`
-    // of `session/new`), else its family: the tab's brand mark (cx-w4bbw).
-    let harness = [created.pointer("/_meta/acpmux/harness").and_then(Value::as_str), Some(&family)]
-        .into_iter()
-        .flatten()
-        .find(|harness| validate_harness(harness).is_ok());
+    // of `session/new`; a profile such as `providers/deepseek` by its last
+    // part), else its family: the tab's brand mark (cx-w4bbw).
+    let harness =
+        [created.pointer("/_meta/acpmux/harness").and_then(Value::as_str), Some(family.as_str())]
+            .into_iter()
+            .flatten()
+            .filter_map(|harness| harness.rsplit('/').next())
+            .find(|harness| validate_harness(harness).is_ok());
     // The tab may have closed, or another start bound it, meanwhile.
     let actor = super::super::origin_gate::connection_actor(mux, client);
     let (record, _) = mux

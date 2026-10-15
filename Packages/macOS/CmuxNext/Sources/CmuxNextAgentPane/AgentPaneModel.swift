@@ -185,8 +185,8 @@ public final class AgentPaneModel {
         transport.sessions.onHarness { [weak self] session, _ in
             // task-owner: one hop to the main actor per reply that names a session's harness
             Task { @MainActor in
-                guard let self, session == sessionId else { return }
-                onSessionHarness?(session)
+                guard let self, session == self.sessionId else { return }
+                self.onSessionHarness?(session)
             }
         }
     }

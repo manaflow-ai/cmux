@@ -1878,7 +1878,7 @@ home whose own acpmux runs it on the app's machine (a Chief subagent; the app
 attaches the tab to that home's acpmux), or `registry:` and this store's
 `identify.session_id` (the session daemon's own machine runs it; the chat
 starts with `agent-session-start`; see below for `session`), `session` the acpmux session id or absent for a new chat,
-`harness` the agent kind (1 to 64 letters, digits or `_`, `.`, `-`, `/`, as acpmux names it, such as `claude` or `providers/deepseek`), optional; `host_name` the host machine's display
+`harness` the agent kind (1 to 64 letters, digits or `_`, `.`, `-`, such as `claude`), optional; `host_name` the host machine's display
 name, 1 to 255 bytes without control characters, optional), or, with
 `page-tabs-v1`, one of the app's own pages (`page`: its id, 1 to 64
 lowercase letters, digits or `-`, `_`, `.`; for example `app-store` or
@@ -1969,7 +1969,8 @@ upserts the tab with the new `extra.conversation`, and raw clients get
 
 An optional `harness` (as on `new-conversation-tab`) is the agent the session
 runs, as its machine's acpmux reports it (`harness` of the session's summary
-in the `session/new` or `_acpmux/attach` reply); it is written in the same
+in the `session/new` or `_acpmux/attach` reply, a profile such as
+`providers/deepseek` by its last part, else `family`); it is written in the same
 commit as the session, so a tab's brand mark follows the chat it shows. A
 bind that names the tab's own session with another `harness` changes the
 harness alone and commits (whatever `expected_session` says); with the same
@@ -8638,7 +8639,8 @@ recorded for another machine never starts here) and that has no session yet;
 otherwise `agent_session.unknown_tab`, or `agent_session.bound` when it has
 one (also when another start bound it first: the new session is then ended).
 The bind records the harness acpmux answered for the new session (its
-`session/new` reply's `_meta.acpmux.harness`, else the family it runs).
+`session/new` reply's `_meta.acpmux.harness`, a profile by its last part,
+else the family it runs).
 `harness` is the agent kind acpmux resolves from its own config (1 to 64
 letters, digits or `_`, `.`, `-`); `cwd` is an absolute folder (at most 4096
 bytes; acpmux checks that it exists). `cwd` follows `agent-session-trust`'s

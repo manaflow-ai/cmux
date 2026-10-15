@@ -95,6 +95,7 @@ struct AgentTabHarnessOnCreateTests {
 
         view.model.transport.sessions.observeFolder(Self.newReply("s-new", harness: "codex"), replyTo: "session/new")
         _ = await view.model.respond(to: Self.persist("s-new"))
+        await Self.settle { !binds.isEmpty }
         #expect(binds.first == Bind(expected: nil, session: "s-new", harness: "codex"), "\(binds)")
         #expect(store.tab(surface: 1)?.agentSession?.harness == "codex")
         #expect(Self.icon(store) == Self.mark("codex"), "the tab does not draw the Codex mark")
@@ -102,7 +103,8 @@ struct AgentTabHarnessOnCreateTests {
         // A switch to another agent (a handoff makes a new session): its attach names the new
         // harness, and the tab's mark follows.
         _ = await view.model.respond(to: Self.persist("s-handoff"))
-        view.model.transport.sessions.observeFolder(Self.attachReply("s-handoff", harness: "claude"), replyTo: "_acpmux/attach")
+        await Self.settle { binds.count > 1 }
+        view.model.transport.sessions.observeFolder(Self.attachReply("s-handoff", harness: "providers/claude"), replyTo: "_acpmux/attach")
         await Self.settle { binds.last?.harness == "claude" }
         #expect(binds.last == Bind(expected: "s-handoff", session: "s-handoff", harness: "claude"), "\(binds)")
         #expect(Self.icon(store) == Self.mark("claude"), "the tab does not draw the Claude mark after the switch")

@@ -248,10 +248,10 @@ fn agent_session_bind_writes_the_harness() {
     assert_eq!(revision(&mux), before);
 
     // Another session: its harness replaces the old one; none keeps it.
-    bind_with(new_chat, "n-2", json!("n-1"), json!("providers/deepseek")).unwrap();
-    assert_eq!(harness_of(new_chat), "providers/deepseek");
+    bind_with(new_chat, "n-2", json!("n-1"), json!("opencode")).unwrap();
+    assert_eq!(harness_of(new_chat), "opencode");
     bind(&mux, new_chat, "n-3", json!("n-2")).unwrap();
-    assert_eq!(harness_of(new_chat), "providers/deepseek", "no harness keeps the recorded one");
+    assert_eq!(harness_of(new_chat), "opencode", "no harness keeps the recorded one");
 
     // Opened chat: created with its session, the harness comes by a bind of
     // that same session (whatever expected says), never a conflict.
@@ -267,7 +267,7 @@ fn agent_session_bind_writes_the_harness() {
     assert!(error.starts_with("conversation_tab.session_conflict:"), "{error}");
     assert_eq!(harness_of(opened), "claude");
 
-    for invalid in [json!(""), json!("a b"), json!("x".repeat(65))] {
+    for invalid in [json!(""), json!("a b"), json!("providers/deepseek"), json!("x".repeat(65))] {
         let error =
             bind_with(opened, "o-1", json!("o-1"), invalid.clone()).unwrap_err().to_string();
         assert!(error.contains("bad request"), "{invalid}: {error}");
