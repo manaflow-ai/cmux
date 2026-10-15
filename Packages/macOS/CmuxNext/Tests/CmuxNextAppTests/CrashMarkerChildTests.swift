@@ -110,8 +110,7 @@ enum CrashChild {
 
     /// Chromium fails to start (no runtime at this layout) after it reset
     /// the signal actions, as `CefInitialize` does before it can fail; then
-    /// the app crashes on a bad memory access. (A `raise(SIGSEGV)` reads as
-    /// a fault on macOS, whose handler returns and the process goes on.)
+    /// the app crashes on a bad memory access.
     @MainActor
     static func crashAfterAFailedChromiumStart() async {
         let marker = await markRun("chromium")

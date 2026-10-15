@@ -13,7 +13,15 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 ///   plain signal with no report);
 /// - any other signal, or one sent by a process or by raise/abort (SIGTERM,
 ///   SIGINT, SIGHUP, abort's SIGABRT): re-raise it, or it would be lost.
-private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, _ in
+///
+/// `si_code` cannot tell the two apart on Darwin arm64 (cx-sjv65): XNU
+/// never reports `SI_USER`; SIGSEGV gets 2 and SIGBUS 1 from `raise` as
+/// from the CPU, and SIGTRAP gets 0 from `raise` as from a Swift trap's
+/// `brk`. A signal raised or sent to the process arrives as a system call
+/// returns, so the saved exception syndrome is a supervisor call; a CPU
+/// fault's is the fault's (a bad system call's SIGSYS also arrives that
+/// way, and returning would not run it again).
+private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
     if descriptor >= 0 {
@@ -24,8 +32,28 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
     }
     _ = Darwin.signal(signal, SIG_DFL)
     let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
+        || arrivedOnASystemCall(context)
     let fault = signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGFPE || signal == SIGTRAP || signal == SIGSYS
     if sentBySoftware || !fault { _ = raise(signal) }
+}
+
+/// Whether the interrupted thread was returning from a system call when
+/// the signal arrived: the saved syndrome is a supervisor call (exception
+/// class 0x15) and the instruction before the pc is `svc #0x80`. A fault
+/// signal Sentry re-raises from its handler arrives on the `sigreturn`
+/// that restores the faulting pc, so it still reads as a fault. Unknown is
+/// true: re-raising ends the process either way, returning may lose it.
+nonisolated private func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bool {
+    #if arch(arm64)
+    guard let state = context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
+    guard state.pointee.__es.__esr >> 26 == 0x15 else { return false }
+    let pc = UInt(state.pointee.__ss.__pc)
+    // pc - 4 on the same page as pc, so the read cannot fault.
+    guard pc & 0xFFF >= 4, let previous = UnsafePointer<UInt32>(bitPattern: pc - 4) else { return false }
+    return previous.pointee == 0xD400_1001
+    #else
+    return false
+    #endif
 }
 
 /// Gives the calling thread an alternate signal stack, so a fatal-signal
