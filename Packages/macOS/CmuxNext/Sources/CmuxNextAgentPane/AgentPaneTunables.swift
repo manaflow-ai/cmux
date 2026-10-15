@@ -12,5 +12,27 @@ public nonisolated struct AgentPaneTunables {
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor] }
+    /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
+    /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
+    public static let chatWidth = Tunable<ChatWidth>.choice(
+        "agent.chatWidth", PageTunables.section, "Agent chat width",
+        help: "Standard: 800px. Wide: 960px. Wide blocks: code, tables and tools 1120px, prose 800px.",
+        default: .standard, code: "AgentPaneTunables.chatWidth")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor] }
+
+    /// The chat column choices (the page's acpmux chatWidth.ts).
+    public nonisolated enum ChatWidth: String, Sendable, CaseIterable, TunableChoice {
+        case standard
+        case wide
+        case wideBlocks
+
+        public var tunableTitle: String {
+            switch self {
+            case .standard: "Standard"
+            case .wide: "Wide"
+            case .wideBlocks: "Wide blocks"
+            }
+        }
+    }
 }
