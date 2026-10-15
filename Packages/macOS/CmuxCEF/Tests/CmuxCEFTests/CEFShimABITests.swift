@@ -79,7 +79,8 @@ import Testing
         #expect(schedule.nextWake == nil)
         schedule.request(milliseconds: 0, now: 10)
         #expect(schedule.nextWake?.deadline == -.infinity)
-        #expect(schedule.beginWork(now: 10))
+        let began = schedule.beginWork(now: 10)
+        #expect(began)
         schedule.endWork(now: 10.001, elapsed: 0.001)
         #expect(schedule.nextWake == nil)
         schedule.request(milliseconds: 250, now: 20)
@@ -96,5 +97,44 @@ import Testing
 
     @Test func processWideEventsHaveNoBrowser() {
         #expect(CEFShimEvent(kind: 1, browser: 0, request: 0, a: 0, b: 0, s1: "", s2: "").browserID == nil)
+    }
+}
+
+@Suite struct ChromiumWindowRuleTests {
+    private func facts(chromium: Bool = true, browserWindow: Bool = false, hasParent: Bool = false, titled: Bool = true,
+                       visible: Bool = true, devTools: Bool = false, floating: Bool = false) -> ChromiumWindowFacts {
+        ChromiumWindowFacts(chromium: chromium, browserWindow: browserWindow, hasParent: hasParent, titled: titled,
+                            visible: visible, devTools: devTools, floating: floating)
+    }
+
+    @Test func chromiumBrowserWindowIsHiddenAndDialogsClose() {
+        #expect(ChromiumWindowRule.verdict(facts(browserWindow: true)) == .hide)
+        #expect(ChromiumWindowRule.verdict(facts()) == .close)
+    }
+
+    @Test func pagesBubblesDevToolsAndPictureInPictureStay() {
+        #expect(ChromiumWindowRule.verdict(facts(hasParent: true)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(titled: false)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(devTools: true)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(floating: true)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(chromium: false)) == .allow)
+        #expect(ChromiumWindowRule.verdict(facts(visible: false)) == .allow)
+    }
+}
+
+@Suite struct CEFSignalActionsTests {
+    /// What a start resets is put back exactly (here SIGPIPE ignored).
+    @Test func restorePutsBackTheCapturedAction() {
+        var original = sigaction()
+        sigaction(SIGPIPE, nil, &original)
+        defer { sigaction(SIGPIPE, &original, nil) }
+        signal(SIGPIPE, SIG_IGN)
+        let saved = CEFSignalActions.capture()
+        #expect(saved.count == CEFSignalActions.signals.count)
+        signal(SIGPIPE, SIG_DFL)
+        saved.restore()
+        var now = sigaction()
+        sigaction(SIGPIPE, nil, &now)
+        #expect(unsafeBitCast(now.__sigaction_u.__sa_handler, to: Int.self) == unsafeBitCast(SIG_IGN, to: Int.self))
     }
 }

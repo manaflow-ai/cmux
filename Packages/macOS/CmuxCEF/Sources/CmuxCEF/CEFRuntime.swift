@@ -41,6 +41,9 @@ public final class CEFRuntime {
     /// Runs once CEF is initialized (Chromium resets signal handlers; the app
     /// re-installs its own here).
     public var onReady: (@MainActor () -> Void)?
+    /// Runs on the main thread right before `CefInitialize` (profile
+    /// directory cleanup that must not race Chromium).
+    public var beforeInitialize: (@MainActor () -> Void)?
     /// Runs when a start fails (`CefInitialize` may already have reset the
     /// signal actions).
     public var onStartFailed: (@MainActor () -> Void)?
@@ -49,6 +52,15 @@ public final class CEFRuntime {
     public var openURLWithoutOpener: (@MainActor (URL, CEFDisposition) -> Void)?
 
     let logger = Logger(subsystem: "com.cmuxterm.app", category: "cef")
+    /// Chromium top-level windows cmux allows (the guard hides and closes
+    /// every other titled one). Default: undocked DevTools.
+    public var allowsChromiumWindow: @MainActor (NSWindow) -> Bool = { $0.title.hasPrefix("DevTools") }
+    /// Hides or closes top-level Chromium windows that slip through.
+    private lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
+        self?.allowsChromiumWindow(window) ?? false
+    }
+    /// Chromium windows the guard blocked in this process.
+    public var blockedChromiumWindowCount: Int { windowGuard.blockedCount }
     var pump: CEFMessagePump?
     /// Live browsers by Chromium browser id.
     var browsers: [Int32: CEFBrowser] = [:]
@@ -87,6 +99,10 @@ public final class CEFRuntime {
 
     public var isRunning: Bool { state == .ready }
 
+    /// True from the start of `shutdown` on: pages closing now are closing
+    /// for quit, not because a person closed them.
+    public var isShuttingDown: Bool { shutdownSequence != nil || state == .shutDown }
+
     /// The fork's `cmux_cef_api_version`, 0 before CEF runs.
     public var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
@@ -98,6 +114,42 @@ public final class CEFRuntime {
 
     /// The browser with Chromium id `id`, if live.
     public func browser(id: Int32) -> CEFBrowser? { browsers[id] }
+
+    /// Request context keys Chromium opened in this process: their files
+    /// stay open until quit, so a deleted profile's directory waits for the
+    /// next launch.
+    public private(set) var openedContextKeys: Set<String> = []
+
+    func contextOpened(_ key: String) {
+        openedContextKeys.insert(key)
+    }
+
+    // MARK: Answers to page requests
+
+    /// Answers a `.permissionPrompt` (fork token): true allows, false denies.
+    /// Leave a prompt unanswered to keep Chromium waiting; never dismiss it.
+    @discardableResult
+    public func answerPermission(token: Int32, allow: Bool) -> Bool {
+        shim?.permissionContinue(token, allow ? 1 : 2) == 1
+    }
+
+    /// Answers a download start (`.download` kind 34): the full destination
+    /// path, or nil to cancel.
+    @discardableResult
+    public func continueDownload(token: Int32, to path: String?) -> Bool {
+        (path ?? "").withCString { shim?.downloadContinue(token, $0) } == 1
+    }
+
+    /// Cancels (0), pauses (1) or resumes (2) a running download.
+    @discardableResult
+    public func controlDownload(token: Int32, action: Int32) -> Bool {
+        shim?.downloadControl(token, action) == 1
+    }
+
+    /// Ends a `.contextMenu` with the chosen command id (< 0 cancels).
+    public func finishContextMenu(token: Int32, command: Int32, eventFlags: Int32 = 0) {
+        shim?.contextMenuDone(token, command, eventFlags)
+    }
 
     // MARK: Raw events
 
@@ -147,6 +199,7 @@ public final class CEFRuntime {
             let started = ContinuousClock.now
             try initialize(library)
             state = .ready
+            windowGuard.start()
             logger.notice("CEF ready shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) initialize=\(ContinuousClock.now - started, privacy: .public)")
             onReady?()
         } catch {
@@ -210,6 +263,7 @@ public final class CEFRuntime {
         pump.start()
 
         storage.prepareForLaunch()
+        beforeInitialize?()
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
@@ -225,6 +279,9 @@ public final class CEFRuntime {
         // a page cmux did not ask to focus.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
+        // Chromium resets every signal action; the app's stay (CEFSignalActions).
+        let signalActions = CEFSignalActions.capture()
+        defer { signalActions.restore() }
         let ok = switchStorage.withUnsafeBufferPointer { buffer in
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(

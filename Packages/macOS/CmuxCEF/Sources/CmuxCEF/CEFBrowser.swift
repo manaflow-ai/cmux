@@ -1,5 +1,5 @@
 public import AppKit
-public import CoreGraphics
+import CoreGraphics
 public import Foundation
 
 /// How a Chromium page starts.
@@ -210,6 +210,7 @@ public final class CEFBrowser {
         if view.window == nil, view.bounds.size != size { view.setFrameSize(size) }
         isCreationPending = true
         runtime.pendingWindows[request] = self
+        runtime.contextOpened(key)
         let started = shim.createWindow(
             request, Unmanaged.passUnretained(view).toOpaque(),
             Int32(clamping: Int(size.width.rounded())), Int32(clamping: Int(size.height.rounded())),
