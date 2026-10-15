@@ -340,6 +340,7 @@ export function Composer({
           </ToolbarButton>
         )}
         {attachments && (
+          // oxlint-disable-next-line jsx-a11y/control-has-associated-label -- a hidden picker; the labeled attach button opens it
           <input
             ref={picker}
             type="file"

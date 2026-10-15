@@ -482,11 +482,41 @@
    "id": 1,
    "method": "_acpmux/watch",
    "params": {
-    "enabled": 1
+    "enabled": 1,
+    "limit": 1
    }
   },
   "mode_fields": null,
   "breaks": false
+ },
+ {
+  "name": "_acpmux/sessions every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/sessions",
+   "params": {
+    "limit": 1,
+    "cursor": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/sessions unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/sessions",
+   "params": {
+    "limit": 1,
+    "cursor": "k1.2",
+    "query": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  },
  {
   "name": "_acpmux/events every known param",
@@ -1013,6 +1043,35 @@
     "offerId": "o",
     "outcome": "accepted",
     "prompt": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "subagent_stop known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_stop",
+   "params": {
+    "sessionId": "a",
+    "subagentSessionId": "t"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "subagent_stop unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_stop",
+   "params": {
+    "sessionId": "a",
+    "subagentSessionId": "t",
+    "command": "ls"
    }
   },
   "mode_fields": null,

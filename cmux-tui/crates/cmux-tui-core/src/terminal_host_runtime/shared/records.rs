@@ -103,8 +103,8 @@ pub fn validate_terminal_host_record(
         anyhow::bail!("terminal-host record filename is not canonical");
     }
     let uid = sys::file_owner(parent)?;
-    let expected_endpoint = sys::canonical_endpoint(uid, &record.terminal_id);
-    if Path::new(&record.endpoint) != expected_endpoint {
+    let expected = sys::canonical_endpoints(uid, parent, &record.terminal_id);
+    if !expected.iter().any(|endpoint| Path::new(&record.endpoint) == endpoint) {
         anyhow::bail!("terminal-host endpoint is not canonical");
     }
     if let Ok(metadata) = fs::symlink_metadata(record_path)
