@@ -354,6 +354,10 @@ def trace_stop(handle):
     print(f"TRACE {json.dumps(summary)}", flush=True)
 
 
+def ptys_in_use():
+    return sum(1 for name in os.listdir("/dev") if name.startswith("ttys") and name[4:5].isdigit())
+
+
 def app_pid():
     """The tagged app's pid: the process that holds its debug socket (an `open -n` launch's command line need
     not name the bundle path pgrep looks for), else the newest process running the bundle's binary."""
@@ -400,8 +404,15 @@ try:
     for name in ("Beta", "Gamma"):
         rpc("debug.toast", {"perform": "palette.toggleWorkspacePin", "target_kind": "workspace", "target_id": row_id(rows().get(name))})
     time.sleep(1.0)  # test harness: let the pins land
+    # --empty: no terminal per stress workspace (hitch11 started ~790 terminal hosts and used every PTY on the host).
+    ptys_before = ptys_in_use()
+    print("PTYs in use before the stress setup:", ptys_before, flush=True)
     for index in range(opts.stress):
-        cli("workspace", "create", "--name", f"S{index:04d}")
+        reply = cli("workspace", "create", "--empty", "--name", f"S{index:04d}")
+        if index == 0:
+            print("first stress create:", reply[:200], flush=True)
+        if index == 20 and ptys_in_use() - ptys_before > 5:
+            fail_harness(f"stress workspaces still start terminals (PTYs {ptys_before} -> {ptys_in_use()} after 20 creates)")
     if opts.stress:
         wait(lambda: f"S{opts.stress - 1:04d}" in json.dumps(window().get("rows", [])) or None, 600)
         # The new workspaces scrolled the list to its end, so Alpha and the Pinned tiles have no on-screen frame (hitch7
@@ -501,4 +512,9 @@ finally:
         TRACE["error"] = repr(error)
     json.dump({"checks": CHECKS, "trace": TRACE, "real_pointer": opts.real_pointer, "stress": opts.stress}, open(os.path.join(opts.out, "CHECKS.json"), "w"), indent=1)
     subprocess.run([STOP], check=False)
+    # The terminal hosts outlive the app on purpose: end this tag's hosts too (REPAIR.md PTY row), never pkill.
+    stopper = os.path.expanduser("~/.local/bin/stop_tag_daemon.py")
+    if os.path.exists(stopper):
+        subprocess.run(["python3", stopper, "bundle", APP], check=False)
+    print("PTYs in use at the end:", ptys_in_use(), flush=True)
 sys.exit(0 if CHECKS and all(c["ok"] for c in CHECKS.values()) else 1)
