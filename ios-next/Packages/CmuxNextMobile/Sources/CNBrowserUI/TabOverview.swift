@@ -352,6 +352,12 @@ struct TabOverview: View {
                 // The card the zoom is landing on stays put.
                 guard gridInteractive || tab.id != hiddenTabId else { return }
                 let rm = UIAccessibility.isReduceMotionEnabled
+                // A long press owns the touch (menu or reorder): the swipe never
+                // moves the card, and its release can never close it.
+                guard CardGestures.swipeAllowed(card: tab.id, pressed: pressed, reordering: reorder?.id) else {
+                    if swipes.isRaised(tab.id), !swipes.isDeparting(tab.id) { swipes.cancel(tab.id, reduceMotion: rm) }
+                    return
+                }
                 switch phase {
                 case .changed(let dx):
                     swipes.track(tab.id, translation: dx, reduceMotion: rm)

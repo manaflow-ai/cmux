@@ -76,3 +76,12 @@ struct CardSwipe: Equatable, Sendable {
         -(cardMinX + cardWidth + 24)
     }
 }
+
+/// Who owns a touch on a grid card: the swipe-to-close, or a long press
+/// (its menu, or a drag to another slot).
+struct CardGestures: Equatable, Sendable {
+    /// The swipe may move (and close) `card` only while no long press owns it.
+    static func swipeAllowed(card: String, pressed: String?, reordering: String?) -> Bool {
+        pressed != card && reordering != card
+    }
+}

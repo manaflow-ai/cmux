@@ -43,4 +43,14 @@ struct CardSwipeTests {
         #expect(abs(CardSwipe.offset(translation: 100) - 44) < 1)
         #expect(CardSwipe.offset(translation: 400) < CardSwipe.rubberDimension)
     }
+
+    /// Re-audit 2, D6b: a long press, then a drag left onto another slot,
+    /// closed the dragged tab on the drop. The swipe never acts on a card
+    /// a long press owns.
+    @Test func longPressOwnsTheTouch() {
+        #expect(!CardGestures.swipeAllowed(card: "a", pressed: "a", reordering: nil))
+        #expect(!CardGestures.swipeAllowed(card: "a", pressed: nil, reordering: "a"))
+        #expect(CardGestures.swipeAllowed(card: "a", pressed: nil, reordering: nil))
+        #expect(CardGestures.swipeAllowed(card: "a", pressed: "b", reordering: nil))
+    }
 }

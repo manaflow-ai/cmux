@@ -247,7 +247,7 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
         /// drag's card still for about 300 ms, then it jumped to the finger
         /// (tabs-parity-reaudit D3).
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            !(other.view is UIScrollView)
+            CardGestures.recognizeTogether(other: other)
         }
 
         /// The grid's scroll view waits for this pan to fail (it fails at
@@ -256,6 +256,17 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
             other is UIPanGestureRecognizer && other.view is UIScrollView
         }
+    }
+}
+
+extension CardGestures {
+    /// A card's swipe and long press never run together, and neither runs
+    /// with the grid's scroll: once the long press has begun (menu or
+    /// reorder) the swipe cannot begin for that touch, and a swipe that
+    /// began first makes the long press fail. A long-press reorder dragged
+    /// left was closing the dragged tab on the drop (re-audit 2, D6b).
+    static func recognizeTogether(other: UIGestureRecognizer) -> Bool {
+        !(other.view is UIScrollView) && !(other is UILongPressGestureRecognizer) && !(other is UIPanGestureRecognizer)
     }
 }
 
@@ -294,7 +305,7 @@ struct CardLongPressGesture: UIGestureRecognizerRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            !(other.view is UIScrollView)
+            CardGestures.recognizeTogether(other: other)
         }
     }
 }
