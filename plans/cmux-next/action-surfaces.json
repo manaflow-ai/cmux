@@ -1074,18 +1074,6 @@
         {
           "keys" : [
             {
-              "key" : "]",
-              "modifiers" : [
-                "shift",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
               "key" : "",
               "modifiers" : [
                 "opt",
@@ -1123,7 +1111,7 @@
       "default_shortcut" : {
         "key" : "]",
         "modifiers" : [
-          "shift",
+          "ctrl",
           "cmd"
         ]
       },
@@ -1151,18 +1139,6 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "[",
-              "modifiers" : [
-                "shift",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
         {
           "keys" : [
             {
@@ -1203,7 +1179,7 @@
       "default_shortcut" : {
         "key" : "[",
         "modifiers" : [
-          "shift",
+          "ctrl",
           "cmd"
         ]
       },
@@ -7902,6 +7878,18 @@
             }
           ],
           "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
         }
       ],
       "default_chord" : null,
@@ -7942,6 +7930,18 @@
               "modifiers" : [
                 "ctrl",
                 "shift"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
               ]
             }
           ],
