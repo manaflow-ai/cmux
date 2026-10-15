@@ -69,6 +69,8 @@ extension ControlCommandCoordinator {
             return debugBrowserFind(request.params)
         case "debug.browser.devtools":
             return debugBrowserDevTools(request.params)
+        case "debug.browser.context_menu":
+            return debugBrowserContextMenu(request.params)
         case "debug.right_sidebar.focus":
             return debugRightSidebarFocus(request.params)
         case "debug.sidebar.visible":

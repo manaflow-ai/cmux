@@ -1,6 +1,7 @@
 import AppKit
 import CmuxBrowser
 import CmuxCanvasUI
+import CmuxCEFBrowser
 import CmuxControlSocket
 import CmuxSettings
 import Foundation
@@ -405,6 +406,44 @@ extension TerminalController: ControlDebugContext {
                 "needle": state?.needle ?? "",
                 "total": v2OrNull(state?.total.map { Int($0) }),
                 "selected": v2OrNull(state?.selected.map { Int($0) }),
+            ])
+        }
+        switch result {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(
+                code: code,
+                message: message,
+                data: data.flatMap { JSONValue(foundationObject: $0) }
+            )
+        }
+    }
+
+    func controlDebugBrowserContextMenu(params: [String: JSONValue]) -> ControlCallResult {
+        func number(_ key: String) -> Double? {
+            switch params[key] {
+            case let .int(value): Double(value)
+            case let .double(value): value
+            default: nil
+            }
+        }
+        let point = number("x").flatMap { x in number("y").map { CGPoint(x: x, y: $0) } }
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
+            guard let page = browserPanel.enginePage as? CEFBrowserPage else {
+                return .err(code: "unsupported", message: "Not a Chromium browser panel", data: nil)
+            }
+            if let point {
+                page.features.capturesNextContextMenu = true
+                Task { @MainActor in
+                    try? await page.dispatchInput(.click(at: point, button: .right, clickCount: 1, modifiers: []))
+                }
+            }
+            return .ok([
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "pending": page.features.capturesNextContextMenu,
+                "rows": page.features.lastCapturedContextMenu ?? [],
             ])
         }
         switch result {
