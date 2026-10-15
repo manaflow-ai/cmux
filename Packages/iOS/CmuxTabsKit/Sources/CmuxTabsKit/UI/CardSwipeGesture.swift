@@ -1,5 +1,6 @@
 #if os(iOS)
 import Observation
+import QuartzCore
 import SwiftUI
 import UIKit
 
@@ -33,6 +34,7 @@ final class CardSwipeState {
     /// still springing back).
     private(set) var raised: Set<String> = []
     func isRaised(_ key: String) -> Bool { raised.contains(key) }
+    var raisedCards: Set<String> { raised }
 
     /// Whether the grid lists `key` again (a refused close put it back).
     @ObservationIgnored var isListed: (String) -> Bool = { _ in false }
@@ -70,7 +72,7 @@ final class CardSwipeState {
     /// Release: fly off and close, or spring back. A committed card keeps
     /// going left at the release speed (at least `CardSwipe.flyOffMinSpeed`),
     /// lifted and opaque, from the release frame until it is past the
-    /// screen edge; 99 ms in, `close` takes its tab out of the grid (the
+    /// screen edge; at release `close` takes its tab out of the grid (the
     /// count changes, the grid reflows) without waiting for the host.
     /// Refused: the card comes back to its slot. A card that springs back
     /// keeps the finger's velocity into the spring. With Reduce Motion
@@ -118,15 +120,49 @@ final class CardSwipeState {
             offsets[key] = start
         }
         let target = CardSwipe.flyOffOffset(cardMinX: card.minX, cardWidth: card.width)
-        let total = CardSwipe.flyOffDuration(distance: target - start, velocity: velocity)
-        // One uninterrupted move (a second animation chained on the first
-        // one's completion started 3-4 frames late).
-        withAnimation(.linear(duration: total)) { offsets[key] = target } completion: { landed() }
+        let speed = max(abs(velocity), CardSwipe.flyOffMinSpeed)
+        // Driven on the display clock from the release time: each frame puts
+        // the card where the release speed has carried it by then, so it
+        // never holds after the release however late a frame comes (a
+        // SwiftUI linear animation started 3-4 frames after the release).
+        flights[key] = Flight(start: start, target: target, speed: speed, t0: CACurrentMediaTime(), landed: landed)
+        flightLink.start { [weak self] now in self?.stepFlights(now) ?? false }
+        // The tab leaves the grid one frame after the release (Safari's count
+        // changes about 10 ms after it, re-audit 2 D10): the fly-off's first
+        // frame commits before the removal's layout and reflow (in the same
+        // update they held the card still for 2-3 frames). The same card view
+        // keeps flying after its tab has left.
         let clock = self.clock
         Task {
-            try? await clock.sleep(for: .seconds(min(total, CardSwipe.flyOffRemovalDelay)))
+            try? await clock.sleep(for: CardSwipe.flyOffRemovalDelay)
             finish(await close())
         }
+    }
+
+    private struct Flight {
+        let start: CGFloat
+        let target: CGFloat
+        let speed: CGFloat
+        let t0: CFTimeInterval
+        let landed: () -> Void
+    }
+    private var flights: [String: Flight] = [:]
+    @ObservationIgnored private let flightLink = FrameClock()
+
+    /// One display frame of every fly-off; false when none is left.
+    private func stepFlights(_ now: CFTimeInterval) -> Bool {
+        var t = Transaction()
+        t.disablesAnimations = true
+        for (key, f) in flights {
+            guard isDeparting(key) else { flights[key] = nil; continue }
+            let x = max(f.target, f.start - f.speed * CGFloat(now - f.t0))
+            withTransaction(t) { offsets[key] = x }
+            if x <= f.target {
+                flights[key] = nil
+                f.landed()
+            }
+        }
+        return !flights.isEmpty
     }
 
     func cancel(_ key: String, reduceMotion: Bool) { comeBack(key, velocity: 0, reduceMotion: reduceMotion) }
@@ -178,6 +214,31 @@ extension ZoomSpring {
     func animation(initialVelocity: Double = 0) -> Animation {
         let w = 2 * Double.pi / response
         return .interpolatingSpring(mass: 1, stiffness: w * w, damping: 2 * damping * w, initialVelocity: initialVelocity)
+    }
+}
+
+/// A display link that calls `tick` with the frame's target time until it
+/// returns false.
+@MainActor
+final class FrameClock: NSObject {
+    private var link: CADisplayLink?
+    private var tick: ((CFTimeInterval) -> Bool)?
+
+    func start(_ tick: @escaping (CFTimeInterval) -> Bool) {
+        self.tick = tick
+        guard link == nil else { return }
+        let l = CADisplayLink(target: self, selector: #selector(frame(_:)))
+        l.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        l.add(to: .main, forMode: .common)
+        link = l
+    }
+
+    @objc private func frame(_ l: CADisplayLink) {
+        if tick?(l.targetTimestamp) != true {
+            l.invalidate()
+            link = nil
+            tick = nil
+        }
     }
 }
 
@@ -244,7 +305,7 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
         /// drag's card still for about 300 ms, then it jumped to the finger
         /// (cmux-next tabs-parity-reaudit D3).
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            !(other.view is UIScrollView)
+            CardGestures.recognizeTogether(other: other)
         }
 
         /// The grid's scroll view waits for this pan to fail (it fails at
@@ -253,6 +314,17 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
             other is UIPanGestureRecognizer && other.view is UIScrollView
         }
+    }
+}
+
+extension CardGestures {
+    /// A card's swipe and long press never run together, and neither runs
+    /// with the grid's scroll: once the long press has begun (menu or
+    /// reorder) the swipe cannot begin for that touch, and a swipe that
+    /// began first makes the long press fail. A long-press reorder dragged
+    /// left was closing the dragged tab on the drop (cmux-next re-audit 2, D6b).
+    static func recognizeTogether(other: UIGestureRecognizer) -> Bool {
+        !(other.view is UIScrollView) && !(other is UILongPressGestureRecognizer) && !(other is UIPanGestureRecognizer)
     }
 }
 
@@ -291,7 +363,7 @@ struct CardLongPressGesture: UIGestureRecognizerRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            !(other.view is UIScrollView)
+            CardGestures.recognizeTogether(other: other)
         }
     }
 }

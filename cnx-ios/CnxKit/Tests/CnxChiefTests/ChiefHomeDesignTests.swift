@@ -118,10 +118,10 @@ import SwiftUI
 
     #if DEBUG
     /// F6: Chief's unseen question shows on the pin and counts as Needs You.
-    @Test func unseenQuestionIsNeedsYou() async {
+    @Test func unseenQuestionIsNeedsYou() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
         let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: ChiefOutbox(file: file))
-        while session.lastMessage == nil { await Task.yield() }
+        try await waitUntil("Chief's first message") { session.lastMessage != nil }
         #expect(session.isWaitingOnYou)
         #expect(session.needsYou)
         session.markSeen()

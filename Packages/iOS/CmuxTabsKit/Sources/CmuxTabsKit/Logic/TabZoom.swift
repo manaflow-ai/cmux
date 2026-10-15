@@ -13,17 +13,23 @@ struct ZoomSpring: Equatable, Sendable {
     // timestamps (cmux-next ios-next/reference/validation/browser-springs-verify.md).
     /// Page to card (tabs button): 0.369 / 0.873, four events agree.
     static let toOverview = ZoomSpring(response: 0.37, damping: 0.875)
-    /// Card to page (Done, a card): the middle and tail fit 0.385–0.40 /
-    /// 0.98–0.99. From rest: simulator Safari's first frame moves 7–11 pt
-    /// and its second about 21 pt (cmux-next tabs-parity-audit 1a).
-    static let toPage = ZoomSpring(response: 0.39, damping: 0.99)
-    /// (+) New Tab: Safari's start page tail fits 0.34 / 0.97 with about
-    /// 10 progress/s at its first sharp frame (cmux-next tabs-parity-audit 2a).
-    static let newTab = ZoomSpring(response: 0.34, damping: 0.97, launch: 10)
-    /// The fresh tab after the last one closed: Safari scales its start page
-    /// from about 0.84 to 1, at rest about 275 ms after its first frame
-    /// (cmux-next tabs-parity-reaudit D2).
-    static let afterLastClose = ZoomSpring(response: 0.245, damping: 1)
+    /// Card to page (Done, a card), from rest: simulator Safari's mean
+    /// crossings are t50 95 ms and t90 227 ms (3 runs, tabs-parity-audit
+    /// 1a), which this spring gives (0.39 / 0.99 was 17–22 ms late,
+    /// cmux-next re-audit 2); its first frame moves about 8 pt (Safari 7–11).
+    static let toPage = ZoomSpring(response: 0.356, damping: 0.99)
+    /// (+) New Tab: Safari's page edge, from where it passes 385 pt (0.7
+    /// scale start), reaches 395 / 398 / 400 / 401.3 pt 48 / 80 / 130 /
+    /// 182 ms later (cmux-next tabs-parity-reaudit-2 D5). With 10 progress/s at the
+    /// start this spring gives 53 / 86 / 125 / 184 ms; 0.34 / 0.97 gave 57 /
+    /// 91 / 131 / 189 and rendered a frame later still.
+    static let newTab = ZoomSpring(response: 0.27, damping: 1.03, launch: 10)
+    /// The fresh start page after the last tab closed: Safari turns the lone
+    /// card into the start page in its own slot (0.665 of the width) and
+    /// zooms it to full screen, at rest about 500 ms later; its page edge
+    /// fits 0.375 / 0.98 from rest within 1.5 pt (`saf-last-page.csv`,
+    /// tabs-parity-reaudit-2 D2).
+    static let afterLastClose = ZoomSpring(response: 0.375, damping: 0.98)
     /// After a reversal Safari follows the destination's spring from about
     /// rest (toward the page 0.308–0.331 / 1.03–1.04, toward the grid
     /// 0.346–0.369 / 0.84–0.875).
@@ -41,10 +47,13 @@ struct NewTabZoom: Equatable, Sendable {
     /// The page starts blurred and sharpens (Safari's (+); the page after
     /// the last tab closed is sharp throughout).
     var blurs = true
+    /// Grow from the lone card's slot in the grid instead of the centred
+    /// `scale` rect (the page after the last tab closed).
+    var fromLoneSlot = false
     /// (+): Safari's start page shows first at about 0.6–0.77 of the screen.
     static let plus = NewTabZoom(scale: 0.7, spring: .newTab)
-    /// The last tab closed: a fresh tab from about 0.84, sharp.
-    static let lastTabClosed = NewTabZoom(scale: 0.84, spring: .afterLastClose, blurs: false)
+    /// The last tab closed: a fresh start page from the lone card's slot, sharp.
+    static let lastTabClosed = NewTabZoom(scale: 2.0 / 3, spring: .afterLastClose, blurs: false, fromLoneSlot: true)
 
     func rect(in full: CGRect) -> CGRect {
         let w = full.width * scale, h = full.height * scale

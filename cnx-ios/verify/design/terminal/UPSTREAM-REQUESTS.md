@@ -281,3 +281,27 @@ bottom are now hidden from accessibility and hit-testing while
    the kit uses so that clients can agree with it.
 
 **Default:** this is a correctness fix with no opt-in; nothing visible changes.
+
+## Upstream changes synced 2026-10-14 (tabs-kit f085ad35 to 2dd83bab)
+
+Context for terminal QA, not a request. cnx-ios synced CmuxTabsKit to
+`2dd83bab` ("Safari parity re-audit 2 fixes"). No public API changed and no
+host code changed. Behaviour to expect when testing close, new tab and the grid:
+
+- **Swipe to close.** Release is judged on the card's position projected 0.2 s
+  ahead at the release velocity (past 72% of the width, or a left fling faster
+  than 225 pt/s). A drag that slows to a stop springs back; a slower swipe that
+  leaves moving now closes where it used to spring back.
+- **Close timing.** The kit calls `WorkspaceTabsSource.close(_:)` one frame
+  (17 ms) after the release, not 99 ms. The fly-off is driven every display
+  frame and stays above its neighbours. The host's close still awaits the Mac;
+  a refusal (false) springs the card back with the notice, as before.
+- **Long press.** A long-press reorder or menu owns the touch: dragging a card
+  left in a reorder no longer closes it.
+- **Closing the active card on the grid** fades and shrinks it instead of the
+  live page vanishing in one frame.
+- **Last tab closed.** The fresh tab grows sharp from the lone card's slot
+  (0.375 / 0.98, at rest about 500 ms), not from 0.84 of the screen centre.
+- **New tab** grows blurred and sharpens from the centre (0.27 / 1.03). Reflow
+  after a close (0.43 / 0.865), zoom to page (0.356 / 0.99) and the bar
+  swipe-up release speed were retuned.

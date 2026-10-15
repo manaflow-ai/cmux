@@ -12,13 +12,13 @@ enum SendLaterStyle {
         alpha: 1
     )
     /// `EntryFieldSendLaterBalloonColor`: the composer field while Send Later is on.
-    static let fieldFill = UIColor { traits in
+    static let fieldFill = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(displayP3Red: 0.0549, green: 0.1216, blue: 0.2275, alpha: 1)
             : UIColor(displayP3Red: 0.9255, green: 0.9608, blue: 1, alpha: 1)
     }
     /// `EntryFieldSendLaterPressedBalloonColor`.
-    static let fieldPressedFill = UIColor { traits in
+    static let fieldPressedFill = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(displayP3Red: 0.0745, green: 0.1647, blue: 0.3098, alpha: 1)
             : UIColor(displayP3Red: 0.8392, green: 0.9176, blue: 1, alpha: 1)

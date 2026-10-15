@@ -409,3 +409,49 @@ async fn throughput_probe() {
         connected.link.close("done");
     }
 }
+
+/// Like the backend (team-hub.ts), the fake keeps one socket per device: a
+/// second socket for the same device closes the first with 4000 "replaced",
+/// so a client can tell its warm socket is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_socket_for_a_device_replaces_the_first() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let device = uuid::Uuid::new_v4().to_string();
+    let first = SignalingClient::connect(&server.base_url, "user:alice", "team", &device).await.unwrap();
+    let mut events = first.events();
+    let _second = SignalingClient::connect(&server.base_url, "user:alice", "team", &device).await.unwrap();
+    let reason = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(cnx_link::signaling::SignalingEvent::Disconnected(reason)) = events.recv().await {
+                return reason;
+            }
+        }
+    })
+    .await
+    .expect("the first socket closes");
+    assert!(reason.contains("4000") && reason.contains("replaced"), "{reason}");
+    assert!(first.closed_reason().is_some());
+}
+
+/// A socket the backend closed takes its writer down with it: nothing more
+/// is queued on it (the writer task, and with it the socket's write half,
+/// would otherwise live on after every server-side close).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_socket_the_backend_closed_refuses_to_queue() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let device = uuid::Uuid::new_v4().to_string();
+    let client = SignalingClient::connect(&server.base_url, "user:alice", "team", &device).await.unwrap();
+    let mut events = client.events();
+    server.kick(&device);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !matches!(events.recv().await, Ok(cnx_link::signaling::SignalingEvent::Disconnected(_))) {}
+    })
+    .await
+    .expect("the socket closes");
+    let frame = cnx_link::signaling::RelayFrame {
+        session_id: uuid::Uuid::new_v4(),
+        peer: uuid::Uuid::new_v4(),
+        datagram: Bytes::from_static(&[0xff]),
+    };
+    assert!(client.send_relay(&frame).is_err(), "a closed socket still queues relay frames");
+}
