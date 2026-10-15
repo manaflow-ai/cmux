@@ -11,7 +11,7 @@ public enum CloudListeningPortKind: String, Equatable, Sendable, CaseIterable {
     case app
     /// The machine's SSH server.
     case ssh
-    /// The resolver stub (systemd-resolved, dnsmasq) on port 53 or a 127/8 alias.
+    /// The resolver stub (systemd-resolved, dnsmasq) on port 53 or 127.0.0.53/54.
     case dns
     /// The cmux-tui daemon and other cmux processes inside the machine.
     case cmux
@@ -73,8 +73,15 @@ extension CloudListeningPortKind {
         return ports
     }()
 
-    /// Exact process names that are never the person's own service.
+    /// Exact process names that are never the person's own service. cmux's own
+    /// processes are named one by one (`ss` reports at most 15 characters of a
+    /// name, hence `cmux-cloud-adap`), so a person's `cmux-demo` stays theirs.
     public static let systemProcesses: [String: CloudListeningPortKind] = [
+        "cmux-tui": .cmux,
+        "cmuxd": .cmux,
+        "cmuxd-remote": .cmux,
+        "cmux-cloud-adapter": .cmux,
+        "cmux-cloud-adap": .cmux,
         "sshd": .ssh,
         "systemd-resolve": .dns,
         "systemd-resolved": .dns,
@@ -118,23 +125,19 @@ extension CloudListeningPortKind {
 
     /// The kind a single process name implies.
     public init(processName name: String) {
-        if let kind = Self.systemProcesses[name] {
-            self = kind
-        } else if name.lowercased().hasPrefix("cmux") {
-            // cmux-tui, cmuxd, cmuxd-remote and helpers all start with `cmux`.
-            self = .cmux
-        } else {
-            self = .app
-        }
+        self = Self.systemProcesses[name] ?? .app
     }
 
-    /// 127/8 addresses other than 127.0.0.1 are system stubs (systemd-resolved
-    /// on 127.0.0.53/54), not services a preview could reach.
+    /// systemd-resolved's stub listeners. Another 127/8 address is one someone
+    /// bound on purpose, so it is classified like any other.
+    static let resolverStubAddresses: Set<String> = ["127.0.0.53", "127.0.0.54"]
+
+    /// True for the resolver stub's loopback addresses (127.0.0.53/54).
     static func isLoopbackAlias(_ raw: String) -> Bool {
         let bracketless = raw.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         let address = bracketless.split(separator: "%", maxSplits: 1).first.map(String.init) ?? bracketless
         let v4 = address.hasPrefix("::ffff:") ? String(address.dropFirst("::ffff:".count)) : address
-        return v4.hasPrefix("127.") && v4 != "127.0.0.1"
+        return resolverStubAddresses.contains(v4)
     }
 }
 
