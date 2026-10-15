@@ -1,6 +1,7 @@
 //! The lists against what the page sends (webviews/src/agent-session/acpmux),
 //! as AcpmuxPaneMethods.swift says they were made: every
-//! `this.request("...")` in direct.ts and sessionPages.ts, `HANDOFF_OPS` (handoff/protocol.ts),
+//! `this.request("...")` in direct.ts and sessionPages.ts, the method a
+//! `typedRequest(send, "...")` in direct.ts names, `HANDOFF_OPS` (handoff/protocol.ts),
 //! `PERMISSION_GROUP_OPS` (permissions/protocol.ts), `FORK_OP`
 //! (operations.ts), `PREWARM_METHOD` (direct.ts), and the raw
 //! `session/cancel` notification. `file.search` (and the git reads, sent by a
@@ -64,6 +65,19 @@ fn the_allowlist_is_what_the_page_sends() {
     let direct = read(&dir, "direct.ts");
     let mut sent: BTreeSet<String> = quoted_after(&direct, "this.request(").into_iter().collect();
     sent.extend(quoted_after(&read(&dir, "sessionPages.ts"), "this.request("));
+    // A typed call (protocol/client.ts `typedRequest`) names its method, a
+    // string literal, as its second argument, right after its sender.
+    for call in direct.split("typedRequest(").skip(1) {
+        // An arrow sender ends at its call's `),`; a named one at the first `,`.
+        let after_sender =
+            if call.starts_with('(') { call.split_once("),") } else { call.split_once(',') };
+        let method = after_sender
+            .and_then(|(_, rest)| rest.trim_start().strip_prefix('"'))
+            .and_then(|rest| rest.split_once('"'))
+            .map(|(method, _)| method)
+            .unwrap_or_else(|| panic!("a typedRequest call names a literal method: {call:.80}"));
+        sent.insert(method.to_owned());
+    }
     sent.extend(object_values(&read(&dir, "handoff/protocol.ts"), "HANDOFF_OPS"));
     sent.extend(object_values(&read(&dir, "permissions/protocol.ts"), "PERMISSION_GROUP_OPS"));
     sent.insert(constant(&read(&dir, "operations.ts"), "FORK_OP"));
