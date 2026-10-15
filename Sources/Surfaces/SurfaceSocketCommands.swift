@@ -584,9 +584,10 @@ extension TerminalController {
     @discardableResult
     nonisolated static func openRemoteWorkspace(
         _ selector: String,
-        machine: SurfaceMachineID,
+        machine machineID: String,
         focus: Bool
     ) async throws -> UUID {
+        let machine = SurfaceMachineID(rawValue: machineID)
         let catalog = await SurfaceCatalog.shared
         let (workspace, _) = try await resolveRemoteWorkspaceForOpen(selector, machine: machine, catalog: catalog)
         let group = try await catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)

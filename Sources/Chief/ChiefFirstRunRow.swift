@@ -107,9 +107,10 @@ final class ChiefFirstRunRow: NSView {
         NSSize(width: style == .chip ? chipWidth : width, height: style == .chip ? Self.chipHeight : Self.height)
     }
 
-    /// A chip's natural width: glyph, gap, label, padding.
+    /// A chip's natural width: glyph, gap, label (with the text field's own
+    /// cell padding, which the bare string size leaves out), padding.
     var chipWidth: CGFloat {
-        ceil(12 + 15 + 6 + label.attributedStringValue.size().width + 1 + 14)
+        ceil(12 + 15 + 6 + label.intrinsicContentSize.width + 14)
     }
 
     func setLeading(_ leading: Leading) {

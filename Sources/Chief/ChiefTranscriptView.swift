@@ -527,7 +527,7 @@ final class ChiefTranscriptView: NSView {
         // task-owner: one open; ends when the workspace is projected or fails
         Task { @MainActor [weak self] in
             do {
-                try await TerminalController.openRemoteWorkspace(workspace, machine: SurfaceMachineID(rawValue: machine), focus: true)
+                try await TerminalController.openRemoteWorkspace(workspace, machine: machine, focus: true)
             } catch {
                 self?.showNotice(ChiefStrings.cloudOpenFailed(machine))
             }
