@@ -53,17 +53,20 @@ final class WindowColorFade {
         for rect in rects where rect.width > 0 && rect.height > 0 {
             let pixels = CGRect(x: rect.minX * scale, y: (frame.height - rect.maxY) * scale,
                                 width: rect.width * scale, height: rect.height * scale).integral
-            guard let crop = image.cropping(to: pixels) else { continue }
+            guard let crop = image.cropping(to: pixels).flatMap(Self.resident) else { continue }
             let layer = CALayer()
             layer.contents = crop
             layer.contentsGravity = .resize
             layer.frame = host.convert(rect, from: nil)
             layer.zPosition = z
-            layer.opacity = 0
             hostLayer.addSublayer(layer)
             overlays.append(layer)
         }
         CATransaction.commit()
+        // The overlays reach the screen opaque before the change does: committed alone, their
+        // first frame already shows the image (in the change's own commit a large new image could
+        // miss its first frame and show the new colors bare for one frame).
+        if !overlays.isEmpty { CATransaction.flush() }
         guard !overlays.isEmpty else {
             overlays = retiring
             retiring.removeAll()
@@ -79,10 +82,22 @@ final class WindowColorFade {
         }
         let opacities: [Any] = samples.map { Float(1 - min(max($0, 0), 1)) }
         for layer in overlays {
+            layer.opacity = 0
             let animation = Motion.sampledKeyframes("opacity", values: opacities, duration: transition.seconds)
             layer.add(animation, forKey: "cmux.colorFade")
         }
         CATransaction.commit()
+    }
+
+    /// `image` copied into memory the render server can show at once (the window server's image
+    /// can be backed lazily).
+    private static func resident(_ image: CGImage) -> CGImage? {
+        guard let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return image }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage() ?? image
     }
 
     private func removeOverlays() {
