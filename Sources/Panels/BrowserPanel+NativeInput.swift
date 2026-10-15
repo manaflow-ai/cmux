@@ -60,7 +60,7 @@ enum BrowserRawInputFailure: Error, Sendable {
 /// real cursor; a hidden pane renders in an offscreen host for the duration.
 /// Requests run one at a time per panel, and one that fails or is cancelled
 /// releases the buttons it pressed.
-extension BrowserPanel {
+extension BrowserPanel: WebKitBrowserPageNativeInputDelivering {
     /// Delivers `steps` to `webView`, the panel's current web view, after
     /// every earlier native input request of this panel, and returns where
     /// the pointer ends. Throws ``BrowserRawInputFailure``.
