@@ -69,10 +69,10 @@ pub fn owned_by(s: &SessionSummary, home: &std::path::Path) -> bool {
 /// daemon shutdown` did for a Chief's own daemon. The daemon keeps
 /// running. Returns the names it stopped.
 pub fn end_own_sessions(home: &std::path::Path) -> Result<Vec<String>, String> {
-    let (client, _) = connect()?;
+    let client = connect_bounded()?;
     // All kills at once, bounded together: a host stops within the
     // supervisor's grace (5 s before SIGKILL), whatever one session does.
-    let started: Vec<_> = sessions(&client)?
+    let started: Vec<_> = sessions_bounded(&client)?
         .into_iter()
         .filter(|s| owned_by(s, home) && s.status != cmux_chief::acp::SessionStatus::Closed)
         .map(|s| {
@@ -119,34 +119,14 @@ pub fn other_users(
         .flatten()
         .map(|entry| chief_home.join("c").join(entry.file_name()));
     for chief in std::iter::once(chief_home.to_path_buf()).chain(chiefs) {
-        if chief != home && crate::lock::held(&chief.join("state/host.lock")) {
+        if chief != home && crate::lock::in_use(&chief.join("state/host.lock")) {
             users.push(format!("host {}", chief.display()));
         }
     }
-    // Bounded: a stop must not hang on a daemon that does not answer.
-    let socket = crate::acpmux_daemon::socket_path();
-    let client = crate::acpmux_peer::connect(&socket, |_| {})
-        .map_err(|e| format!("acpmux is not reachable at {}: {e}", socket.display()))?;
-    let ask = |method: &str, params: Value| {
-        client
-            .start(method, params)
-            .recv_timeout(USERS_LIMIT)
-            .map_err(|_| format!("{method}: no answer in {} s", USERS_LIMIT.as_secs()))?
-            .map_err(|e| format!("{method}: {e}"))
-    };
-    let listed = ask(
-        "initialize",
-        json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "chief-agents", "version": env!("CARGO_PKG_VERSION")}}),
-    )
-    .and_then(|_| ask("_acpmux/sessions", json!({})));
+    let client = connect_bounded()?;
+    let listed = sessions_bounded(&client);
     client.close();
-    let listed: Vec<SessionSummary> = listed?
-        .get("sessions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|s| serde_json::from_value(s.clone()).ok())
-        .collect();
+    let listed = listed?;
     let me = crate::paths::home_id(home);
     let my_parent = parent_tag(home);
     for s in listed {
@@ -170,8 +150,44 @@ pub fn other_users(
     Ok(users)
 }
 
-/// How long [`other_users`] waits for each answer.
-const USERS_LIMIT: Duration = Duration::from_secs(2);
+/// How long a stop waits for each acpmux answer ([`connect_bounded`]).
+const STOP_ANSWER_LIMIT: Duration = Duration::from_secs(1);
+
+/// [`connect`] for a stop: it never hangs on a daemon that does not answer.
+fn connect_bounded() -> Result<Arc<RpcClient>, String> {
+    let socket = crate::acpmux_daemon::socket_path();
+    let client = crate::acpmux_peer::connect(&socket, |_| {})
+        .map_err(|e| format!("acpmux is not reachable at {}: {e}", socket.display()))?;
+    let answer = ask_bounded(
+        &client,
+        "initialize",
+        json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "chief-agents", "version": env!("CARGO_PKG_VERSION")}}),
+    );
+    if let Err(e) = answer {
+        client.close();
+        return Err(e);
+    }
+    Ok(client)
+}
+
+fn ask_bounded(client: &RpcClient, method: &str, params: Value) -> Result<Value, String> {
+    client
+        .start(method, params)
+        .recv_timeout(STOP_ANSWER_LIMIT)
+        .map_err(|_| format!("{method}: no answer in {} s", STOP_ANSWER_LIMIT.as_secs()))?
+        .map_err(|e| format!("{method}: {e}"))
+}
+
+/// `_acpmux/sessions`, bounded.
+fn sessions_bounded(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
+    Ok(ask_bounded(client, "_acpmux/sessions", json!({}))?
+        .get("sessions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|s| serde_json::from_value(s.clone()).ok())
+        .collect())
+}
 
 /// How long [`end_own_sessions`] waits for all its kills.
 const END_SESSIONS_LIMIT: Duration = Duration::from_secs(3);

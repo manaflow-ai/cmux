@@ -93,11 +93,6 @@ pub trait ProcessProbe {
     fn start_ms(&self, pid: i32) -> Option<i64>;
 }
 
-/// Upgrade check, REMOVE AFTER ONE RELEASE (chief-mac.md section 2): a lock
-/// text without the mark that names a live process whose start is no later
-/// than the recorded start (or the file's mtime) plus 1 s is an older host
-/// that is still running. A reused pid starts later, so the check is one-sided;
-/// an unknown start counts as the older host.
 /// Whether a host holds the lock at `path` now (a non-blocking probe on its
 /// own descriptor, released at once). A missing file or another error says
 /// no host. Also true for this process's own held lock.
@@ -115,6 +110,35 @@ pub fn held(path: &Path) -> bool {
     }
 }
 
+/// The file next to the host lock `lock` that says its host is stopping
+/// (`mark_stopping`): a host that stops no longer uses its acpmux, so other
+/// Chiefs that stop at the same time do not count it (the last of them stops
+/// the Chief home's acpmux). The next host of that home removes it when it
+/// takes the lock.
+fn stopping_file(lock: &Path) -> std::path::PathBuf {
+    lock.with_file_name("host.stopping")
+}
+
+/// Marks the host of `lock` (this one) as stopping.
+pub fn mark_stopping(lock: &Path) {
+    let _ = std::fs::write(stopping_file(lock), format!("{}\n", std::process::id()));
+}
+
+/// Clears the mark, at a host's start.
+pub fn clear_stopping(lock: &Path) {
+    let _ = std::fs::remove_file(stopping_file(lock));
+}
+
+/// Whether a host runs on `lock` and is not stopping.
+pub fn in_use(lock: &Path) -> bool {
+    held(lock) && !stopping_file(lock).exists()
+}
+
+/// Upgrade check, REMOVE AFTER ONE RELEASE (chief-mac.md section 2): a lock
+/// text without the mark that names a live process whose start is no later
+/// than the recorded start (or the file's mtime) plus 1 s is an older host
+/// that is still running. A reused pid starts later, so the check is one-sided;
+/// an unknown start counts as the older host.
 pub fn older_host(text: &str, mtime_ms: i64, me: i32, probe: &dyn ProcessProbe) -> Option<i32> {
     let lines: Vec<&str> = text.trim().split('\n').collect();
     if lines.contains(&FLOCK_MARK) {

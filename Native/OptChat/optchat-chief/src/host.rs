@@ -479,7 +479,11 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         return 1;
     }
     let _lock = match HostLock::take(&paths.host_lock, started_ms) {
-        Ok(lock) => lock,
+        Ok(lock) => {
+            // A stop mark an earlier host of this home left says nothing now.
+            crate::lock::clear_stopping(&paths.host_lock);
+            lock
+        }
         Err(LockError::Held) => {
             log(format!("already running for {}", home.display()));
             return 0;
@@ -1483,7 +1487,10 @@ static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 /// - A shared acpmux (`acpmux_daemon::shared`): this Chief's own sessions
 ///   end; when no other Chief uses the daemon, it stops too.
 ///
-/// A daemon this host neither started nor shares is left alone.
+/// Before it looks for other users a stopping host marks itself stopping
+/// (`lock::mark_stopping`) and ends its own sessions, so when Chiefs stop
+/// at once the last one to look stops the daemon. A daemon this host
+/// neither started nor shares is left alone.
 fn stop_started_acpmux() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
@@ -1492,48 +1499,55 @@ fn stop_started_acpmux() {
         let chief_home = env("CMUX_CHIEF_HOME")
             .filter(|_| shared)
             .map_or_else(|| home.clone(), PathBuf::from);
-        let end_own = |why: &str| match crate::agents::end_own_sessions(&home) {
-            Ok(names) => log(format!(
-                "acpmux: ended this Chief's {} session(s) ({why})",
-                names.len()
-            )),
-            Err(e) => log(format!("acpmux: ending this Chief's sessions: {e}")),
-        };
-        if shared {
-            match crate::agents::other_users(&home, &chief_home) {
-                Ok(users) if users.is_empty() => {
-                    // Its own sessions end first (kept, resumable), as with
-                    // other users; then the daemon nobody uses.
-                    end_own("this Chief is its last user; stopping it next");
-                    crate::acpmux_daemon::shutdown_shared(&|line| log(line));
-                }
-                Ok(users) => end_own(&format!(
-                    "{} other user(s); the daemon keeps running",
-                    users.len()
-                )),
-                Err(e) => end_own(&format!("its users unknown ({e}); the daemon keeps running")),
-            }
-            return;
-        }
-        let Some(mut started) = crate::acpmux_daemon::take_started() else {
-            return;
-        };
-        if started.gone() {
+        // No start begins from here; a start in flight finishes first.
+        let mut started = crate::acpmux_daemon::take_started();
+        if started.as_mut().is_some_and(|daemon| daemon.gone()) {
+            // A handoff stopped it: the next build's daemon adopts this
+            // Chief's sessions, and the daemon on the socket is not ours.
             log("acpmux: the daemon this host started already stopped (a handoff or the app); nothing to stop");
             return;
         }
+        if !shared && started.is_none() {
+            // A daemon it found running is the app's, a supervisor's or
+            // another Chief's.
+            return;
+        }
+        // Every stopping Chief first marks itself stopping and ends its own
+        // sessions, then looks for other users: the last one to look sees
+        // all the others gone and stops the daemon, also when all stop at
+        // once (the supervisor stops every brain together).
+        crate::lock::mark_stopping(&home.join("state/host.lock"));
+        match crate::agents::end_own_sessions(&home) {
+            Ok(names) => log(format!("acpmux: ended this Chief's {} session(s)", names.len())),
+            Err(e) => log(format!("acpmux: ending this Chief's sessions: {e}")),
+        }
         match crate::agents::other_users(&home, &chief_home) {
             Ok(users) if !users.is_empty() => {
-                end_own(&format!(
-                    "other Chiefs use it, the daemon keeps running: {}",
+                log(format!(
+                    "acpmux: other Chiefs use it, the daemon keeps running: {}",
                     users.join(", ")
                 ));
-                return;
             }
-            Ok(_) => {}
-            Err(e) => log(format!("acpmux: its users unknown ({e}); stopping it")),
+            Ok(_) => {
+                log("acpmux: no other Chief uses it; stopping it");
+                match started.take() {
+                    // A shared host stops within the supervisor's grace:
+                    // the shutdown runs on without it.
+                    _ if shared => crate::acpmux_daemon::shutdown_shared(&|line| log(line)),
+                    Some(daemon) => {
+                        daemon.shutdown(&|line| log(line));
+                    }
+                    None => {}
+                }
+            }
+            Err(e) if !shared => {
+                log(format!("acpmux: its users unknown ({e}); stopping the daemon it started"));
+                if let Some(daemon) = started.take() {
+                    daemon.shutdown(&|line| log(line));
+                }
+            }
+            Err(e) => log(format!("acpmux: its users unknown ({e}); the daemon keeps running")),
         }
-        started.shutdown(&|line| log(line));
     });
 }
 

@@ -244,8 +244,20 @@ fn two_chiefs_on_one_acpmux_reach_only_their_own_sessions() {
 /// A host on `acpmux_home` (it starts the fake there), stopped with SIGTERM
 /// once the fake runs; the fake's pid.
 fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&Path>) -> i32 {
+    let host = start_host(dir, mux_home, acpmux_home, shared);
+    stop_host(host, acpmux_home)
+}
+
+/// A host of the Chief at `mux_home` on `acpmux_home` (it starts the fake
+/// there when none answers).
+fn start_host(
+    dir: &Path,
+    mux_home: &Path,
+    acpmux_home: &Path,
+    shared: Option<&Path>,
+) -> std::process::Child {
     let bin = fake_acpmux(acpmux_home);
-    let token = dir.join("agent-token");
+    let token = dir.join(format!("agent-token-{}", home_id(mux_home)));
     std::fs::write(&token, "secret\n").unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_optchat-chief"));
     command
@@ -273,7 +285,12 @@ fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&P
             .env("OPTCHAT_ACPMUX_SHARED", "1")
             .env("CMUX_CHIEF_HOME", chief_home);
     }
-    let mut host = command.spawn().unwrap();
+    command.spawn().unwrap()
+}
+
+/// Stops `host` with SIGTERM once the fake on `acpmux_home` runs; the
+/// fake's pid.
+fn stop_host(mut host: std::process::Child, acpmux_home: &Path) -> i32 {
     let mut guard = Leftovers(vec![host.id() as i32]);
     let pid_file = acpmux_home.join("run.pid");
     wait_for("the host starting acpmux", Duration::from_secs(30), || {
@@ -510,6 +527,49 @@ fn the_last_chief_to_leave_stops_the_chief_homes_acpmux() {
     std::fs::create_dir_all(&b).unwrap();
     let fake = host_stops(dir.path(), &a, &acpmux_home, Some(&h));
     let _guard = Leftovers(vec![fake]);
+    // The shutdown runs on after the host (a brain stops within 5 s).
+    wait_for("the daemon ending", Duration::from_secs(10), || !alive(fake));
     assert_eq!(calls(&acpmux_home), ["_acpmux/kill s-a-turn", "shutdown"]);
-    wait_for("the daemon ending", Duration::from_secs(5), || !alive(fake));
+}
+
+/// All Chiefs stop at once (the supervisor stops every brain together, after
+/// the default Chief's host is gone): each marks itself stopping and ends
+/// its own sessions before it looks for other users, so the last one to
+/// look stops the Chief home's acpmux; it does not stay with no user.
+#[test]
+fn chiefs_that_stop_at_once_leave_no_daemon_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let (a, b) = (h.join("c/aaaa1111"), h.join("c/bbbb2222"));
+    let acpmux_home = h.join("acpmux");
+    std::fs::create_dir_all(&acpmux_home).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let first = start_host(dir.path(), &a, &acpmux_home, Some(&h));
+    let pid_file = acpmux_home.join("run.pid");
+    wait_for("A starting acpmux", Duration::from_secs(30), || {
+        std::fs::read_to_string(&pid_file).is_ok_and(|p| !p.is_empty())
+    });
+    let second = start_host(dir.path(), &b, &acpmux_home, Some(&h));
+    wait_for("B's host running", Duration::from_secs(30), || {
+        b.join("state/host.lock").exists()
+    });
+    let mut hosts = vec![first, second];
+    let fake: i32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    let _guard = Leftovers(
+        hosts.iter().map(|h| h.id() as i32).chain([fake]).collect(),
+    );
+    for host in &hosts {
+        // SAFETY: our own children.
+        unsafe { libc::kill(host.id() as i32, libc::SIGTERM) };
+    }
+    for host in &mut hosts {
+        let mut status = None;
+        wait_for("a host exiting", Duration::from_secs(30), || {
+            status = host.try_wait().unwrap();
+            status.is_some()
+        });
+    }
+    wait_for("the last Chief stopping the daemon", Duration::from_secs(10), || {
+        calls(&acpmux_home).contains(&"shutdown".to_owned())
+    });
 }

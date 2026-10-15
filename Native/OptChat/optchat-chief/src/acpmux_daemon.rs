@@ -237,19 +237,25 @@ pub fn ensure_with(
             if bin.is_some() && !begin_start() {
                 return Err("the host is stopping; it starts no acpmux".into());
             }
-            let result = spawn(socket, bin, log);
-            let pid = result.as_ref().map(std::process::Child::id).ok();
+            let child = match spawn(socket, bin, log) {
+                Ok(child) => child,
+                Err(e) => {
+                    if bin.is_some() {
+                        finish_start(None);
+                    }
+                    return Err(e);
+                }
+            };
+            let pid = child.id();
+            // `spawn` starts nothing without a binary, so `bin` is set here.
             if let Some(bin) = bin {
-                finish_start(result.ok().map(|child| Started {
+                finish_start(Some(Started {
                     bin: bin.into(),
                     socket: socket.to_path_buf(),
                     home: daemon_home(socket),
                     child,
                 }));
-            } else {
-                result?;
             }
-            let pid = pid.ok_or_else(|| "starting acpmux failed".to_owned())?;
             seen_up.store(true, Ordering::SeqCst);
             Ok(Some(pid))
         }
@@ -416,15 +422,30 @@ pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
 
 /// Stops the daemon this host's `ACPMUX_HOME`/`ACPMUX_SOCKET` name with
 /// `$ACPMUX_BIN daemon shutdown`, whoever started it: the last Chief to
-/// leave a Chief home's shared acpmux (hq-6d 2026-10-14). Whether it
-/// stopped one.
-pub fn shutdown_shared(log: &dyn Fn(&str)) -> bool {
+/// leave a Chief home's shared acpmux (hq-6d 2026-10-14).
+pub fn shutdown_shared(log: &dyn Fn(&str)) {
     let Some(bin) = env("ACPMUX_BIN") else {
         log("stopping acpmux: ACPMUX_BIN is not set");
-        return false;
+        return;
     };
     let socket = socket_path();
-    shutdown_at(Path::new(&bin), &daemon_home(&socket), &socket, log)
+    let home = daemon_home(&socket);
+    // Not waited for, in its own process group: a brain's host stops within
+    // the supervisor's grace (5 s before SIGKILL), the shutdown may take 20.
+    let started = Command::new(&bin)
+        .args(["daemon", "shutdown"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", &socket)
+        .current_dir(&home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn();
+    match started {
+        Ok(child) => log(&format!("stopping acpmux: `daemon shutdown` runs (pid {})", child.id())),
+        Err(e) => log(&format!("stopping acpmux: starting {bin}: {e}")),
+    }
 }
 
 /// `bin daemon shutdown` for the daemon of `home` on `socket`, bounded.
