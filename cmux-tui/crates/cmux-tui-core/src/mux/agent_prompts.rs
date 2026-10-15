@@ -7,7 +7,9 @@
 //! Its last reply rides the same way (`live_reply`, cx-kz6m0; Leo 2026-10-14: the turn-done
 //! banner shows the agent's last message): kept from the append until the commit's
 //! `notification` event takes it as the banner's `preview`, then gone. It never reaches the
-//! notification ledger, which is durable.
+//! notification ledger, which is durable. The reply belongs to the thread whose append kept
+//! it, so another hook's append for the same terminal (a question, an approval) running at the
+//! same time neither shows it nor drops it.
 
 use super::*;
 
@@ -15,7 +17,7 @@ use super::*;
 #[derive(Default)]
 pub(crate) struct AgentTexts {
     pub(crate) prompts: HashMap<TerminalPublicId, Arc<str>>,
-    replies: HashMap<TerminalPublicId, Arc<str>>,
+    replies: HashMap<TerminalPublicId, (std::thread::ThreadId, Arc<str>)>,
 }
 
 impl AgentTexts {
@@ -70,17 +72,27 @@ impl Mux {
             return false;
         }
         let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
-        texts.replies.insert(terminal.clone(), Arc::from(reply));
+        let owner = std::thread::current().id();
+        texts.replies.insert(terminal.clone(), (owner, Arc::from(reply)));
         true
     }
 
-    /// The reply kept for `terminal`, taken: one banner shows it.
+    /// The reply this thread's append kept for `terminal`, taken: one banner shows it.
     pub(super) fn take_agent_reply(&self, terminal: &TerminalPublicId) -> Option<Arc<str>> {
-        self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner).replies.remove(terminal)
+        self.remove_own_reply(terminal)
     }
 
     /// Drops a reply no notification took (the append failed, replayed or posted nothing).
     pub(crate) fn forget_agent_reply(&self, terminal: &TerminalPublicId) {
-        self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner).replies.remove(terminal);
+        self.remove_own_reply(terminal);
+    }
+
+    fn remove_own_reply(&self, terminal: &TerminalPublicId) -> Option<Arc<str>> {
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        let owner = std::thread::current().id();
+        if texts.replies.get(terminal).is_none_or(|(kept_by, _)| *kept_by != owner) {
+            return None;
+        }
+        texts.replies.remove(terminal).map(|(_, reply)| reply)
     }
 }

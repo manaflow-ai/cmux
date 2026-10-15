@@ -326,7 +326,7 @@ final class NotificationCenterService {
         feedDriver?.run()
         if decision.desktop {
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
-                 subtitle: notification.subtitle ?? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName),
+                 subtitle: notification.subtitle.flatMap { $0.isEmpty ? nil : $0 } ?? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName),
                  program: program)
         }
         if !decision.desktop, let sound = decision.sound {
