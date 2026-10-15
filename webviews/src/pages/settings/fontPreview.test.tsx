@@ -31,9 +31,9 @@ test("the Fonts group previews a chat in the chosen faces and size, live", async
   expect(preview()("--font-preview-code")).toStartWith("var(--cmux-font-code,");
 
   await run(() => page!.store.set("appearance.fonts.ui", "serif"));
-  await run(() => page!.store.set("appearance.fonts.code", "Courier New"));
+  await run(() => page!.store.set("appearance.fonts.code", "JetBrains Mono"));
   await run(() => page!.store.set("appearance.fonts.chatSize", 17));
   expect(preview()("--font-preview-ui")).toStartWith("ui-serif");
-  expect(preview()("--font-preview-code")).toStartWith('"Courier New",');
+  expect(preview()("--font-preview-code")).toStartWith('"JetBrains Mono",');
   expect(preview()("--font-preview-size")).toBe("17px");
 });
