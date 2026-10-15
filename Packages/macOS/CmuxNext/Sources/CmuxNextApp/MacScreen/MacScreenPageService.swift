@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextControl
+import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextIcons
 import CmuxNextMacScreen
 import CmuxNextSettings
@@ -91,8 +92,10 @@ final class MacScreenPageService: InternalPageProvider {
         let key = LocalPageTab.makeKey(.macScreen)
         pages.prepare(key, record: record, byPerson: byPerson)
         let window = services.windowController(showing: pane)
+        var onCreated: (@MainActor (SurfaceID) -> Void)?
+        if let created { onCreated = { _ in created() } }
         if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key,
-                                                   created: created.map { done in { _ in done() } }) != nil {
+                                                   created: onCreated) != nil {
             return key
         }
         services.pages.open(.macScreen, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
