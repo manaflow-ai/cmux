@@ -16,6 +16,10 @@ public enum BrowserPageEvent: Equatable, Sendable {
     case navigationFailed(URL?, code: Int, message: String)
     /// The page's content process ended.
     case processTerminated(BrowserPageProcessExit)
+    /// The page stopped (`true`) or resumed (`false`) handling input. While
+    /// unresponsive, the app may offer to wait or end the page with
+    /// ``BrowserPage/answerUnresponsive(terminate:)``.
+    case unresponsiveChanged(Bool)
     /// A download started or progressed.
     case downloadUpdated(BrowserPageDownload)
     /// The pointer moved over a link, or off links (`nil`).

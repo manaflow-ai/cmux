@@ -20,6 +20,10 @@ let package = Package(
             targets: ["CmuxCEF"]
         ),
         .library(
+            name: "CmuxCEFBrowser",
+            targets: ["CmuxCEFBrowser"]
+        ),
+        .library(
             name: "CmuxCEFExtensions",
             targets: ["CmuxCEFExtensions"]
         ),
@@ -41,6 +45,22 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
+        // The Chromium engine for cmux browser panels: CmuxBrowser's
+        // BrowserPage and BrowserEngineProviding over CmuxCEF's CEFBrowser.
+        // CmuxCEF itself never imports CmuxBrowser.
+        .target(
+            name: "CmuxCEFBrowser",
+            dependencies: [
+                "CmuxCEF",
+                "CmuxCEFExtensions",
+                .product(name: "CmuxBrowser", package: "CmuxBrowser"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
         // Chrome extensions on the Chromium engine: the per-profile extension
         // stores, toolbar actions and install prompts over the shim, as the
         // engine-neutral CmuxBrowser extension seams.
@@ -50,6 +70,15 @@ let package = Package(
                 "CmuxCEF",
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
             ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxCEFBrowserTests",
+            dependencies: ["CmuxCEFBrowser", "CmuxCEF", .product(name: "CmuxBrowser", package: "CmuxBrowser")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

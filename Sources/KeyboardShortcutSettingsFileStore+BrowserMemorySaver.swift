@@ -39,4 +39,21 @@ extension CmuxSettingsFileStore {
         }
         return true
     }
+
+    /// Applies `browser.engine`. An unknown value is reported and leaves the
+    /// stored engine unchanged.
+    func parseBrowserEngineSetting(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard section.keys.contains("engine") else { return }
+        let key = SettingCatalog().browser.engine
+        guard let raw = jsonString(section["engine"]),
+              let setting = BrowserEngineSetting(rawValue: raw) else {
+            logInvalid(key.id, sourcePath: sourcePath)
+            return
+        }
+        snapshot.managedUserDefaults[key.userDefaultsKey] = .string(setting.rawValue)
+    }
 }

@@ -492202,55 +492202,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Default Browser Engine"
+            "value": "Browser Engine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デフォルトブラウザエンジン"
+            "value": "ブラウザエンジン"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Standard-Browser-Engine"
+            "value": "Browser-Engine"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moteur de navigateur par défaut"
+            "value": "Moteur du navigateur"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "محرك المتصفح الافتراضي"
+            "value": "محرك المتصفح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Motor de navegador predeterminado"
+            "value": "Motor del navegador"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "預設瀏覽器引擎"
+            "value": "瀏覽器引擎"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "默认浏览器引擎"
+            "value": "浏览器引擎"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기본 브라우저 엔진"
+            "value": "브라우저 엔진"
           }
         }
       }
@@ -655712,6 +655712,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "載入"
+          }
+        }
+      }
+    },
+    "browser.engineFallback.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "browser.engineFallback.notBundled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium isn't included in this build, so this tab uses WebKit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium غير مضمّن في هذا الإصدار، لذا تستخدم علامة التبويب هذه WebKit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium ist in diesem Build nicht enthalten, daher verwendet dieser Tab WebKit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium no está incluido en esta compilación, así que esta pestaña usa WebKit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium n’est pas inclus dans cette version, cet onglet utilise donc WebKit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドには Chromium が含まれていないため、このタブは WebKit を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드에는 Chromium이 포함되어 있지 않아 이 탭은 WebKit을 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本未包含 Chromium，因此此标签页使用 WebKit。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本未包含 Chromium，因此這個分頁使用 WebKit。"
+          }
+        }
+      }
+    },
+    "browser.engineFallback.shutDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium has shut down, so this tab uses WebKit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف Chromium، لذا تستخدم علامة التبويب هذه WebKit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium wurde beendet, daher verwendet dieser Tab WebKit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium se cerró, así que esta pestaña usa WebKit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium s’est arrêté, cet onglet utilise donc WebKit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium が終了したため、このタブは WebKit を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium이 종료되어 이 탭은 WebKit을 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 已关闭，因此此标签页使用 WebKit。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 已關閉，因此這個分頁使用 WebKit。"
+          }
+        }
+      }
+    },
+    "browser.engineFallback.startFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium couldn't start, so this tab uses WebKit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تشغيل Chromium، لذا تستخدم علامة التبويب هذه WebKit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium konnte nicht gestartet werden, daher verwendet dieser Tab WebKit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium no pudo iniciarse, así que esta pestaña usa WebKit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium n’a pas pu démarrer, cet onglet utilise donc WebKit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium を起動できなかったため、このタブは WebKit を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium을 시작할 수 없어 이 탭은 WebKit을 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 无法启动，因此此标签页使用 WebKit。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 無法啟動，因此這個分頁使用 WebKit。"
           }
         }
       }

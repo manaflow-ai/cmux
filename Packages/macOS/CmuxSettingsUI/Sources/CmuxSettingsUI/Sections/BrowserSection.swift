@@ -150,6 +150,12 @@ public struct BrowserSection: View {
             }
             SettingsCardDivider()
 
+            // Browser Engine (only when this build includes Chromium)
+            BrowserEngineSettingsRow(
+                controlWidth: Self.columnWidth,
+                isChromiumBundled: hostActions.isChromiumBrowserEngineBundled()
+            )
+
             // Default Search Engine
             SettingsCardRow(
                 configurationReview: .json("browser.defaultSearchEngine"),
