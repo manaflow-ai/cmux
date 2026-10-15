@@ -10,7 +10,8 @@ import Foundation
 ///   the conversation's runs; a `seq` 0 for a known step restarts its text;
 /// - a step's `final` frame ends it: later deltas are dropped, a talk step
 ///   keeps its text on screen until the reply lands (the bubble never shrinks
-///   before the message), and the activity line goes (the reply is written);
+///   before the message); the activity line stays until the run's reply lands
+///   (its row leaving earlier would move the bubble just before the hand-off);
 ///   a snapshot no longer lists an ended step, so its text is kept from here;
 /// - a snapshot never takes a step back: a step this client holds at the same
 ///   or a later `seq` with the snapshot's text as its start stays;
@@ -115,8 +116,8 @@ struct HomeLiveBook {
             if let turn = change.turn { turns[key] = turn }
             if change.status == "done", runs[key]?.awaitingReply == true { return .ignored }
             if change.status == "done", var run = runs[key], run.hasTalk {
+                // The line keeps its row until the reply took the bubble's place (the view closes it after).
                 run.awaitingReply = true
-                run.activity = nil
                 runs[key] = run
                 remember(key)
                 return .changed
@@ -161,9 +162,7 @@ struct HomeLiveBook {
         }
         if delta.isFinal {
             run.done.insert(delta.step)
-            if delta.isTalk {
-                run.activity = nil // the reply is written: no line moves the rows when it lands
-            } else {
+            if !delta.isTalk {
                 run.steps[delta.step] = nil
                 run.order.removeAll { $0 == delta.step }
             }
