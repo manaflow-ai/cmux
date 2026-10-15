@@ -72,7 +72,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         view.accessibilityViewIsModal = true
         backdrop.contentMode = .scaleToFill
         view.addSubview(backdrop)
-        backdropWash.backgroundColor = UIColor {
+        backdropWash.backgroundColor = UIColor.resolving {
             let backdrop = EffectPickerBackdrop(dark: $0.userInterfaceStyle == .dark)
             return UIColor(white: backdrop.washWhite, alpha: backdrop.washAlpha)
         }
@@ -130,7 +130,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         view.addSubview(stage)
 
         // Plus-lighter gray 72 (40 in dark mode): white over the light blur.
-        track.backgroundColor = UIColor { UIColor(white: ($0.userInterfaceStyle == .dark ? 40 : 72) / 255, alpha: 1) }
+        track.backgroundColor = UIColor.resolving { UIColor(white: ($0.userInterfaceStyle == .dark ? 40 : 72) / 255, alpha: 1) }
         track.layer.compositingFilter = "plusL"
         track.layer.cornerRadius = EffectPickerGeometry.trackCornerRadius
         track.layer.cornerCurve = .continuous
@@ -195,7 +195,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     private var margin: CGFloat { view.directionalLayoutMargins.trailing }
     /// Messages' ink for the title and the effects' names: gray 90, or white
     /// at 80% in dark mode.
-    static let secondaryInk = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: 90 / 255, alpha: 1) }
+    static let secondaryInk = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: 90 / 255, alpha: 1) }
 
     /// Everything hangs off the send button where the long press found it.
     private var geometry: EffectPickerGeometry {
@@ -499,7 +499,7 @@ final class EffectSendButton: UIButton {
         super.init(frame: frame)
         // Gray 153 on the white track; in dark mode Messages adds gray 51 to
         // the track (plus-lighter), about white at 22% over it.
-        dotView.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.22) : UIColor(white: 153 / 255, alpha: 1) }
+        dotView.backgroundColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.22) : UIColor(white: 153 / 255, alpha: 1) }
         dotView.isUserInteractionEnabled = false
         addSubview(dotView)
         pill.backgroundColor = ConversationTheme.outgoingBubble

@@ -34,7 +34,7 @@ final class ReplyThreadOverlay: UIView {
         accessibilityIdentifier = "conversation.replyThread"
         content.accessibilityLabel = String(localized: "conversation.ax.replyTranscript", defaultValue: "Reply transcript", bundle: .module)
         addSubview(blur)
-        dim.backgroundColor = UIColor {
+        dim.backgroundColor = UIColor.resolving {
             let veil = ConversationVeilBlur.reply(dark: $0.userInterfaceStyle == .dark)
             return UIColor(white: veil.washWhite, alpha: veil.washAlpha)
         }

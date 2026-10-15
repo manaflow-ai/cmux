@@ -210,7 +210,7 @@ final class MessageActionOverlay: UIView {
         self.isOutgoing = isOutgoing
         // Messages' bar is nearly opaque (a blue bubble under it doesn't show
         // through): glass with a strong system-background tint.
-        reactionBar = makeGlassView(cornerRadius: Metrics.barHeight / 2, tint: UIColor { traits in
+        reactionBar = makeGlassView(cornerRadius: Metrics.barHeight / 2, tint: UIColor.resolving { traits in
             traits.userInterfaceStyle == .dark ? UIColor(white: 0.16, alpha: 0.85) : UIColor(white: 1, alpha: 0.85)
         })
         menu = makeGlassView(cornerRadius: 26, tint: ConversationTheme.longPressMenuGlassTint)
@@ -229,7 +229,7 @@ final class MessageActionOverlay: UIView {
         let light = mode == .tapbacks
         let neutralVeil: Bool
         if #available(iOS 27, *) { neutralVeil = mode == .menu } else { neutralVeil = false }
-        dim.backgroundColor = UIColor {
+        dim.backgroundColor = UIColor.resolving {
             // iOS 27 Messages: a neutral veil, white -> 204 and black stays 0;
             // deeper in dark.
             if neutralVeil { return UIColor.black.withAlphaComponent(MessageMenuGeometry.neutralVeilAlpha(dark: $0.userInterfaceStyle == .dark)) }
@@ -352,7 +352,7 @@ final class MessageActionOverlay: UIView {
                 let column = ReactionDetailCardGeometry.column(index: index, reactorCount: reactors.count, cardWidth: cardWidth)
                 for frame in [column.bubble, column.mediumDot, column.smallDot] {
                     let disc = UIView(frame: frame)
-                    disc.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.17, alpha: 1) : .white }
+                    disc.backgroundColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 0.17, alpha: 1) : .white }
                     disc.layer.cornerRadius = frame.width / 2
                     disc.isUserInteractionEnabled = false
                     content.addSubview(disc)
@@ -880,7 +880,7 @@ final class MessageActionOverlay: UIView {
             super.init(frame: .zero)
             icon.image = UIImage(systemName: item.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular))
             // Dark menus draw text and symbols at 96% white (MobileSMS 27.0).
-            let ink = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.96) : .label }
+            let ink = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.96) : .label }
             icon.tintColor = item.isDestructive ? .systemRed : ink
             icon.contentMode = .center
             label.text = item.title

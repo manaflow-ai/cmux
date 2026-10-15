@@ -36,12 +36,12 @@ final class ComposerAttachmentShelf: UIView {
     }
 
     /// Light: black at 12 % (222 on 254); dark: white at 13 % (63 on 33).
-    static let dividerColor = UIColor { traits in
+    static let dividerColor = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.13) : UIColor(white: 0, alpha: 0.12)
     }
 
     /// The remove disc: an opaque neutral gray, 83 in light and 97 in dark.
-    static let removeDiscColor = UIColor { traits in
+    static let removeDiscColor = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 97 / 255, green: 97 / 255, blue: 98 / 255, alpha: 1)
             : UIColor(red: 83 / 255, green: 83 / 255, blue: 84 / 255, alpha: 1)
@@ -176,7 +176,7 @@ final class ComposerAttachmentShelf: UIView {
 
     /// Light 156 gray, dark 68 gray: the disc of the clear button Messages
     /// flashes when the shelf opens.
-    static let clearFlashColor = UIColor { traits in
+    static let clearFlashColor = UIColor.resolving { traits in
         UIColor(white: traits.userInterfaceStyle == .dark ? 68 / 255 : 156 / 255, alpha: 1)
     }
 
