@@ -68,6 +68,18 @@ import Testing
         #expect(text.hasSuffix("Then start the chat again."))
     }
 
+    /// The cmux model service down on the Mac (`route.unavailable`): a plain sentence, never
+    /// the Mac's command line (round 3 live: the phone said only "Couldn't open an agent chat").
+    @Test func aModelServiceThatIsDownSaysSo() {
+        let down = LiveWorkspaceCreationBackend.routeUnavailable(
+            "the local CodeRouter is not running (Resource temporarily unavailable (os error 35)); start it with `acpmux router serve`")
+        #expect(down == "cmux's model service isn't running on the Mac. Quit and reopen cmux on the Mac, then try again, or choose another agent.")
+        let signedOut = LiveWorkspaceCreationBackend.routeUnavailable(
+            "the cmux model router is not connected (open cmux to sign the local router in)")
+        #expect(signedOut.hasPrefix("cmux's model service isn't signed in on the Mac."))
+        #expect(!down.contains("acpmux") && !signedOut.contains("router"))
+    }
+
     /// Open Folder… types `cd` with the same rules as Recent Directories.
     @Test func openFolderSharesTheTypedCdRules() {
         #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("~/code/app") == "cd ~/'code/app' && clear\n")

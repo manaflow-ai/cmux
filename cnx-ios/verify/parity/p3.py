@@ -418,3 +418,29 @@ def flow_duplicate():
         return {"copy_s": round(took, 1), "tabs": len(t.ws_tabs(copy)), "shells": cwds}
     finally:
         pq.rec_stop()
+
+
+def flow_cmux_agent():
+    """The `cmux` harness on a team the model router refuses: the phone must end the turn with
+    a clear message (not sit on "Working")."""
+    import pq_main
+    trust(proj())
+    s, m, j = pq.ctx()
+    pq.open_workspace(j)
+    before = {x.get("sessionId") for x in sessions()}
+    pq.rec_start("cmux-agent-403")
+    try:
+        opened, toast = pq_main.start_with(j, "Claude Code (cmux)")
+        check(not toast, f"start refused: {toast}")
+        t0 = time.time()
+        type_send(j, "Reply with exactly the word PONG and nothing else.")
+        hit, took = wait_for(lambda: s.find(contains="Agent stopped") or s.find(contains="model service")
+                             or [e for e in s.find(contains="PONG") if "Reply with" not in (e.label or "")], "the turn to end", 300, 2)
+        pq.shot("cmux-agent-403")
+        texts = [e.label for e in s.find() if e.label and ("model service" in e.label or "Agent stopped" in e.label
+                                                         or "403" in e.label or "isn't" in e.label)]
+        new = [x for x in sessions() if x.get("sessionId") not in before]
+        last = (new[-1] if new else {}).get("lastTurn")
+        return {"opened_s": round(opened, 1), "ended_s": round(took, 1), "phone": texts[:6], "mac_last_turn": json.dumps(last)[:400]}
+    finally:
+        pq.rec_stop()

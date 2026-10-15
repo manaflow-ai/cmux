@@ -381,6 +381,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 ? "\(folder) is marked Don't Trust on this Mac. Trust it in cmux on the Mac to start agent chats there."
                 : Self.trustSteps(folder: folder),
                 isForPerson: true)
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "route.unavailable" {
+            throw WorkspaceCreationError(Self.routeUnavailable(error.message), isForPerson: true)
         } catch {
             throw WorkspaceCreationError(AcpmuxSessionSource.message(error))
         }
@@ -397,6 +399,16 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             }
         }
         return (choice.id, session)
+    }
+
+    /// acpmux could not reach the model service the agent's route needs (`route.unavailable`):
+    /// the cmux model service on the Mac (its local router) is not running or not signed in.
+    /// Said plainly, without the Mac's command line.
+    nonisolated static func routeUnavailable(_ detail: String) -> String {
+        if detail.contains("not connected") {
+            return "cmux's model service isn't signed in on the Mac. Open cmux on the Mac, then try again, or choose another agent."
+        }
+        return "cmux's model service isn't running on the Mac. Quit and reopen cmux on the Mac, then try again, or choose another agent."
     }
 
     /// What to do when acpmux waits for the person to trust a new folder: it
