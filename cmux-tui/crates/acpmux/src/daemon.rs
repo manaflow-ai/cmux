@@ -1000,8 +1000,7 @@ const ROUTER_STOP_BUDGET: Duration = Duration::from_secs(2);
 #[cfg(unix)]
 fn ask_router(line: &[u8]) -> std::io::Result<Value> {
     use std::io::{BufRead, BufReader, Write};
-    let socket = home().join("router").join("router.sock");
-    let stream = std::os::unix::net::UnixStream::connect(socket)?;
+    let stream = std::os::unix::net::UnixStream::connect(crate::config::router_socket_path())?;
     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
     let mut writer = stream.try_clone()?;
     writer.write_all(line)?;
