@@ -15,6 +15,7 @@ import { brainModels, CLAUDE, FAKE, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
 import { memoryTools } from "./brain-tools.ts"
+import { chiefsTools } from "./brain-chiefs.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -49,7 +50,7 @@ const DEFAULT_DAILY_TURNS = 300
 export const brainName = (agent: string, conversation: string) => `${agent}/${conversation}`
 export type Admission = { readonly ok: true; readonly config: BrainConfig } | { readonly ok: false; readonly reason: string }
 
-export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "compactor_model" | "role" | "personality" | "instructions">>
+export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "compactor_model" | "role" | "personality" | "instructions" | "chiefs">>
 
 export class ChiefBrainDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql
@@ -68,7 +69,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       this.registry.install({
         name: "chief",
         sections: [section("chief", () => systemPrompt(this.config()), { tag: false })],
-        tools: memoryTools(() => this.memory),
+        tools: [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config())],
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }) => {
@@ -171,7 +172,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     writeConfig(this.sql, {
       agent,
       owner,
-      ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }),
+      ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }), ...(patch.chiefs === undefined ? {} : { chiefs: patch.chiefs ? "1" : "0" }),
       model: patch.model,
       compactor_model: patch.compactor_model,
       role: patch.role,
@@ -217,8 +218,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
   private async admitted(agent: string, owner: string, turn: boolean): Promise<Admission> {
     const a = (await this.settingsOf(agent).admit(agent, owner, turn)) as Admission
     if (a.ok) {
-      const { agent: ag, owner: ow, enabled, ...rest } = a.config
-      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", ...rest })
+      const { agent: ag, owner: ow, enabled, chiefs, ...rest } = a.config
+      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", chiefs: chiefs ? "1" : "0", ...rest })
     }
     return a
   }
