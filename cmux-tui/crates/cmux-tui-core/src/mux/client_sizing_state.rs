@@ -80,7 +80,7 @@ pub(super) struct TerminalSizingEntry {
     /// Each with whether it is a phone or tablet (only a handheld's
     /// departure holds the grid) and whether it reported a size.
     pub(super) applied_participants:
-        std::cell::RefCell<std::collections::BTreeMap<String, super::terminal_sizing::AppliedSeat>>,
+        std::cell::RefCell<std::collections::BTreeMap<String, terminal_sizing::AppliedSeat>>,
     /// After a phone or tablet departs, the grid does not grow past this size until the
     /// instant passes (`DEPARTED_GRID_HOLD`); it may shrink.
     pub(super) hold: std::cell::Cell<Option<((u16, u16), Instant)>>,
