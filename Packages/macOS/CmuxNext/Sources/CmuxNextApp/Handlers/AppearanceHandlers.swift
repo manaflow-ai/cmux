@@ -38,6 +38,7 @@ enum AppearanceHandlers {
         }
         SettingChoiceActions.bind(MotionSpeed.allCases, into: registry, id: { "appearance.animationSpeed.\($0.rawValue)" }, path: AnimationSpeedSetting.configPath,
                                   fileValue: { .string($0.rawValue) }, save: save) { context.design.animationSpeed = $0 }
+        AnimationKindsSetting.bindActions(into: registry, design: context.design, save: save)
         SettingChoiceActions.bind(CenterFocusedColumn.allCases, into: registry, id: { "layout.centerFocusedColumn.\($0 == .onOverflow ? "onOverflow" : $0.rawValue)" },
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
@@ -62,13 +63,11 @@ enum AppearanceHandlers {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
-            try requireUnmanaged(fontSizePath, context)
-            context.design.setOverride(.chromeFontSize, nil)
-            context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
+            let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
+            context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)
         })
     }
 
-    private static let fontSizePath = InterfaceSizeSetting().configPath
     private static let uiScalePath = UIScaleSetting().configPath
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
@@ -143,17 +142,11 @@ enum AppearanceHandlers {
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)
     }
 
-    /// Body size in points: the override, else the density default.
-    static func interfaceSize(_ design: DesignSettings = .shared) -> Double {
-        Double(design.overrides[.chromeFontSize] ?? (design.density == .compact ? 12 : 13))
-    }
-
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
-        try requireUnmanaged(fontSizePath, context)
-        let design = context.design
-        design.setOverride(.chromeFontSize, CGFloat(interfaceSize(design) + delta))
-        let size = interfaceSize(design)
-        context.writeSetting("set interface size", fontSizePath, .number(size), reloadOnFailure: true)
+        let path = context.design.interfaceSizePath
+        try requireUnmanaged(path, context)
+        let value = context.design.stepInterfaceSize(by: Int(delta))
+        context.writeSetting("set interface size", path, .number(value), reloadOnFailure: true)
     }
 
     private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {

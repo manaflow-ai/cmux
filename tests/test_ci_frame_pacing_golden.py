@@ -27,14 +27,16 @@ def eased(start: float, end: float, frames: int, rest: int = 6) -> list[float]:
     return [start] * rest + moving + [end] * rest
 
 
-def tabs_trace(widths: list[float], *, spare: bool, looping: list[str] | None = None) -> dict:
+def tabs_trace(widths: list[float], *, spare: bool, looping: list[str] | None = None,
+               strips: list[list[float]] | None = None) -> dict:
     samples = []
     for index, width in enumerate(widths):
         tabs = [["tab-a", 0, 180, 1], ["tab-b", 180, 180, 1]]
         if width > 0:
             # The new tab sits between the two; tab-b moves right as it grows.
             tabs = [["tab-a", 0, 180, 1], ["new-tab", 180, width, 1], ["tab-b", 180 + width, 180, 1]]
-        samples.append({"t": index * REFRESH, "tabs": tabs})
+        # Each traced strip's width (two in a split); the same every frame unless given.
+        samples.append({"t": index * REFRESH, "tabs": tabs, "strip": strips[index] if strips else [413, 413]})
     return {"refresh_ms": REFRESH, "samples": samples, "opening": {"spare": spare}, "looping": looping or []}
 
 
@@ -120,6 +122,24 @@ def test_a_new_tab_that_grows_in_fails() -> None:
         assert found["new_tab_warm"]["ok"]
         assert "new_tab_cold" in result.stderr and "::warning" in result.stderr
         assert "| new_tab_cold | FAIL |" in result.stdout
+
+
+def test_a_strip_that_changes_width_during_the_opening_fails() -> None:
+    """cx-codh2, 10 tabs in a 440 pt split: the pane's "…" hid for one frame after a cold Cmd-T,
+    the strip took its 26 pt and laid every tab out at once, then gave it back."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out, cold_frames=30)
+        widths = eased(0, 200, 30)
+        strips = [[413, 413] for _ in widths]
+        strips[20] = [439, 413]
+        (out / "new_tab_cold.json").write_text(json.dumps(tabs_trace(widths, spare=False, strips=strips)))
+        result = judge(out)
+        assert result.returncode == 1
+        found = verdicts(out)
+        assert not found["new_tab_cold"]["ok"]
+        assert "1 tab strip(s) changed width during the opening" in found["new_tab_cold"]["problems"]
+        assert found["new_tab_warm"]["ok"]
 
 
 def test_reduce_motion_expects_one_step_and_no_loops() -> None:

@@ -33,9 +33,14 @@
 //! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
 //!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
 //!   prompts until the user answers it in the app or the CLI.
+//! - Web and Peer: no `_acpmux/process/*` (a process's command line and
+//!   its kill are local), refused in `processes.rs`, which runs first.
 //! - Web only: no `_acpmux/set_tools` (`tools.remote`). Turning an MCP
 //!   server on makes the harness start the stdio command the user's config
 //!   names on this machine; unlike a mode, no asking table makes that safe.
+//! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
+//!   session on this machine, in the chat's harness and folder, with a policy
+//!   that approves reads: the app and the unix socket only.
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -151,6 +156,14 @@ pub(super) async fn check(
     // The listener's own credential changes over the unix socket only.
     if m == method::MUX_WEB_TOKEN_ROTATE {
         return Err(refused("rotating the web token"));
+    }
+    // A side session starts a new local session that approves reads (`hub/btw.rs`):
+    // never for a Web connection or a peer, whatever the chat.
+    if m == method::MUX_BTW && origin.web_class() {
+        return Err(RpcError::invalid_params(
+            "btw.remote: a side session is opened only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "btw.remote"})));
     }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {

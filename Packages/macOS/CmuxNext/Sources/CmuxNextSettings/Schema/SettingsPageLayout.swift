@@ -104,7 +104,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "appearance", title: section(.appearance), symbol: "paintbrush",
             groups: [
-                group("settings.group.terminalFont"), group("settings.group.densityMotion"),
+                group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.colorTransition"),
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
                 group("settings.group.sidebar"), group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
@@ -143,7 +143,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
-                group("settings.group.bookmarks"),
+                group("settings.group.bookmarks"), group("settings.group.extensions"),
                 group("settings.group.links"), group("settings.group.terminalLinks"), group("settings.group.passwords"),
                 group("settings.group.memory"), group("settings.group.remote"),
             ],

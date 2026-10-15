@@ -134,6 +134,8 @@ pub enum ResourceOperation {
     ChiefProfileGet,
     #[serde(rename = "chief.profile.create")]
     ChiefProfileCreate,
+    #[serde(rename = "chief.profile.adopt")]
+    ChiefProfileAdopt,
     #[serde(rename = "chief.profile.update")]
     ChiefProfileUpdate,
     #[serde(rename = "chief.profile.delete")]
@@ -390,6 +392,10 @@ pub enum ResourceOperation {
     AgentMessageList,
     #[serde(rename = "agent.message.mark")]
     AgentMessageMark,
+    #[serde(rename = "agent.message.release")]
+    AgentMessageRelease,
+    #[serde(rename = "agent.message.unsend")]
+    AgentMessageUnsend,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -506,6 +512,12 @@ pub enum ResourceOperation {
     BrowserTabEmulateClear,
     #[serde(rename = "browser.tab.set_profile")]
     BrowserTabSetProfile,
+    #[serde(rename = "browser.profile.list")]
+    BrowserProfileList,
+    #[serde(rename = "browser.profile.create")]
+    BrowserProfileCreate,
+    #[serde(rename = "browser.profile.open")]
+    BrowserProfileOpen,
     #[serde(rename = "palette_usage.get")]
     PaletteUsageGet,
     #[serde(rename = "palette_usage.record")]

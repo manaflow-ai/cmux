@@ -82,10 +82,10 @@ public final class TabStripView: NSView {
     var lastModelOrder: [TabID] = []
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
-    /// Springs and drag autoscroll tick on the window's FrameScheduler.
-    lazy var animationClient = FrameClient(owner: "TabStrip.animation", view: self) { [weak self] tick in
-        self?.advance(CGFloat(tick.elapsed)) ?? false
-    }
+    /// Springs and drag autoscroll step on the window's one `MotionClock`,
+    /// with the window's other chrome springs.
+    weak var motionClock: MotionClock?
+    var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
 
@@ -239,7 +239,8 @@ public final class TabStripView: NSView {
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
-            animationClient.deactivate()
+            motionClock?.stop(self)
+            motionClock = nil
             groupEditor.hide()
             groups.holdTask?.cancel()
             removeEscapeMonitor()
@@ -315,7 +316,6 @@ public final class TabStripView: NSView {
 
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
-        hoverCard.metrics = metrics
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.body
@@ -341,15 +341,14 @@ public final class TabStripView: NSView {
         super.layout()
         glassView?.frame = bounds
         if glassView == nil { contentView.frame = bounds }
-        let showsButton = model.showsNewTabButton
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (showsButton ? metrics.newTabButtonWidth : 0))
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
+            // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
+            relayout(animated: !dying.isEmpty && !inLiveResize && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
             lastViewportWidth = viewport
-            // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5).
-            relayout(animated: !dying.isEmpty && !inLiveResize && !reduceMotion)
         } else {
             applyFrames()
         }

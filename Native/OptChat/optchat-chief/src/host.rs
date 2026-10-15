@@ -449,6 +449,12 @@ pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
     }
 }
 
+/// The build-session kill switch, the test of acpmux launch_policy.rs.
+fn agent_launch_disabled() -> bool {
+    env("ACPMUX_AGENT_LAUNCH").is_some_and(|v| v.trim().eq_ignore_ascii_case("deny"))
+        || env("CMUX_AGENTS_DISABLED").is_some_and(|v| v.trim() == "1")
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
@@ -465,6 +471,7 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         .value("mux-home")
         .map(PathBuf::from)
         .unwrap_or_else(mux_home);
+    let _ = HOST_HOME.set(home.clone());
     let source = match conversation_source(flags) {
         Ok(source) => source,
         Err(why) => {
@@ -477,8 +484,19 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         log(format!("creating {}: {e}", paths.root.display()));
         return 1;
     }
+    // cx-tgf4h: agents are off in this build session (acpmux refuses every
+    // launch), so no turn could start; the host would only hold messages.
+    if agent_launch_disabled() {
+        log("not starting: agents are disabled in this build session \
+             (ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1)");
+        return 0;
+    }
     let _lock = match HostLock::take(&paths.host_lock, started_ms) {
-        Ok(lock) => lock,
+        Ok(lock) => {
+            // A stop mark an earlier host of this home left says nothing now.
+            crate::lock::clear_stopping(&paths.host_lock);
+            lock
+        }
         Err(LockError::Held) => {
             log(format!("already running for {}", home.display()));
             return 0;
@@ -574,10 +592,12 @@ fn start(
     let mut daemon_env = pinned.clone();
     // The Chief home whose codex homes acpmux's built-in codex presets use
     // (acpmux `config/chief_builtins.rs`): in the daemon's own environment.
-    daemon_env.insert(
-        "ACPMUX_CHIEF_MUX_HOME".to_owned(),
-        home.display().to_string(),
-    );
+    // A shared acpmux (one per Chief home) names the Chief home, whose
+    // `c/<id>` directories hold the other Chiefs (acpmux maps their ids).
+    let chief_mux_home = env("CMUX_CHIEF_HOME")
+        .filter(|_| crate::acpmux_daemon::shared())
+        .unwrap_or_else(|| home.display().to_string());
+    daemon_env.insert("ACPMUX_CHIEF_MUX_HOME".to_owned(), chief_mux_home);
     daemon_env.insert(
         "ACPMUX_PROBE_HARNESSES".to_owned(),
         probe_harnesses(
@@ -770,6 +790,7 @@ fn start(
         tools,
         user_env: session_dir::host_user_env(),
         profile_tool: chief_tools.grant().allows("profile"),
+        chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -1468,15 +1489,84 @@ static STOP_TX: std::sync::OnceLock<std::sync::mpsc::Sender<Input>> = std::sync:
 /// A stop signal arrived.
 static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Stops the acpmux daemon this host started, once: its agent hosts and
-/// their sessions (and their MCP children) end with it; a daemon this host
-/// did not start is left alone. A second caller waits for the first.
+/// Stops what this host owns on its acpmux, once (a second caller waits
+/// for the first). One acpmux per Chief home (hq-6d 2026-10-14): the
+/// daemon stops only when its last user leaves.
+/// - The daemon this host started (the default Chief's host, a VM Chief's
+///   own daemon): stopped with its agent hosts, unless another Chief uses
+///   it (`agents::other_users`); then only this Chief's own sessions end and
+///   the daemon keeps running for them. A daemon already gone (a handoff:
+///   the app stopped it and the next build's daemon adopts the sessions) is
+///   left alone, and so is the next daemon on its socket.
+/// - A shared acpmux (`acpmux_daemon::shared`): this Chief's own sessions
+///   end; when no other Chief uses the daemon, it stops too.
+///
+/// Before it looks for other users a stopping host marks itself stopping
+/// (`lock::mark_stopping`) and ends its own sessions, so when Chiefs stop
+/// at once the last one to look stops the daemon. A daemon this host
+/// neither started nor shares is left alone.
 fn stop_started_acpmux() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        crate::acpmux_daemon::shutdown_started(&|line| log(line));
+        let home = HOST_HOME.get().cloned().unwrap_or_else(mux_home);
+        let shared = crate::acpmux_daemon::shared();
+        let chief_home = env("CMUX_CHIEF_HOME")
+            .filter(|_| shared)
+            .map_or_else(|| home.clone(), PathBuf::from);
+        // No start begins from here; a start in flight finishes first.
+        let mut started = crate::acpmux_daemon::take_started();
+        if started.as_mut().is_some_and(|daemon| daemon.gone()) {
+            // A handoff stopped it: the next build's daemon adopts this
+            // Chief's sessions, and the daemon on the socket is not ours.
+            log("acpmux: the daemon this host started already stopped (a handoff or the app); nothing to stop");
+            return;
+        }
+        if !shared && started.is_none() {
+            // A daemon it found running is the app's, a supervisor's or
+            // another Chief's.
+            return;
+        }
+        // Every stopping Chief first marks itself stopping and ends its own
+        // sessions, then looks for other users: the last one to look sees
+        // all the others gone and stops the daemon, also when all stop at
+        // once (the supervisor stops every brain together).
+        crate::lock::mark_stopping(&home.join("state/host.lock"));
+        match crate::agents::end_own_sessions(&home) {
+            Ok(names) => log(format!("acpmux: ended this Chief's {} session(s)", names.len())),
+            Err(e) => log(format!("acpmux: ending this Chief's sessions: {e}")),
+        }
+        match crate::agents::other_users(&home, &chief_home) {
+            Ok(users) if !users.is_empty() => {
+                log(format!(
+                    "acpmux: other Chiefs use it, the daemon keeps running: {}",
+                    users.join(", ")
+                ));
+            }
+            Ok(_) => {
+                log("acpmux: no other Chief uses it; stopping it");
+                match started.take() {
+                    // A shared host stops within the supervisor's grace:
+                    // the shutdown runs on without it.
+                    _ if shared => crate::acpmux_daemon::shutdown_shared(&|line| log(line)),
+                    Some(daemon) => {
+                        daemon.shutdown(&|line| log(line));
+                    }
+                    None => {}
+                }
+            }
+            Err(e) if !shared => {
+                log(format!("acpmux: its users unknown ({e}); stopping the daemon it started"));
+                if let Some(daemon) = started.take() {
+                    daemon.shutdown(&|line| log(line));
+                }
+            }
+            Err(e) => log(format!("acpmux: its users unknown ({e}); the daemon keeps running")),
+        }
     });
 }
+
+/// This host's `MUX_HOME` (`--mux-home`), for the stop path.
+static HOST_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Set just before the brain's loop starts.
 static BRAIN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

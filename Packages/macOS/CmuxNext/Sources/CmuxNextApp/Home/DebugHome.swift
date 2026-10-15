@@ -2,8 +2,8 @@ import CmuxHomeCore
 import CmuxNextDaemon
 import CmuxNextSettings
 
-/// `debug.home`: the local conversation projection
-/// (plans/cmux-next/home.md), for automation on a never-key test window.
+/// `debug.home`: the local conversation projection (plans/cmux-next/home.md) and whether Home is
+/// classic (`classic`, the MessagesLab GUI checks need it), for automation on a never-key test window.
 @MainActor
 enum DebugHome {
     static func report(services: AppServices) -> CmuxNextSettings.JSONValue {
@@ -25,6 +25,12 @@ enum DebugHome {
             if let draft = home.homeStore.drafts[ConversationID(summary.id)] {
                 row["draft"] = .object(["turn": .string(draft.turn.rawValue), "author": .string(draft.participant.rawValue),
                                         "text": .string(draft.text)])
+            }
+            // The Chief's running run (`chief-live-v1`, HomeStore.live): the reply so far and its activity line.
+            if let live = home.homeStore.liveRun(in: ConversationID(summary.id)) {
+                row["live"] = .object(["run": .string(live.run), "turn": .string(live.turn.rawValue),
+                                       "author": .string(live.participant.rawValue), "text": .string(live.text),
+                                       "activity": live.activity.map { .string($0.line) } ?? .null])
             }
             if let session = home.sessions[summary.id] {
                 row["mirror_rev"] = session.mirror.map { .number(Double($0.rev)) } ?? .null
@@ -64,7 +70,8 @@ enum DebugHome {
             "cache": home.homeStore.cache.map { .string($0.url.path) } ?? .null,
         ])
         return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
-                        "conversations": .array(conversations), "page": page(services: services),
+                        "conversations": .array(conversations), "page": page(services: services), "classic": .bool(home.dock.isClassic),
+                        "dock": dock(services: services),
                         "migration_notice": home.migrationNotice.map { .string($0) } ?? .null])
     }
 }

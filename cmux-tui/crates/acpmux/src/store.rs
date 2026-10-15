@@ -111,6 +111,15 @@ pub struct SessionMeta {
     pub permission_policy: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
+    /// `harness` (its own `session_info_update`), `asked` (a generated title
+    /// is on its way or failed; never asked again), `generated` or `adopted`.
+    /// None: a chat titled before acpmux generated titles; kept as is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<String>,
+    /// The first prompt a `prompt` title came from, until a title is asked for.
+    #[serde(skip)]
+    pub title_prompt: Option<String>,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -157,6 +166,12 @@ pub struct SessionMeta {
     /// every spawn. Never copied to a fork or a handoff.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub session_env: BTreeMap<String, String>,
+    /// The cmux workspace this session works in, as the client named it
+    /// (`_meta.acpmux.workspaceId` on session/new or session/fork; a fork
+    /// keeps its parent's). It picks the computer use display in
+    /// per-workspace display mode (`agent_displays.rs`). Lowercase UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     /// The harness store of an adopted chat that no profile's store holds
     /// (a subrouter account home, a root the person added; cx-vx54). acpmux
     /// found it in its own chat index, never in a request; every spawn runs
@@ -182,6 +197,63 @@ pub struct SessionMeta {
     /// The tools the chat has (`hub/tools.rs`).
     #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
     pub tools: ToolInventory,
+    /// The branch checked out in `cwd` when the session started (session/new,
+    /// or a fork at fork time; `git_state.rs`). `None` on a detached HEAD or
+    /// outside a repository. Never updated after: it joins the session to the
+    /// pull request it produced (hq#1920).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_head: Option<String>,
+    /// The sum of what this session's turns reported (`hub/turn_usage.rs`).
+    /// `None` until a harness reports any; a fork starts its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub totals: Option<TurnUsage>,
+    /// The harness's own running cost after the last turn (Claude Code's
+    /// `total_cost_usd`), which the next turn's cost is measured from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_cost_usd: Option<f64>,
+}
+
+/// What one turn, or a session's turns together, cost (`hub/turn_usage.rs`).
+/// A field the harness never reported stays absent rather than 0.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
+}
+
+impl TurnUsage {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Adds `turn` in, field by field; a field neither reported stays absent.
+    pub fn add(&mut self, turn: &TurnUsage) {
+        fn sum(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+            a.zip(b).map(|(a, b)| a.saturating_add(b)).or(a).or(b)
+        }
+        self.cost_usd = self
+            .cost_usd
+            .zip(turn.cost_usd)
+            .map(|(a, b)| a + b)
+            .or(self.cost_usd)
+            .or(turn.cost_usd);
+        self.input_tokens = sum(self.input_tokens, turn.input_tokens);
+        self.output_tokens = sum(self.output_tokens, turn.output_tokens);
+        self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
+        self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
+    }
 }
 
 /// The tools a chat has (`hub/tools.rs`): cmux's own, recorded at each
@@ -222,6 +294,11 @@ pub struct ToolRow {
     pub enabled: bool,
     /// `_acpmux/set_tools` can turn it on or off in this chat.
     pub can_toggle: bool,
+    /// An MCP server's status in the harness's own word (Claude Code's
+    /// `connected`, `failed`, `pending`, `needs-auth`, `disabled`), as its
+    /// last report gave it; none for a server no harness reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 impl SessionMeta {

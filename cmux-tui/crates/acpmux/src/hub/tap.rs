@@ -116,12 +116,20 @@ impl Hub {
                 && subagent.is_none();
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
-            } else if subagent.is_some() && !kind.ends_with(".replay") {
-                tap_hub.note_subagent_background(&tap_session, msg.params());
             }
+            // A shell's output file stays in the registry, off the record.
+            let output = if d == "in" && kind == "background_task_update" {
+                super::processes::take_output_file(&mut value)
+            } else {
+                None
+            };
             let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
+            }
+            // A background shell, a subagent's too (`processes.rs`).
+            if d == "in" && kind == "background_task_update" {
+                tap_hub.note_process(&tap_session, &rec, output.as_deref());
             }
             logged
         })

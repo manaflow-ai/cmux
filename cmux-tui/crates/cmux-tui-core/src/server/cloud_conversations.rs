@@ -39,6 +39,12 @@ pub(super) const WS_CLOUD_CAPABILITY: &str = "ws-cloud-conversations-v1";
 /// connection that echoes `conversation-runs-v1` (advertised with
 /// `cloud-conversations-v1`).
 pub(super) const CLOUD_RUNS_CAPABILITY: &str = "cloud-conversation-runs-v1";
+/// A Cloud Chief's live frames through the daemon (`chief-live-v1` on the
+/// Cloud socket): the `cloud-conversation-live` event of a subscribed
+/// conversation, for a connection that echoes `chief-live-v1`, and
+/// `cloud-conversation-live`, which asks the owner for its `run.live`
+/// snapshot (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_LIVE_CAPABILITY: &str = "cloud-chief-live-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
@@ -55,7 +61,7 @@ fn is_websocket_person(mux: &Mux, client: u64) -> bool {
 
 /// Whether `client` acts as the person with the app's lease: the verified
 /// app, or an authenticated WebSocket client (`ws-cloud-conversations-v1`).
-fn is_person(mux: &Mux, client: u64) -> bool {
+pub(super) fn is_person(mux: &Mux, client: u64) -> bool {
     is_app(mux, client) || is_websocket_person(mux, client)
 }
 
@@ -184,6 +190,10 @@ pub(super) struct RunParams {
 #[serde(deny_unknown_fields)]
 pub(super) struct AvatarParams {
     participant_id: String,
+    /// A conversation the person and the participant are both in: Cloud
+    /// answers another participant's picture only with one.
+    #[serde(default)]
+    conversation: Option<String>,
 }
 
 /// `cloud-conversation-subscribe` / `cloud-conversation-unsubscribe`.
@@ -355,7 +365,8 @@ pub(super) fn participant_avatar(
     client: u64,
     params: AvatarParams,
 ) -> anyhow::Result<Value> {
-    Ok(lease_user(mux, client)?.participant_avatar(&params.participant_id)?)
+    Ok(lease_user(mux, client)?
+        .participant_avatar(&params.participant_id, params.conversation.as_deref())?)
 }
 
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
@@ -392,6 +403,12 @@ pub(super) fn subscribe(
 ) -> anyhow::Result<Value> {
     let target = target.map_or(Target::Inbox, |params| Target::Conversation(params.conversation));
     Ok(lease_user(mux, client)?.subscribe(client, target)?)
+}
+
+/// `cloud-conversation-live`: the subscriber asks for the owner's
+/// `run.live` snapshot; it arrives as a `cloud-conversation-live` event.
+pub(super) fn live(mux: &Mux, client: u64, params: TargetParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.request_live(client, &params.conversation)?)
 }
 
 pub(super) fn unsubscribe(
@@ -442,6 +459,10 @@ pub(super) fn is_network(cmd: &Command) -> bool {
     // commit call the cloud.
     if let Command::CloudAttachmentUpload(params) = cmd {
         return params.op == "begin" || params.op == "commit";
+    }
+    // The Home rows read the Cloud inbox unless only the local rows are asked.
+    if let Command::HomeInbox(params) = cmd {
+        return params.asks_cloud();
     }
     matches!(
         cmd,
@@ -504,29 +525,37 @@ pub(super) fn start(
     cmd: Command,
     writer: &MessageWriter,
 ) -> bool {
-    let precheck = lease_user(mux, client).and_then(|service| {
-        if let Command::CloudConversationOp(params) = &cmd {
-            check_origin(mux, client, params.origin.as_deref())?;
-            service.check_op(&OpRequest {
-                conversation: params.conversation.clone(),
-                idempotency_key: params.idempotency_key.clone(),
-                origin: params.origin.clone(),
-                op: params.op.clone(),
-            })?;
+    let precheck = || {
+        lease_user(mux, client).and_then(|service| {
+            if let Command::CloudConversationOp(params) = &cmd {
+                check_origin(mux, client, params.origin.as_deref())?;
+                service.check_op(&OpRequest {
+                    conversation: params.conversation.clone(),
+                    idempotency_key: params.idempotency_key.clone(),
+                    origin: params.origin.clone(),
+                    op: params.op.clone(),
+                })?;
+            }
+            if let Command::CloudInboxOp(params) = &cmd {
+                check_person(mux, client)?;
+                service.check_inbox_op(&InboxOpRequest {
+                    conversation: params.conversation.clone(),
+                    idempotency_key: params.idempotency_key.clone(),
+                    op: params.op.clone(),
+                })?;
+            }
+            Ok(service.begin_request()?)
+        })
+    };
+    // The Home rows never fail for the Cloud: their worker takes its own lease
+    // and request slot, and without them carries the local rows.
+    let permit = if matches!(cmd, Command::HomeInbox(_)) {
+        None
+    } else {
+        match precheck() {
+            Ok(permit) => Some(permit),
+            Err(error) => return send(writer, id, Err(error)),
         }
-        if let Command::CloudInboxOp(params) = &cmd {
-            check_person(mux, client)?;
-            service.check_inbox_op(&InboxOpRequest {
-                conversation: params.conversation.clone(),
-                idempotency_key: params.idempotency_key.clone(),
-                op: params.op.clone(),
-            })?;
-        }
-        Ok(service.begin_request()?)
-    });
-    let permit = match precheck {
-        Ok(permit) => permit,
-        Err(error) => return send(writer, id, Err(error)),
     };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();

@@ -27,6 +27,9 @@ final class SidebarListView: NSView {
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
+    /// True while a scroll moves the hover to the row under a still pointer: that row's hover
+    /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
+    private var hoverFollowsScroll = false
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
@@ -123,7 +126,12 @@ final class SidebarListView: NSView {
             for case let indicator as StatusIndicatorView in row.subviews { indicator.isWindowVisible = visible }
         }
     }
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing
+    /// layer-backed view this tall (1,000 rows) gets a visible-rect backing that AppKit marks for
+    /// display on every scroll frame; with updateLayer it keeps no bitmap, so a scroll draws nothing here.
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }
     var inset: CGFloat { SidebarStyle.horizontalInset }
@@ -204,14 +212,16 @@ final class SidebarListView: NSView {
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
-        let animate = animated && !old.rows.isEmpty && selectedRowKey.map { old.row(for: $0) != nil } != false // a row shown as it is added (Cmd-N) appears in place, with the rest (cx-8g3sn)
+        // A new workspace row (Cmd-N, a script, another client) opens only with ui.animations.newWorkspace on (hq-1d).
+        let insertsWorkspace = layout.rows.contains { if case .workspace = $0.key { old.row(for: $0.key) == nil } else { false } }
+        let animate = animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.animates(.newWorkspace))
         // New rows open from their run's top, so only the rows below move; a row still opening
         // that the next update moves (appended, then placed below) opens again there, in a new view:
         // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
         let now = CACurrentMediaTime()
         openingRows = openingRows.filter { now - $0.value < Motion.spring(.move).settlingTime() }
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
-        for row in layout.rows where !old.rows.isEmpty && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now }
+        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         for row in layout.rows {
             let target = frame(for: row)
@@ -357,6 +367,9 @@ final class SidebarListView: NSView {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        let followed = hoverFollowsScroll
+        hoverFollowsScroll = true
+        defer { hoverFollowsScroll = followed }
         updateHover()
     }
     func pruneOffscreen() {
@@ -408,8 +421,14 @@ final class SidebarListView: NSView {
     }
     func setHovered(_ key: SidebarRowKey?) {
         guard key != hoveredKey else { return }
-        if let hoveredKey { rowViews[hoveredKey]?.isHovered = false }
+        if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
-        if let key { rowViews[key]?.isHovered = true }
+        if let key, let view = rowViews[key] { setHover(true, on: view) }
+    }
+    private func setHover(_ hovered: Bool, on view: SidebarRowView) {
+        view.isHovered = hovered
+        guard hoverFollowsScroll else { return }
+        view.fadesNextFill = false
+        view.fadesNextHover = false
     }
 }

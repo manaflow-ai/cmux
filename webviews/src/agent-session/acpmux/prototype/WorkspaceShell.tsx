@@ -557,7 +557,7 @@ function TerminalMock({ tab, onOpenLink }: { tab: WorkspaceTab; onOpenLink: () =
 function ProfileChip({ id }: { id: string }) {
   const profile = browserProfileById.get(id)!;
   return (
-    <span className="proto-profile" title={`Browser profile: ${profile.name}`}>
+    <span className="proto-profile">
       <i style={{ background: `var(--proto-${profile.color})` }} />
       {profile.name}
     </span>
@@ -650,12 +650,7 @@ function MiniBrowser({
             From {mini.source.label} · <b>{workspaceLead(target).title}</b>
           </span>
         </span>
-        <button
-          type="button"
-          className="proto-mini-promote"
-          title={`Open as a tab in ${workspaceLead(target).title}`}
-          onClick={onPromote}
-        >
+        <button type="button" className="proto-mini-promote" onClick={onPromote}>
           <PromoteIcon />
           Open as tab
           <kbd>⌘O</kbd>

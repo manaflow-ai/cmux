@@ -129,6 +129,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.profile.create": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.profile.open": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.reload": {
       "scope": "browser:write",
       "class": "mutation"
@@ -208,6 +220,10 @@
     "chief.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.adopt": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.profile.avatar.get": {
       "scope": "chief:read",
@@ -1821,7 +1837,9 @@
   "never": [
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",

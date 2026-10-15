@@ -72,8 +72,11 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserInputKey
         | Op::BrowserInputMouse
         | Op::BrowserInputWheel
-        // A message becomes an agent's input at its next turn.
-        | Op::AgentMessageSend => Access::Denied(Denied::Input),
+        // A message becomes an agent's input at its next turn; a release
+        // lets a held one through, and an unsend sends the agent a notice.
+        | Op::AgentMessageSend
+        | Op::AgentMessageRelease
+        | Op::AgentMessageUnsend => Access::Denied(Denied::Input),
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
@@ -276,6 +279,9 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserTabEmulate
         | Op::BrowserTabEmulateClear
         | Op::BrowserTabSetProfile
+        | Op::BrowserProfileList
+        | Op::BrowserProfileCreate
+        | Op::BrowserProfileOpen
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport
@@ -353,6 +359,9 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefProfileDelete
         | Op::ChiefProfileAvatarSet
         | Op::ChiefProfileAvatarGet
+        // Adopting an agent as a Chief: no page route at all (owner only,
+        // from a terminal; chief_registry_resource.rs refuses any page).
+        | Op::ChiefProfileAdopt
         // Avatars: a page reads them only through its allow list
         // (page-router.json: home-channels reads participant.avatar.get).
         | Op::ParticipantAvatarSet

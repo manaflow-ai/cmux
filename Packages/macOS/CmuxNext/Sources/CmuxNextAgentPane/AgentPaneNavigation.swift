@@ -44,8 +44,12 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
         AgentPaneView.finishWarmup()
         view?.applyTheme()
+        // The initial zoom can run before WebKit has a document. Reapply it after the
+        // document exists so the interface scale and page scale are visible on first paint.
+        view?.applyZoom()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
     }

@@ -387,5 +387,37 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "subagent_stop for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/subagent_stop",
+   "params": {
+    "sessionId": "a",
+    "subagentSessionId": "t"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "subagent_stop for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/subagent_stop",
+   "params": {
+    "sessionId": "b",
+    "subagentSessionId": "t"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]

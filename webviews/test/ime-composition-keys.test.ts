@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // IME-KEYS (cx-dd5b4) in real engines (headless Chromium and WebKit from Playwright), on a real
 // page: the History page's dev entry (/history/?mock, the in-memory mock provider).
 //
@@ -16,7 +17,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("ime-composition-keys.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -56,10 +59,11 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/history/?mock");
+  }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** Dispatches a keydown on the focused element as the engine does for an IME key. */

@@ -68,13 +68,8 @@ impl Hub {
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
                     session.floor.unsandboxed.store(false, Ordering::SeqCst);
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                    // Its background shells ended with it (`idle.rs`).
-                    session
-                        .stream
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .background_running
-                        .clear();
+                    // Its background processes ended with it (`processes.rs`).
+                    self.processes_lost(&session, processes::HARNESS_EXIT);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
@@ -143,6 +138,7 @@ impl Hub {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
                         m.title = Some(title.to_owned());
+                        m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.

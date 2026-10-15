@@ -82,6 +82,32 @@ pub(crate) fn canonical_endpoint(_owner: FileOwner, terminal_id: &str) -> PathBu
     endpoint::endpoint_dir().join(format!("{terminal_id}.sock"))
 }
 
+/// Windows keeps one flat endpoint directory per user (no per-install
+/// directory yet, cx-t2sqm.13).
+pub(crate) fn install_endpoint_dir(owner: FileOwner, _record_root: &Path) -> PathBuf {
+    endpoint_dir(owner)
+}
+
+/// The directory [`host_endpoint`] binds in.
+pub(crate) fn host_endpoint_dir(owner: FileOwner, _record_root: &Path) -> PathBuf {
+    endpoint_dir(owner)
+}
+
+/// Where a new host binds its endpoint.
+pub(crate) fn host_endpoint(owner: FileOwner, _record_root: &Path, terminal_id: &str) -> PathBuf {
+    canonical_endpoint(owner, terminal_id)
+}
+
+/// The endpoints a record may name.
+pub(crate) fn canonical_endpoints(
+    owner: FileOwner,
+    record_root: &Path,
+    terminal_id: &str,
+) -> [PathBuf; 2] {
+    let endpoint = host_endpoint(owner, record_root, terminal_id);
+    [endpoint.clone(), endpoint]
+}
+
 /// An AF_UNIX socket file is a reparse point (`IO_REPARSE_TAG_AF_UNIX`);
 /// std does not expose the tag, so any non-directory reparse point counts.
 /// Callers only remove such an entry inside our owner-only directory.

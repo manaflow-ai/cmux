@@ -6,8 +6,12 @@
 
 mod adoption;
 mod aside;
+mod btw;
+pub(crate) use btw::SIDE_TAG;
 mod bookmarks;
+mod cancel;
 mod catalog_reload;
+mod complete;
 mod cursor_ext;
 mod fork;
 mod fork_at;
@@ -24,19 +28,26 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod model_options;
-pub use model_options::{current_model, current_option, resolve_config_id, web_url};
+mod new_request;
+pub use model_options::{
+    current_effort, current_model, current_option, resolve_config_id, web_url,
+};
 mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
 mod pool;
+mod prompt_images;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
+pub(crate) use turns::is_limit_error;
+mod offer_results;
 mod offers;
 mod secrets;
 mod seen;
@@ -45,7 +56,6 @@ pub(crate) mod session_pages;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
-use shutdown::ShutdownPlan;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -54,8 +64,9 @@ mod steer_end;
 mod stream;
 mod tags;
 mod tap;
+mod titles;
 mod tools;
-pub use lifecycle::{
+pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
 pub use paging::{EventFilter, EventPage};
@@ -64,6 +75,7 @@ mod peers;
 mod permission_groups;
 mod permissions;
 pub mod person;
+mod processes;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
@@ -74,11 +86,12 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+mod turn_usage;
 mod turns;
 mod warm;
 mod xai;
 pub(crate) use turns::merge_mux_meta;
-mod views;
+pub(crate) mod views;
 mod web_control;
 mod web_token;
 pub use web_control::Control;
@@ -191,7 +204,7 @@ pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
-/// `turn_result`; and the shells it runs in the background (`idle.rs`).
+/// `turn_result`.
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
     /// `messageId` of the assistant message streaming now.
@@ -206,7 +219,6 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
-    pub(super) background_running: std::collections::HashSet<String>,
 }
 
 pub struct Hub {
@@ -246,7 +258,7 @@ pub struct Hub {
     pub(super) agent_hosts: AtomicBool,
     /// What the coming shutdown does with hosted agents, decided once:
     /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
-    pub(super) shutdown_plan: StdMutex<ShutdownPlan>,
+    pub(super) shutdown_plan: StdMutex<shutdown::ShutdownPlan>,
     /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
     /// futures must not write a second result when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
@@ -325,7 +337,7 @@ impl Hub {
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
             agent_hosts: AtomicBool::new(false),
-            shutdown_plan: StdMutex::new(ShutdownPlan::default()),
+            shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
@@ -360,6 +372,7 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
+            hub.watch_titles();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -521,6 +534,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            processes: StdMutex::new(Default::default()),
         })
     }
 

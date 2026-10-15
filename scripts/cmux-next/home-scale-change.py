@@ -17,10 +17,9 @@ straight edges crisp in the 1x snapshot. Back to 2x: the virtual display ends (i
 back to the 2x display (the rig cannot move it there by frame: with the virtual display attached, screen 0 is the
 virtual display). Then the same reads at 2x, right after the return and with the transcript on half a device pixel.
 At each scale, one display frame after the change: the view renders at the window's scale (`debug.home.drive
-{action: geometry}`: renderScale, cells, compose bar, header) and no visible row shows a bitmap of the old scale. The move
-to 1x is a recorded upstream known limit (package README): visible rows keep their 2x bitmap until the off-main
-bitmap lands (0.32 s measured on 64a98f2); the check bounds it at 0.5 s and checks none remains or comes back. The
-return to 2x keeps the one-frame rule.
+{action: geometry}`: renderScale, cells, compose bar, header) and no visible row shows a bitmap of the old scale. Both
+directions use the same one-frame rule (hq-6d, 2026-10-14; the 0.5 s bound of the move to 1x is gone: with the
+colour-space change keeping the bitmap cache, 258b385, no old-scale bitmap showed after one frame in 5 rounds).
 Socket only, no system input. Runs on cmux-lawrence-2 (nx-remote --needs gui); ends with the DEBUG quit fixture,
 endAgents, the tag's `acpmux daemon shutdown`, and the virtual display's own process (its pid, started here).
 
@@ -31,6 +30,7 @@ import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import check_crisp, check_rows  # noqa: E402
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -106,43 +106,27 @@ def geometry():
     return (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("geometry") or {}
 
 
-KNOWN_LIMITS = []
-
-
-def scale_state(name, want, stale_bound=None):
-    """One display frame after a scale change: the view renders at the window's scale and shows no old-scale bitmap.
-    `stale_bound` (seconds): a recorded upstream known limit instead (the move to 1x, README "Known limits"): visible
-    rows may keep their old-scale bitmap after the frame (MessagesLab RowCell.configureScoped keeps a shown bitmap
-    until the off-main RowBitmaps.request delivers), but none may remain after `stale_bound`, and none comes back."""
+def scale_state(name, want):
+    """One display frame after a scale change, in both directions (2x -> 1x and 1x -> 2x): the view renders at the
+    window's scale and no visible row shows a bitmap of the old scale. On a failure, how long the old-scale bitmaps
+    stayed (read every 20 ms, up to 2 s) is printed for the cause."""
     t0 = time.time()
     time.sleep(1 / 60)  # test harness: one display frame after the change
     g = geometry()
     print(f"     {name}: " + json.dumps({k: g.get(k) for k in ("windowScale", "renderScale", "rowBitmaps", "rowBitmapsOffScale",
                                                              "cellsOffScale", "composeScale", "headerScale", "bitmapPxPerPtMin",
-                                                             "bitmapPxPerPtMax")}), flush=True)
+                                                             "bitmapPxPerPtMax", "fixtureInactive", "windowKey", "appActive",
+                                                             "lightAppearance", "colorSpaceIsScreen")}), flush=True)
     check(f"{name}: the window, the transcript view, its cells, compose bar and header are at {want:g}x",
           all(g.get(k) == want for k in ("windowScale", "renderScale", "composeScale", "headerScale")) and g.get("cellsOffScale") == 0, g)
     check(f"{name}: rows with a bitmap to read ({g.get('rowBitmaps')} row bitmaps)", g.get("rowBitmaps", 0) >= 3, g)
-    if stale_bound is None:
-        check(f"{name}: no visible row shows a bitmap of the old scale", g.get("rowBitmapsOffScale") == 0, g)
-        return
-    # Known limit: how long the old-scale bitmaps show (read every 20 ms, test harness), bounded.
-    stale, last = None, g
-    while time.time() - t0 < stale_bound + 0.5:
-        if last.get("rowBitmapsOffScale") == 0:
-            stale = time.time() - t0
-            break
-        time.sleep(0.02)  # test harness: the next read
-        last = geometry()
-    print(f"KNOWN LIMIT {name}: {g.get('rowBitmapsOffScale')} old-scale row bitmaps after one frame; "
-          + (f"none after {stale:.3f} s" if stale is not None else f"still {last.get('rowBitmapsOffScale')} after {time.time() - t0:.3f} s"),
-          flush=True)
-    KNOWN_LIMITS.append(f"{name}: old-scale bitmaps for {'?' if stale is None else f'{stale:.3f}'} s (bound {stale_bound} s)")
-    check(f"{name} (known limit): no old-scale row bitmap remains after {stale_bound} s",
-          stale is not None and stale <= stale_bound, {"stale_s": stale, "last": last})
-    time.sleep(0.1)  # test harness: frames after the last old-scale bitmap went
-    after = geometry()
-    check(f"{name} (known limit): no old-scale row bitmap comes back", after.get("rowBitmapsOffScale") == 0, after)
+    if not check(f"{name}: no visible row shows a bitmap of the old scale", g.get("rowBitmapsOffScale") == 0, g):
+        last = g
+        while time.time() - t0 < 2 and last.get("rowBitmapsOffScale"):
+            time.sleep(0.02)  # test harness: the next read
+            last = geometry()
+        print(f"     {name}: old-scale bitmaps " + (f"gone after {time.time() - t0:.3f} s" if not last.get("rowBitmapsOffScale")
+                                                   else "still there after 2 s"), flush=True)
 
 
 def snapshot_checks(name, file, report, full):
@@ -164,12 +148,15 @@ if os.path.exists(sock):
 env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
        "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
        "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **home_classic.ENV}
 process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
 pid = process.pid
 print(f"launched pid {pid}", flush=True)
 try:
+    # Classic Home or stop at once (cx-h0kds): these checks drive the native classic Home transcript.
+    if not home_classic.require(rpc):
+        sys.exit(2)
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
@@ -225,7 +212,7 @@ try:
     r1 = poll(lambda: (r := rows_report()) and r.get("scale") == 1 and r, timeout=10) or rows_report()
     check("the window's backing scale is 1 on the virtual display", r1.get("scale") == 1, {k: r1.get(k) for k in ("scale", "error")})
     if r1.get("scale") == 1:
-        scale_state("1x, one frame after the change", 1, stale_bound=0.5)
+        scale_state("1x, one frame after the change", 1)
     # Before any move of the transcript: only setRenderScale re-snaps the rows here (the transcript sits 0.25 pt off
     # the grid, a quarter pixel at 1x; rows still on the 2x snap would sit half a point off).
     time.sleep(0.3)  # test harness: display frames after the move
@@ -282,12 +269,10 @@ finally:
     rpc("action.run", {"id": "endAgents"}, timeout=5)
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
-    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
     if vd is not None:
         subprocess.run(["kill", str(vd)], capture_output=True)  # the virtual display this script started (its pid=)
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
-if KNOWN_LIMITS:
-    print(f"known limits (recorded, bounded): {KNOWN_LIMITS}", flush=True)
 sys.exit(1 if failures else 0)

@@ -25,6 +25,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
+import { showsLocationRow } from "./locationRow";
 import { ComposerQueue } from "./ComposerQueue";
 import {
   ArrowUpIcon,
@@ -37,6 +38,7 @@ import {
   PlanIcon,
   SlashIcon,
   StopIcon,
+  type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
 import { Icon } from "./icons/Icon";
@@ -48,6 +50,7 @@ import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
+import { cliOnlyCommand } from "./cliOnlyCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import {
   flushPendingDraftWrites,
@@ -136,7 +139,7 @@ export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean
 
 type Props = {
   snapshot: AcpmuxSnapshot;
-  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
+  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
@@ -156,6 +159,8 @@ type Props = {
   sessionId?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
+  /// Granted folder trust and chat-wide permission state, rendered inside Access.
+  permissionAccess?: ComposerPermissionAccess;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
@@ -229,6 +234,7 @@ export function Composer({
   onQueueLost,
   draft,
   leading,
+  permissionAccess,
   accessory,
   prompt,
   onEdit,
@@ -588,6 +594,19 @@ export function Composer({
       plusDraft.current = undefined;
       return false;
     }
+    // A Claude command that needs its terminal is not sent: the composer keeps it and says what to use.
+    const cliOnly = attachments.length === 0 ? cliOnlyCommand(prompt, snapshot.summary?.harness) : undefined;
+    if (cliOnly) {
+      const values = { command: cliOnly.name };
+      setAttachError(
+        cliOnly.use === "access"
+          ? t("composer.cliOnly.access", values)
+          : cliOnly.use === "model"
+            ? t("composer.cliOnly.model", values)
+            : t("composer.cliOnly.terminal", values),
+      );
+      return false;
+    }
     const owned = commands?.find(
       (command): command is CmuxCommand => command.source === "cmux" && commandArgs(prompt, command) !== undefined,
     );
@@ -925,8 +944,10 @@ export function Composer({
   ];
 
   // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
-  // composer location strip), so the card holds one controls row.
-  const context = (
+  // composer location strip), so the card holds one controls row. Only a new chat has it, before
+  // its first send (locationRow.ts): a started chat cannot change folder or machine, so it draws
+  // nothing there and the queue and the card close up (the strip's rules are `:has()` on it).
+  const context = showsLocationRow(snapshot) && (
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
@@ -936,7 +957,6 @@ export function Composer({
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
-      started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
       onProject={
         onProject &&
         ((cwd, peer) => {
@@ -988,17 +1008,18 @@ export function Composer({
           />,
           form.current.parentElement,
         )}
+      {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
+      <ComposerQueue
+        queue={snapshot.queue}
+        paused={snapshot.summary?.queuePaused === true}
+        t={t}
+        onRemove={onQueueRemove}
+        onChange={onQueueChange}
+        onLost={onQueueLost}
+        onLeave={() => field.current?.focus()}
+      />
       {context}
       <div className="acpmux-composer-box">
-        <ComposerQueue
-          queue={snapshot.queue}
-          paused={snapshot.summary?.queuePaused === true}
-          t={t}
-          onRemove={onQueueRemove}
-          onChange={onQueueChange}
-          onLost={onQueueLost}
-          onLeave={() => field.current?.focus()}
-        />
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -1193,9 +1214,9 @@ export function Composer({
                 ]}
               />
             )}
-            {/* The granted-permission status gets no slot in this row (hq#1957 item 15 compact row):
-                one lock, the permission mode's. */}
-            <Chips snapshot={snapshot} />
+            {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
+                compact row): grants live in the permission mode's Access menu, one lock. */}
+            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
             <span className="acpmux-composer-actions">
               {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
                   when typing during a turn turns Stop into Steer and Send (hq#1957). */}
@@ -1205,6 +1226,7 @@ export function Composer({
                   type="button"
                   className="acpmux-steer"
                   aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                  /* tooltip-allow: the button shows a verb; the tooltip says what it does and its shortcut */
                   title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
                   onClick={() => {
                     send(false, true);
@@ -1254,7 +1276,7 @@ export function Composer({
   );
 }
 
-/// One attachment above the prompt. An image draws a cropped thumbnail and opens in the chat's image
+/// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
 /// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
 function AttachmentChip({
   attachment,
@@ -1314,7 +1336,10 @@ function AttachmentChip({
     const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
     return menu(
       openImage ? () => openImage(source, attachment.name) : undefined,
-      <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
+      <div
+        className="acpmux-attachment acpmux-attachment-image"
+        /* tooltip-allow: an image thumbnail shows no name */ title={attachment.name}
+      >
         {openImage ? (
           <button
             type="button"
@@ -1343,7 +1368,7 @@ function AttachmentChip({
   }
   return menu(
     undefined,
-    <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
+    <div className="acpmux-attachment acpmux-attachment-file">
       <span>{attachment.name}</span>
       {remove}
     </div>,
@@ -1384,11 +1409,7 @@ function PdfAttachmentChip({
   const deliveryLabel = codex ? `${pageLabel} · ${t(COMPOSER_LABELS.sentAsFileForCodex)}` : pageLabel;
   return (
     <>
-      <div
-        className="acpmux-attachment acpmux-attachment-document"
-        title={attachment.name}
-        data-page-count={attachment.pageCount ?? undefined}
-      >
+      <div className="acpmux-attachment acpmux-attachment-document" data-page-count={attachment.pageCount ?? undefined}>
         <button
           type="button"
           className="acpmux-attachment-document-open"
@@ -1532,8 +1553,18 @@ function SlashMenu({
             /<Highlighted name={match.command.name} ranges={match.ranges} />
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && <span className="acpmux-slash-source">{match.command.source}</span>}
-          <span className="acpmux-slash-description">{match.command.description}</span>
+          {match.command.source && match.command.source !== "agent" && (
+            <span className="acpmux-slash-source">
+              {match.command.source === "skill"
+                ? t("composer.slashSkill")
+                : match.command.source === "prompt"
+                  ? t("composer.slashPrompt")
+                  : "cmux"}
+            </span>
+          )}
+          <span className="acpmux-slash-description">
+            {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
+          </span>
         </div>
       ))}
     </div>

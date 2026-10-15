@@ -195,6 +195,8 @@ struct Subscription {
     idle_since: Option<Instant>,
     /// The shared socket's current state, which a later subscriber is told.
     state: SocketState,
+    /// Frames a client asked the driver to send on the socket (`run.live.get`).
+    outbox: Vec<String>,
 }
 
 /// One `cloud-subscription-state`: the state, its reason and the account of
@@ -476,7 +478,11 @@ impl CloudConversations {
     /// `cloud-participant-avatar-get`: a Cloud participant's picture (the
     /// owner's `participant.avatar.get`: `{participant_id, avatar}`, the
     /// avatar with its base64 `data`, or null).
-    pub fn participant_avatar(&self, participant: &str) -> Result<Value, CloudError> {
+    pub fn participant_avatar(
+        &self,
+        participant: &str,
+        conversation: Option<&str>,
+    ) -> Result<Value, CloudError> {
         let valid = ["user_", "agent_"].iter().any(|prefix| {
             participant.strip_prefix(prefix).is_some_and(|rest| {
                 (1..=64).contains(&rest.len())
@@ -488,7 +494,16 @@ impl CloudConversations {
                 "participant {participant:?} is not a person or Chief id"
             )));
         }
-        let body = read_body("participant.avatar.get", json!({"participant_id": participant}));
+        let mut params = json!({"participant_id": participant});
+        if let Some(conversation) = conversation {
+            if !contract::valid_conversation_id(conversation) {
+                return Err(CloudError::BadRequest(format!(
+                    "conversation {conversation:?} is not a conversation id"
+                )));
+            }
+            params["conversation"] = json!(conversation);
+        }
+        let body = read_body("participant.avatar.get", params);
         let (value, _) = read_value(self.post("/v1/read", &body)?)?;
         Ok(value)
     }
@@ -699,6 +714,7 @@ impl CloudConversations {
                         clients: BTreeSet::from([client]),
                         idle_since: None,
                         state: initial,
+                        outbox: Vec::new(),
                     },
                 );
                 (true, reply)
@@ -720,6 +736,35 @@ impl CloudConversations {
             }
         }
         Ok(reply)
+    }
+
+    /// `cloud-conversation-live` (`chief-live-v1`): asks the conversation's
+    /// owner for its `run.live` snapshot on the shared socket
+    /// (`run.live.get`); the answer arrives as a `cloud-conversation-live`
+    /// event to every subscriber. Only a subscriber of the conversation asks;
+    /// while the socket is down the request waits for it (the owner also sends
+    /// the snapshot on every join).
+    pub fn request_live(&self, client: u64, conversation: &str) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let target = Target::Conversation(conversation.to_string());
+        let mut subscriptions =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) = subscriptions
+            .get_mut(&target)
+            .filter(|subscription| subscription.clients.contains(&client))
+        else {
+            return Err(CloudError::daemon_reject(
+                "not_subscribed",
+                "subscribe to the cloud conversation first",
+            ));
+        };
+        let frame =
+            json!({"t": "run.live.get", "type": "run.live.get", "conversation": conversation})
+                .to_string();
+        if !subscription.outbox.contains(&frame) {
+            subscription.outbox.push(frame);
+        }
+        Ok(subscription.state.reply(&target))
     }
 
     /// Emits `target`'s current socket state. The daemon calls it after it
@@ -947,6 +992,12 @@ impl Inner {
         }
     }
 
+    /// The frames clients asked to send on `target`'s socket, taken.
+    fn take_outbox(&self, target: &Target) -> Vec<String> {
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        subscriptions.get_mut(target).map(|s| std::mem::take(&mut s.outbox)).unwrap_or_default()
+    }
+
     fn remove(&self, target: &Target) {
         self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
     }
@@ -1090,6 +1141,16 @@ fn pump(
         // Announces `expiring` once per lease while a socket is open.
         if inner.stream_session().is_err() {
             return Ended::Reconnect;
+        }
+        // A client's request on the socket (`run.live.get`) goes out once
+        // the stream is live; a failed send drops the socket, and the
+        // owner's join snapshot answers instead.
+        if stream.is_live() {
+            for frame in inner.take_outbox(target) {
+                if wire.send(&frame).is_err() {
+                    return Ended::Dropped;
+                }
+            }
         }
         match wire.recv(inner.idle_wait(target, inner.options.poll)) {
             WireRecv::Idle => {}

@@ -8,6 +8,11 @@
 //! comes to an unsigned daemon only on `--person-key-fd` at spawn) may.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
@@ -159,13 +164,11 @@ impl Daemon {
         )
         .unwrap();
         let socket = dir.join("s.sock");
-        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
         cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &dir)
             .env("ACPMUX_SOCKET", &socket)
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("CLAUDECODE")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null());
@@ -663,13 +666,12 @@ async fn a_person_proof_replayed_on_another_connection_is_refused() {
 /// Starts the real daemon with `args` in `dir` (with its config.json): its
 /// ready line, or None when it exited first, with its exit status and stderr.
 fn run_until_ready(dir: &Path, args: &[&str]) -> (Option<Value>, std::process::Child) {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(dir)
         .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
         .args(args)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -922,13 +924,12 @@ fn start_home(tag: &str) -> PathBuf {
 
 /// `acpmux <args>` with this home, `stdin` as its standard input.
 fn acpmux_cli(home: &Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    // `daemon start` passes this environment on to the daemon it starts.
+    let mut cmd = daemon_env::acpmux(home);
     cmd.args(args)
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -977,7 +978,7 @@ async fn daemon_start_hands_its_stdin_key_to_the_daemon_it_starts() {
         "{}",
         String::from_utf8_lossy(&again.stderr)
     );
-    let _ = acpmux_cli(&home, &["daemon", "shutdown"], None);
+    let _ = acpmux_cli(&home, &["daemon", "shutdown", "--end-agents"], None);
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -997,7 +998,7 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     let kind = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
     assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) }, 0);
     let (ours, theirs) = (fds[0], fds[1]);
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    let mut cmd = daemon_env::acpmux(&home);
     cmd.args([
         "daemon",
         "run",
@@ -1012,7 +1013,6 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     .env("ACPMUX_HOME", &home)
     .env("ACPMUX_SOCKET", home.join("s.sock"))
     .env("ACPMUX_LOGIN_ENV", "0")
-    .env_remove("XPC_SERVICE_NAME")
     .stdin(std::process::Stdio::null())
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::null());

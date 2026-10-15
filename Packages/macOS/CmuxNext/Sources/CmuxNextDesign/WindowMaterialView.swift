@@ -24,6 +24,7 @@ public final class WindowMaterialView: NSView {
     /// The view drawing ``material``; nil while opaque.
     public private(set) var materialView: NSView?
     private let tintView = NSView()
+    private let glassTint = GlassTintBlend()
     private let inactiveTintView = NSView()
     private var keyObservers: [NSObjectProtocol] = []
     /// The window gave up the keyboard. Only then does glass go grey; a window
@@ -103,6 +104,9 @@ public final class WindowMaterialView: NSView {
         if let glass = materialView as? GlassPanelView { return glass.tintColor?.cgColor }
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
     }
+
+    /// The layer of the tint over the desktop while it shows (`debug.themes`).
+    var shownTintLayer: CALayer? { tintView.isHidden ? nil : tintView.layer }
 
     /// The theme tint laid over glass while the window is not key: Liquid
     /// Glass drops its `tintColor` then and draws the system's grey, so the
@@ -211,11 +215,24 @@ public final class WindowMaterialView: NSView {
         let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? GlassPanelView
-        glass?.tintColor = color
+        // Liquid Glass blends its tint on the window's motion clock (appearance.colorTransition).
+        if let glass {
+            glassTint.onStep = { [weak self] in self?.updateInactiveTint() }
+            glassTint.set(glass, to: color, in: self)
+        }
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
-        tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+        let tint = shows ? color.cgColor : nil
+        if let layer = tintView.layer, layer.backgroundColor != tint {
+            // The tint over the desktop blends like the opaque sheet (appearance.colorTransition).
+            if tint != nil, layer.backgroundColor != nil, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: tint)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = tint
+            }
+        }
         updateInactiveTint()
     }
 

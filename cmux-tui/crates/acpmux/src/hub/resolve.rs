@@ -177,6 +177,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         models: None,
         permission_policy: d.policy.map(|p| p.to_string()),
         title: None,
+        title_source: None,
+        title_prompt: None,
         last_prompt: None,
         preview: None,
         event_count: 0,
@@ -190,11 +192,17 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_turn: None,
         remote_origin: d.remote,
         session_env: Default::default(),
+        workspace_id: None,
         chat_store: None,
         adopted_cwd: None,
         harness_roots: vec![],
         composer_draft: None,
         bookmarks: Default::default(),
         tools: Default::default(),
+        // Read off the async runtime by `session/new` (`adoption::start_folder`).
+        totals: None,
+        harness_cost_usd: None,
+        git_branch: None,
+        git_head: None,
     }
 }

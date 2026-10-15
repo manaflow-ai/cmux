@@ -4,12 +4,17 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -58,7 +63,7 @@ impl Daemon {
 
     fn start(&mut self) {
         assert!(self.child.is_none());
-        let mut command = Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)
@@ -66,10 +71,7 @@ impl Daemon {
             // No catalog fetch: a test never reaches the network, and the fetch's
             // warning (a catalog server 404) came on stdout before the ready line.
             .env("ACPMUX_CATALOG_FETCH", "0")
-            .env_remove("ACPMUX_AGENT_HOSTS")
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("ACPMUX_IDLE_CHILD_SECS")
             .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -455,7 +457,7 @@ async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_t
 
 /// `acpmux daemon shutdown` as the CLI runs it, against this daemon.
 fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    daemon_env::acpmux(&daemon.home)
         .args(["daemon", "shutdown"])
         .args(extra)
         .env("ACPMUX_HOME", &daemon.home)
@@ -464,15 +466,16 @@ fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
         .expect("run acpmux daemon shutdown")
 }
 
-/// `acpmux daemon shutdown` does what its help says: it stops the daemon
-/// and every agent process, hosted agents and their hosts included. On
-/// cmux-lawrence (2026-10-06) it reported success against the brain's
-/// acpmux and left the "rollback-throwaway" session's agent host running.
+/// `acpmux daemon shutdown --end-agents` does what its help says: it stops
+/// the daemon and every agent process, hosted agents and their hosts
+/// included. On cmux-lawrence (2026-10-06) it reported success against the
+/// brain's acpmux and left the "rollback-throwaway" session's agent host
+/// running.
 #[tokio::test]
-async fn the_cli_shutdown_ends_every_agent_and_its_host() {
+async fn the_cli_shutdown_with_end_agents_ends_every_agent_and_its_host() {
     let mut daemon = Daemon::new("clis", "approve-all");
     let (_session, host, client) = gated_turn(&daemon).await;
-    let out = cli_shutdown(&daemon, &[]);
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();
     drop(client);
@@ -487,7 +490,8 @@ async fn the_cli_shutdown_ends_every_agent_and_its_host() {
 }
 
 /// A harness helper that moved into its own session (setsid) is out of reach
-/// of the harness group signal; `acpmux daemon shutdown` still ends it.
+/// of the harness group signal; `acpmux daemon shutdown --end-agents` still
+/// ends it.
 #[tokio::test]
 async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
     let helper_file = std::env::temp_dir().join(format!("amd-sid-{}", std::process::id()));
@@ -503,7 +507,7 @@ async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
     let helper_path = format!("{}.{}", helper_file.display(), host["harness_pid"]);
     let helper: i64 = std::fs::read_to_string(&helper_path).unwrap().trim().parse().unwrap();
     let _ = std::fs::remove_file(&helper_path);
-    let out = cli_shutdown(&daemon, &[]);
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();
     drop(client);
@@ -515,8 +519,34 @@ async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
     assert!(gone, "a harness child that left its group outlived acpmux daemon shutdown");
 }
 
-/// `--keep-agents` is the explicit durable stop (a restart): hosted agents
-/// keep running for the next daemon to adopt.
+/// cx-qryd0 (hq-6d 2026-10-15): a plain `acpmux daemon shutdown` is a
+/// restart stop, as the `_acpmux/shutdown` RPC without endAgents: the hosted
+/// agent keeps running and the next daemon adopts it. (It ended every agent
+/// before, and a proof's clean start ended another job's live agent on a
+/// shared machine, cx-ao1gb.)
+#[tokio::test]
+async fn a_plain_cli_shutdown_keeps_hosted_agents_for_the_next_daemon() {
+    let mut daemon = Daemon::new("cliplain", "approve-all");
+    let (session, host, client) = gated_turn(&daemon).await;
+    let out = cli_shutdown(&daemon, &[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    drop(client);
+    let harness = host["harness_pid"].as_i64().unwrap();
+    assert!(alive(harness), "a plain shutdown ended the agent");
+    // The next daemon adopts it.
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness), "the agent did not survive the restart");
+    // This test started it: end it (and the daemon) explicitly.
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    assert!(gone_within(harness, Duration::from_secs(10)), "--end-agents left the agent running");
+}
+
+/// `--keep-agents` stays accepted (a no-op now) for callers that may run an
+/// older CLI: hosted agents keep running for the next daemon to adopt.
 #[tokio::test]
 async fn the_cli_shutdown_with_keep_agents_leaves_hosted_agents_running() {
     let mut daemon = Daemon::new("clik", "approve-all");

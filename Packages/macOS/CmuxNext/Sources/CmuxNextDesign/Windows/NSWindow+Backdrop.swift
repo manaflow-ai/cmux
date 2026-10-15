@@ -27,7 +27,16 @@ extension NSView {
     /// Every surface above stays clear.
     public func paintBackdropSheet(_ backdrop: WindowBackdrop, surface: NSColor, backdropView: WindowMaterialView) {
         let fill = backdrop.isOpaque ? surface.withAlphaComponent(1).cgColor : nil
-        if layer?.backgroundColor != fill { layer?.backgroundColor = fill }
+        // A workspace switch or theme change blends the sheet from the color on screen
+        // (appearance.colorTransition); a change to or from a material applies at once.
+        if let layer, layer.backgroundColor != fill {
+            if fill != nil, layer.backgroundColor != nil, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: fill)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = fill
+            }
+        }
         backdropView.apply(backdrop, tint: surface)
     }
 }

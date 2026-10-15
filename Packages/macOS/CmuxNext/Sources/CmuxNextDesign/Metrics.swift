@@ -13,8 +13,10 @@ public enum Density: String, Sendable, CaseIterable, Codable {
 
 public struct Metrics {
     public init() {}
-    /// Applies the live app-wide scale to a chrome metric.
-    public static func scale(_ value: CGFloat) -> CGFloat { value * DesignSettings.shared.uiScale }
+    /// Applies the one live chrome multiplier (when `interfaceScaleEnabled`) to every metric token.
+    public static func scale(_ value: CGFloat) -> CGFloat {
+        value * (DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1)
+    }
     /// Active density, read from `DesignSettings.shared`. Reading any metric
     /// inside an Observation-tracked scope (view layout, `withObservationTracking`)
     /// registers a dependency, so a density or override change re-lays out live.
@@ -82,7 +84,8 @@ public struct Metrics {
     /// columns meet at one line as split panes do.
     public static var stripColumnGap: CGFloat {
         let set = DesignSettings.shared.overrides[.columnGap] != nil || MetricTunables.columnGap.tunable.override != nil
-        return set || paneSeparation == .borders || paneSeparation == .cards ? columnGap : 0
+        // Floating panes: the padding alone makes the one even gap.
+        return set || !floatingPanes && (paneSeparation == .borders || paneSeparation == .cards) ? columnGap : 0
     }
     /// Divider thickness between split panes (hit area is wider).
     /// A room dot at the bottom of the sidebar (drawn size; its hit target
@@ -199,8 +202,14 @@ public struct Typography {
     private static var compact: Bool { Metrics.density == .compact }
     /// User override for chrome body size; other styles scale from it.
     private static var scale: CGFloat {
-        guard let body = DesignSettings.shared.overrides[.chromeFontSize] else { return DesignSettings.shared.uiScale }
-        return body / (compact ? 12 : 13) * DesignSettings.shared.uiScale
+        let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
+        let configuredScale: CGFloat
+        if let body = DesignSettings.shared.overrides[.chromeFontSize] {
+            configuredScale = body / (compact ? 12 : 13)
+        } else {
+            configuredScale = 1
+        }
+        return configuredScale * interfaceScale
     }
     /// The user's text size relative to the density's body size (1 when
     /// Interface Size is not overridden). Surfaces with their own type scale

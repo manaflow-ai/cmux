@@ -283,6 +283,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
 
+      - name: Validate reload's xcodebuild lock root ignores TMPDIR
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_xcodebuild_lock_root.sh
+
       - name: Validate reload emits the app module on Xcode versions that fail the module merge
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_app_module_emission.sh
@@ -1081,6 +1085,7 @@ jobs:
           python3 tests/test_nightly_republish_delta_guard.py
           python3 tests/test_nightly_resume_tracks.py
           python3 tests/test_nightly_signed_unnotarized_artifact.py
+          python3 tests/test_nightly_notices_submodule.py
 
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}

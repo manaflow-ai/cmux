@@ -73,10 +73,86 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     while let Some(socket) = rx.recv().await {
         match crate::local_stream::bridge(socket) {
             Ok(stream) => {
-                tokio::spawn(super::serve_stream(hub.clone(), stream, None));
+                tokio::spawn(super::stream::serve_stream(hub.clone(), stream, None));
             }
             Err(e) => tracing::warn!("accept failed: {e}"),
         }
     }
     anyhow::bail!("the daemon socket's accept thread ended")
+}
+
+/// The local router's admin socket (`cmux_coderouter::serve_with_admin`):
+/// bound at `path` with the same peer checks, each accepted connection
+/// bridged into tokio and handed to the router.
+pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
+    // A router of another build that just released the router lock may
+    // still hold the old socket for a moment: remove and bind again, bounded.
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    let listener = loop {
+        match cmux::local_socket::listen_explicit(path) {
+            Ok(listener) => break listener,
+            Err(e) if std::time::Instant::now() < deadline => {
+                tracing::debug!("bind {}: {e}; retrying", path.display());
+                // As `bind_unix`: another user's socket file is never removed,
+                // and a socket that still answers (a stopping router) is left
+                // until it goes; only a stale file of our user is removed.
+                match cmux::local_socket::connect_same_user(path) {
+                    Ok(_) => {}
+                    Err(refused) if refused.kind() == std::io::ErrorKind::PermissionDenied => {
+                        return Err(
+                            anyhow::Error::new(refused).context(format!("bind {}", path.display()))
+                        );
+                    }
+                    Err(_) => {
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                return Err(anyhow::Error::new(e).context(format!("bind {}", path.display())));
+            }
+        }
+    };
+    let (sockets_tx, mut sockets) = mpsc::channel::<cmux::local_socket::Stream>(16);
+    std::thread::Builder::new()
+        .name("router-admin-accept".into())
+        .spawn(move || {
+            loop {
+                match listener.accept_with_peer() {
+                    Ok((stream, _peer)) => {
+                        if sockets_tx.blocking_send(stream).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                        tracing::warn!("router admin peer {e}");
+                    }
+                    Err(e) => {
+                        tracing::warn!("router admin accept failed: {e}");
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
+            }
+        })
+        .context("start the router admin accept thread")?;
+    let (tx, rx) = mpsc::channel(16);
+    tokio::spawn(async move {
+        while let Some(socket) = sockets.recv().await {
+            let connection = crate::local_stream::bridge(socket).map(|stream| {
+                let (read, write) = crate::local_stream::split(stream);
+                // No attestation provider on Windows (free_tier::ProviderPeer).
+                let peer = cmux_coderouter::free_tier::ProviderPeer::refused();
+                (Box::new(read) as _, Box::new(write) as _, peer)
+            });
+            if let Err(e) = &connection {
+                tracing::warn!("router admin connection: {e}");
+                continue;
+            }
+            if tx.send(connection).await.is_err() {
+                break;
+            }
+        }
+    });
+    Ok(rx)
 }

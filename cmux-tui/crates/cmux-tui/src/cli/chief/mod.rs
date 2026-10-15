@@ -52,6 +52,9 @@ pub(super) enum Input {
 /// can take long, but a script must never wait forever.
 pub(super) const DEFAULT_TIMEOUT_SECS: u64 = 30 * 60;
 
+/// The client kind of an open `cmux chief` chat (pipe or terminal), in `client.list`.
+const CHAT_CLIENT_KIND: &str = "chief-chat";
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Args {
     pub prompt: Option<String>,
@@ -186,6 +189,13 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if let Some(control) = &args.control {
         return control::run(&global, args.chief_home.as_deref(), control, global.output);
     }
+    // cx-tgf4h: with agents off in this build session no Chief turn can
+    // run; refuse before anything starts or is sent (a send would wait for
+    // a reply that never comes).
+    if cmux_tui_core::agent_launch::disabled() {
+        let refusal = cmux_tui_core::agent_launch::refusal(m.agents_disabled);
+        return super::wire::print_operation_error(&refusal, global.output);
+    }
     let stdin_tty = std::io::stdin().is_terminal();
     let pipe_mode = args.prompt.is_some() || !stdin_tty;
     if !pipe_mode && !std::io::stdout().is_terminal() {
@@ -264,6 +274,11 @@ impl Session {
             rejected => (1, rejected.to_string()),
         };
         let mut control = connect()?;
+        // The chat names its connection `chief-chat` for as long as it runs: a DEV app restarts a
+        // keyless Chief owner only while no such client is attached (CmuxNextDaemon
+        // OwnerIdleProbe). Best effort: a daemon that refuses it still serves the chat.
+        let named = json!({"client": "current", "name": "cmux chief", "kind": CHAT_CLIENT_KIND});
+        let _ = control.call("client.metadata.update", named, None);
         let listed = control.call("conversation.list", json!({}), None).map_err(failed)?;
         let conversations = listed.as_array().cloned().unwrap_or_default();
         let chief = link::select_chief(&conversations).ok_or((1, m.no_chief.to_owned()))?;
@@ -345,10 +360,24 @@ fn target(
     if link::is_brain_socket(&home.root) {
         return Err((1, m.brain_socket.replace("{socket}", &home.root.display().to_string())));
     }
+    // cmux NEXT adopts the shared Chief home once (build_adopt.rs).
+    if !home.isolated {
+        crate::build_adopt::chief_for_cli(&home.root);
+    }
     Ok(Target::Home(home))
 }
 
 /// Whether the output mode prints JSON.
 pub(super) fn json_output(output: OutputMode) -> bool {
     matches!(output, OutputMode::Json | OutputMode::JsonLines)
+}
+
+/// The person's Chief home this build resolves (no `--chief-home`; None for
+/// an isolated launch or without `HOME`): the app's one-time adoption at
+/// launch (build_adopt.rs).
+pub(crate) fn home_for_adopt() -> Option<std::path::PathBuf> {
+    let user_home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let home = home::ChiefHome::resolve(None, |k| std::env::var(k).ok(), &user_home, &cwd);
+    (!home.isolated).then_some(home.root)
 }

@@ -104,6 +104,35 @@ fn a_partial_reopen_restores_the_chosen_members_and_keeps_the_rest() {
     assert_eq!(groups[0]["tab_ids"].as_array().map(Vec::len), Some(3), "{groups}");
 }
 
+/// A saved group that closes reopens still linked to its saved record, and
+/// in its own order.
+#[test]
+fn a_closed_saved_group_reopens_linked_and_in_order() {
+    let mux = Mux::new_for_test("closed-v2-saved", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 4);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    let group =
+        mutate(&mux, "tab_group.create", json!({"tabs": [ids[1], ids[2], ids[3]]}), "group");
+    let saved = mutate(&mux, "saved_tab_group.save", json!({"tab_group": group["id"]}), "save");
+    let saved_id = saved["id"].as_str().expect("the saved group has an id").to_string();
+    mutate(&mux, "tab_group.close", json!({"tab_group": group["id"]}), "group-close");
+    let id = read(&mux, "closed.list", json!({}))[0]["id"].clone();
+
+    // The last tab first, then the rest: the group keeps its strip order.
+    let last = mutate(&mux, "closed.reopen", json!({"closed": id, "members": [2]}), "last");
+    // The saved group still names every closed tab, not just the one back.
+    let saved_groups = read(&mux, "saved_tab_group.list", json!({}));
+    assert_eq!(saved_groups[0]["members"].as_array().map(Vec::len), Some(3), "{saved_groups}");
+    let rest = mutate(&mux, "closed.reopen", json!({"closed": id}), "rest");
+    let order =
+        [rest["tab_ids"][0].clone(), rest["tab_ids"][1].clone(), last["tab_ids"][0].clone()];
+    let groups = read(&mux, "tab_group.list", json!({}));
+    assert_eq!(groups.as_array().map(Vec::len), Some(1), "{groups}");
+    assert_eq!(groups[0]["id"], group["id"]);
+    assert_eq!(groups[0]["saved_tab_group_id"], saved_id.as_str(), "{groups}");
+    assert_eq!(groups[0]["tab_ids"], json!(order), "{groups}");
+}
+
 /// Reopen Closed without an id (Cmd-Shift-T): the newest group of the
 /// caller's window; then a group of a closed window; never a group of
 /// another live window. A retry with the same key replays, it does not
@@ -409,4 +438,64 @@ fn a_reopen_that_reattaches_at_the_pane_end_emits_tab_added() {
     assert_eq!(added.pane, Some(pane));
     assert_eq!(added.index, Some(2));
     assert_eq!(added.entity["surface"], surface);
+}
+
+/// A close whose archive pushes an older archive's screen past the byte
+/// budget publishes that older group again, marked `scrollback_not_kept`,
+/// so a client that follows the change stream shows the note (cx-gzh.4.4).
+#[test]
+fn an_evicted_archive_screen_republishes_its_closed_group() {
+    use crate::workspace_registry::terminal_archive_store::ArchiveRow;
+
+    let mux = Mux::new_for_test("closed-v2-archive-budget", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 3);
+    let terminal = |surface| mux.surface(surface).unwrap().terminal_public_id().cloned().unwrap();
+    let (old, new) = (terminal(tabs[1]), terminal(tabs[2]));
+    assert!(mux.close_surface(tabs[1]).unwrap());
+    assert!(mux.close_surface(tabs[2]).unwrap());
+    let closed = read(&mux, "closed.list", json!({}));
+    let old_group = closed[1]["id"].as_str().unwrap().to_string();
+
+    // Noise does not compress: one gzip screen fits the budget, two do not.
+    let mut seed = 7_u32;
+    let screen = (0..4096)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            seed.to_be_bytes()[0]
+        })
+        .collect::<Vec<_>>();
+    let store = |terminal_id: &str| {
+        let row = ArchiveRow {
+            terminal_id,
+            generation: "g1",
+            program: None,
+            cols: 80,
+            rows: 24,
+            screen: Some(&screen),
+        };
+        mux.put_terminal_archive_rows(&[row], 6 * 1024);
+    };
+    store(old.as_str());
+    let before = super::tests::revision(&mux);
+    store(new.as_str());
+
+    let changes = super::tests::changes_after(&mux, before);
+    let upsert = changes
+        .iter()
+        .find(|change| {
+            change["kind"] == "state_upsert"
+                && change["resource"] == "closed"
+                && change["id"] == old_group.as_str()
+        })
+        .unwrap_or_else(|| panic!("the older group is published again: {changes:?}"));
+    assert_eq!(
+        upsert["value"]["members"][0]["screens"][0]["tabs"][0]["scrollback_not_kept"],
+        json!(true),
+        "{upsert}"
+    );
+    let listed = read(&mux, "closed.list", json!({}));
+    assert_eq!(
+        listed[1]["members"][0]["screens"][0]["tabs"][0]["scrollback_not_kept"],
+        json!(true)
+    );
 }

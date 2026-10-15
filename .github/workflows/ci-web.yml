@@ -226,8 +226,11 @@ jobs:
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The webviews suite alone (243 files, then 62
     # dev-server files) passed 188 files in 12.5 min before 15 cut it off (#20276,
-    # 2026-10-13, after a typecheck red had hidden the growth), so 30.
-    timeout-minutes: 30
+    # 2026-10-13, after a typecheck red had hidden the growth), so 30. On 2026-10-14
+    # the test step alone took 22 min (277 files, about 90 of them dev-server files two
+    # at a time), and the engine install (apt for --with-deps) took 2.5 min on one run
+    # and 11.5 on the next, which left the tests 17 min (#20697, cx-v6fbz), so 40.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -248,6 +251,15 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      # The source build installs webviews dependencies before the test suite;
+      # cache Bun's package blobs on this lane so a new source key
+      # does not redownload the lockfile from scratch.
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -256,9 +268,9 @@ jobs:
 
       # The web bundles are build output (cx-vn5): this builds them into the
       # gitignored resource paths that the budget, React Compiler and webviews
-      # tests below read. The source checks of `bun run build` run separately.
+      # tests below read. Typecheck runs once in the dedicated step below.
       - name: Verify webviews source checks
-        run: ./scripts/build-webviews-app.sh --check
+        run: ./scripts/build-webviews-app.sh --check --skip-typecheck
 
       - name: Build the web bundles
         run: ./scripts/cmux-next/build-web-bundles.sh --force

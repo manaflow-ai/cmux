@@ -5,6 +5,11 @@
 //! or not executable fails the doctor's command step with the exact fix.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
@@ -39,16 +44,13 @@ impl User {
     }
 
     fn cmd(&self) -> Command {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        // The daemon runs the sample agent; `harness add` and `doctor` too.
+        let mut cmd = daemon_env::command(&self.root, daemon_env::Agents::StandIn, &[]);
         cmd.current_dir(self.root.join("work"))
-            .env("HOME", self.root.join("home"))
             .env("XDG_CONFIG_HOME", self.root.join("xdg"))
             .env("ACPMUX_HOME", self.root.join("amx"))
             .env("ACPMUX_SOCKET", self.root.join("s.sock"))
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("ACPMUX_AGENT_HOSTS")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("CLAUDECODE")
             .stdin(Stdio::null());
         cmd
     }
@@ -103,7 +105,7 @@ impl User {
 impl Drop for User {
     fn drop(&mut self) {
         if let Some(mut child) = self.daemon.take() {
-            let _ = self.run(&["daemon", "shutdown"]);
+            let _ = self.run(&["daemon", "shutdown", "--end-agents"]);
             let _ = child.kill();
             let _ = child.wait();
         }

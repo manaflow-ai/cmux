@@ -12,9 +12,9 @@ use cmux::raw::{
     Client, ClientConfig, ConversationAttachmentReadRequest, ConversationAttachmentUploadRequest,
     ConversationAttachmentUploadResult, ConversationBindRequest, ConversationCreateRequest,
     ConversationDraftRequest, ConversationHistoryRequest, ConversationListRequest,
-    ConversationOpRequest, ConversationRunAppendRequest, ConversationSnapshotRequest,
-    ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
-    SubscribeRequestTreeEvents,
+    ConversationLivePublishRequest, ConversationOpRequest, ConversationRunAppendRequest,
+    ConversationSnapshotRequest, ConversationTypingRequest, Error as SdkError, Event, Nullable,
+    Optional, SubscribeRequest, SubscribeRequestTreeEvents,
 };
 use cmux_chief::rules::{
     AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
@@ -75,6 +75,13 @@ pub trait ConversationPort: Send {
         _steps: Vec<Value>,
     ) -> Result<(), OpError> {
         Err(OpError::Rejected("runs_unsupported".into()))
+    }
+    /// Sends one live frame of the running turn's run (`conversation-live-publish`,
+    /// `chief-live-v1`): the reply's text as it streams and a "working on"
+    /// line. Display only and never stored: a port without it says so with an
+    /// error and the turn goes on.
+    fn live_publish(&mut self, _conversation: &str, _frame: Value) -> Result<(), OpError> {
+        Err(OpError::Rejected("live_unsupported".into()))
     }
     /// Uploads a picture a run step shows as an attachment record of
     /// `conversation` this connection's agent may name (one chunk, at most
@@ -575,6 +582,21 @@ impl ConversationPort for SdkConversations {
             .map_err(sdk_error)
     }
 
+    /// `conversation-live-publish` (capability `chief-live-v1`): this bound
+    /// connection's principal is the Chief whose run streams.
+    fn live_publish(&mut self, conversation: &str, frame: Value) -> Result<(), OpError> {
+        if !self.supports("chief-live-v1") {
+            return Err(OpError::Rejected("live_unsupported".into()));
+        }
+        self.client
+            .conversation_live_publish(ConversationLivePublishRequest {
+                conversation: conversation.into(),
+                frame: Nullable::value(frame),
+            })
+            .map(|_| ())
+            .map_err(sdk_error)
+    }
+
     /// `conversation-draft` (capability `conversation-draft-v1`): the v1
     /// command of `conversation.draft`; this bound connection's principal is
     /// `agent_mux` (conversation-bind).
@@ -722,6 +744,21 @@ fn is_idempotency_conflict(error: &SdkError) -> bool {
     }
 }
 
+/// The conversation an `idempotency_conflict` names (`error_details.conversation`,
+/// cmux-tui-core conversation_store.rs `KeyedConversation`).
+fn keyed_conversation(error: &SdkError) -> Option<String> {
+    match error {
+        SdkError::Command {
+            error_details: Some(details),
+            ..
+        } => details
+            .get("conversation")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        _ => None,
+    }
+}
+
 /// The most distinct requests [`find_grown_dm`] sends the owner.
 const GROWN_DM_PROBES: usize = 8;
 
@@ -849,12 +886,24 @@ fn connect(config: &LinkConfig) -> Result<Connected, ConnectError> {
                 // select above missed it. Answer there; a new key would make
                 // a second DM. The DM keeps its stored title.
                 Err(CreateError::Conflict(e)) => {
-                    match find_grown_dm(&mut client, &key, listed, &config.participant)? {
-                        Some(found) => found,
-                        None => {
-                            return Err(ConnectError::Other(format!(
-                                "{e}: no conversation with the person replays {key}; its DM's title or names changed"
-                            )));
+                    // The owner names the conversation the key made (to a
+                    // creator that takes part in it): that is the DM, also
+                    // when its title changed. An older owner names none.
+                    let keyed = keyed_conversation(&e).and_then(|id| {
+                        listed.iter().find(|c| {
+                            c.id == id && c.participants.iter().any(|p| p.id == config.participant)
+                        })
+                    });
+                    if let Some(found) = keyed.cloned() {
+                        found
+                    } else {
+                        match find_grown_dm(&mut client, &key, listed, &config.participant)? {
+                            Some(found) => found,
+                            None => {
+                                return Err(ConnectError::Other(format!(
+                                    "{e}: no conversation with the person replays {key}; its DM's title or names changed"
+                                )));
+                            }
                         }
                     }
                 }

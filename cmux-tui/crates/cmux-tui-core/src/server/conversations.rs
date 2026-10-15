@@ -73,6 +73,10 @@ pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
 /// does) and never as the owner: it cannot mint, import or use owner-only
 /// commands, and only the owner's own connection mints the credential.
 pub const CONVERSATION_PERSON_CREDENTIALS_CAPABILITY: &str = "conversation-person-credentials-v1";
+/// `home-inbox`: the Home list rows the caller sees, derived by the owner
+/// (kind, display name, unread count, preview, a Chief's live state, the
+/// caller's pins and marks, list order), so every view shows the same list.
+pub const HOME_INBOX_CAPABILITY: &str = "home-inbox-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -117,6 +121,22 @@ pub(super) struct ThreadParams {
 #[derive(Deserialize)]
 pub(super) struct LinkResolveParams {
     url: String,
+}
+
+/// `home-inbox`: which owners' rows (`local`, `cloud`; default both). In the
+/// app the local conversations' owner and the Cloud lease can be two daemons.
+#[derive(Deserialize)]
+pub(super) struct HomeInboxParams {
+    #[serde(default)]
+    owners: Option<Vec<String>>,
+}
+
+impl HomeInboxParams {
+    /// Whether the rows include the Cloud inbox (a network read: it leaves
+    /// the request loop like `cloud-inbox-list`).
+    pub(super) fn asks_cloud(&self) -> bool {
+        self.owners.as_ref().is_none_or(|owners| owners.iter().any(|owner| owner == "cloud"))
+    }
 }
 
 /// `conversation-inbox-op`: the caller's own pin or "marked unread" of one
@@ -225,6 +245,14 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         .or_else(|| error.downcast_ref::<RunRejected>().map(|r| r.0.to_string()))
 }
 
+/// The `error_details` of a conversation reject that has them: the keyed
+/// conversation of a create's `idempotency_conflict`.
+pub(super) fn error_details(error: &anyhow::Error) -> Option<Value> {
+    error
+        .downcast_ref::<crate::conversation_store::KeyedConversation>()
+        .map(|keyed| json!({"conversation": keyed.0}))
+}
+
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     let rejected = error.downcast_ref::<ConversationRejected>().is_some()
@@ -293,6 +321,103 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
         })
         .collect::<anyhow::Result<_>>()?;
     Ok(json!({"conversations": conversations}))
+}
+
+/// `home-inbox`: the caller's Home rows over the local conversations
+/// (`cmux_conversation::home_inbox`): the same summaries as
+/// `conversation-list`, with the caller's pins and marks, the Chief
+/// registry's current names and who types now.
+pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let owners = params.owners.unwrap_or_else(|| vec!["local".into(), "cloud".into()]);
+    anyhow::ensure!(
+        owners.iter().all(|owner| owner == "local" || owner == "cloud"),
+        "bad request: owners"
+    );
+    let (cloud_rows, cloud) = if owners.iter().any(|owner| owner == "cloud") {
+        cloud_home_rows(mux, client)
+    } else {
+        (Vec::new(), "not_asked")
+    };
+    if !owners.iter().any(|owner| owner == "local") {
+        let principal = mux.conversation_principal(client);
+        let rows = cmux_conversation::merge_rows(Vec::new(), cloud_rows);
+        return Ok(json!({"me": principal, "rows": rows, "cloud": cloud}));
+    }
+    let principal = mux.conversation_principal(client);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+    // One read of the store: the summaries, my list state and the runs agree.
+    let (conversations, states, running) = mux.with_conversations(|store| {
+        Ok((store.list()?, store.inbox_states(&principal)?, store.running_run_authors(now_ms)?))
+    })?;
+    let input = cmux_conversation::HomeInboxInput {
+        me: &principal,
+        states: states
+            .into_iter()
+            .map(|(id, state)| {
+                (
+                    id,
+                    cmux_conversation::HomeListState {
+                        pinned: state.pinned,
+                        pin_position: state.pin_position,
+                        marked_unread: state.marked_unread,
+                    },
+                )
+            })
+            .collect(),
+        chief_names: super::chief_registry_resource::chief_names(mux),
+        typing: mux.conversation_typing_all(),
+        running,
+    };
+    let rows = cmux_conversation::merge_rows(
+        cmux_conversation::home_inbox(&conversations, &input),
+        cloud_rows,
+    );
+    Ok(json!({"me": principal, "rows": rows, "cloud": cloud}))
+}
+
+/// The person's Cloud inbox as Home rows, through the daemon's lease, and
+/// whether they are in: `included`, `signed_out` (this connection is not the
+/// person with the app's lease, or there is no lease or no Cloud here) or
+/// `unavailable` (the Cloud did not answer). A Cloud failure never hides the
+/// local rows. One page of the inbox (the newest 200 entries).
+fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, &'static str) {
+    use crate::cloud_conversations::CloudError;
+    // Only the person's own clients (the app, an authenticated page) get the
+    // person's rows; any other connection never reads a lease.
+    if !super::cloud_conversations::is_person(mux, client) {
+        return (Vec::new(), "signed_out");
+    }
+    // The read holds one of the Cloud's request slots, as cloud-inbox-list does.
+    let listed = super::cloud_conversations::lease_user(mux, client).and_then(|service| {
+        let _permit = service.begin_request()?;
+        service.inbox_list(None, false).map_err(anyhow::Error::from)
+    });
+    let value = match listed {
+        Ok(value) => value,
+        Err(error) => {
+            let unanswered =
+                matches!(error.downcast_ref::<CloudError>(), Some(CloudError::Unavailable(_)));
+            return (Vec::new(), if unanswered { "unavailable" } else { "signed_out" });
+        }
+    };
+    let Some(entries) = value.get("entries").and_then(Value::as_array) else {
+        return (Vec::new(), "unavailable");
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+    // One malformed entry is skipped, never the whole inbox.
+    let rows = entries
+        .iter()
+        .filter_map(|entry| serde_json::from_value(entry.clone()).ok())
+        .filter_map(|entry: cmux_conversation::CloudInboxEntry| {
+            cmux_conversation::cloud_row(&entry, now_ms)
+        })
+        .collect();
+    (rows, "included")
 }
 
 /// `conversation-inbox-op`: sets the caller's own pin or "marked unread" of
@@ -571,9 +696,12 @@ pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result
         crate::conversation_store::credentialed(&participant),
         "only agent participants and other people bind with a token"
     );
-    let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
+    // The check and the binding under one lock: a credential that
+    // chief.profile.adopt revoked never binds after the adopt.
+    let valid = mux.bind_conversation_principal_if(client, participant.clone(), || {
+        mux.with_conversations(|store| store.verify_agent_token(&participant, &token))
+    })?;
     anyhow::ensure!(valid, "conversation agent token is not valid for {participant}");
-    mux.bind_conversation_principal(client, participant.clone())?;
     Ok(json!({"participant": participant}))
 }
 
@@ -591,7 +719,17 @@ pub(super) fn agent_token(
         crate::conversation_store::credentialed(&params.participant),
         "participant tokens are only for agents and other people"
     );
-    let token = mux.with_conversations(|store| store.mint_agent_token(&params.participant))?;
+    // A Chief record's credential (other than the default Chief's): with a
+    // brain supervisor only its brain gets one (minted in process); without
+    // one, only the person's own terminal mints it, never a page, a paired or
+    // remote device or an agent (chief.profile.adopt, hq-6d 2026-10-14). The
+    // check and the mint run under the registry lock, so an adopt cannot land
+    // between them.
+    let terminal = !mux.is_remote_client(client)
+        && super::origin_gate::connection_page(mux, client).is_none()
+        && !super::origin_gate::is_page(mux, client);
+    let token =
+        super::chief_registry_resource::mint_credential(mux, &params.participant, terminal)?;
     // A replaced token also ends the connections bound with the old one.
     mux.unbind_conversation_participant(&params.participant);
     Ok(json!({"participant": params.participant, "token": token}))

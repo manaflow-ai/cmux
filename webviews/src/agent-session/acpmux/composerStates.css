@@ -73,21 +73,27 @@
   outline-offset: 2px;
 }
 
-/* Send and Stop: the one filled control, in the accent (the terminal theme's text color, or its own
-   hue with appearance.accent; never the ANSI blue); it steps toward the base on hover and further on press. */
-.acpmux-send.acpmux-send-ready:hover,
-.acpmux-send.acpmux-cancel:hover {
+/* Send is the one accent-filled control (the terminal theme's text color, or its own hue with
+   appearance.accent; never the ANSI blue); Stop is the same disc in the text color
+   (composerLocation.css). Each steps toward the base on hover and further on press. */
+.acpmux-send.acpmux-send-ready:hover {
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 88%, var(--acpmux-base));
 }
-.acpmux-send.acpmux-send-ready:active,
-.acpmux-send.acpmux-cancel:active {
+.acpmux-send.acpmux-send-ready:active {
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--acpmux-base));
 }
+.acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
+  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
+}
+.acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
+  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
+}
 
-/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
+   (styles.css, --acpmux-send-off-*), one disabled look, with no step on hover. */
 button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
-  background: var(--acpmux-composer-hover);
-  color: var(--agent-muted);
+  background: var(--acpmux-send-off-bg);
+  color: var(--acpmux-send-off-fg);
   cursor: default;
 }
 
@@ -207,14 +213,54 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 /* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
    composerLocation.css draws it around the strip's seam). Focus is quiet, as the New Tab box's
-   (Lawrence, Leo 10-14): the same one-device-pixel rim, its tone one 8% step toward the text, never a
-   wider ring or the accent, and clear with appearance.borders none. Shell mode takes its own accent,
+   (Lawrence, Leo 10-14): the same one-device-pixel rim, never a wider ring or the accent, and clear
+   with appearance.borders none. Its tone steps 30% toward the text (--acpmux-composer-edge-focus):
+   the earlier 8% step was below what an eye can see, so a focused composer was pixel-identical to an
+   idle one in every theme (cg-composer focus audit, 10-14). The location strip on the card's top
+   edge takes the same tone, so the focused rim stays one outline. Shell mode takes its own accent,
    the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+.acpmux-composer,
+.nt-composer {
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 30%, var(--acpmux-composer-edge));
+}
+:root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-edge-focus: transparent;
+}
 .acpmux-composer-box:focus-within {
-  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-edge));
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-strip,
+.nt-composer:has(.nt-box:focus-within) .acpmux-composer-strip {
+  --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
+}
+/* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
+   sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+  box-shadow:
+    inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus),
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-composer-edge-focus),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-composer-edge-focus);
 }
 :root[data-borders="none"] .acpmux-composer-box {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) transparent;
+}
+/* A footer chip has no bezel, so the shared ring (desktop.css) set 2 px off it drew an empty
+   rounded box around bare text, the heaviest mark in the row. Under keyboard focus the chip takes
+   its hover wash (the row's own, --acpmux-row-hover in composerLocation.css, never the heavier pane
+   wash) and the ring sits on the wash's edge: one outline on a visible control, as Send's ring
+   circles its own disc. Press still takes the row's press step (composerLocation.css loads after this
+   file). Increase Contrast keeps the shared offset ring. */
+.acpmux-composer-bar .acpmux-picker-button:focus-visible {
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+  outline-offset: 0;
+}
+/* Its ink steps up as on hover, so focus reads as hover with a ring (unrestricted access keeps its
+   warning color). */
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access:not(.acpmux-unrestricted)) .acpmux-picker-button:focus-visible {
+  color: var(--agent-text);
+}
+@media (prefers-contrast: more) {
+  .acpmux-composer-bar .acpmux-picker-button:focus-visible { outline-offset: 2px; }
 }
 .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);

@@ -106,7 +106,7 @@ public final class SidebarView: NSView {
             for token in clipObservers { NotificationCenter.default.removeObserver(token) }
         }
     }
-    override public var isFlipped: Bool { true }
+    nonisolated override public var isFlipped: Bool { true }
     // MARK: Public API
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.
@@ -338,37 +338,37 @@ public final class SidebarView: NSView {
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
         var cards: SidebarBottomCards
+        init(_ model: SidebarModel, _ design: DesignSettings) {
+            sectionsRevision = model.observedSectionsRevision
+            selection = model.selection
+            selected = model.selectedItem
+            profiles = model.profiles
+            activeProfile = model.activeProfileID
+            filter = model.filterText
+            layout = model.layout
+            itemInfo = model.resolvedItemInfo
+            transientTopItems = model.transientTopItems
+            collapsedSections = model.collapsedLayoutSections
+            look = SidebarSectionTunables.currentLook
+            drawsLines = Borders.drawsLines
+            preferences = design.sidebarSections
+            suppressedApps = model.suppressedApps
+            metrics = .standard
+            fontSize = Typography.body.pointSize
+            titlebarHeight = Metrics.titlebarHeight
+            cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
+        }
     }
 
     private func observe() {
         let model = model, design = design
         observation = Task { [weak self] in
-            for await state in ObservationStream({
-                RenderState(
-                    sectionsRevision: model.observedSectionsRevision,
-                    selection: model.selection,
-                    selected: model.selectedItem,
-                    profiles: model.profiles,
-                    activeProfile: model.activeProfileID,
-                    filter: model.filterText,
-                    layout: model.layout,
-                    itemInfo: model.resolvedItemInfo,
-                    transientTopItems: model.transientTopItems,
-                    collapsedSections: model.collapsedLayoutSections,
-                    look: SidebarSectionTunables.currentLook,
-                    drawsLines: Borders.drawsLines,
-                    preferences: design.sidebarSections,
-                    suppressedApps: model.suppressedApps,
-                    metrics: .standard,
-                    fontSize: Typography.body.pointSize,
-                    titlebarHeight: Metrics.titlebarHeight,
-                    cards: SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-                )
-            }) {
-                self?.render(state)
-            }
+            for await state in ObservationStream({ RenderState(model, design) }) { self?.render(state) }
         }
     }
+
+    /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
+    public func renderNow() { render(RenderState(model, design)) }
 
     private func render(_ state: RenderState) {
         guard state != lastState else { return }
