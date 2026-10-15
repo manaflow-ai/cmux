@@ -69,12 +69,12 @@ public struct CEFShimLibrary: @unchecked Sendable {
     public let devToolsSend: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
     /// `cmux_shim_devtools_command_t`.
-    public enum DevToolsCommand {
-        public static let show: Int32 = 1
-        public static let console: Int32 = 2
-        public static let inspect: Int32 = 3
-        public static let inspectAt: Int32 = 4
-        public static let close: Int32 = 5
+    public enum DevToolsCommand: Int32, Sendable {
+        case show = 1
+        case console = 2
+        case inspect = 3
+        case inspectAt = 4
+        case close = 5
     }
 
     public let devToolsSetKeyHandler: @convention(c) (KeyFn?) -> Void
