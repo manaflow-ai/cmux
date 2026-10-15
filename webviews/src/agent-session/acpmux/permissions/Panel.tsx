@@ -169,7 +169,10 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
         >
           <div className="acpmux-permission-card-meta">
             {t(group.items.length === 1 ? "permission.count.one" : "permission.count.other", { n: group.items.length })}
-            <span className="acpmux-permission-coverage" title={t("permission.coverageDetail")}>
+            <span
+              className="acpmux-permission-coverage"
+              /* tooltip-allow: what the coverage covers, shown nowhere else */ title={t("permission.coverageDetail")}
+            >
               {t("permission.coverage")}
             </span>
           </div>

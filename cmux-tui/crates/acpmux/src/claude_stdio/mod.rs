@@ -34,7 +34,7 @@ pub const AGENT_NAME: &str = "claude-stdio";
 /// process launched with `--allow-dangerously-skip-permissions`
 /// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
 /// the chat keeps its mode.
-const MODES: [(&str, &str); 4] = [
+pub(crate) const MODES: [(&str, &str); 4] = [
     ("default", "Normal"),
     ("plan", "Plan"),
     ("auto", "Auto"),

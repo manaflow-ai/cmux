@@ -106,6 +106,10 @@ public nonisolated struct PageNativeOp {
     /// context menu choice in the page view (`PageCallContext.userGesture`); otherwise refused with
     /// ``userOnlyCode``.
     public static let clipboardWrite = "cmux.app.clipboard.write"
+    /// Runs `{command}` (`cut`, `copy`, `paste`, `pasteAsPlainText`) as the page view's own
+    /// responder action, for a page's own text-field menu: the page never reads the pasteboard.
+    /// Only on the person's click or key in the page view, like ``clipboardWrite``.
+    public static let edit = "cmux.app.edit"
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.
     public static let pageCommand = "cmux.page.command"

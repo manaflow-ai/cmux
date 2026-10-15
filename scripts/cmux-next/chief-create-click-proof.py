@@ -2,6 +2,7 @@
 """Chief create by a real click, and the page relay across a Chief owner restart (cx-ebm.59.5). Live proof on cmux-lawrence-2 (nx-remote --needs input --app-from-fleet,
 own tag, own socket, isolated HOME and a per-build Chief home under /tmp via CMUX_NEXT_CHIEF_ROOT; run under `zsh -lic`).
 Built from s7-proof-v3.py.
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 
 0. Before the app runs, `cmux chief list --chief-home <this build's home>` starts the Chief owner WITHOUT an install key
    (as an older build or the CLI did). The owner does not verify the DEV app.
@@ -19,6 +20,11 @@ Built from s7-proof-v3.py.
 Ends with quitEndSessions, endAgents, acpmux daemon shutdown + router shutdown, chief shutdown.
 Reads NX_APP, NX_APP_TAG, NX_APP_STOP, NX_APP_CLI, NX_CAPTURE, NX_ARTIFACTS."""
 import json, os, shutil, socket, subprocess, sys, tempfile, time
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-create-click-proof.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 APP, TAG, OUT = os.environ["NX_APP"], os.environ["NX_APP_TAG"], os.environ["NX_ARTIFACTS"]
 CAPTURE, STOP, CLI = os.environ["NX_CAPTURE"], os.environ["NX_APP_STOP"], os.environ["NX_APP_CLI"]
