@@ -120,6 +120,7 @@ extension BrowserPanel {
         case .navigationStarted:
             // A question about the page being left goes with it (spec §4).
             enginePageDelegate.permissionQueue.cancelAll()
+            enginePageDelegate.permissionCoordinator.pageWillLoad()
         case .downloadUpdated(let download):
             enginePageDelegate.applyDownload(download)
         default:

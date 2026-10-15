@@ -28,11 +28,7 @@ extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
         cmuxDebugLog("browser.chromium.permission.request kinds=\(request.kinds.count) panel=\(panel != nil)")
         #endif
         guard let panel else { return BrowserPagePermissionCoordinator.Outcome(.prompt) }
-        let coordinator = BrowserPagePermissionCoordinator(queue: permissionQueue) { profileID in
-            BrowserChromiumProfileEngineStore.current?.sitePermissions.store(forProfileID: profileID)
-                ?? BrowserSitePermissionStore(fileURL: nil)
-        }
-        return await coordinator.decideDetailed(
+        return await permissionCoordinator.decideDetailed(
             request, profileID: panel.profileID, sessionGrants: sessionGrants(of: panel), topLevelURL: topLevelURL
         )
     }
