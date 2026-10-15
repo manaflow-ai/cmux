@@ -220,8 +220,9 @@ struct HostAccountFlowTeamChangeTests {
 }
 
 private final class BillingPlanCallbackURLProtocol: URLProtocol, @unchecked Sendable {
+    // The suite creates one stub session at a time, and each response body is
+    // immutable for the lifetime of that session.
     nonisolated(unsafe) private static var responseBody = Data()
-    static let url = URL(string: "https://billing-callback.test/api/billing/plan")!
 
     static func session(body: String) -> URLSession {
         responseBody = Data(body.utf8)
