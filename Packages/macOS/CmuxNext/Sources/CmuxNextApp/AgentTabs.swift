@@ -178,8 +178,8 @@ final class AgentTabStore {
     var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
-    /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
-    /// (AppDelegate makes it before any agent tab).
+    /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``);
+    /// a store made before Settings start follows them once `AppServices.settings` is set.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
