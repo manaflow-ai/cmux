@@ -173,7 +173,7 @@ public final class ChiefConversationOwner {
         case .disconnected(let reason):
             self.connection = nil
             lastError = reason
-        case .conversationChanged, .conversationTyping, .conversationDraft:
+        case .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged:
             onEvent?(event)
         case .unknown(let name, _) where HomeInboxSource.rowEvents.contains(name):
             onEvent?(event)

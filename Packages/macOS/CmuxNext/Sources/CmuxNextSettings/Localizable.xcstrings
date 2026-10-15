@@ -97192,7 +97192,269 @@
           }
         }
       }
+    },
+    "settings.browser.omnibar.backgroundOpacity": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Address Bar Opacity"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "عتامة شريط العنوان"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Neprozirnost adresne trake"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adresselinjens uigennemsigtighed"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Deckkraft der Adressleiste"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Opacidad de la barra de direcciones"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Opacité de la barre d’adresse"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Opacità della barra degli indirizzi"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "アドレスバーの不透明度"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ភាពស្រអាប់នៃរបារអាសយដ្ឋាន"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "주소 표시줄 불투명도"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adresselinjens dekkevne"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Krycie paska adresu"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Opacidade da barra de endereço"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Непрозрачность адресной строки"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ความทึบของแถบที่อยู่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adres Çubuğu Opaklığı"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Непрозорість адресного рядка"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Độ mờ đục của thanh địa chỉ"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "地址栏不透明度"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "網址列不透明度"
+        }
+      }
     }
+  },
+    "settings.browser.omnibar.backgroundOpacity.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "مقدار تغطية شريط العنوان للنافذة الشفافة. عند 0 يكون شفافًا مثل النافذة، لكنه لا يصبح شفافًا إلى حد تتعذر معه قراءة نصه."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Koliko adresna traka prekriva prozirni prozor. Na 0 je prozirna kao prozor, ali nikad toliko da njen tekst postane nečitljiv."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Hvor meget adresselinjen dækker et gennemsigtigt vindue. Ved 0 er den lige så gennemsigtig som vinduet, men aldrig så klar, at teksten ikke kan læses."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Wie stark die Adressleiste ein durchscheinendes Fenster abdeckt. Bei 0 ist sie so durchscheinend wie das Fenster, aber nie so klar, dass ihr Text unlesbar wird."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cuánto cubre la barra de direcciones una ventana translúcida. En 0 es tan translúcida como la ventana, pero nunca tanto que su texto deje de leerse."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "À quel point la barre d’adresse couvre une fenêtre transparente. À 0, elle est aussi transparente que la fenêtre, mais jamais au point que son texte devienne illisible."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Quanto la barra degli indirizzi copre una finestra trasparente. A 0 è trasparente quanto la finestra, ma mai al punto che il testo diventi illeggibile."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "透過ウインドウをアドレスバーがどれだけ覆うか。0 ではウインドウと同じだけ透けますが、文字が読めなくなるほどには透けません。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "កម្រិតដែលរបារអាសយដ្ឋានគ្របលើបង្អួចថ្លា។ នៅ 0 វាថ្លាដូចបង្អួច ប៉ុន្តែមិនដែលថ្លារហូតដល់អក្សររបស់វាអានមិនបាននោះទេ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "주소 표시줄이 투명한 윈도우를 얼마나 덮는지 설정합니다. 0이면 윈도우만큼 투명하지만, 텍스트를 읽을 수 없을 만큼 투명해지지는 않습니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Hvor mye adresselinjen dekker et gjennomsiktig vindu. Ved 0 er den like gjennomsiktig som vinduet, men aldri så klar at teksten ikke kan leses."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Jak mocno pasek adresu zakrywa przezroczyste okno. Przy 0 jest tak przezroczysty jak okno, ale nigdy tak, by jego tekst stał się nieczytelny."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Quanto a barra de endereço cobre uma janela translúcida. Em 0 ela é tão translúcida quanto a janela, mas nunca a ponto de o texto ficar ilegível."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Насколько адресная строка закрывает прозрачное окно. При 0 она так же прозрачна, как окно, но никогда настолько, чтобы текст стал нечитаемым."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ระดับที่แถบที่อยู่บังหน้าต่างโปร่งแสง ที่ 0 จะโปร่งแสงเท่าหน้าต่าง แต่ไม่มีวันใสจนอ่านข้อความไม่ออก"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adres çubuğunun saydam bir pencereyi ne kadar örttüğü. 0'da pencere kadar saydamdır, ancak metni okunamayacak kadar şeffaf olmaz."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Наскільки адресний рядок закриває прозоре вікно. При 0 він такий самий прозорий, як вікно, але ніколи настільки, щоб текст став нечитабельним."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Mức thanh địa chỉ che phủ cửa sổ trong suốt. Ở 0, thanh trong suốt như cửa sổ nhưng không bao giờ trong đến mức chữ không còn đọc được."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "地址栏对半透明窗口的覆盖程度。为 0 时与窗口一样透明，但绝不会透明到文字无法辨认。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "網址列對半透明視窗的覆蓋程度。為 0 時與視窗一樣透明，但絕不會透明到文字無法辨識。"
+        }
+      }
+    }
+  }
   },
   "version": "1.0"
 }

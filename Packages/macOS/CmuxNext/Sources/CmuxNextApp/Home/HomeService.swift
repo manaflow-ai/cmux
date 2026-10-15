@@ -236,6 +236,10 @@ final class HomeService {
                 conversation: ConversationID(draft.conversation), participant: ParticipantID(draft.participant),
                 turn: IdempotencyKey(draft.item.turn), segment: draft.item.segment, seq: draft.item.seq,
                 isTalk: draft.item.kind == "talk", text: draft.item.text, fresh: draft.item.fresh, done: draft.item.done)))
+        case .conversationLive(let live):
+            homeSource.publish(live)
+        case .conversationRunChanged(let changed):
+            homeSource.publish(changed)
         case .cloudConversations(let event):
             handleCloud(event)
         default:

@@ -29,6 +29,9 @@ use cmux_tui_core::terminal_host_runtime::{
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
+#[path = "support/private_state.rs"]
+mod private_state;
+
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
 
 fn test_timeout(timeout: Duration) -> Duration {
@@ -196,7 +199,10 @@ impl RecoveryHarness {
             .arg(&self.socket)
             .arg("--state")
             .arg(&self.state)
-            .args(&self.extra_args)
+            .args(&self.extra_args);
+        // Durable state and the shell integration scripts stay in the test
+        // folder, never below the host's HOME (support/private_state.rs).
+        private_state::use_private_state(&mut command, &self.dir)
             .envs(self.extra_env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
