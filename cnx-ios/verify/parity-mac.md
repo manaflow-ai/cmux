@@ -115,6 +115,22 @@ one, else the daemon's workspace order. Rows of a Mac whose order the phone
 does not know yet (cached, mock) keep the old newest-activity order under
 **Recent**. Move Up / Down moves within the row's section on its Mac.
 
+## Live run, workspace lane (parity2, 2026-10-15)
+
+Rig Mac `cnx-p2-26459378` on mini-cmux11s, the phone in one headless simulator
+(`cnx-p2-ws`), driver `verify/parity/pq_ws.py`; the Mac side read from its own
+daemon (list-workspaces, list-personal, sidebar_layout.get, list-notifications).
+Videos: `~/cnx-ios-e2e/p2ws-raw/ws-<flow>.mp4` (not committed).
+
+| Flow | Result |
+| --- | --- |
+| `pin_color_order`: Pin, Set Workspace Color… Green, Reset, Unpin, Move Up, Move Down | Pass: pinned tile on the Mac, color `green` then cleared, unpinned; Move Up changed the Mac's personal order `[c, b, a]` to `[b, c, a]` and the phone list matched; Move Down restored it |
+| `mark_unread`: Options › Mark Workspace as Unread, then as Read | Pass: `marked_unread` true, then false |
+| `bulk_close`: Close › Close Workspaces Below (after "Close 2 workspaces?") | Pass: exactly the two named workspaces closed, the chosen one stayed |
+| `open_folder`: New Workspace › Open Folder… `~/cnx-ios-e2e/p2ws-folder` | Pass: the workspace on the Mac in 0.7 s, its terminal in that folder |
+| `feed_clear_all`: Feed › Filter › Clear All Notifications | Pass: the Mac's notification ledger empty |
+| `trust_steps`: New Agent Chat in a folder Claude was never trusted in | Pass: the step-by-step message in 1.6 s |
+
 ## Live run (2026-10-14/15)
 
 - **Mac:** a real tagged cmux-next build of this branch (`cnx-e2e-dc79f937`, fleet job
