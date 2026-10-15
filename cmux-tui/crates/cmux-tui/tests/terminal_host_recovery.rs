@@ -5304,3 +5304,6 @@ mod parallel_new_tabs;
 
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
+
+#[path = "terminal_host_recovery/sized_attach.rs"]
+mod sized_attach;
