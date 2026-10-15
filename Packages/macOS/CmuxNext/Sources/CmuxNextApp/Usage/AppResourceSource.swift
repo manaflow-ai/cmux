@@ -122,7 +122,7 @@ final class AppResourceSource: ResourceSampleSource {
         case .tab(let id):
             guard let (tab, pane) = services.locateTab(id) else { return resolved }
             entries = [(tab, services.daemon(for: pane))]
-            resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != id }.flatMap { _, entry -> [Int32] in
+            resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != tab.id }.flatMap { _, entry -> [Int32] in
                 if case .chromiumRendererClients(let clients) = (entry.tab as? any BrowserProcessReporting)?.contentProcesses { clients } else { [] }
             }
         case .workspace(let id):
