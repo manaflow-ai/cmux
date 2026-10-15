@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxBrowser
 public import CmuxCEF
+public import CmuxCEFExtensions
 public import Foundation
 
 /// The Chromium engine's ``BrowserPage``: a CEF browser whose Chromium
@@ -53,15 +54,21 @@ public final class CEFBrowserPage: BrowserPage {
         .crossOriginFrames, .userScripts, .findMatchCount, .nativeFind, .downloads,
     ]
 
+    /// The page's extension side (toolbar actions, extension calls); nil
+    /// when the engine was created without extension support.
+    public let extensionSupport: CEFExtensionPageSupport?
+
     /// Wraps a CEF browser and starts receiving its events.
     /// - Parameters:
     ///   - browser: The Chromium page.
     ///   - shim: The shim calls the page's features make, `nil` while CEF is not running.
     ///   - devToolsLayoutStore: Remembers the DevTools dock side and sizes.
+    ///   - extensions: The engine's extension stores, or nil for a page without extensions.
     public init(
         browser: CEFBrowser,
         shim: @escaping @MainActor () -> CEFShimLibrary?,
-        devToolsLayoutStore: BrowserDevToolsLayoutStore
+        devToolsLayoutStore: BrowserDevToolsLayoutStore,
+        extensions: CEFExtensionStores? = nil
     ) {
         self.browser = browser
         self.shimProvider = shim
@@ -72,6 +79,11 @@ public final class CEFBrowserPage: BrowserPage {
             pageView: browser.hostView,
             layoutStore: devToolsLayoutStore
         )
+        extensionSupport = extensions.map { stores in
+            CEFExtensionPageSupport(profileID: browser.configuration.profile, stores: stores) { [weak browser] in
+                browser?.browserID
+            }
+        }
         browser.onEvent = { [weak self] event in
             self?.handle(event)
         }
@@ -415,6 +427,7 @@ public final class CEFBrowserPage: BrowserPage {
         case .stateChanged(let cefState):
             // The browser may have been created since the guard was set.
             applyNavigationGuardIfNeeded()
+            extensionSupport?.noteBrowserID()
             emit(.stateChanged(Self.pageState(cefState)))
             if cefState.faviconURL != lastFaviconURL {
                 lastFaviconURL = cefState.faviconURL
