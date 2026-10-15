@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv11/gd-grid-b.mp4",
+ "source_frames": 2765,
+ "duration": 52.01,
+ "lit_median": 0.04,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0199,
+ "max_gap_ms": 1750.0
+}

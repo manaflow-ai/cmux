@@ -1,0 +1,55 @@
+{
+ "tag": "gd-fling2-a",
+ "mode": "fling2",
+ "gap": 3.4,
+ "kills_v": [
+  40.35,
+  43.93
+ ],
+ "hostd": [
+  [
+   1.79,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   3.41,
+   "NFO cnx_hostd::host: link up session_id=\"6ede8d8d-e6f0-402b-a4a1-e1876413ab7c\" kind=WireGuard path=Relay phone=\"c839f17d"
+  ],
+  [
+   6.07,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   7.2,
+   "NFO cnx_hostd::host: link up session_id=\"2801bf25-b22e-4555-88ec-1e7c5656f9bf\" kind=WireGuard path=Relay phone=\"c839f17d"
+  ]
+ ],
+ "before": [],
+ "before_plus1s": [],
+ "after": [],
+ "after_plus3s": [],
+ "jump_visible_after": true,
+ "replays": [
+  "surface 37: mirror reset cause=reattach",
+  "surface 37: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [
+  "reading mark row 421 of 4927: kept",
+  "reading mark restored row 421 -> 421 of 5062",
+  "reading mark row 305 of 5098: kept",
+  "reading mark restored row 305 -> 305 of 5242"
+ ],
+ "blank_page_lines": [],
+ "video_black_runs": [],
+ "video_black_over_1_frame": [],
+ "framelog_blank_runs_over_1": [],
+ "framelog_blank_frames": 0,
+ "dt_max": 59.19,
+ "frac_gaps_over_34ms": 0.0579,
+ "load": [
+  15.35,
+  13.26,
+  12.43
+ ]
+}

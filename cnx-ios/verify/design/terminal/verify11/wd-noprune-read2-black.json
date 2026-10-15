@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv11/wd-noprune-read2.mp4",
+ "source_frames": 975,
+ "duration": 25.76,
+ "lit_median": 0.0386,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.1201,
+ "max_gap_ms": 590.0
+}

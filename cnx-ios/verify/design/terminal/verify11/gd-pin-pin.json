@@ -1,0 +1,58 @@
+[
+ {
+  "error": "no bar",
+  "name": "gd-pin-1line-kbup",
+  "field_h": 36,
+  "field_top": 464,
+  "kb": true
+ },
+ {
+  "error": "no bar",
+  "name": "gd-pin-6lines-kbup",
+  "field_h": 136,
+  "field_top": 364,
+  "kb": true
+ },
+ {
+  "error": "no bar",
+  "name": "gd-pin-shrunk3-kbup",
+  "field_h": 124,
+  "field_top": 376,
+  "kb": true
+ },
+ {
+  "error": "no bar",
+  "name": "gd-pin-shrunk3-kbdown",
+  "field_h": 124,
+  "field_top": 654,
+  "kb": false
+ },
+ {
+  "error": "no bar",
+  "name": "gd-pin-shrunk3-kbdown-5s",
+  "field_h": 124,
+  "field_top": 654,
+  "kb": false
+ },
+ {
+  "error": "no bar",
+  "name": "gd-pin-shrunk1-kbup",
+  "field_h": 58,
+  "field_top": 442,
+  "kb": true
+ },
+ {
+  "error": "no bar",
+  "name": "gd-pin-shrunk1-kbdown",
+  "field_h": 58,
+  "field_top": 720,
+  "kb": false
+ },
+ {
+  "error": "no bar",
+  "name": "gd-pin-shrunk1-kbdown-5s",
+  "field_h": 58,
+  "field_top": 720,
+  "kb": false
+ }
+]

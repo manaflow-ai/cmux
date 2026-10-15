@@ -1,0 +1,56 @@
+<Application 'cnx tq10' id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 62, 402, 778)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (0, 62, 402, 778)>
+<ScrollArea None id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 492.3333333333333)>
+<Group None id=None v=None (16, 122, 177, 272.3333333333333)>
+<Group None id=None v=None (-9, 48.17661666870117, 227, 458.644287109375)>
+<Button 'e2e-t1, tab' id=None v=None (16, 122, 177, 274.3333333333333)>
+<Button 'Close' id=xmark v=None (163, 122, 30, 30)>
+<Group None id=None v=None (209, 122, 177, 272.3333333333333)>
+<Group None id=None v=None (184, 48.17661666870117, 227, 458.644287109375)>
+<Button 'e2e-t2, tab' id=None v=None (209, 122, 177, 274.3333333333333)>
+<Button 'Close' id=xmark v=None (356, 122, 30, 30)>
+<GenericElement None id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (0, 0, 402, 114)>
+<PopUpButton 'More' id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (346, 66, 36, 36)>
+<Button None id=None v=None (346, 66, 36, 36)>
+<Image 'More' id=ellipsis v=None (346, 66, 36, 36)>
+<PopUpButton 'New' id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (38, 788, 48, 48)>
+<Button None id=None v=None (38, 788, 48, 48)>
+<Image 'Add' id=plus v=None (38, 788, 48, 48)>
+<StaticText '2 Tabs' id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (175, 801.8333333333334, 52.333333333333314, 20.33333333333337)>
+<Button 'Done' id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (38, 788, 326, 48)>
+<Group None id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (209, 122, 177, 384.82089552238807)>
+<Button 'Close e2e-t2' id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (356, 122, 30, 30)>
+<Image 'Close' id=xmark v=None (356, 122, 30, 30)>
+<StaticText 'e2e-143502' id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (151.66666666666669, 66, 98.66666666666666, 20.33333333333333)>
+<StaticText 'cmux’s Mac mini (2) · 2 tabs' id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (116, 87.33333333333333, 170, 15.666666666666671)>
+<Button 'Workspaces' id=workspace.c7edfb65-d967-4e09-a31b-0577181adc1b v=None (20, 66.66666666666666, 36, 36)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 791, 402, 83)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 791, 402, 83)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
+<Group None id=None v=None (0, 0, 402, 874)>
