@@ -16,12 +16,17 @@ nonisolated enum BrowserFitCommand: Sendable, Equatable {
 /// quiet backdrop, a hairline on the emulated viewport's bounds, and one bar
 /// under it that says what is happening ("Desktop 1556 × 2397 at 37%"), with
 /// the fit choices, zoom and Turn Off. The first bar of an app run also shows
-/// one muted line that explains the mode; any use of the bar retires it.
+/// one muted line that explains the mode, once ever on this Mac (cx-d077f):
+/// the first bar that shows it records that in UserDefaults (as the tips card
+/// records seen tips), keeps it until the bar is used, and the status label's
+/// tooltip keeps the same sentence afterwards.
 public final class BrowserFitFrameView: NSView {
     /// Sets a daemon tab's fit (set by the App): a value ("16:10", "1440", "off"), or nil to ask for one.
     @MainActor public static var perform: (@MainActor (_ tab: String, _ fit: String?) -> Void)?
     /// The explanation line still shows (until the first use of a bar in this app run).
-    @MainActor private static var explains = true
+    @MainActor private static var explains = !UserDefaults.standard.bool(forKey: explainedKey)
+    /// Set once the explanation was on screen.
+    static let explainedKey = "cmux.next.browser.fitExplained"
 
     /// The fits the bar offers: aspect ratios at the pane's height, then fixed widths.
     static let aspects = ["16:9", "16:10", "4:3", "21:9"]
@@ -72,6 +77,9 @@ public final class BrowserFitFrameView: NSView {
         value = emulation?.fit?.value ?? ""
         label.stringValue = text
         note.isHidden = !Self.explains
+        if Self.explains, !UserDefaults.standard.bool(forKey: Self.explainedKey) {
+            UserDefaults.standard.set(true, forKey: Self.explainedKey) // shown now: never in a later app run
+        }
         let title = Strings.title(value)
         if choose.attributedTitle.string != title {
             // Set as an attributed title every time it differs (a plain title would drop the muted color).

@@ -1,10 +1,12 @@
 // The whole run of one agent turn, over the timeline from the end edge (the thread sheet's place):
 // the status, who ran it, the time, tokens and cost, then every step in order. Reply segments draw
-// as Markdown, tool calls and thoughts with the agent pane's rows (output, Shell block, diff), each
-// step's links and pictures below it. A running run keeps streaming here.
+// as Markdown, tool calls with the agent pane's rows (output, Shell block, diff), each step's links
+// and pictures below it; a thought is folded (its text only when opened). A running run keeps
+// streaming here.
 import { useEffect, useMemo } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
+import { useT as usePaneT } from "../../agent-session/acpmux/i18n";
 import type { Strings } from "../shared/i18n";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Avatar } from "./Avatar";
@@ -123,6 +125,8 @@ export function RunSheet({ entry, people, strings, place, asked, onClose, onLoad
                 <ToolRows row={block.row} />
                 {extras(block)}
               </div>
+            ) : block.kind === "thought" ? (
+              <Thought key={block.key} text={block.step.text ?? ""} />
             ) : (
               <div key={block.key} className={`lg-run-block ${block.kind}`}>
                 {block.step.text && <Markdown className="hc-md">{block.step.text}</Markdown>}
@@ -143,5 +147,17 @@ export function RunSheet({ entry, people, strings, place, asked, onClose, onLoad
         </div>
       </aside>
     </KeyboardScope>
+  );
+}
+
+/** A thought, folded: "Thought" opens its text (never shown in the conversation itself). */
+function Thought({ text }: { text: string }) {
+  const t = usePaneT();
+  if (!text.trim()) return null;
+  return (
+    <details className="lg-run-block thought">
+      <summary>{t("tools.thought")}</summary>
+      <p dir="auto">{text.trim()}</p>
+    </details>
   );
 }
