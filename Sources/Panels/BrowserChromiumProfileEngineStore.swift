@@ -39,6 +39,10 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
         sitePermissions = BrowserSitePermissionStoreRegistry(storage: storage)
     }
 
+    /// The registered store (its site-permission answers are what Chromium
+    /// panels ask from); `nil` when Chromium is not bundled.
+    private(set) static weak var current: BrowserChromiumProfileEngineStore?
+
     /// Registers the store when Chromium is bundled and arranges launch-time
     /// cleanup of deleted profiles before Chromium opens any profile.
     /// - Returns: The registered store, or `nil` when Chromium is not bundled.
@@ -49,6 +53,7 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
     ) -> BrowserChromiumProfileEngineStore? {
         guard runtime.unavailableReason != .notBundled else { return nil }
         let store = BrowserChromiumProfileEngineStore(runtime: runtime)
+        current = store
         profiles.addEngineStore(store)
         runtime.addEventObserver { [weak store] event in
             guard case let .loadStart(browser, _, _) = event else { return }

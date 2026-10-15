@@ -4502,6 +4502,14 @@ final class BrowserPanel: Panel, ObservableObject {
         recentDownloads.removeAll()
     }
 
+    /// Shows or hides a running download's Pause/Resume and Cancel controls
+    /// (downloads of an engine that supports them; never WebKit's).
+    func setRecentDownloadControls(id: String, controls: BrowserDownloadRecord.Controls?) {
+        guard let index = recentDownloads.firstIndex(where: { $0.id == id }),
+              recentDownloads[index].controls != controls else { return }
+        recentDownloads[index].controls = controls
+    }
+
     func noteRenderedPDFDocument(_ url: URL, isMainFrame: Bool) {
         // The PDF toolbar's Download/Print buttons act on the main web view, so
         // only a top-level (main-frame) PDF document should drive the toolbar.
@@ -9033,6 +9041,20 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         #if DEBUG
         cmuxDebugLog("download.finished file=<redacted>")
         #endif
+        finishTemporaryDownload(
+            downloadID: info.downloadID,
+            tempURL: info.tempURL,
+            suggestedFilename: info.suggestedFilename,
+            sourceURL: info.sourceURL
+        )
+    }
+
+    /// Saves a download whose file is complete in the temporary directory:
+    /// to the REPL session that keeps it there, through the save panel, or
+    /// into Downloads. Shared by WebKit downloads and other engines'
+    /// downloads (``BrowserPageDownloadLedger``), so both save the same way.
+    func finishTemporaryDownload(downloadID: String, tempURL: URL, suggestedFilename rawSuggestedFilename: String, sourceURL: URL) {
+        let info = (downloadID: downloadID, tempURL: tempURL, suggestedFilename: rawSuggestedFilename, sourceURL: sourceURL)
         let filenameResolver = BrowserDownloadFilenameResolver()
         Task { @MainActor in
             let imageType = await Task.detached(priority: .utility) {

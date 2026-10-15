@@ -1333,7 +1333,10 @@ struct BrowserPanelView: View {
                     hitSize: addressBarButtonHitSize,
                     onOpen: { panel.openDownload($0) },
                     onReveal: { panel.revealDownloadInFinder($0) },
-                    onClear: { panel.clearRecentDownloads() }
+                    onClear: { panel.clearRecentDownloads() },
+                    onPauseResume: { panel.enginePageDelegate.togglePause($0) },
+                    onCancel: { panel.enginePageDelegate.cancel($0) },
+                    controlIconPointSize: chromeMetrics.accessoryIconFontSize
                 )
             }
         }
@@ -1972,6 +1975,17 @@ struct BrowserPanelView: View {
                 }
                 // Over a Chromium page the page leaves a hole here (design spec §8).
                 .browserPageOccluding(panel.pageOverlays, id: "pageRecovery")
+            }
+        }
+        .overlay {
+            // Chromium permission questions (design spec §4); WebKit panels
+            // keep WebKit's own sheets, so nothing mounts for them.
+            if panel.engineKind == .chromium {
+                BrowserPermissionPromptBar(
+                    queue: panel.enginePageDelegate.permissionQueue,
+                    metrics: chromeMetrics,
+                    mountCard: { AnyView($0.browserPageOccluding(panel.pageOverlays, id: "permissionPrompt")) }
+                )
             }
         }
         .layoutPriority(1)

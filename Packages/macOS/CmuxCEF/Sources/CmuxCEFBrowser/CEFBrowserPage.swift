@@ -25,6 +25,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var muted = false
     private var lastFaviconURL: URL?
     private var isClosed = false
+    /// Permission prompts and downloads of this page (CEFBrowserPage+Data.swift).
+    let dataBridge = CEFBrowserPageDataBridge()
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
@@ -347,11 +349,12 @@ public final class CEFBrowserPage: BrowserPage {
         case .renderResponsive:
             emit(.unresponsiveChanged(false))
         default:
-            break
+            // Permissions and downloads (CEFBrowserPage+Data.swift).
+            dataBridge.handle(event, page: self)
         }
     }
 
-    private func emit(_ event: BrowserPageEvent) {
+    func emit(_ event: BrowserPageEvent) {
         if let eventContinuation {
             eventContinuation.yield(event)
         } else if !isClosed, eventStream == nil {
