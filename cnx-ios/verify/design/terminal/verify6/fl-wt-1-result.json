@@ -1,0 +1,96 @@
+{
+ "tag": "fl-wt-1",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv6/fl-wt-1.mp4",
+ "flings": 50,
+ "jumps": 5,
+ "fling_reached_bottom": 0,
+ "history_pruned": 3,
+ "settled_following": 0,
+ "settled_reading": 5,
+ "jump_logs": 5,
+ "trips": [
+  {
+   "trip": 0,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-51884",
+    "GEN-51885",
+    "GEN-51886"
+   ],
+   "jump_tap": 15.09,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 1,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-52085",
+    "GEN-52086",
+    "GEN-52087"
+   ],
+   "jump_tap": 31.89,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 2,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-53077",
+    "GEN-53078",
+    "GEN-53079"
+   ],
+   "jump_tap": 48.95,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 3,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-54150",
+    "GEN-54151",
+    "GEN-54152"
+   ],
+   "jump_tap": 66.4,
+   "jump_visible_after": false
+  },
+  {
+   "trip": 4,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-55117",
+    "GEN-55118",
+    "GEN-55119"
+   ],
+   "before": [
+    "GEN-55117",
+    "GEN-55118",
+    "GEN-55119",
+    "GEN-55120",
+    "GEN-55121",
+    "GEN-55122"
+   ],
+   "kill": 1792052901.369791,
+   "after": [
+    "GEN-55117",
+    "GEN-55118",
+    "GEN-55119",
+    "GEN-55120",
+    "GEN-55121",
+    "GEN-55122"
+   ],
+   "hostd": [
+    [
+     2.31,
+     "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+    ],
+    [
+     3.56,
+     "NFO cnx_hostd::host: link up session_id=\"6ba84cd6-be10-427d-96de-58bce68a751f\" kind=WebRtc path=Turn phone=\"0e42baa6-d13"
+    ]
+   ],
+   "jump_visible_after_drop": true,
+   "jump_tap": 94.92,
+   "jump_visible_after": false
+  }
+ ]
+}

@@ -1,0 +1,27 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-15 01:29:14.832 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): following n=299 p50=16.7 p95=16.7 p99=16.7 max=33.3 hitches=1 work_p95=0.00
+2026-10-15 01:29:30.298 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] scroll pacing: 710 frames, longest 66.9 ms, 21 over 17 ms, longest main-thread step 0.1 ms
+2026-10-15 01:29:30.298 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] scroll: settled -> reading(CnxTerminal.TerminalScrollModel.Anchor(row: 15290, delta: 1.0)) (offset 244641, bottom 272004)
+2026-10-15 01:29:30.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (gesture end): following n=188 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.00
+2026-10-15 01:29:30.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (gesture end): interacting n=740 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.37
+2026-10-15 01:29:35.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): reading n=292 p50=16.7 p95=16.7 p99=27.2 max=89.5 hitches=3 work_p95=0.00
+2026-10-15 01:29:35.957 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal] surface 16: reattach at the Mac's 53x39 (asked 53x42 was overruled)
+2026-10-15 01:29:36.032 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal] surface 16: mirror reset cause=reattach size=53x42
+2026-10-15 01:29:36.032 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-15 01:29:36.291 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal] surface 17: mirror reset cause=reattach size=53x42
+2026-10-15 01:29:36.291 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-15 01:29:36.291 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] reading mark row 15290 of 17044: kept
+2026-10-15 01:29:36.305 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 700.0, composer top 700.0, gap 0.0 pt (keyboard down, composer 84 pt, rows 17044)
+2026-10-15 01:29:36.313 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 84 pt, rows 17044)
+2026-10-15 01:29:37.870 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] reading mark restored row 15290 -> 15290 of 17044
+2026-10-15 01:29:40.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): following n=87 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.00
+2026-10-15 01:29:40.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): following+streaming n=5 p50=24.4 p95=40.7 p99=40.7 max=40.7 hitches=2 work_p95=0.87
+2026-10-15 01:29:40.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): reading n=204 p50=16.7 p95=16.7 p99=16.7 max=36.3 hitches=1 work_p95=0.00
+2026-10-15 01:29:44.418 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] scroll: jump to bottom (decelerating false, tracking false) -> offset 244641 of 272004
+2026-10-15 01:29:44.422 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 700.0, composer top 700.0, gap 0.0 pt (keyboard down, composer 84 pt, rows 17044)
+2026-10-15 01:29:44.434 Df CnxApp[26554:307a41a] [dev.cmux.cnx:terminal-sizing] pin: last row bottom 736.0, composer top 736.0, gap 0.0 pt (keyboard down, composer 84 pt, rows 17044)
+2026-10-15 01:29:45.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): following n=55 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.01
+2026-10-15 01:29:45.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): reading n=245 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.00
+2026-10-15 01:29:50.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): following n=300 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.00
+2026-10-15 01:29:55.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): following n=300 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.00
+2026-10-15 01:30:00.315 Df CnxApp[26554:307a41a] [dev.cmux.cnx:frames] frames e2e-t2 (5 s): following n=300 p50=16.7 p95=16.7 p99=16.7 max=16.7 hitches=0 work_p95=0.00

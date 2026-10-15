@@ -1,0 +1,52 @@
+{
+ "tag": "ev-wt-2",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv6/ev-wt-2.mp4",
+ "flings": 10,
+ "jumps": 1,
+ "fling_reached_bottom": 0,
+ "history_pruned": 0,
+ "settled_following": 0,
+ "settled_reading": 1,
+ "jump_logs": 1,
+ "trips": [
+  {
+   "trip": 0,
+   "jump_visible_before": true,
+   "top_before": [
+    "GEN-58252",
+    "GEN-58253",
+    "GEN-58254"
+   ],
+   "before": [
+    "GEN-58252",
+    "GEN-58253",
+    "GEN-58254",
+    "GEN-58255",
+    "GEN-58256",
+    "GEN-58257"
+   ],
+   "kill": 1792052972.8286238,
+   "after": [
+    "GEN-58252",
+    "GEN-58253",
+    "GEN-58254",
+    "GEN-58255",
+    "GEN-58256",
+    "GEN-58257"
+   ],
+   "hostd": [
+    [
+     2.29,
+     "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+    ],
+    [
+     4.06,
+     "NFO cnx_hostd::host: link up session_id=\"e5a94b27-a2be-4588-a563-136d271356b0\" kind=WebRtc path=Turn phone=\"0e42baa6-d13"
+    ]
+   ],
+   "jump_visible_after_drop": true,
+   "jump_tap": 27.96,
+   "jump_visible_after": false
+  }
+ ]
+}
