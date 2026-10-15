@@ -1066,6 +1066,7 @@ extension CMUXCLI {
             case expectedAssignment = "not_assignment"
             case invalidName = "invalid_name"
             case multilineValue = "multiline_value"
+            case trailingText = "trailing_text"
             case emptyValue = "empty_value"
         }
 
@@ -1085,6 +1086,8 @@ extension CMUXCLI {
                 return String(localized: "cloudSecrets.cli.dotenv.skip.invalidName", defaultValue: "invalid variable name")
             case .multilineValue:
                 return String(localized: "cloudSecrets.cli.dotenv.skip.multilineValue", defaultValue: "value spans several lines")
+            case .trailingText:
+                return String(localized: "cloudSecrets.cli.dotenv.skip.trailingText", defaultValue: "text after the closing quote")
             case .emptyValue:
                 return String(localized: "cloudSecrets.cli.dotenv.skip.emptyValue", defaultValue: "empty value")
             }
@@ -1092,15 +1095,13 @@ extension CMUXCLI {
     }
 
     /// dotenv for secrets, leniently: the `vm env` rules, but a malformed line, a quote
-    /// that never closes, or an empty value (`KEY=`) is skipped and reported by line
+    /// that never closes, text after a closing quote, or an empty value (`KEY=`) is skipped and reported by line
     /// number instead of failing the file. A repeated name keeps its last good value.
     static func parseVMSecretsDotenv(_ text: String) -> (entries: [VMEnvAssignment], skipped: [VMSecretsDotenvSkip]) {
         var order: [String] = []
         var values: [String: String] = [:]
         var skipped: [VMSecretsDotenvSkip] = []
-        var body = text.replacingOccurrences(of: "\r\n", with: "\n")
-        if body.hasPrefix("\u{FEFF}") { body.removeFirst() }
-        for (index, rawLine) in body.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+        for (index, rawLine) in vmEnvFileLines(text).enumerated() {
             let lineNumber = index + 1
             var line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
@@ -1117,11 +1118,17 @@ extension CMUXCLI {
                 continue
             }
             let rawValue = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
-            if vmSecretsOpensUnclosedQuote(rawValue) {
+            let value: String
+            switch parseVMEnvFileValue(rawValue) {
+            case .value(let parsed):
+                value = parsed
+            case .unclosedQuote:
                 skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .multilineValue, name: key))
                 continue
+            case .trailingText:
+                skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .trailingText, name: key))
+                continue
             }
-            let value = parseVMEnvFileValue(rawValue)
             guard !value.trimmingCharacters(in: .whitespaces).isEmpty else {
                 skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .emptyValue, name: key))
                 continue
@@ -1131,18 +1138,6 @@ extension CMUXCLI {
         }
         let entries = order.compactMap { key in values[key].map { VMEnvAssignment(key: key, value: $0) } }
         return (entries, skipped)
-    }
-
-    /// A value that starts a quote it never closes on its line: the rest of the value is
-    /// on later lines, which a single-line env file cannot carry.
-    static func vmSecretsOpensUnclosedQuote(_ value: String) -> Bool {
-        guard let quote = value.first, quote == "\"" || quote == "'" else { return false }
-        var escaped = false
-        for character in value.dropFirst() {
-            if character == quote, !escaped { return false }
-            escaped = character == "\\" && !escaped
-        }
-        return true
     }
 
     /// `! EMPTY skipped (empty value, line 5)`, or `! line 6 skipped (not NAME=value)`
