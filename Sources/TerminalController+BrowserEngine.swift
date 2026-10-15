@@ -64,6 +64,24 @@ extension TerminalController {
         return v2MainSync { panel.automationEnginePage }
     }
 
+    /// Modifier keys automation holds down per engine surface (DevTools key
+    /// events carry no keyboard state of their own).
+    @MainActor private static var v2EngineHeldModifiers: [UUID: BrowserAutomationHeldModifiers] = [:]
+
+    /// Records one automation key action on an engine surface and returns the
+    /// modifiers to send with it, so `keydown Shift` then `press a` types `A`.
+    @MainActor
+    func v2EngineKeyModifiers(
+        surfaceId: UUID,
+        event: BrowserKeyboardEvent,
+        action: BrowserKeyboardAction
+    ) -> BrowserKeyboardNativeModifiers {
+        var state = Self.v2EngineHeldModifiers[surfaceId] ?? BrowserAutomationHeldModifiers()
+        let modifiers = state.record(event, action: action)
+        Self.v2EngineHeldModifiers[surfaceId] = state.held.isEmpty ? nil : state
+        return modifiers
+    }
+
     /// Runs one engine-page operation on the main actor and waits for it on
     /// the socket worker, at most `timeout` seconds. Nil when it did not finish
     /// in time (the operation is then cancelled).

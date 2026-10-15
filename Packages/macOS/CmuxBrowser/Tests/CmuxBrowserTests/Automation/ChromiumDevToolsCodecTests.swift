@@ -105,6 +105,25 @@ struct ChromiumDevToolsCodecTests {
         #expect(press[0]["modifiers"] as? Int == 8)
     }
 
+    @Test("keydown Shift, press a, keyup Shift types a capital A")
+    func heldModifiersAcrossCommands() throws {
+        var held = BrowserAutomationHeldModifiers()
+        let shift = try #require(BrowserKeyboardEvent(rawKey: "Shift"))
+        let a = try #require(BrowserKeyboardEvent(rawKey: "a"))
+
+        let shiftDown = codec.keyEventParams(shift, action: .keyDown, modifiers: held.record(shift, action: .keyDown))
+        let press = codec.keyEventParams(a, action: .press, modifiers: held.record(a, action: .press))
+        let shiftUp = codec.keyEventParams(shift, action: .keyUp, modifiers: held.record(shift, action: .keyUp))
+        let after = codec.keyEventParams(a, action: .press, modifiers: held.record(a, action: .press))
+
+        #expect(shiftDown[0]["modifiers"] as? Int == 8)
+        #expect(press[0]["text"] as? String == "A")
+        #expect(press[0]["modifiers"] as? Int == 8)
+        #expect(shiftUp[0]["modifiers"] as? Int == 0)
+        #expect(after[0]["text"] as? String == "a")
+        #expect(held.held.isEmpty)
+    }
+
     @Test("A host-only cookie takes the scheme of a page on its host")
     func hostOnlyCookieScheme() throws {
         let cookie = try #require(HTTPCookie(properties: [

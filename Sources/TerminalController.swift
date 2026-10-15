@@ -9221,9 +9221,12 @@ class TerminalController {
             // A non-WebKit engine delivers any key value as trusted input, so the
             // synthetic DOM-event compatibility path is WebKit-only.
             if let enginePage = v2EnginePage(ctx.browserPanel) {
+                let modifiers = v2MainSync {
+                    v2EngineKeyModifiers(surfaceId: surfaceId, event: event, action: action)
+                }
                 let outcome: Result<Void, any Error>? = v2AwaitEnginePage(timeout: 5.0) {
                     do {
-                        try await BrowserPageAutomation(page: enginePage).dispatchKey(event, action: action, modifiers: [])
+                        try await BrowserPageAutomation(page: enginePage).dispatchKey(event, action: action, modifiers: modifiers)
                         return .success(())
                     } catch {
                         return .failure(error)
