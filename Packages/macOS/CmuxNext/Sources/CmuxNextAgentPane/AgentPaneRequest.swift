@@ -43,9 +43,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
-    /// The new tab page's style switch (`newTab.setTemplate`): the template to
-    /// save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
+    /// A setting the new tab page changes (`newTab.setTemplate`, `newTab.setLab`); the App checks it.
+    case newTabSetting(AgentPaneNewTabSetting)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -81,6 +80,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openChatInTerminal(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
+    /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
+    case environment(AgentPaneEnvironmentRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -248,4 +249,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         guard let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 64 else { return nil }
         return id
     }
+}
+
+/// A setting the new tab page changes, saved by the App through the schema.
+public nonisolated enum AgentPaneNewTabSetting: Equatable, Sendable {
+    /// The style switch's template, saved as `tabs.newTabTemplate`.
+    case template(String)
+    /// A Labs flag's toggle in the page's Labs section (team builds), saved as `labs.<flag>`.
+    case lab(String, on: Bool)
 }

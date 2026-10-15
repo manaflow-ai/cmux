@@ -1,0 +1,117 @@
+/* Saved environments (cx-ncc.104): the strip's popover groups (EnvironmentPicker.tsx) and the
+   inline New environment panel on the New Tab page (EnvironmentPanel.tsx). Compact rows, regular
+   weight, the pane's text tokens. */
+
+/* A group's name (Local, SSH, Cloud) over its first row, quiet and not a row of its own. */
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-group]) { position: relative; margin-top: 18px; }
+.acpmux-env-row[data-group]::before {
+  content: attr(data-group);
+  position: absolute;
+  top: -16px;
+  left: 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  pointer-events: none;
+}
+
+.acpmux-env-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 560px;
+  box-sizing: border-box;
+  margin: 10px auto 0;
+  padding: 10px 12px;
+  border: .5px solid var(--agent-border);
+  border-radius: 10px;
+  background: var(--surface-popup, var(--agent-input-bg));
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  animation: acpmux-env-in 140ms ease-out;
+}
+@keyframes acpmux-env-in { from { opacity: 0; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .acpmux-env-panel { animation: none; } }
+
+.acpmux-env-panel button { font: inherit; color: inherit; border: 0; border-radius: 5px; background: transparent; cursor: default; }
+.acpmux-env-panel button:hover:not(:disabled) { background: var(--agent-control); }
+.acpmux-env-panel button:focus-visible { outline: 2px solid var(--agent-text); outline-offset: -2px; }
+.acpmux-env-panel button:disabled { opacity: .45; }
+
+.acpmux-env-heading { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.acpmux-env-title { flex: 1; min-width: 0; font-weight: 500; }
+.acpmux-env-icon-button { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; padding: 0; color: var(--agent-muted); }
+
+.acpmux-env-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: color-mix(in srgb, var(--agent-text) 6%, transparent); width: fit-content; }
+.acpmux-env-panel .acpmux-env-tab { height: 24px; padding: 0 10px; color: var(--agent-muted); }
+.acpmux-env-panel .acpmux-env-tab[aria-pressed="true"] { background: var(--agent-control); color: var(--agent-text); }
+
+.acpmux-env-fields,
+.acpmux-env-remote { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.acpmux-env-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.acpmux-env-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
+.acpmux-env-label { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.acpmux-env-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: .5px solid var(--agent-border);
+  border-radius: 6px;
+  background: var(--agent-input-bg);
+  color: var(--agent-text);
+  font: inherit;
+  outline: none;
+}
+.acpmux-env-input:focus { border-color: var(--agent-muted); }
+.acpmux-env-input[aria-invalid="true"] { border-color: var(--agent-danger); }
+.acpmux-env-script { height: auto; padding: 6px 8px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.acpmux-env-panel .acpmux-env-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: .5px solid var(--agent-border);
+  border-radius: 6px;
+  background: var(--agent-input-bg);
+  text-align: start;
+}
+.acpmux-env-select-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-env-select-text[data-placeholder] { color: var(--agent-muted); }
+
+.acpmux-env-add { color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-env-empty,
+.acpmux-env-note { margin: 0; color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+
+.acpmux-env-folders { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.acpmux-env-folder-row { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 0 2px 0 6px; border-radius: 6px; }
+.acpmux-env-folder-row:hover { background: color-mix(in srgb, var(--agent-text) 5%, transparent); }
+.acpmux-env-folder-row > svg { flex: none; color: var(--agent-muted); }
+.acpmux-env-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-env-tag { flex: none; padding: 0 4px; border: .5px solid var(--agent-border); border-radius: 3px; color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+
+.acpmux-env-variables .ui-disclosure-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 26px;
+  padding: 0 6px;
+  text-align: start;
+}
+.acpmux-env-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-muted); text-align: end; font-size: var(--text-detail); }
+.acpmux-env-variables .ui-disclosure-panel { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
+.acpmux-env-variable { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 22px; align-items: center; gap: 4px; }
+.acpmux-env-panel .acpmux-env-button { height: 26px; padding: 0 10px; }
+.acpmux-env-variables .acpmux-env-add { align-self: flex-start; }
+
+.acpmux-env-footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 28px; }
+.acpmux-env-error { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-env-panel .acpmux-env-submit { background: var(--agent-control); }
+.acpmux-env-panel .acpmux-env-button[data-destructive] { color: var(--agent-danger); }
