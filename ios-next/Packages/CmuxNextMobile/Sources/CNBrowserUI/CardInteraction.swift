@@ -183,11 +183,21 @@ struct CardInteraction: UIViewRepresentable {
             #if DEBUG
             MainStallTrace.mark("menu willEnd")
             #endif
-            // Shown again once the preview has settled back onto it.
+            // Shown again once the preview has settled back onto it (also
+            // after an action, and with no drag under way: the lift the long
+            // press made for the menu is over too).
+            // The owner's callbacks are taken now: an action that rebuilds
+            // the card (Pin Tab makes it a pinned capsule) frees this
+            // coordinator before the animation ends.
+            let onMenu = owner?.onMenu, onDragEnd = owner?.onDragEnd, dragging = self.dragging
+            let restore: () -> Void = {
+                onMenu?(false)
+                if !dragging { onDragEnd?() }
+            }
             if let animator {
-                animator.addCompletion { [weak self] in self?.owner?.onMenu(false) }
+                animator.addCompletion(restore)
             } else {
-                owner?.onMenu(false)
+                restore()
             }
         }
 
@@ -221,12 +231,25 @@ struct CardInteraction: UIViewRepresentable {
                                          target: UIDragPreviewTarget(container: v, center: CGPoint(x: r.midX, y: r.midY)))
         }
 
-        func dragInteraction(_ interaction: UIDragInteraction, willAnimateLiftWith animator: any UIDragAnimating,
-                             session: any UIDragSession) {
+        /// A drag session is under way (not just the lift a long press makes
+        /// for every menu): only then is the card's slot empty.
+        private var dragging = false
+
+        /// The lift happens on every long press, also for a menu that never
+        /// becomes a drag: the card hides only once a drag session begins,
+        /// and shows again when it ends (it stayed hidden after every menu,
+        /// re-audit 5).
+        func dragInteraction(_ interaction: UIDragInteraction, sessionWillBegin session: any UIDragSession) {
+            dragging = true
             owner?.onDragStart()
         }
 
+        func dragInteraction(_ interaction: UIDragInteraction, item: UIDragItem, willAnimateCancelWith animator: any UIDragAnimating) {
+            if !dragging { owner?.onDragEnd() }
+        }
+
         func dragInteraction(_ interaction: UIDragInteraction, session: any UIDragSession, didEndWith operation: UIDropOperation) {
+            dragging = false
             #if DEBUG
             MainStallTrace.mark("drag end \(operation.rawValue)")
             #endif
