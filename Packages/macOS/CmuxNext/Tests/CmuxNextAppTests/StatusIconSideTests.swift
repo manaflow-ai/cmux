@@ -9,8 +9,8 @@ import Testing
 /// one status icon (working, needs input, done, error) on the left or the right of the row, and
 /// tabs the same so rows and tabs match. Both are Debug Settings choices until promoted: the
 /// `sidebar.rowBadge` Status icon style, and `sidebar.statusIconSide` for its side. Leo 2026-10-15:
-/// the Status icon style is the default, agent chat rows draw no chat icon, and a browser row keeps
-/// a browser-like icon (its favicon, else a globe) on the left.
+/// the Status icon style is the default and no row or tab draws a kind icon (agent chat, terminal or
+/// browser); a page's favicon is its own icon, not a kind icon, and stays on the left.
 @MainActor @Suite(.serialized) struct StatusIconSideTests {
     private static let busy = WorkspaceID("ws-status-busy")
     private static let done = WorkspaceID("ws-status-done")
@@ -39,13 +39,11 @@ import Testing
     }
 
     @Test(arguments: [SidebarStatusIconSide.left, .right])
-    func aBrowserRowKeepsABrowserIconOnTheLeft(_ side: SidebarStatusIconSide) throws {
+    func noRowDrawsAKindIcon(_ side: SidebarStatusIconSide) throws {
         try Self.withStatusLook(side) {
-            let row = try Self.row(Self.sidebar(), Self.page)
-            #expect(!row.icon.isHidden, "a browser row shows a browser icon")
-            #expect(row.icon.frame.maxX <= row.title.frame.minX + WorkspaceRowView.labelInset)
-            if side == .left {
-                #expect(row.activity.frame.maxX <= row.icon.frame.minX, "the status icon sits before the browser icon")
+            let sidebar = Self.sidebar()
+            for id in [Self.busy, Self.chat, Self.page] {
+                #expect(try Self.row(sidebar, id).icon.isHidden, "\(id) draws a kind icon")
             }
         }
     }
@@ -115,27 +113,46 @@ import Testing
     }
 
     @Test(arguments: [SidebarStatusIconSide.left, .right])
-    func anAgentChatTabDrawsNoChatIconAndATerminalTabKeepsItsIcon(_ side: SidebarStatusIconSide) throws {
+    func aTabDrawsNoKindIconAndABrowserTabKeepsItsFavicon(_ side: SidebarStatusIconSide) throws {
         try Self.withStatusLook(side) {
-            var chat = TabItem(id: TabID("chat"), title: "fix the build", icon: .icon(.agentChat), status: .needsInput)
-            chat.isAgentChat = true
-            let cell = TabCell(item: chat)
-            cell.frame = CGRect(x: 0, y: 0, width: 220, height: 30)
-            cell.layoutLayers()
-            #expect(cell.iconLayer.contents == nil, "no chat icon")
-            let glyph = try #require(cell.statusGlyphLayer)
-            let slot = cell.iconLayer.frame
-            switch side {
-            case .left:
-                #expect(abs(glyph.frame.midX - slot.midX) < 0.5, "the status icon \(glyph.frame) takes the icon's slot \(slot)")
-            case .right:
-                #expect(cell.titleLayer.frame.minX <= slot.minX + 0.5, "the title \(cell.titleLayer.frame) starts where the icon was \(slot)")
+            for icon in [TabIcon.icon(.agentChat), .icon(.terminal), .agentMark("claude")] {
+                var item = TabItem(id: TabID("t"), title: "fix the build", icon: icon, status: .needsInput)
+                item.iconIsKind = true
+                let cell = Self.tab(item)
+                #expect(cell.iconLayer.contents == nil, "\(icon) draws its kind icon")
+                let glyph = try #require(cell.statusGlyphLayer)
+                let slot = cell.iconLayer.frame
+                switch side {
+                case .left:
+                    #expect(abs(glyph.frame.midX - slot.midX) < 0.5, "the status icon \(glyph.frame) takes the icon's slot \(slot)")
+                case .right:
+                    #expect(cell.titleLayer.frame.minX <= slot.minX + 0.5, "the title \(cell.titleLayer.frame) starts where the icon was \(slot)")
+                }
             }
-            let terminal = TabCell(item: TabItem(id: TabID("term"), title: "zsh", icon: .icon(.terminal), status: .needsInput))
-            terminal.frame = CGRect(x: 0, y: 0, width: 220, height: 30)
-            terminal.layoutLayers()
-            #expect(terminal.iconLayer.contents != nil, "a terminal tab keeps its icon")
+            var page = TabItem(id: TabID("p"), title: "docs.cmux.com", icon: .image(try Self.favicon()), status: .needsInput)
+            page.iconIsKind = true
+            let browser = Self.tab(page)
+            #expect(browser.iconLayer.contents != nil, "a browser tab keeps its favicon")
+            if side == .left {
+                let glyph = try #require(browser.statusGlyphLayer)
+                #expect(glyph.frame.maxX <= browser.iconLayer.frame.minX, "the status icon sits before the favicon")
+            }
         }
+    }
+
+    private static func tab(_ item: TabItem) -> TabCell {
+        let cell = TabCell(item: item)
+        cell.frame = CGRect(x: 0, y: 0, width: 220, height: 30)
+        cell.layoutLayers()
+        return cell
+    }
+
+    private static func favicon() throws -> TabImage {
+        let context = try #require(CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+        return TabImage(try #require(context.makeImage()))
     }
 
     // MARK: Fixtures

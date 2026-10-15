@@ -40,9 +40,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// takes no hover card. A blank browser tab is not one (an incognito or
     /// app tab's record keeps about:blank while its page shows a site).
     public var isNewTabPage = false
-    /// An agent chat: with rows showing a status icon (`StatusIndicatorConfig.statusSide`) it
-    /// draws no chat icon or agent mark, as agent chat rows draw none (Leo 2026-10-15).
-    public var isAgentChat = false
+    /// The icon is the tab's kind icon (or agent mark), not one the user set: with rows showing a
+    /// status icon (`StatusIndicatorConfig.statusSide`) it is not drawn, as rows draw none (Leo 2026-10-15).
+    public var iconIsKind = false
     /// Group this tab belongs to. Ignored for pinned tabs and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?

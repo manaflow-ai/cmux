@@ -31,7 +31,7 @@ extension TabCell {
     /// A cell with a status follows the shared config, so a set switch
     /// restyles it live.
     func updateStatusGlyph() {
-        if item.status != .none || item.isAgentChat { StatusIndicatorAppearance.shared.register(self) }
+        if item.status != .none || item.iconIsKind { StatusIndicatorAppearance.shared.register(self) }
         let config = StatusIndicatorAppearance.shared.config
         if let plan = statusBadgePlan(config: config) {
             let glyph = statusGlyphLayer ?? {
@@ -62,8 +62,8 @@ extension TabCell {
 
     /// An agent chat draws no chat icon or agent mark while rows show a status icon, as agent chat
     /// rows draw none (Leo 2026-10-15); a user's own icon still draws.
-    var hidesAgentChatIcon: Bool {
-        guard item.isAgentChat, StatusIndicatorAppearance.shared.config.statusSide != nil else { return false }
+    var hidesKindIcon: Bool {
+        guard item.iconIsKind, StatusIndicatorAppearance.shared.config.statusSide != nil else { return false }
         switch item.icon {
         case .icon(.agentChat), .agentMark: return true
         default: return false
@@ -73,14 +73,14 @@ extension TabCell {
     /// The slot a mark on the left takes before the icon; 0 for any other place, and for an agent
     /// chat, whose mark takes the icon's own slot.
     func statusLeadingSlot(iconSide: CGFloat) -> CGFloat {
-        statusSide == .left && visibility.showsIcon && !visibility.centersContent && !hidesAgentChatIcon
+        statusSide == .left && visibility.showsIcon && !visibility.centersContent && !hidesKindIcon
             ? statusGlyphSide(iconSide: iconSide) + Metrics.space2 : 0
     }
 
     /// Where the title starts: after the icon, or where the icon was for an agent chat whose
     /// status icon sits on the right (its left side is empty, as the row's is).
     func titleStart(iconFrame: CGRect, spacing: CGFloat) -> CGFloat {
-        hidesAgentChatIcon && StatusIndicatorAppearance.shared.config.statusSide == .right && spinnerLayer == nil
+        hidesKindIcon && StatusIndicatorAppearance.shared.config.statusSide == .right && spinnerLayer == nil
             ? iconFrame.minX : iconFrame.maxX + spacing
     }
 
@@ -96,7 +96,7 @@ extension TabCell {
         case .right? where visibility.showsTitle:
             return true
         case .left?:
-            let x = hidesAgentChatIcon ? iconFrame.midX - side / 2 : iconFrame.minX - Metrics.space2 - side
+            let x = hidesKindIcon ? iconFrame.midX - side / 2 : iconFrame.minX - Metrics.space2 - side
             statusGlyphLayer.frame = CGRect(x: pixel(x), y: pixel(iconFrame.midY - side / 2), width: side, height: side)
         default:
             // The corner, also for a tab too narrow for its title.
