@@ -33,8 +33,9 @@ struct SessionMoveFromBuild {
             Self.toast(SessionMoveOutcome.none, in: window)
             return nil
         }
-        // With no window there is nobody to ask, so nothing moves.
-        guard let window else { return nil }
+        // With no window there is nobody to ask, so nothing moves. Discovery takes seconds, so the
+        // window it started in may have closed meanwhile; a closed window's dialog would never answer.
+        guard let window = window.flatMap({ $0.isVisible ? $0 : nil }) ?? NSApp.keyWindow ?? NSApp.mainWindow else { return nil }
         let answer = await CmuxDialogCenter.shared.present(selection.dialog, in: .window(window))
         let pulls = selection.pulls(answer)
         guard !pulls.isEmpty else { return nil }
