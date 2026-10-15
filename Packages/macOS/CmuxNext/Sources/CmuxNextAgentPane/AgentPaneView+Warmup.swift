@@ -12,9 +12,10 @@ import WebKit
 /// the first load that takes that process holds the main thread for about
 /// 11 s: WebKit issues its font sandbox extensions to the prewarmed process
 /// while that process's network setup is stalled. A standalone WKWebView app
-/// on cua-2 (macOS 27.0.1) held 10.99 s with the prewarm and 0.005 s without;
-/// cua-4 held 0.006 s either way. A DEV build's watchdog killed every launch
-/// there (the New Tab spare took the process); a Release build froze. The
+/// on one test Mac (macOS 27.0.1) held 10.99 s with the prewarm and 0.005 s
+/// without; another held 0.006 s either way. A DEV build's watchdog killed
+/// every launch on the first (the New Tab spare took the process); a Release
+/// build froze. The
 /// prewarm saved about 65 ms before the first agent page went live on a
 /// cold launch (cx-z9kz0). To bring it back, call `_warmInitialProcess` on
 /// ``processPool`` after the warmup view's load, once WebKit's stall is
