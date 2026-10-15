@@ -2910,8 +2910,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func discardHiddenWebViewForMemory(reason: String, now: Date = Date()) -> Bool {
-        // A non-WebKit page is not discarded yet; its blank web view holds nothing.
-        guard enginePage == nil else { return false }
+        // A non-WebKit page releases its engine content instead (BrowserPanel+EnginePageMemorySaver).
+        if enginePage != nil { return releaseEnginePageForMemory(reason: reason, now: now) }
         let urgency = BrowserHiddenWebViewDiscardUrgency(reason: reason)
         guard hiddenWebViewDiscardBlockers(urgency: urgency).isEmpty else { return false }
 
@@ -6439,7 +6439,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
         BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
             isClosing: isClosingWebViewLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
-            shouldRenderWebView: shouldRenderWebView,
+            shouldRenderWebView: shouldRenderWebView || enginePage != nil,  // an engine page renders itself
             hasPendingRemoteNavigation: hasPendingRemoteNavigation,
             hasCurrentURL: (
                 currentURL
@@ -6449,7 +6449,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
             hasActiveMainFrameProvisionalNavigation: isMainFrameProvisionalNavigationActive,
-            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
+            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination && enginePage == nil,
             isDownloading: isDownloading,
             activeDownloadCount: activeDownloadCount,
             preferredDeveloperToolsVisible: preferredDeveloperToolsVisible,

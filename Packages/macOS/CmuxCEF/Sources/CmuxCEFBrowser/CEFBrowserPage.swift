@@ -27,6 +27,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var muted = false
     private var lastFaviconURL: URL?
     private var isClosed = false
+    /// Finds the helper process of a renderer; set by the provider, shared by its pages.
+    var rendererProcesses: CEFRendererProcessResolver?
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
