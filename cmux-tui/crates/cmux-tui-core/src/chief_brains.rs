@@ -171,9 +171,7 @@ pub fn brain_environment(
     // inherited: an app a job runner started (nx-remote on mac26: HOME is
     // the job root) passed that on, and the brain then found no Claude
     // settings env (the person's API route) in it (hq-6d P1 2026-10-14).
-    let user_home = account_home()
-        .or_else(|| inherited("HOME"))
-        .unwrap_or_else(|| "/".into());
+    let user_home = account_home().or_else(|| inherited("HOME")).unwrap_or_else(|| "/".into());
     let mut env = BTreeMap::new();
     let mut put = |key: &str, value: String| {
         env.insert(key.to_owned(), value);
