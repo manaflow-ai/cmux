@@ -183,7 +183,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard !isRetired, generation == refreshGeneration, scope == creationScope,
               providers[receipt.id] == nil else { return nil }
         let provider = CmuxTuiSurfaceProvider(
-            summary: receipt, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
+            summary: .cloud(receipt), fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
             ownerTeamID: ownerTeamID, links: links, catalog: catalog,
             sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             portForwards: portForwards, portAccessStore: portAccess
@@ -582,7 +582,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             // No selected-team file-access scope: the file explorer stays
             // limited to the selected team's machines.
             let provider = CmuxTuiSurfaceProvider(
-                summary: summary, ownerTeamID: target.team, links: links, catalog: catalog,
+                summary: .cloud(summary), ownerTeamID: target.team, links: links, catalog: catalog,
                 sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 portForwards: portForwards, portAccessStore: portAccess
             )
@@ -816,7 +816,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 await links.setOwnerTeam(pageTeamID, for: summary.id)
                 guard generation == refreshGeneration else { return nil }
                 let provider = CmuxTuiSurfaceProvider(
-                    summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
+                    summary: .cloud(summary), fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
                     ownerTeamID: pageTeamID, links: links, catalog: catalog,
                     sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                     portForwards: portForwards, portAccessStore: portAccess
@@ -865,7 +865,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             // A status read can omit the address; keep the restored route.
             if summary.addressIPv4 == nil { summary.addressIPv4 = address }
             let provider = CmuxTuiSurfaceProvider(
-                summary: summary,
+                summary: .cloud(summary),
                 fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
                 ownerTeamID: ownerTeamID, links: links, catalog: catalog,
                 sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
