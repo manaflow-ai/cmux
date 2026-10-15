@@ -488,6 +488,11 @@ pub(super) fn wrap(
         out.push((*k).into());
     }
     out.push(format!("TMPDIR={}", bound.tmp.display()));
+    // Claude Code keeps its own temporary files (the Bash tool's working
+    // directory file `claude-<id>-cwd`, task output) under CLAUDE_CODE_TMPDIR,
+    // else the shared /tmp, which the profile never lets it write: every Bash
+    // command then failed with "operation not permitted: /tmp/claude-…-cwd".
+    out.push(format!("CLAUDE_CODE_TMPDIR={}", bound.tmp.display()));
     out.push(program);
     out.extend(args);
     Ok((exec.to_string_lossy().into_owned(), out))
