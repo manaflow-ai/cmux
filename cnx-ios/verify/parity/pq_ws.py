@@ -39,6 +39,8 @@ paths = glob.glob(os.path.join(os.environ.get('TMPDIR', '/tmp'), 'cmux-tui-%d' %
 s = socket.socket(socket.AF_UNIX); s.settimeout(30); s.connect(paths[0])
 line = sys.argv[1]
 want = json.loads(line)['id']
+# Without these capabilities the daemon shows chat tabs as browser tabs.
+s.sendall(json.dumps({'id': 'p2ws-hello', 'cmd': 'set-client-info', 'name': 'pq_ws', 'kind': 'cli', 'capabilities': ['conversation-tabs-v1', 'agent-session-tabs-v1']}).encode() + b'\n')
 s.sendall(line.encode() + b'\n')
 buf = b''
 while True:
