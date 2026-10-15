@@ -51,7 +51,7 @@ fi
 slug="$(printf '%s' "$tag" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
 SOCK="/tmp/cmux-debug-$slug.sock"
 BIN="$app/Contents/Resources/bin"
-export ACPMUX_HOME="$HOME/.acpmux/tags/$slug"
+export ACPMUX_HOME="$HOME/.acpmux/builds/com.cmuxterm.app.debug.$slug"
 export ACPMUX_SOCKET="$ACPMUX_HOME/acpmux.sock"
 pass=0 fail=0 xfail=0 xpass=0
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" | tee -a "$out/run.log"; }

@@ -181,20 +181,36 @@ pub(super) async fn handle(
         method::MUX_HARNESS_HEALTH => return hub.harness_health(params).await,
         method::MUX_HARNESS_UPDATE => return hub.update_harnesses(params).await,
         method::MUX_SESSIONS_RESTART_HARNESS => {
-            let harnesses = match params.get("harnesses") {
-                None | Some(Value::Null) => None,
-                Some(Value::Array(list)) => Some(
-                    list.iter()
-                        .map(|v| v.as_str().map(str::to_owned))
-                        .collect::<Option<std::collections::BTreeSet<String>>>()
-                        .ok_or_else(|| RpcError::invalid_params("harnesses must be harness ids"))?,
-                ),
-                Some(_) => return Err(RpcError::invalid_params("harnesses must be harness ids")),
-            };
-            let (restarted, after_turn) = hub.restart_harnesses(harnesses.as_ref()).await;
-            json!({"restarted": restarted, "after_turn": after_turn})
+            let harnesses = id_set(params, "harnesses", "harnesses must be harness ids")?;
+            let sessions = id_set(params, "sessions", "sessions must be session ids")?;
+            let done = hub.restart_harnesses(harnesses.as_ref(), sessions.as_ref()).await;
+            let errors: Vec<Value> = done
+                .failed
+                .iter()
+                .map(|(session, error)| json!({"session": session, "error": error}))
+                .collect();
+            json!({"restarted": done.now, "after_turn": done.after_turn,
+                   "failed": errors.len(), "errors": errors})
         }
         other => return Err(RpcError::method_not_found(other)),
     };
     Ok(reply)
+}
+
+/// An optional list of ids in `params[key]` (`restart_harness`'s filters): None when absent.
+fn id_set(
+    params: &Value,
+    key: &str,
+    error: &str,
+) -> Result<Option<std::collections::BTreeSet<String>>, RpcError> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(list)) => list
+            .iter()
+            .map(|v| v.as_str().map(str::to_owned))
+            .collect::<Option<std::collections::BTreeSet<String>>>()
+            .map(Some)
+            .ok_or_else(|| RpcError::invalid_params(error)),
+        Some(_) => Err(RpcError::invalid_params(error)),
+    }
 }

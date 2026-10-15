@@ -38,7 +38,12 @@ public final class SessionStateStore {
         case .delta(let changes):
             guard var state = mirror else { return }
             state.apply(changes)
-            if state != mirror { mirror = state }
+            // An unchanged mirror changes no record: nothing to lay over.
+            guard state != mirror else { return }
+            mirror = state
+            // A delta of terminal records only (OSC 7501, OSC 9;4, busy: an agent's status
+            // tick) changes only those terminals' tabs: no walk of every workspace's records.
+            if let terminals = Self.terminalsOnly(changes) { return overlayTerminals(terminals, of: workspaces, state: state) }
         case .ended:
             // The reopened stream's snapshot replaces the mirror; a stream
             // that could not open leaves no snapshot to wait for.
@@ -67,11 +72,38 @@ public final class SessionStateStore {
                                  status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
             for screen in workspace.screens {
                 for pane in screen.panes {
+                    for tab in pane.tabs { Self.lay(state, over: tab) }
+                }
+            }
+        }
+    }
+
+    /// Lays `state`'s tab record and terminal records over `tab` (`overlay`'s tab step).
+    static func lay(_ state: SessionStateMirror?, over tab: TabModel) {
+        tab.applyState(tab.resourceID.flatMap { state?.tabs[$0] },
+                       progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] },
+                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [],
+                       commandSinceMs: tab.terminalResourceID.flatMap { state?.terminalBusySinceMs[$0] })
+    }
+
+    /// The terminals a delta changes when it changes nothing else; nil otherwise.
+    static func terminalsOnly(_ changes: [SessionStateChange]) -> Set<ResourceID>? {
+        var terminals: Set<ResourceID> = []
+        for change in changes {
+            guard case .terminal(let id, _, _, _) = change else { return nil }
+            terminals.insert(id)
+        }
+        return terminals
+    }
+
+    /// Lays `state` over the tabs of `terminals` only (the rest of `overlay`'s tab step).
+    private func overlayTerminals(_ terminals: Set<ResourceID>, of workspaces: [WorkspaceModel], state: SessionStateMirror) {
+        for workspace in workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
                     for tab in pane.tabs {
-                        tab.applyState(tab.resourceID.flatMap { state?.tabs[$0] },
-                                       progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] },
-                                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [],
-                                       commandSinceMs: tab.terminalResourceID.flatMap { state?.terminalBusySinceMs[$0] })
+                        guard let terminal = tab.terminalResourceID, terminals.contains(terminal) else { continue }
+                        Self.lay(state, over: tab)
                     }
                 }
             }

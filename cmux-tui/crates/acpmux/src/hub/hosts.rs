@@ -498,13 +498,15 @@ impl Hub {
         work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
+        self.rebuild_processes(session);
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
             match (work.prompt_request.clone(), work.prompt_response.clone()) {
                 // The prompt never reached this host (or another host ran
                 // it): nothing can answer it any more.
                 (None, _) => {
                     let error = "the agent host never received this turn's prompt";
-                    self.append(session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error}));
+                    self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error}));
+                    self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
                     *session.turn.lock().unwrap() = Some(TurnInfo {
@@ -719,8 +721,10 @@ impl Hub {
     }
 
     /// Run new agents under agent hosts (see `agent_hosts_enabled`).
+    /// Windows: agent hosts are not ported yet, so agents stay direct
+    /// children in job objects (sessions do not outlive the daemon there).
     pub fn enable_agent_hosts(&self) {
-        self.agent_hosts.store(true, Ordering::SeqCst);
+        self.agent_hosts.store(cfg!(unix), Ordering::SeqCst);
     }
 
     pub(super) async fn spawn_hosted_child(
@@ -732,7 +736,9 @@ impl Hub {
         translator: Option<crate::agent_host::TranslatorSpec>,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
+        let internal = |e: anyhow::Error| {
+            crate::launch_policy::spawn_error(e, |e| RpcError::internal(format!("{e:#}")))
+        };
         // From the profile, before its CODEX_PATH picks the binary.
         let codex_bridge = command_line.is_none()
             && translator.is_none()

@@ -2,25 +2,18 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 
-/// New agent chats in a workspace of another machine (an SSH machine or an owner Cloud VM,
-/// cx-k21v / cx-cmok): the tab records that machine's store as its host
-/// (`registry:<registry id>`), and the chat starts in that machine's own acpmux through its
-/// session daemon (`agent-session-start`, policy `ask`) at the page's first send, never when the
-/// tab opens. It never starts on this Mac: a daemon without the verb, or one that refuses, leaves
-/// the tab with the reason.
+/// New agent chats in a workspace of another machine (SSH, owner Cloud VM; cx-k21v): the tab's
+/// host is that store (`registry:<id>`); the chat starts in that machine's acpmux
+/// (`agent-session-start`, policy `ask`) at the first send, never on this Mac.
 extension AgentTabStore {
-    /// `registry:<id>` of `daemon`'s store, the host of a new chat in one of its panes; nil for this
-    /// Mac's daemon (its chats record `install:<id>`) or while the remote store has no id yet.
+    /// `registry:<id>` of `daemon`'s store (a new chat's host there); nil for this Mac or no id yet.
     static func registryHost(of daemon: DaemonService) -> String? {
         guard !daemon.isLocal, let id = daemon.store.registryID ?? daemon.identity?.sessionID, !id.isEmpty else { return nil }
         return AgentTabRemoteStart.registryPrefix + id.lowercased()
     }
 
-    /// Tab `key` as its machine's store lists it: its surface there, and its session once a first
-    /// send started one. Waits for a tab the store is still creating; starts nothing. Nil while the
-    /// store's tree does not list the created tab yet: the page then waits for its first send, and
-    /// the start reads the tab again (a New Tab page opened in a remote pane showed
-    /// `agent_session.unknown_tab` here before the tree caught up).
+    /// Tab `key` as its machine's store lists it (surface, session once started); waits for a tab
+    /// being created, starts nothing; nil until the tree lists it (the start reads it again).
     func existingRemoteChat(_ key: String) async throws -> (surface: UInt64, session: String?)? {
         if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
         let key = resolveRemote(key)
@@ -30,12 +23,10 @@ extension AgentTabStore {
         return (tab.surface.rawValue, sessions[key] ?? record.session)
     }
 
-    /// Starts the chat of tab `key` on its machine (`agent-session-start` on that machine's daemon)
-    /// once, and answers its surface in that store and the new session. Only the page's first
-    /// send calls it (``RemoteAcpmuxWire``), with the page's folder and agent (nil: the tab's seed,
-    /// then a folder of its workspace there). A tab the store is still creating starts once the
-    /// store answered (the provisional surface names no daemon tab).
+    /// Starts tab `key`'s chat on its machine (`agent-session-start`) once, from the page's first
+    /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
     func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil,
+                         personKey: AgentSessionAttachClient.PersonKey? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let running = remoteStarts[resolveRemote(key)] { return try await running.value }
@@ -43,7 +34,7 @@ extension AgentTabStore {
         // handshake that overlap share it (the daemon refuses a second start with `limit`)
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
-            return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
+            return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
         }
         remoteStarts[resolveRemote(key)] = task
         defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
@@ -51,7 +42,7 @@ extension AgentTabStore {
     }
 
     private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?,
-                                endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
+                                personKey: AgentSessionAttachClient.PersonKey?, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
         let key = resolveRemote(key)
@@ -68,7 +59,8 @@ extension AgentTabStore {
         }
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
         let result: Result<String, any Error>
-        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness)) } catch { result = .failure(error) }
+        let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
+        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness, homeConfirmed: home, personKey: personKey)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):
@@ -80,7 +72,8 @@ extension AgentTabStore {
             if error.code == "agent_session.bound", let session = lookup(resolveRemote(key))?.record.session {
                 return .init(surface: surface, session: session)
             }
-            throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message)
+            throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message,
+                                          keyedRestartSafe: error.keyedRestartSafe)
         case .failure(let error):
             throw error
         }
@@ -106,6 +99,9 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
     let machine: String
     var folder: String?
     var detail: String?
+    /// `agent_session.needs_keyed_start`: the machine's daemon says a keyed restart of its acpmux
+    /// loses nothing (cx-0w0jj); nil for any other refusal.
+    var keyedRestartSafe: Bool?
 
     /// No folder to start in (no seed folder, no folder in the workspace).
     static let folderNeededCode = "app.folder_needed"
@@ -113,6 +109,8 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
     static let hostMismatchCode = "app.host_mismatch"
 
     static func folderNeeded(machine: String) -> Self { Self(code: folderNeededCode, machine: machine) }
+    /// An untrusted folder on a machine whose cmux-tui cannot take the person's Trust from here.
+    var withoutTrust: Self { code == "agent_session.untrusted_folder" ? Self(code: "app.trust_update", machine: machine, folder: folder) : self }
     static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
 
     var userMessage: String { errorDescription ?? code }
@@ -146,6 +144,10 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
         case "agent_session.timeout":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.timeout",
                                   "%@ did not start the agent in time. Try again.", machine)
+        case "agent_session.home_unconfirmed": RefusalStrings.format("handlers.refusal.agentRemoteStart.homeUnconfirmed", "Choose the home folder on %@ with Use Home Folder first.", machine)
+        case "agent_session.above_home": RefusalStrings.format("handlers.refusal.agentRemoteStart.aboveHome", "A chat on %@ never runs in a folder above its home folder.", machine)
+        case "app.trust_update":
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.updateForTrust", "Update cmux on %@ to trust folders from here.", machine)
         case Self.folderNeededCode:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.folderNeeded",
                                   "Open a terminal in a folder on %@ first; the chat starts there.", machine)

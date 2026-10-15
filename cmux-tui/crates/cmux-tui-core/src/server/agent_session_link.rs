@@ -251,3 +251,48 @@ fn read_bounded_line(reader: &mut impl BufRead, line: &mut Vec<u8>) -> std::io::
         }
     }
 }
+
+/// How long a send waits for acpmux to name one session's workspace, and
+/// for all of them.
+const WORKSPACE_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
+const WORKSPACE_LOOKUP_BUDGET: Duration = Duration::from_secs(5);
+
+impl crate::mux::Mux {
+    /// The workspace key each acpmux session runs in, for agent message
+    /// policy: `_acpmux/info`'s `sessionEnv.CMUX_WORKSPACE_ID`, which acpmux
+    /// gives a local unix-socket client only. Keys are lowercase hex without
+    /// dashes. A session acpmux does not know, one without the variable, and
+    /// every session while acpmux is not running map to `None`; acpmux is
+    /// never started for this.
+    pub(crate) fn acp_session_workspace_keys(
+        &self,
+        sessions: &[String],
+    ) -> HashMap<String, Option<String>> {
+        let mut keys: HashMap<String, Option<String>> =
+            sessions.iter().map(|session| (session.clone(), None)).collect();
+        let Some(socket) = self.control_clients.agent_sessions.socket() else { return keys };
+        if sessions.is_empty() {
+            return keys;
+        }
+        let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { return keys };
+        let deadline = std::time::Instant::now() + WORKSPACE_LOOKUP_BUDGET;
+        for session in sessions {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            let info = link.call(
+                "_acpmux/info",
+                json!({"sessionId": session}),
+                left.min(WORKSPACE_LOOKUP_TIMEOUT),
+            );
+            let key = info.ok().and_then(|info| {
+                let key = info.get("sessionEnv")?.get("CMUX_WORKSPACE_ID")?.as_str()?;
+                Some(crate::state::agent_message_policy::workspace_key(key))
+            });
+            keys.insert(session.clone(), key);
+        }
+        link.close();
+        keys
+    }
+}

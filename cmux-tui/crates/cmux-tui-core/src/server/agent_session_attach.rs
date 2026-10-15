@@ -65,13 +65,17 @@ use serde_json::{Value, json};
 pub(super) mod agent_session_link;
 #[path = "agent_session_start.rs"]
 pub(super) mod agent_session_start;
+#[path = "agent_session_trust.rs"]
+mod agent_session_trust;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
-    AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource,
 };
+pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
@@ -372,6 +376,13 @@ pub(crate) enum Refusal {
     TeamVmBlocked,
     /// `agent-session-start`: a Cloud VM daemon that cannot tell its kind.
     HostUnverified,
+    /// `agent-session-trust`: a folder above the home folder.
+    AboveHome,
+    /// `agent-session-trust`: the home folder without the person's choice of it.
+    HomeUnconfirmed,
+    /// `agent-session-start` with `require_person_key`: acpmux holds no
+    /// person key for the caller's run (cx-0w0jj).
+    NeedsKeyedStart,
 }
 
 impl Refusal {
@@ -392,6 +403,9 @@ impl Refusal {
             Self::UntrustedFolder => "agent_session.untrusted_folder",
             Self::TeamVmBlocked => "agent_session.team_vm_blocked",
             Self::HostUnverified => "agent_session.host_unverified",
+            Self::AboveHome => "agent_session.above_home",
+            Self::HomeUnconfirmed => "agent_session.home_unconfirmed",
+            Self::NeedsKeyedStart => "agent_session.needs_keyed_start",
         }
     }
 
@@ -415,6 +429,13 @@ impl Refusal {
             Self::TeamVmBlocked => "agent chats cannot be started remotely on a team VM",
             Self::HostUnverified => {
                 "this machine cannot tell whether it is a team VM, so it starts no remote chat"
+            }
+            Self::AboveHome => "a folder above the home folder is never trusted from here",
+            Self::HomeUnconfirmed => {
+                "the home folder is trusted only after the person chose it as the chat's folder"
+            }
+            Self::NeedsKeyedStart => {
+                "acpmux on this machine holds no person key for this caller; restart it with one first"
             }
         }
     }
@@ -451,6 +472,9 @@ pub(super) fn try_handle(
     let id = object.remove("id");
     if cmd == "agent-session-start" {
         return Some(start(mux, client, id, object, writer));
+    }
+    if cmd == "agent-session-trust" {
+        return Some(trust(mux, client, id, object, writer));
     }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
@@ -500,6 +524,36 @@ fn start(
         return refuse(writer, id, Refusal::Unavailable);
     };
     agent_session_start::start(mux, client, id, socket, params, writer)
+}
+
+/// `agent-session-trust` (agent_session_trust.rs), with the same checks.
+fn trust(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_trust::trust(mux, id, socket, params, writer)
+}
+
+/// The page router's owner `agent_session.trust` (page_router.rs).
+pub(super) fn routed_trust(
+    mux: &Arc<Mux>,
+    client: u64,
+    operation: &str,
+    params: serde_json::Map<String, Value>,
+) -> Result<Value, crate::resource::ResourceError> {
+    agent_session_trust::routed(mux, client, operation, params)
 }
 
 fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
@@ -1037,6 +1091,26 @@ fn refuse(writer: &MessageWriter, id: Option<Value>, refusal: Refusal) -> bool {
             id,
             ok: false,
             data: None,
+            error: Some(refusal.message().to_string()),
+            error_code: Some(refusal.code().to_string()),
+            error_delivery: None,
+        },
+    )
+}
+
+/// A refusal with its typed reason in `data` (`needs_keyed_start`).
+fn refuse_with_data(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    refusal: Refusal,
+    data: Value,
+) -> bool {
+    send_response(
+        writer,
+        Response {
+            id,
+            ok: false,
+            data: Some(data),
             error: Some(refusal.message().to_string()),
             error_code: Some(refusal.code().to_string()),
             error_delivery: None,

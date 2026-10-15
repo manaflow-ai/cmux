@@ -22,8 +22,20 @@ extension TabHandlers {
             case "down": .bottom
             default: .right
             }
+            let keepFocus = invocation["keep_focus"]?.boolValue == true
+            // The chat dock never splits (ChatDockRules): a chat moved out of it to its right, when the
+            // dock keeps another tab, gets a new column right after the dock, so a docked chat's
+            // subagents open beside it. A lone docked chat is still refused (the dock would close).
+            if edge == .right, pane.tabs.count > 1, ChatDockRules.isChatDock(pane, services: ctx.services),
+               ChatColumnPlacement.isChat(tab, services: ctx.services), let dock = ctx.services.columnHandle(containing: pane) {
+                let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
+                return TabMoves.toNewColumn(tab, anchor: pane, afterColumn: dock, services: ctx.services, keepFocus: keepFocus) { ok in
+                    if !ok { ctx.services.restoreDetachedTab(tab.id) }
+                    reveal(ok)
+                }
+            }
             let reveal = revealer(ctx, tab: tab, outcome: .newSplit(paneID: pane.id, edge: .right), workspaceID: nil)
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: ctx.services) { ok in
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: ctx.services, keepFocus: keepFocus) { ok in
                 if !ok { ctx.services.restoreDetachedTab(tab.id) }
                 reveal(ok)
             }
@@ -31,7 +43,7 @@ extension TabHandlers {
         registry.bind("tab.moveToNewColumn", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
-            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, completion: reveal)
+            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, keepFocus: invocation["keep_focus"]?.boolValue == true, completion: reveal)
         })
         registry.bind("tab.moveToWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), let workspace = ctx.workspaceArgument(invocation) else { return }

@@ -22,6 +22,7 @@ impl Hub {
             adopt,
             remote,
             env: session_env,
+            keep_harness_mode,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
@@ -47,6 +48,12 @@ impl Hub {
         // model/effort (or a model in its argv or env) and an adopted
         // conversation keep today's chain (request, then `defaults`).
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
+        // The start mode also skips a remote-origin session (the remote
+        // guard settles its mode) and a profile that pins its mode.
+        let mode_eligible = eligible
+            && !remote
+            && !keep_harness_mode
+            && !super::start_mode::profile_sets_mode(&profile);
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
@@ -240,6 +247,15 @@ impl Hub {
                     Err(err) => return Err(RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message))),
                 }
             }
+            // The permission mode a new chat starts in (start_mode.rs): full
+            // access unless the person picked or set otherwise. Soft.
+            let start_mode = if mode_eligible { self.start_mode(&session).await } else { None };
+            if let Some(mode) = start_mode
+                && let Err(err) = self.set_mode(&session, &mode).await
+            {
+                tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
+                self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
+            }
             Ok(())
         }
         .await;
@@ -321,7 +337,7 @@ impl Hub {
             }
         }
 
-        self.record_launch_roots(session, profile).await;
+        self.record_spawn_inputs(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Default::default();
@@ -431,7 +447,7 @@ impl Hub {
             };
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
-            let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
@@ -440,6 +456,13 @@ impl Hub {
                 .and_then(Value::as_str)
                 .unwrap_or("default")
                 .to_owned();
+            // A remote chain never runs in full access (remote_sandbox.rs),
+            // even when a transfer moved a full-access chat here.
+            let mode = if meta.remote_origin && mode == "bypassPermissions" {
+                "default".to_owned()
+            } else {
+                mode
+            };
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -493,7 +516,9 @@ impl Hub {
                     Some((&session.id, &meta.name)),
                 )
                 .await
-                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(|e| {
+                    crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+                })?
             }
         } else if self.agent_hosts_enabled() {
             self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?
@@ -509,7 +534,9 @@ impl Hub {
                 Some((&session.id, &meta.name)),
             )
             .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| {
+                crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+            })?
         };
         {
             // The shutdown marks itself started, then takes each session's
@@ -794,6 +821,11 @@ impl Hub {
         wait: bool,
         only: Option<std::collections::BTreeSet<String>>,
     ) {
+        // A probe starts the agent: none while launches are off (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            tracing::info!("agent launch is disabled; model probes skipped");
+            return;
+        }
         let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
@@ -1010,6 +1042,9 @@ pub struct NewRequest {
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.
     pub env: std::collections::BTreeMap<String, String>,
+    /// Keep the harness's own start mode (`start_mode.rs`): a handoff target
+    /// of a source that is not in full access is never wider than it.
+    pub keep_harness_mode: bool,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

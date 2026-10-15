@@ -35,6 +35,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var showsPaneBorder = false
     /// Divider lines and every other line draw (`appearance.borders`).
     public var drawsLines = true
+    /// Floating panes (`Metrics.floatingPanes`): each pane's whole padded
+    /// rect, tab strip included, is its rounded card, and split panes meet
+    /// with no divider gap (`dividerThickness` 0).
+    public var floatingPanes = false
     /// `layout.paneSeparation`: whether a divider draws at rest and whether
     /// it shows a line on hover or drag (none shows nothing).
     public var paneSeparation: PaneSeparation = .borders
@@ -49,6 +53,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderWidth: CGFloat?
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
     public var inactivePaneDimming: CGFloat = 0.14
+    /// The Ghostty config's unfocused-pane dim; when it dims, it replaces
+    /// `inactivePaneDimming` on every unfocused pane.
+    public var unfocusedPaneDim = UnfocusedPaneDim()
     /// Debug Settings `focus.ringAlpha`: the ring's foreground share in place
     /// of `focusRing.contrast`; nil follows the setting. Read here, in the
     /// observed style, so a slider move repaints the ring at once.
@@ -103,7 +110,8 @@ extension LayoutStyle {
     @MainActor
     public func applyingDesignMetrics() -> LayoutStyle {
         var style = self
-        style.dividerThickness = Metrics.dividerThickness
+        style.floatingPanes = Metrics.floatingPanes
+        style.dividerThickness = style.floatingPanes ? 0 : Metrics.dividerThickness
         style.dividerHitThickness = Metrics.dividerHitWidth
         style.columnGap = Metrics.stripColumnGap
         style.panelCornerRadius = Metrics.panelCornerRadius
@@ -117,6 +125,7 @@ extension LayoutStyle {
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
+        style.unfocusedPaneDim = DesignSettings.shared.unfocusedPaneDim
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim
@@ -124,6 +133,8 @@ extension LayoutStyle {
             style.focusRing.enabled = false
             style.attention.width = 0
         }
+        // Floating panes: no ring; the dim marks the focused pane (`inactiveDim`).
+        if Metrics.floatingPanesHideFocusRing { style.focusRing.enabled = false }
         style.paneBorderColor = DesignSettings.shared.paneChrome.borderColor
         style.paneBorderWidth = Metrics.paneBorderWidth
         // cmux.json `layout.minimumPaneWidth` / `layout.minimumPaneHeight`.

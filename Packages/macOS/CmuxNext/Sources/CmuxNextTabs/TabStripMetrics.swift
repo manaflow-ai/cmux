@@ -7,8 +7,6 @@ import CmuxNextDesign
 public struct TabStripMetrics: Equatable, Sendable {
     /// Widest an unpinned tab gets (the standard width).
     public var maxTabWidth: CGFloat
-    /// Narrowest a tab fitted to its title gets while the strip has room.
-    public var minFitTabWidth: CGFloat
     /// Narrowest an inactive tab gets before the strip starts to scroll.
     public var minInactiveTabWidth: CGFloat
     /// The selected tab never gets narrower than this, so it keeps room for
@@ -103,7 +101,6 @@ public struct TabStripMetrics: Equatable, Sendable {
     public init() {
         maxTabWidth = Metrics.tabMaxWidth
         minInactiveTabWidth = Metrics.tabMinWidth
-        minFitTabWidth = TabTunables.minFitTabWidth.value
         pinnedTabWidth = Metrics.tabMinWidth
         compactTabWidth = TabTunables.compactTabWidth.value
         pinnedGroupGap = TabTunables.pinnedGroupGap.value
@@ -139,14 +136,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         showsSeparators = TabTunables.separators.value
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
-    }
-
-    /// A tab's slot width that fits a title `titleWidth` wide: icon, title
-    /// and the close button's room (reserved, so hover and selection never
-    /// resize it), plus the gap after the pill.
-    public func naturalTabWidth(titleWidth: CGFloat) -> CGFloat {
-        (contentLeadingInset + iconSize + iconTitleSpacing + titleWidth + titleCloseSpacing + closeButtonSize
-            + contentTrailingInset + 2 * tabBackgroundInset).rounded(.up)
     }
 
     /// Token-derived metrics for the current density.

@@ -26,6 +26,12 @@ impl Hub {
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect(),
                     login: auth.and_then(|a| a.login.clone()),
+                    unresolved: p
+                        .env
+                        .iter()
+                        .filter(|(_, v)| v.contains("${"))
+                        .map(|(k, _)| k.clone())
+                        .collect(),
                     probe_error: probe_errors.get(id).cloned(),
                 })
             })
@@ -94,8 +100,8 @@ impl Hub {
             ),
             Some(_) => return Err(RpcError::invalid_params("ids must be harness ids")),
         };
-        let rows = self.health.check(self.health_subjects().await, false).await;
-        let ran = self.health.run_updates(&rows, ids.as_ref()).await;
+        let check = async { self.health.check(self.health_subjects().await, false).await };
+        let (rows, ran) = self.health.run_updates(check, ids.as_ref()).await;
         use crate::harness_health::auto::Requested;
         let any_ran = ran.iter().any(|(_, r)| matches!(r, Requested::Ran { .. }));
         let rows = if any_ran {
@@ -106,11 +112,22 @@ impl Hub {
         } else {
             rows
         };
-        let version = |id: &str| rows.iter().find(|r| r.id == id).and_then(|r| r.version.clone());
+        let row = |id: &str| rows.iter().find(|r| r.id == id);
+        let version = |id: &str| row(id).and_then(|r| r.version.clone());
         let results: Vec<Value> = ran
             .into_iter()
             .map(|(id, requested)| {
                 let (ok, error) = match requested {
+                    // An updater that exits 0 but leaves the old version on PATH (an npm
+                    // prefix other than the one PATH finds) did not update it.
+                    Requested::Ran { ok: true, .. } if row(&id).is_some_and(|r| r.outdated) => (
+                        false,
+                        Some(format!(
+                            "the update ran, but {} still reports {}",
+                            row(&id).map_or(id.as_str(), |r| r.program.as_str()),
+                            version(&id).unwrap_or_default()
+                        )),
+                    ),
                     Requested::Ran { ok: true, .. } | Requested::Current => (true, None),
                     Requested::Ran { ok: false, detail } if detail.is_empty() => {
                         (false, Some("the update failed".to_owned()))

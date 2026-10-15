@@ -102,10 +102,10 @@ final class DragLiftView: NSView {
     func setLifted(_ lifted: Bool, animated: Bool) {
         guard lifted != self.lifted, let layer else { return }
         self.lifted = lifted
-        let style = PopupStyle.standard
-        let opacity: Float = lifted ? Float(style.shadowAlpha) : 0
-        let radius = lifted ? style.shadowBlur : Metrics.space2
-        let offset = CGSize(width: 0, height: lifted ? style.shadowOffset : Metrics.space1)
+        let elevation = PopupStyle.elevation2
+        let opacity: Float = lifted ? Float(elevation.alpha) : 0
+        let radius = elevation.layerRadius
+        let offset = elevation.layerOffset(flipped: true)
         guard animated else {
             Motion.transaction(nil) {
                 layer.shadowOpacity = opacity

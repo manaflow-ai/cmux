@@ -7,7 +7,13 @@
 //! - a person's message in a channel it takes part in wakes it with no
 //!   mention, and the reply goes into that message's thread;
 //! - a reply of exactly NO_REPLY posts nothing;
-//! - another agent's channel message never wakes it.
+//! - an agent that is not a Chief never wakes it.
+//!
+//! And the loop guard (the owner's per-thread budget,
+//! cmux_conversation::MAX_AGENT_TURNS): two Chiefs in one channel wake each
+//! other and stop at the budget of their thread; a person's post in another
+//! thread starts a new budget there and leaves the spent thread quiet; a
+//! person's post in the spent thread starts them again.
 //!
 //! Run: `CMUX_TUI_BIN=<cmux-tui target>/debug/cmux-tui cargo test --test
 //! channels_daemon -- --ignored`.
@@ -128,6 +134,10 @@ fn person(id: &str, name: &str) -> Value {
     json!({"id": id, "kind": "human", "display_name": name})
 }
 
+fn agent(id: &str, name: &str) -> Value {
+    json!({"id": id, "kind": "agent", "display_name": name, "agent_class": "agent"})
+}
+
 fn chief(id: &str, name: &str) -> Value {
     json!({"id": id, "kind": "agent", "display_name": name, "agent_class": "mux"})
 }
@@ -228,7 +238,7 @@ fn a_second_chief_answers_its_dm_and_acts_on_its_own_in_a_channel_thread() {
             person("user_local", "Ada"),
             person("user_bob", "Bob"),
             chief(CHIEF, "Release Chief"),
-            chief("agent_infra", "Infra Chief"),
+            agent("agent_builder", "Builder"),
         ],
     );
     let token = me.req(json!({"cmd": "conversation-agent-token", "participant": CHIEF}))["token"]
@@ -305,17 +315,22 @@ fn a_second_chief_answers_its_dm_and_acts_on_its_own_in_a_channel_thread() {
         "a DM reply stays top level: {reply}"
     );
 
-    // 2. Another agent's channel message never wakes it.
-    let mut infra = Conn::open(&daemon.socket);
-    let infra_token = me
-        .req(json!({"cmd": "conversation-agent-token", "participant": "agent_infra"}))["token"]
+    // 2. An agent that is not a Chief never wakes it.
+    let mut builder = Conn::open(&daemon.socket);
+    let builder_token = me
+        .req(json!({"cmd": "conversation-agent-token", "participant": "agent_builder"}))["token"]
         .as_str()
         .unwrap()
         .to_owned();
-    infra.req(
-        json!({"cmd": "conversation-bind", "participant": "agent_infra", "token": infra_token}),
+    builder.req(
+        json!({"cmd": "conversation-bind", "participant": "agent_builder", "token": builder_token}),
     );
-    send(&mut infra, &channel_id, "infra-1", "Runner tokens rotated.");
+    send(
+        &mut builder,
+        &channel_id,
+        "builder-1",
+        "Runner tokens rotated.",
+    );
 
     // 3. A person's message with no mention: a reply in its thread.
     let red = send(
@@ -374,4 +389,238 @@ fn a_second_chief_answers_its_dm_and_acts_on_its_own_in_a_channel_thread() {
         "NO_REPLY posted something: {answers:?}"
     );
     assert_eq!(answers.len(), 2, "{answers:?}");
+}
+
+/// A Chief brain bound as `participant` over the real link; its host.log
+/// lines are collected.
+struct Chief {
+    h: Harness,
+    lines: Arc<Mutex<Vec<String>>>,
+}
+
+fn start_chief(daemon: &Daemon, me: &mut Conn, participant: &str, title: &str) -> Chief {
+    let token =
+        me.req(json!({"cmd": "conversation-agent-token", "participant": participant}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let token_file = daemon.dir.path().join(format!("{participant}.token"));
+    std::fs::write(&token_file, format!("{token}\n")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let settings = Settings {
+        membership: Membership {
+            participant: participant.into(),
+            group_wake: GroupWake::Every,
+            local_side: true,
+        },
+        ..settings(dir.path())
+    };
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    // Every turn answers: the Chiefs never choose to stop on their own.
+    let always = Box::new(|_: usize, _: &[Value]| {
+        let reply = "Noted, over to you.";
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": reply}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ]
+    });
+    let mut h = Harness::configured(
+        dir,
+        always,
+        Arc::new(Mutex::new(Owner::default())),
+        settings,
+        Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned())),
+    );
+    h.brain.step(Input::from(AgentEvent::Up(Vec::new())));
+    let (events_tx, events_rx) = channel::<DaemonEvent>();
+    let events_tx = Mutex::new(events_tx);
+    spawn_link(
+        LinkConfig {
+            socket: daemon.socket.clone(),
+            token_file: Some(token_file),
+            display_name: "Ada".into(),
+            title: title.into(),
+            participant: participant.into(),
+        },
+        Arc::new(move |event| {
+            let _ = events_tx.lock().unwrap().send(event);
+        }),
+        Arc::new(|_: &str| {}),
+    );
+    let up = events_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the link came up");
+    assert!(
+        matches!(up, DaemonEvent::Up { .. }),
+        "the first link event is Up"
+    );
+    h.brain.step(Input::from(up));
+    let tx = h.tx.clone();
+    std::thread::spawn(move || {
+        for event in events_rx {
+            if tx.send(Input::from(event)).is_err() {
+                return;
+            }
+        }
+    });
+    Chief { h, lines }
+}
+
+/// Runs every Chief's brain for `how_long`, or until `done` holds.
+fn pump_all(chiefs: &mut [Chief], how_long: Duration, mut done: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + how_long;
+    while Instant::now() < deadline {
+        if done() {
+            return true;
+        }
+        for c in chiefs.iter_mut() {
+            while let Ok(input) = c.h.rx.try_recv() {
+                c.h.brain.step(input);
+            }
+            if c.h
+                .brain
+                .next_timer()
+                .is_some_and(|at| at <= Instant::now())
+            {
+                c.h.brain.on_timer();
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    done()
+}
+
+/// The Chief messages of thread `root` (replies only), oldest first.
+fn chief_replies(me: &mut Conn, conversation: &str, root: &str) -> Vec<Value> {
+    messages(me, conversation)
+        .into_iter()
+        .filter(|m| m["thread_root"] == root)
+        .filter(|m| m["author"] == "agent_release" || m["author"] == "agent_infra")
+        .collect()
+}
+
+#[test]
+#[ignore = "needs CMUX_TUI_BIN"]
+fn two_chiefs_wake_each_other_stop_at_the_thread_budget_and_a_person_resumes_them() {
+    // The owner's per-thread budget (cmux_conversation::MAX_AGENT_TURNS).
+    let cap = cmux_conversation::MAX_AGENT_TURNS;
+    let daemon = Daemon::start();
+    let mut me = Conn::open(&daemon.socket);
+    for (key, id, name) in [
+        ("dm-release", "agent_release", "Release Chief"),
+        ("dm-infra", "agent_infra", "Infra Chief"),
+    ] {
+        create(
+            &mut me,
+            key,
+            name,
+            vec![person("user_local", "Ada"), chief(id, name)],
+        );
+    }
+    let channel_id = create(
+        &mut me,
+        "ch-ops",
+        "ops",
+        vec![
+            person("user_local", "Ada"),
+            chief("agent_release", "Release Chief"),
+            chief("agent_infra", "Infra Chief"),
+        ],
+    );
+    let mut chiefs = vec![
+        start_chief(&daemon, &mut me, "agent_release", "Release Chief"),
+        start_chief(&daemon, &mut me, "agent_infra", "Infra Chief"),
+    ];
+
+    // A person's top-level message: both Chiefs answer in its thread, then
+    // answer each other until the thread holds the budget of Chief messages.
+    let root = send(&mut me, &channel_id, "ops-1", "the release runner is down");
+    let reached = pump_all(&mut chiefs, Duration::from_secs(60), || {
+        chief_replies(&mut me, &channel_id, &root).len() >= cap
+    });
+    assert!(
+        reached,
+        "the Chiefs never reached the budget: {:?}",
+        chief_replies(&mut me, &channel_id, &root)
+    );
+    let authors: std::collections::BTreeSet<String> = chief_replies(&mut me, &channel_id, &root)
+        .iter()
+        .map(|m| m["author"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(authors.len(), 2, "both Chiefs spoke: {authors:?}");
+    // Then they stop: nothing more for a while, and at least one says it is paused.
+    pump_all(&mut chiefs, Duration::from_secs(5), || false);
+    let paused = chief_replies(&mut me, &channel_id, &root).len();
+    pump_all(&mut chiefs, Duration::from_secs(5), || false);
+    let after = chief_replies(&mut me, &channel_id, &root).len();
+    assert_eq!(paused, after, "the Chiefs kept talking after the budget");
+    // The owner refuses a reply past the budget, so never more than it.
+    assert_eq!(after, cap, "Chief messages in the thread");
+    assert!(
+        chiefs.iter().any(|c| c
+            .lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("Chiefs paused"))),
+        "no Chief logged the pause"
+    );
+
+    // The budget is per thread: a person's new top-level message gets the
+    // Chiefs talking in its own thread, up to its own budget, while the spent
+    // thread stays quiet (a person's text elsewhere does not reset it).
+    let other = send(
+        &mut me,
+        &channel_id,
+        "ops-3",
+        "and the cache bucket is full",
+    );
+    let other_full = pump_all(&mut chiefs, Duration::from_secs(60), || {
+        chief_replies(&mut me, &channel_id, &other).len() >= cap
+    });
+    assert!(
+        other_full,
+        "the Chiefs did not use the second thread's budget"
+    );
+    pump_all(&mut chiefs, Duration::from_secs(5), || false);
+    assert_eq!(
+        chief_replies(&mut me, &channel_id, &other).len(),
+        cap,
+        "second thread"
+    );
+    assert_eq!(
+        chief_replies(&mut me, &channel_id, &root).len(),
+        after,
+        "the spent thread stayed quiet after a person wrote elsewhere"
+    );
+
+    // A person's message in the spent thread resets it: they talk again
+    // there, and stop again.
+    let nudge = me.req(json!({"cmd": "conversation-op", "conversation": channel_id,
+        "idempotency_key": "ops-2",
+        "op": {"kind": "message.send", "client_msg_id": "ops-2", "thread_root": root,
+               "reply_to": {"message_id": root, "part_index": 0},
+               "parts": [{"type": "text", "text": "still down, keep going"}]}}))["change"]["message"]
+        ["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let resumed = pump_all(&mut chiefs, Duration::from_secs(60), || {
+        chief_replies(&mut me, &channel_id, &root).len() >= after + cap
+    });
+    assert!(resumed, "the Chiefs did not resume after {nudge}");
+    pump_all(&mut chiefs, Duration::from_secs(5), || false);
+    let settled = chief_replies(&mut me, &channel_id, &root).len();
+    pump_all(&mut chiefs, Duration::from_secs(5), || false);
+    assert_eq!(
+        settled,
+        chief_replies(&mut me, &channel_id, &root).len(),
+        "no second stop"
+    );
+    assert_eq!(settled, after + cap, "after the nudge");
 }

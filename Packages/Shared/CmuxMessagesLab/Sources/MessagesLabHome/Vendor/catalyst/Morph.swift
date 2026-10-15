@@ -19,6 +19,8 @@ import Accelerate
 /// - `tail`: fixed at the right-bottom corner.
 final class MorphBubble {
     let key: String
+    /// The scale its images are drawn at: the sending window view's renderScale (`rescale` on a change).
+    private(set) var scale: CGFloat
     let holder = CALayer()
     let bubble = CALayer()
     let body = CALayer()
@@ -68,8 +70,10 @@ final class MorphBubble {
     /// lines or attachments), so the send uses the `.fieldShrink` curves (Springs.Bubble). The caller
     /// decides with its own field metrics: the iOS field is 36 pt for 1 line, the macOS one 30-31 pt.
     init(key: String, in parent: CALayer, windowBounds: CGRect, from field: CGRect, to target: CGRect,
-         textLayout tl: TextLayout, size: CGSize, textOrigin: CGPoint = .zero, begin: CFTimeInterval, fieldShrinks: Bool) {
+         textLayout tl: TextLayout, size: CGSize, textOrigin: CGPoint = .zero, begin: CFTimeInterval,
+         scale: CGFloat = Fixture.renderScale, fieldShrinks: Bool) {
         self.key = key
+        self.scale = scale
         textLayout = tl
         textSize = size
         fieldRect = field
@@ -78,7 +82,7 @@ final class MorphBubble {
         springs = bs
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(),
                                         "transform": NSNull(), "path": NSNull(), "backgroundColor": NSNull()]
-        for l in [holder, bubble, body, text, blurred, tail, underlay] { l.actions = none; l.contentsScale = Fixture.renderScale }
+        for l in [holder, bubble, body, text, blurred, tail, underlay] { l.actions = none; l.contentsScale = scale }
         holder.frame = windowBounds
         insideClip.actions = none
         insideClip.frame = windowBounds
@@ -102,7 +106,7 @@ final class MorphBubble {
         let w0 = field.width, h0 = max(field.height, h1)
         let y0 = field.minY + h0 / 2
         let o = bs.opacity
-        let images = MorphBubble.preparedImages(tl, size) ?? MorphBubble.textImages(tl, size)
+        let images = MorphBubble.preparedImages(tl, size, scale: scale) ?? MorphBubble.textImages(tl, size, scale: scale)
         /// One bubble tree (the main one, or the sharp copy) with every spring.
         func build(_ bubble: CALayer, _ body: CALayer, _ text: CALayer, _ tail: CAShapeLayer, _ underlay: CALayer, in holder: CALayer, blurred: CALayer?) {
             bubble.anchorPoint = CGPoint(x: 1, y: 0.5)
@@ -186,7 +190,7 @@ final class MorphBubble {
         // follows the field's own motion: `clipGlass`). Without that call it shows nothing.
         let sp = (bubble: CALayer(), body: CALayer(), text: CALayer(), tail: CAShapeLayer(), underlay: CALayer())
         sharpParts = sp
-        for l in [sharpClip, sharpHolder, glassAbove, sp.bubble, sp.body, sp.text, sp.tail, sp.underlay] { l.actions = none; l.contentsScale = Fixture.renderScale }
+        for l in [sharpClip, sharpHolder, glassAbove, sp.bubble, sp.body, sp.text, sp.tail, sp.underlay] { l.actions = none; l.contentsScale = scale }
         sharpClip.frame = windowBounds
         sharpHolder.frame = windowBounds
         sharpClip.addSublayer(sharpHolder)
@@ -254,32 +258,36 @@ final class MorphBubble {
     private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
     private static var prepSerial = 0
     static var preparedHits = 0
-    static func prepare(draft: String, width: CGFloat) {
+    /// `scale`: the sending view's (its renderScale); a send at another scale draws its own images.
+    static func prepare(draft: String, width: CGFloat, scale: CGFloat = Fixture.renderScale) {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !LongText.isLong(t) else { return }
         prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
-        let scale = Fixture.renderScale
         prepQueue.async {
             prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
             guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
-            let (size, tl) = Sizing.size(of: part, width: width)
-            guard let tl, scale == Fixture.renderScale else { return }
-            let images = textImages(tl, size)
+            let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
+            guard let tl else { return }
+            let images = textImages(tl, size, scale: scale)
             prepLock.lock()
             if serial == prepSerial { prepared = (tl, size, scale, images) }
             prepLock.unlock()
         }
     }
-    private static func preparedImages(_ tl: TextLayout, _ size: CGSize) -> (CGImage?, CGImage?)? {
+    private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
         prepLock.lock(); defer { prepLock.unlock() }
-        guard let p = prepared, p.size == size, p.scale == Fixture.renderScale, p.tl == tl else { return nil }
+        guard let p = prepared, p.size == size, p.scale == scale, p.tl == tl else { return nil }
         preparedHits += 1
         return p.images
     }
 
-    private static func textImages(_ tl: TextLayout, _ size: CGSize) -> (CGImage?, CGImage?) {
+    /// Any thread (prepQueue, main): the drawing reads `scale`.
+    private static func textImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?) {
+        Fixture.withRenderScale(scale) { textImagesScoped(tl, size, scale: scale) }
+    }
+    private static func textImagesScoped(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?) {
         let fmt = UIGraphicsImageRendererFormat()
-        fmt.scale = Fixture.renderScale * MorphBubble.peakScale
+        fmt.scale = scale * MorphBubble.peakScale
         fmt.opaque = false
         let img = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
             PartRenderer.drawText(ctx.cgContext, tl, in: CGRect(origin: .zero, size: size), outgoing: true)
@@ -288,7 +296,7 @@ final class MorphBubble {
         let padded = UIGraphicsImageRenderer(size: CGSize(width: size.width + 2 * p, height: size.height + 2 * p), format: fmt).image { ctx in
             PartRenderer.drawText(ctx.cgContext, tl, in: CGRect(x: p, y: p, width: size.width, height: size.height), outgoing: true)
         }
-        return (img.cgImage, padded.cgImage.flatMap { MorphBubble.boxBlur($0, radiusPx: CrashGuard.int((9 * Fixture.renderScale / 2).rounded(), in: 0...64)) })
+        return (img.cgImage, padded.cgImage.flatMap { MorphBubble.boxBlur($0, radiusPx: CrashGuard.int((9 * scale / 2).rounded(), in: 0...64)) })
     }
 
     /// The body's bottom edge in window points, `tau` seconds after the send
@@ -366,12 +374,13 @@ final class MorphBubble {
 
     /// A display-scale change during the flight (the window moved to another
     /// screen): re-rasterize at the new scale; the animations keep running.
-    func rescale() {
+    func rescale(_ s: CGFloat) {
+        scale = s
         let sp = sharpParts
         for l in [holder, bubble, body, text, blurred, tail, underlay, insideClip, sharpClip, sharpHolder, sp.bubble, sp.body, sp.text, sp.tail, sp.underlay] {
-            l.contentsScale = Fixture.renderScale
+            l.contentsScale = s
         }
-        (text.contents, blurred.contents) = MorphBubble.textImages(textLayout, textSize)
+        (text.contents, blurred.contents) = MorphBubble.textImages(textLayout, textSize, scale: s)
         sp.text.contents = text.contents
     }
 

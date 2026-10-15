@@ -12,6 +12,7 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
+mod agent_message_cmd;
 mod browser;
 mod bulk_close;
 #[cfg(test)]
@@ -24,6 +25,7 @@ pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
 mod server_ensure;
+mod sidebar_doc;
 mod state;
 mod workspace;
 
@@ -196,6 +198,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             end_terminals: flags.boolean("end-terminals"),
         },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -207,7 +212,15 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                 action,
                 super::suggestion(
                     action,
-                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
+                    &[
+                        "stats",
+                        "start",
+                        "ensure",
+                        "status",
+                        "stop",
+                        "reload-config",
+                        "compact-registry",
+                    ],
                 ),
             )));
         }
@@ -1175,7 +1188,7 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
             }
             params.insert("body".into(), Value::String(flags.required("body")?));
             if let Some(level) = flags.take("level") {
-                validate_one_of("--level", &level, &["info", "success", "warning", "error"])?;
+                validate_one_of("--level", &level, &["info", "warning", "error"])?;
                 params.insert("level".into(), Value::String(level));
             }
             if let Some(terminal) = flags.take("terminal") {
@@ -1331,14 +1344,7 @@ fn parse_agent(
 ) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
-        ["message", rest @ ..] => {
-            let from = flags.take("from");
-            let thread = flags.take("thread");
-            let reply_to = flags.take("reply-to");
-            Ok(CommandPlan::AgentMessage(Box::new(super::agent_message::parse_message(
-                rest, argv, from, thread, reply_to,
-            )?)))
-        }
+        ["message", rest @ ..] => agent_message_cmd::parse(rest, flags, argv),
         ["inbox", rest @ ..] => {
             let state = flags.take("state");
             let limit = flags.take("limit");
@@ -1523,6 +1529,12 @@ fn parse_sidebar(
         }
         ["plugin", tail @ ..] => {
             parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Sidebar)
+        }
+        ["section-scroll", section, scroll] => {
+            sidebar_doc::section_scroll(section, scroll, selectors, flags)
+        }
+        ["section-max-rows", section, rows] => {
+            sidebar_doc::section_max_rows(section, rows, selectors, flags)
         }
         _ => usage("sidebar action"),
     }

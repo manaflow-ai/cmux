@@ -642,6 +642,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         machine_footer_scroll: 0,
         workspace_rail_scroll: 0,
         workspace_footer_scroll: 0,
+        workspace_drop_geometry: None,
         tabs_rail_selection: 0,
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,

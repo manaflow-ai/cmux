@@ -141,6 +141,10 @@ impl HealthService {
     /// (one at a time, each command once, and not again for the same versions),
     /// and returns the ids it ran for. Callers wait for a run already going.
     pub async fn run_auto_updates(&self) -> Vec<String> {
+        // A build session with agent launches off changes no installed CLI (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            return Vec::new();
+        }
         let _one = self.updating.lock().await;
         let mut done: BTreeMap<Vec<String>, AutoUpdateResult> = BTreeMap::new();
         let mut ran = Vec::new();
@@ -184,13 +188,18 @@ impl HealthService {
     /// each row named in `ids` (every outdated row when None), whatever its
     /// auto-update choice and earlier runs, under the same rule: never one
     /// that needs sudo or whose program raises rights. One at a time, shared
-    /// with auto-update, and each command once. `rows` is a check just made.
+    /// with auto-update, and each command once. `check` runs once the
+    /// updates are this caller's (after any auto-update ends), so a version
+    /// an auto-update just installed is not installed again; its rows are
+    /// returned with the outcomes.
     pub async fn run_updates(
         &self,
-        rows: &[HarnessHealth],
+        check: impl std::future::Future<Output = Vec<HarnessHealth>>,
         ids: Option<&BTreeSet<String>>,
-    ) -> Vec<(String, Requested)> {
+    ) -> (Vec<HarnessHealth>, Vec<(String, Requested)>) {
         let _one = self.updating.lock().await;
+        let rows = check.await;
+        let rows = &rows[..];
         let asked: Vec<String> = match ids {
             Some(ids) => ids.iter().cloned().collect(),
             None => rows.iter().filter(|r| r.outdated).map(|r| r.id.clone()).collect(),
@@ -233,6 +242,6 @@ impl HealthService {
             };
             out.push((id, Requested::Ran { ok, detail }));
         }
-        out
+        (rows.to_vec(), out)
     }
 }
