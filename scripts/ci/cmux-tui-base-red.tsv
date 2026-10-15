@@ -10,4 +10,3 @@ a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_sets_one	cx-
 a_prefer_list_still_picks_the_codex_profile	cx-fylng	2026-10-18	macos	acpmux tests/codex_bridge_config.rs: codex app-server stopped on macOS fleet; macOS only
 protocol::tests::protocol_registry_names_every_served_method	cx-js8uc	2026-10-17	any	acpmux --lib: _acpmux/harness/update and _acpmux/sessions/restart_harness not in protocol::registry() (tip red since #20718)
 the_allowlist_is_what_the_page_sends	cx-js8uc	2026-10-17	any	cmux-agent-pane-policy --test typescript: page requests differ from policy.json (tip red since #20718)
-only_the_hermetic_helper_starts_the_acpmux_binary	cx-4helk	2026-10-17	any	acpmux tests/hermetic_daemon_guard.rs: hub_integration/session_offers.rs:290 starts the acpmux binary directly (tip red since #20864)
