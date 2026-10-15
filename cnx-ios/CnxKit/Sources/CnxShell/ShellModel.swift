@@ -161,9 +161,17 @@ final class ShellModel {
             // New Browser Tab only for a Mac that streams browser tabs (`browser-stream-v1`).
             backend.capabilities = { [weak store] mac in store?.macCapabilities[mac] }
             creator.backend = backend
+            FeedRouting.shared.clearAllNotifications = { [weak live, weak backend] in
+                guard let live, let backend, backend.canClearNotifications(on: live.workspaces.macID) else {
+                    throw WorkspaceCreationError("Not connected to a Mac")
+                }
+                try await backend.clearAllNotifications(on: live.workspaces.macID)
+                live.terminalFeed.cleared()
+            }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
+            FeedRouting.shared.clearAllNotifications = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
