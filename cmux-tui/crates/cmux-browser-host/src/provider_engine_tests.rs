@@ -858,6 +858,19 @@ fn mouse_input_on_a_cef_tab_follows_the_apps_emulation_scale() {
     };
     click(100.0, 40.0);
     assert_eq!(sent(), vec![(50.0, 20.0), (50.0, 20.0)]);
+    // A wheel's position and deltas are view points too.
+    let wheel = json!({"targetId": "C", "type": "wheel", "x": 100.0, "y": 40.0, "deltaY": 300.0, "timeoutMs": 5000});
+    cef.call("input.mouse", &wheel).unwrap();
+    let last = app
+        .cdp_messages("C")
+        .into_iter()
+        .rev()
+        .find(|m| m["method"] == "Input.dispatchMouseEvent")
+        .unwrap();
+    assert_eq!(
+        (last["params"]["x"].as_f64(), last["params"]["deltaY"].as_f64()),
+        (Some(50.0), Some(150.0))
+    );
     // The app ended the emulation: the tab is announced again at 1.
     app.send(Frame::Event {
         name: "tab.announced".into(),
@@ -865,5 +878,5 @@ fn mouse_input_on_a_cef_tab_follows_the_apps_emulation_scale() {
     });
     app.access(&provider, "C");
     click(100.0, 40.0);
-    assert_eq!(sent()[2..], [(100.0, 40.0), (100.0, 40.0)]);
+    assert_eq!(sent()[3..], [(100.0, 40.0), (100.0, 40.0)]);
 }

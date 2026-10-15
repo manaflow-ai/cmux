@@ -293,14 +293,19 @@ impl CdpDriver {
     /// multiplied by it. Anything but a finite scale in (0, 1) is 1.
     pub fn set_input_scale(&self, scale: f64) {
         let scale = if scale.is_finite() && scale > 0.0 && scale < 1.0 { scale } else { 1.0 };
-        *self.inner.input_scale.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = scale;
+        *self.inner.input_scale.lock().unwrap_or_else(PoisonError::into_inner) = scale;
     }
 }
 
 impl Inner {
+    /// The tab's emulation input scale (`set_input_scale`); 1.0 for none.
+    pub(super) fn input_scale(&self) -> f64 {
+        *self.input_scale.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// A CSS px point as Chromium's mouse input coordinates (`set_input_scale`).
     pub(super) fn input_point(&self, (x, y): (f64, f64)) -> (f64, f64) {
-        let scale = *self.input_scale.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let scale = self.input_scale();
         if scale == 1.0 { (x, y) } else { (x * scale, y * scale) }
     }
 }

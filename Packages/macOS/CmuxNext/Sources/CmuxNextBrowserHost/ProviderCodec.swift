@@ -131,7 +131,8 @@ public nonisolated struct ProviderCodec {
         ProviderTabAnnounce(targetID: try f.string("targetId"), engine: try f.string("engine"),
                             workspace: try f.string("workspace"), profile: try f.string("profile"),
                             url: try f.string("url"), title: (try? f.string("title")) ?? "",
-                            visible: (try? f.bool("visible")) ?? false)
+                            visible: (try? f.bool("visible")) ?? false,
+                            inputScale: (f.object["inputScale"] as? NSNumber)?.doubleValue ?? 1)
     }
 
     static func leaseObject(_ lease: ProviderLease) -> [String: Any] {

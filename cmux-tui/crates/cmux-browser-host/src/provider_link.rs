@@ -133,12 +133,11 @@ impl ProviderDriver {
                         {
                             let scale =
                                 payload.get("inputScale").and_then(Value::as_f64).unwrap_or(1.0);
-                            let tab = thread_cef_tabs
-                                .lock()
-                                .unwrap_or_else(PoisonError::into_inner)
-                                .get(target_id)
-                                .cloned();
-                            if let Some(tab) = tab {
+                            // Set under the cef_tabs lock: a driver being created reads the
+                            // table under it too, so neither overwrites the newer scale.
+                            let tabs =
+                                thread_cef_tabs.lock().unwrap_or_else(PoisonError::into_inner);
+                            if let Some(tab) = tabs.get(target_id) {
                                 tab.driver.set_input_scale(scale);
                             }
                         }
