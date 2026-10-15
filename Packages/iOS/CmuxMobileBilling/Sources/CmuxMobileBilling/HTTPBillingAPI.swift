@@ -113,6 +113,12 @@ public struct HTTPBillingAPI: BillingAPI {
         // This client offers a Monthly/Yearly choice, so the server may list
         // yearly products; older clients do not send it and get monthly only.
         request.setValue("monthly,yearly", forHTTPHeaderField: "x-cmux-billing-periods")
+        // The paywall layouts this build draws; the server serves another
+        // variant's fallback layout (or cards) for any other.
+        request.setValue(
+            BillingPaywallLayout.allCases.map(\.rawValue).joined(separator: ","),
+            forHTTPHeaderField: "x-cmux-paywall-layouts"
+        )
         if let environment = await storeKitEnvironment() {
             request.setValue(environment, forHTTPHeaderField: "x-cmux-storekit-environment")
         }

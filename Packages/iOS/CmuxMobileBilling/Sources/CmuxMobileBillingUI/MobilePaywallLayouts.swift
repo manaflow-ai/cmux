@@ -2,7 +2,7 @@
 import CmuxMobileBilling
 import CmuxMobileSupport
 import SwiftUI
-import UserNotifications
+@preconcurrency import UserNotifications
 
 // The `checklist`, `planTabs`, `hero` and `trialTimeline` paywall layouts.
 // Every number in their copy comes from the published pricing facts or from
