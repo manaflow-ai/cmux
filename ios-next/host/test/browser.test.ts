@@ -303,6 +303,52 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     await expect(client.request("browser.ack", { streamId: first.streamId, seq: 1 })).rejects.toMatchObject({ code: "not_found" });
   });
 
+  it("gives two clients on one tab each their own viewport; a non-owner cannot resize the owner's stream", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
+    cleanups.push(() => core.shutdown());
+    const [phone2, host2] = createOpenLoopbackPair();
+    core.attach(host2);
+    const client2 = new HostClient(phone2);
+    await client2.hello("second");
+    const metrics = () => cdp.calls.filter((c) => c.method === "Emulation.setDeviceMetricsOverride").map((c) => [c.params.width, c.params.height, c.params.deviceScaleFactor]);
+    const casts = () => cdp.calls.filter((c) => c.method === "Page.startScreencast").map((c) => [c.params.maxWidth, c.params.maxHeight]);
+    const displaced: any[] = [];
+    client.peer.on("event", (t, p) => t === "browser.detached" && displaced.push(p));
+
+    // A phone (402 x 874 @3) streams the tab.
+    const a = await client.request("browser.attach", { tabId: "T1", width: 402, height: 874, scale: 3, mobile: true });
+    expect(metrics()).toEqual([[402, 874, 3]]);
+    // Another client resizing a tab it does not stream changes nothing.
+    await client2.request("browser.viewport", { tabId: "T1", width: 1280, height: 800, scale: 1 });
+    expect(metrics()).toEqual([[402, 874, 3]]);
+    expect(casts()).toEqual([[1206, 2622]]);
+    // When it attaches, it takes over with its own viewport and screencast,
+    // and the first phone is told right away (takeover state, not a blank).
+    await client2.request("browser.attach", { tabId: "T1", width: 390, height: 844, scale: 2, mobile: true });
+    expect(displaced).toEqual([{ streamId: a.streamId, tabId: "T1", reason: "displaced" }]);
+    expect(metrics().at(-1)).toEqual([390, 844, 2]);
+    expect(casts().at(-1)).toEqual([780, 1688]);
+    // The displaced phone's late viewport call does not resize the new owner.
+    await client.request("browser.viewport", { tabId: "T1", width: 402, height: 874, scale: 3 });
+    expect(metrics().at(-1)).toEqual([390, 844, 2]);
+    // Taking it back gives the first phone its own size again.
+    await client.request("browser.attach", { tabId: "T1", width: 402, height: 874, scale: 3, mobile: true });
+    expect(metrics().at(-1)).toEqual([402, 874, 3]);
+    expect(casts().at(-1)).toEqual([1206, 2622]);
+  });
+
+  it("opens phone-created tabs in their own window in the host's Chrome only", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
+    cleanups.push(() => core.shutdown());
+    await client.request("browser.create", { url: "new.example" });
+    // An explicit --cdp browser is the user's own: no new windows there.
+    expect(cdp.calls.find((c) => c.method === "Target.createTarget")!.params).toEqual({ url: "https://new.example" });
+  });
+
   it("serializes concurrent attaches and makes detach wait for the screencast to stop", async () => {
     const cdp = await startFakeCdp();
     cleanups.push(() => cdp.close());

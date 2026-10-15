@@ -440,7 +440,13 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     const cdp = await this.connect();
     if (this.mirroring && this.opts.createInMirror) return this.opts.createInMirror(url ? normalizeUrl(url) : "about:blank");
     this.refuseInMirror();
-    const { targetId } = await cdp.send<{ targetId: string }>("Target.createTarget", { url: url ? normalizeUrl(url) : "about:blank" });
+    // Each phone-created tab gets its own window in the host's Chrome: Chrome
+    // renders only the front tab of a window, so two phones streaming two tabs
+    // of one window would leave one of them hidden, with no frames (blank).
+    const { targetId } = await cdp.send<{ targetId: string }>("Target.createTarget", {
+      url: url ? normalizeUrl(url) : "about:blank",
+      ...(this.ownsBrowser ? { newWindow: true } : {}),
+    });
     const deadline = Date.now() + 3_000;
     while (!this.tabs.has(targetId) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
     if (!this.tabs.has(targetId)) {
@@ -779,9 +785,19 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     throw new RpcError("not_found", `stream ${streamId} not found`);
   }
 
-  async viewport(tabId: string, width: number, height: number, scale: number): Promise<void> {
+  /**
+   * browser.viewport: resizes the caller's own stream. A client that does not
+   * own the tab's screencast (displaced, or never attached) must not change
+   * the owner's emulated viewport: its size would reach the owner's frames
+   * (a 1/3-size page in the corner). Such a call is ignored; attach applies
+   * the caller's own metrics when it takes over.
+   */
+  async viewport(tabId: string, width: number, height: number, scale: number, session?: ClientSession): Promise<void> {
     const { cdp, t, sid } = await this.session(tabId);
-    return serialized(t, () => this.applyViewportChange(cdp, t, sid, width, height, scale));
+    return serialized(t, async () => {
+      if (session && t.cast?.session !== session) return;
+      await this.applyViewportChange(cdp, t, sid, width, height, scale);
+    });
   }
 
   private async applyViewportChange(cdp: CdpConnection, t: TabState, sid: string, width: number, height: number, scale: number): Promise<void> {
@@ -1008,8 +1024,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       await this.activate(str(p, "tabId"));
       return {};
     });
-    server.register("browser.viewport", async (p) => {
-      await this.viewport(str(p, "tabId"), num(p, "width"), num(p, "height"), num(p, "scale", 3));
+    server.register("browser.viewport", async (p, session) => {
+      await this.viewport(str(p, "tabId"), num(p, "width"), num(p, "height"), num(p, "scale", 3), session);
       return {};
     });
     server.register("browser.ack", (p, session) => {
