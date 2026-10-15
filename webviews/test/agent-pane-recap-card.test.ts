@@ -132,9 +132,9 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
   });
 
   /// The chat, its turn ended on the question; Labs on unless `labs` is false (the app's push).
-  async function openChat(labs = true): Promise<Page> {
+  async function openChat(labs = true, height = 760): Promise<Page> {
     prompts.length = 0;
-    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const page = await browser!.newPage({ viewport: { width: 900, height } });
     await page.goto(url());
     await page.locator(".acpmux-composer-prompt").waitFor();
     await page.getByText(QUESTION).first().waitFor();
@@ -189,6 +189,29 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     await page.waitForTimeout(300);
     expect(await card(page).count()).toBe(0);
     expect(prompts).toEqual([]);
+    await page.close();
+  });
+
+  test("the card leaves the turn's footer in view above it", async () => {
+    // A pane where the chat fits until the card takes its height: the transcript then overflows,
+    // and its end, the turn's footer (its time, Copy and Retry), stays in view.
+    const page = await openChat(false, 560);
+    const view = () =>
+      page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+        const last = Math.max(...rows.map((row) => row.getBoundingClientRect().bottom));
+        return {
+          overflows: scroller.scrollHeight > scroller.clientHeight,
+          below: Math.max(0, Math.round(last - scroller.getBoundingClientRect().bottom)),
+        };
+      });
+    await page.waitForTimeout(300);
+    expect(await view()).toEqual({ overflows: false, below: 0 });
+    await setLabs(page);
+    await card(page).waitFor();
+    await page.waitForTimeout(300);
+    expect(await view()).toEqual({ overflows: true, below: 0 });
     await page.close();
   });
 
