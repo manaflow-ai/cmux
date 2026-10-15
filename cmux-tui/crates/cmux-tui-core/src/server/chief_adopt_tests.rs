@@ -246,7 +246,7 @@ fn only_the_owners_own_unix_connection_adopts_an_agent() {
     ] {
         assert!(command_result(conn, mint.clone()).is_err(), "{who} minted a Chief credential");
     }
-    let fresh = command(&mux, &owner, mint.clone())["token"].as_str().unwrap().to_owned();
+    let fresh = command(&mux, &owner, mint)["token"].as_str().unwrap().to_owned();
     let chief = connect(&mux, ClientTransport::Unix);
     let bound = command(
         &mux,

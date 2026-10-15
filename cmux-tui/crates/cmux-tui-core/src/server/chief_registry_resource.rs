@@ -136,7 +136,13 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
             }
             _ => {
                 let key = request.envelope.idempotency_key.clone().unwrap_or_default();
-                mutate(mux, client, store, &caller, operation, fields, key, adoptee.as_ref())
+                mutate(
+                    mux,
+                    client,
+                    store,
+                    &caller,
+                    RegistryWrite { operation, fields, key, adoptee: adoptee.as_ref() },
+                )
             }
         }
     })
@@ -155,7 +161,7 @@ pub(super) fn set_chief_avatar(
     let operation = Op::ChiefProfileAvatarSet;
     with_store(mux, operation, |store| {
         let caller = caller(mux, client, store)?;
-        mutate(mux, client, store, &caller, operation, fields, key, None)
+        mutate(mux, client, store, &caller, RegistryWrite { operation, fields, key, adoptee: None })
     })
 }
 
@@ -206,16 +212,23 @@ pub(super) fn set_person_avatar(
     })
 }
 
+/// One registry write: the operation, its fields, its idempotency key and,
+/// for `chief.profile.adopt`, the participant it names.
+struct RegistryWrite<'a> {
+    operation: Op,
+    fields: &'a Map<String, Value>,
+    key: String,
+    adoptee: Option<&'a Adoptee>,
+}
+
 fn mutate(
     mux: &Mux,
     client: u64,
     store: &mut ChiefStore,
     caller: &Caller,
-    operation: Op,
-    fields: &Map<String, Value>,
-    key: String,
-    adoptee: Option<&Adoptee>,
+    write: RegistryWrite<'_>,
 ) -> Result<Value, ResourceError> {
+    let RegistryWrite { operation, fields, key, adoptee } = write;
     // Owner only, from a terminal, before anything else is checked: no page
     // (a WebSocket or the host's page relay, with or without a page id), no
     // Chief, no paired or remote device (caller() refuses those).
