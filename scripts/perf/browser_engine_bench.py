@@ -607,6 +607,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     app_path = pathlib.Path(args.app).expanduser().resolve()
     workdir = pathlib.Path(tempfile.mkdtemp(prefix="cmux-engine-bench-"))
     app = TaggedApp(app_path, args.tag, workdir)
+    if not args.restore_session:
+        # Start every run from an empty session: a page restored from an earlier run
+        # (a Chromium tab) would start its engine at launch and skew every number.
+        app.extra_env["CMUX_DISABLE_SESSION_RESTORE"] = "1"
     if args.launches < 1:
         raise BenchFailure("--launches must be at least 1")
     open_params = parse_open_params(args.open_param)
@@ -734,6 +738,8 @@ def main(argv: list[str]) -> int:
     run.add_argument("--key-combo", default="up")
     run.add_argument("--key-events", type=int, default=200)
     run.add_argument("--key-repeats", type=int, default=3)
+    run.add_argument("--restore-session", action="store_true",
+                     help="let the app restore its last session (default: start empty)")
     run.add_argument("--launch-env", action="append", default=[],
                      help="KEY=VALUE for the app; {fixture:<name>} becomes a fixture page URL, "
                           "e.g. CMUX_CEF_DEBUG_URL={fixture:chromium-debug}")
