@@ -682,19 +682,21 @@ jobs:
                   builder_ids="$(python3 -c 'import json,sys; [print(a["workflow_run"]["id"]) for a in json.loads(sys.argv[1]).get("artifacts", []) if not a.get("expired") and str(a["workflow_run"]["id"]) != sys.argv[2]]' "$builders" "$GITHUB_RUN_ID" 2>/dev/null)"; then
                 branch_owner_takeover=true
                 for builder in $builder_ids; do
-                  builder_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                  builder_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                     -u "x-access-token:$GH_TOKEN" \
                     -H 'Accept: application/vnd.github+json' \
                     "$API_URL/repos/$REPOSITORY/actions/runs/$builder" 2>/dev/null \
-                    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' 2>/dev/null || echo unknown)"
+                    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({k: d.get(k) for k in ("status", "event", "head_branch")}))' 2>/dev/null || echo '{}')"
+                  builder_state="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status") or "unknown")' "$builder_json" 2>/dev/null || echo unknown)"
                   if [[ "$builder_state" != completed ]]; then
                     echo "feat-cmux-next run $builder ($builder_state) already builds tree $KEY in place of branch owner $OWNER_RUN_ID; this run defers to it."
                     branch_owner_takeover=false
                     # The run deferred to from here on, for the marker check
-                    # below: a feat-cmux-next push (only those leave the
-                    # builder artifact). owner_state keeps describing the
+                    # below, as GitHub reports it: the artifact list is
+                    # repo-wide, so the name alone does not prove a
+                    # feat-cmux-next push. owner_state keeps describing the
                     # original owner, as the build decision expects.
-                    owner_json="{\"status\": \"$builder_state\", \"event\": \"push\", \"head_branch\": \"feat-cmux-next\"}"
+                    owner_json="$builder_json"
                     OWNER_RUN_ID="$builder"
                     break
                   fi

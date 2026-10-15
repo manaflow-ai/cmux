@@ -53,7 +53,9 @@ if "/actions/runs/" in url and os.environ.get("FAKE_OWNER_ENDS_AFTER"):
 if "/actions/runs/" in url:
     run_id = url.rsplit("/", 1)[1]
     if run_id in os.environ.get("FAKE_BUILDERS", "").split(","):
-        print(json.dumps({"status": os.environ.get("FAKE_BUILDER_STATUS", "in_progress")}))
+        print(json.dumps({"status": os.environ.get("FAKE_BUILDER_STATUS", "in_progress"),
+                          "event": os.environ.get("FAKE_BUILDER_EVENT", "push"),
+                          "head_branch": os.environ.get("FAKE_BUILDER_BRANCH", "feat-cmux-next")}))
         sys.exit(0)
     if os.environ["FAKE_OWNER_STATUS"] == "fail":
         sys.exit(22)
@@ -314,6 +316,14 @@ def main():
                                 FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9", FAKE_BUILDER_STATUS="in_progress")
     _check(result.returncode == 0 and "owner=9" in out and "unmarked=false" in out,
            f"an unmarked tree an active feat-cmux-next builder publishes is not re-tested ({out.strip()!r})")
+    # The builder artifact list is repo-wide: a run that left one but is not a
+    # feat-cmux-next push (another workflow, a pull request) does not hold the marker.
+    for event, branch in (("pull_request", "op-next-idle-caret"), ("push", "op-next-idle-caret")):
+        result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
+                                    FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9",
+                                    FAKE_BUILDER_STATUS="in_progress", FAKE_BUILDER_EVENT=event, FAKE_BUILDER_BRANCH=branch)
+        _check(result.returncode == 0 and "unmarked=true" in out,
+               f"an active {event} builder on {branch} does not stop the re-test ({out.strip()!r})")
     for branch in ("cmux-tui-pin-0123456789ab", "feat-cmux-next"):
         result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="completed",
                                     FAKE_OWNER_CONCLUSION="failure", FAKE_OWNER_BRANCH=branch)
