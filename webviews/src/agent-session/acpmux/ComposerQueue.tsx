@@ -1,6 +1,7 @@
-// Prompts waiting for the running turn, as compact rows attached to the composer's top edge. The
-// list is laid over the transcript's foot, not in the layout, so a prompt being queued, sent or
-// removed never moves the composer or the transcript.
+// Prompts waiting for the running turn, as compact rows over the composer. The list takes its own
+// place at the top of the composer form, over its location strip, so the transcript, a question
+// waiting for an answer and the pull requests above the composer each keep theirs: none is cut
+// off or drawn over, and the transcript scrolls in what is left.
 //
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
@@ -18,11 +19,12 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
-/** Shows the full prompt as a tooltip only when its one line is cut off. */
+/** Shows the full prompt as a tooltip only when its two lines (the button's inner text) cut it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
-  const text = event.currentTarget;
-  if (text.scrollWidth > text.clientWidth) text.title = prompt;
-  else text.removeAttribute("title");
+  const button = event.currentTarget;
+  const text = button.firstElementChild ?? button;
+  if (text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
+  else button.removeAttribute("title");
 }
 
 export function ComposerQueue({
@@ -47,9 +49,17 @@ export function ComposerQueue({
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
 }) {
-  // A row leaves as soon as it is removed or sent; it comes back only if acpmux kept it waiting.
+  // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<string>();
+  // Rows opened to their whole text (a row shows two lines until it is opened).
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) =>
+    setOpen((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
   const draft = useRef<{ id: string; original: string; text: string }>(undefined);
   // The row a move keeps focus on, once the new order draws.
@@ -86,6 +96,8 @@ export function ComposerQueue({
   };
   const shown = queue.filter((entry) => !leaving.has(entry.id));
   if (shown.length === 0) return null;
+  // Prompts sent now come first: queued prompts count from after them.
+  const steering = shown.filter((entry) => entry.next).length;
 
   const rows = () => [...(list.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])];
   const focusRow = (index: number) => {
@@ -94,7 +106,11 @@ export function ComposerQueue({
     else all[Math.max(0, index)]?.focus();
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
-  const sendNow = onChange && ((entry: QueuedEntry) => act(entry.id, () => onChange(entry.id, { op: "send_now" })));
+  // A prompt sent now stays in place: acpmux marks it next (`queue_order`), so its row reads
+  // Steering until it runs; to an agent that steers it leaves once acpmux takes it (`dequeued`).
+  // Hiding it as leaving showed nothing until the turn it stopped had ended (live run 2026-10-14).
+  const sendNow =
+    onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "send_now" }).catch(() => undefined));
   const allActions = experimentArm(hoverActions) === "all";
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
@@ -190,10 +206,18 @@ export function ComposerQueue({
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
-      <span className="acpmux-queued-mark" aria-hidden="true">
-        {index + 1}
-      </span>
-      <span className="acpmux-hidden-label">{t("composer.queued")}</span>
+      {entry.next ? (
+        <span className="acpmux-queued-kind" data-kind="steer">
+          {t("composer.steering")}
+        </span>
+      ) : (
+        <>
+          <span className="acpmux-queued-mark" aria-hidden="true">
+            {index + 1 - steering}
+          </span>
+          <span className="acpmux-hidden-label">{t("composer.queued")}</span>
+        </>
+      )}
       {editing === entry.id ? (
         <QueuedEdit
           entry={entry}
@@ -207,9 +231,17 @@ export function ComposerQueue({
           }}
         />
       ) : (
-        <span className="acpmux-queued-text" onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}>
-          {entry.prompt}
-        </span>
+        <button
+          type="button"
+          className="acpmux-queued-text"
+          data-open={open.has(entry.id) ? "" : undefined}
+          aria-expanded={open.has(entry.id)}
+          onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
+          onClick={() => toggle(entry.id)}
+        >
+          {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
+          <span className="acpmux-queued-clamp">{entry.prompt}</span>
+        </button>
       )}
       {/* Send now is the row's one hover action; Edit and Remove are on its menu and keys (Leo dogfood
           2026-10-13). The `hover-actions` experiment's "all" arm shows them too. */}
@@ -268,7 +300,15 @@ export function ComposerQueue({
           )}
         </li>
       )}
-      {shown.map((entry, index) => (
+      {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
+      {shown.flatMap((entry, index) => [
+        // "Queued" heads the prompts that wait for the turn, under any sent now.
+        index === steering && (
+          <li key="queued" className="acpmux-queue-header" aria-hidden="true">
+            <span className="acpmux-queued-kind">{t("composer.queued")}</span>
+            <span>{t("composer.queueAfterTurn")}</span>
+          </li>
+        ),
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
         <li
           className="acpmux-queued"
@@ -284,8 +324,8 @@ export function ComposerQueue({
               {cells(entry, index)}
             </ContextMenu>
           )}
-        </li>
-      ))}
+        </li>,
+      ])}
     </ol>
   );
 }

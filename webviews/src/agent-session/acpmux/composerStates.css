@@ -252,10 +252,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   opacity: 1;
 }
 .acpmux-queued-edit {
-  flex: 1;
+  grid-column: 2 / -1;
   min-width: 0;
   max-height: 88px;
-  margin: 2px 0;
+  /* Its text stays where the row's text was. */
+  margin: 2px 0 2px -6px;
   padding: 2px 6px;
   resize: none;
   line-height: 18px;
@@ -266,4 +267,28 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-base);
   color: var(--agent-text);
   font: inherit;
+}
+
+/* What the strip holds: "Queued" over prompts that wait for the turn to end, "Steering" on a
+   prompt sent now that stops the turn and runs next, above them (ComposerQueue.tsx). Every row
+   takes the queue's three columns (its mark or kind, its text, its actions), so all the prompts'
+   text starts at one edge whichever kinds the queue holds. */
+.acpmux-queue-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 12px 0;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+}
+.acpmux-queued-kind {
+  flex: none;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  font-weight: 600;
+  line-height: 18px;
+}
+.acpmux-queued-kind[data-kind="steer"] {
+  color: var(--agent-accent);
 }
