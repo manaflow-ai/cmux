@@ -42,9 +42,10 @@ public final class ChiefProfilePageRelay {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chief-profile-relay")
     private let clock: any Clock<Duration>
     /// Every page call answers within this, also when a step below it never does: the page's
-    /// sheet then clears busy and shows the error (`cmux.protocol.timeout`). It covers a connect
-    /// (two 2 s handshake lines), a confirmation (2 s) and the call (2 s), and one reconnect.
-    nonisolated static let callDeadline: Duration = .seconds(10)
+    /// sheet then clears busy and shows the error (`cmux.protocol.timeout`). Each step has the
+    /// 2 s request deadline: a connect (identify, hello, subscribe: 6 s), a confirmation and the
+    /// call (4 s), so 10 s per attempt and 16 s leave room for the one reconnect's connect.
+    nonisolated static let callDeadline: Duration = .seconds(16)
 
     /// The owner process a relay connection serves: a restarted owner (same socket, new process)
     /// is another owner, and its page calls go on a connection to it.
@@ -87,11 +88,8 @@ public final class ChiefProfilePageRelay {
                      gestureEvent: TimeInterval?) async throws -> JSONValue {
         guard Self.operations.contains(operation) else { throw DaemonError.command(cmd: operation, message: "not a Chief profile operation", code: "unknown_op") }
         // One gesture backs one call; a reconnect inside this call may use it again.
-        var gesture = false
-        if Self.needsGesture(operation, params: params), let event = gestureEvent, event != spentGesture {
-            spentGesture = event
-            gesture = true
-        }
+        let gesture = Self.needsGesture(operation, params: params) && gestureEvent != nil && gestureEvent != spentGesture
+        if gesture { spentGesture = gestureEvent }
         let started = ContinuousClock.now
         let elapsed = { Int((ContinuousClock.now - started) / .milliseconds(1)) }
         logger.info("\(operation, privacy: .public): start, gesture \(gesture)")
@@ -120,18 +118,24 @@ public final class ChiefProfilePageRelay {
             attempt += 1
             guard let owner, let main = owner.connection, let socket = await owner.socketPath(),
                   let identity = owner.identity else { throw DaemonError.notConnected }
-            let relay = try await relayConnection(OwnerKey(socket: socket, pid: identity.pid, generation: identity.generation))
+            var used: DaemonConnection?
             do {
+                let relay = try await relayConnection(OwnerKey(socket: socket, pid: identity.pid, generation: identity.generation))
+                used = relay.connection
+                // A call the deadline already answered sends nothing more: a late create after the
+                // page showed the timeout would make a Chief the person was told failed.
+                try Task.checkCancellation()
                 var origin = JSONValue.object(["claim": .string("page")])
                 if gesture {
                     let token = try await confirmationToken(main: main, relay: relay, operation: operation, params: params)
                     origin = .object(["claim": .string("user"), "confirmation": .string(token)])
                 }
+                try Task.checkCancellation()
                 return try await ResourceRelayClient(connection: relay.connection).send(
                     operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin)
             } catch let error as DaemonError where attempt == 1 && Self.isConnectionLost(error) {
                 logger.info("\(operation, privacy: .public): relay connection lost (\(error.description, privacy: .public)); again on a new one")
-                if self.relay?.connection === relay.connection { dropRelay() }
+                if let used, self.relay?.connection === used { dropRelay() }
             }
         }
     }
@@ -168,12 +172,24 @@ public final class ChiefProfilePageRelay {
         // task-owner: one connect; ends with its handshake (each line has the request deadline)
         let task = Task { () async throws -> Relay in
             let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: owner.socket), configuration: configuration)
-            try await connection.start()
+            let reached = try await connection.start()
+            // The socket may already serve another owner process than the one the app's main
+            // connection is attached to (it restarted in between): that is not this owner.
+            guard reached.pid == owner.pid, reached.generation == owner.generation else {
+                await connection.close()
+                throw DaemonError.notConnected
+            }
             return Relay(connection: connection, owner: owner, identity: identity)
         }
         starting = (task, owner)
         defer { if starting?.owner == owner { starting = nil } }
         let made = try await task.value
+        // A connect to an older owner that finished after a newer one started is not used: the
+        // call goes once more, to the owner the main connection is attached to now.
+        guard starting?.owner == owner else {
+            await made.connection.close()
+            throw DaemonError.notConnected
+        }
         let old = relay
         relay = made
         if let old, old.connection !== made.connection { await old.connection.close() }
