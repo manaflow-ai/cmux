@@ -302,6 +302,7 @@ impl Translator {
                         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                         let acp_id = Value::from(1_000_000 + n);
                         self.control_out.lock().await.insert(rid.clone(), acp_id.clone());
+                        self.inputs.lock().await.insert(rid.clone(), input.clone());
                         // "Allow for this session" is offered only with a
                         // rule Claude can keep (with #20407): without one it
                         // would be Allow once under another name.
