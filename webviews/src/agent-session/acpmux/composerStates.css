@@ -89,10 +89,11 @@
   background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
 }
 
-/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
+   (styles.css, --acpmux-send-off-*), one disabled look, with no step on hover. */
 button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
-  background: var(--acpmux-composer-hover);
-  color: var(--agent-muted);
+  background: var(--acpmux-send-off-bg);
+  color: var(--acpmux-send-off-fg);
   cursor: default;
 }
 
