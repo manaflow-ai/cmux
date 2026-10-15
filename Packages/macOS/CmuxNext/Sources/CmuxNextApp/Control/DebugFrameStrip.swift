@@ -10,7 +10,7 @@ import CmuxNextWakeups
 /// composited it, frame after frame, around one key sent through the real key path (`key`, default
 /// `n`, with `modifiers`, default `["command"]`: Cmd-N; `t` for Cmd-T) or a `gesture` (`plus`,
 /// `drag_new`). Frames are read off the main actor back to back for `duration_ms` (default 700) after
-/// the key, and some before it. The report: ``WindowFrameStrip``; motion knobs: ``MotionFrameProgress``.
+/// the key, and some before it. The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:tolerance:jump:dir:)``; motion knobs: ``MotionFrameProgress``.
 @MainActor
 enum DebugFrameStrip {
     static func run(_ params: [String: JSONValue], _ controller: WindowController, _ services: AppServices) async -> JSONValue {
@@ -46,7 +46,7 @@ enum DebugFrameStrip {
         let frames = await recording.value
         let spans = BenchSpans.end()
         let pane = controller.content?.focusedPane
-        guard let report = await WindowFrameStrip.report(frames, window: window, sentAt: sentAt, sentTime: sentTime,
+        guard let report = await window.frameStripReport(frames, sentAt: sentAt, sentTime: sentTime,
                                                          content: params["content"]?.stringValue == "none" ? nil : pane?.view.contentHost,
                                                          strip: pane?.view.stripView, tolerance: tolerance, jump: params["jump"]?.doubleValue, dir: dir),
               case .object(var fields)? = JSONValue(foundation: report)
