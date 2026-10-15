@@ -28,6 +28,22 @@ use super::host_parser::{self, ParserSignals, run_guarded_host_parser, run_host_
 use super::host_shared::HostShared;
 use super::host_state::*;
 
+/// The host's authoritative terminal, configured to answer terminal queries
+/// as Ghostty does for a child whose TERM is `term_name`.
+pub(crate) fn new_host_terminal(
+    term_name: &str,
+    cols: u16,
+    rows: u16,
+    scrollback: usize,
+    callbacks: ghostty_vt::Callbacks,
+) -> anyhow::Result<Terminal> {
+    let mut term = Terminal::new(cols, rows, scrollback, callbacks)?;
+    // A TERM libghostty refuses (over 128 bytes) leaves XTGETTCAP "TN"
+    // unanswered, as Ghostty does for a name it does not know.
+    let _ = term.set_terminfo_name(term_name);
+    Ok(term)
+}
+
 /// Start the host runtime on `master` and `child`. `seed` is VT replay of
 /// an adopted session's screen, applied to the parser before any PTY byte;
 /// it is empty for a spawned child. `program_status` is the OSC 7501
@@ -51,7 +67,8 @@ pub(crate) fn start_host_runtime(
     let clipboard = ClipboardReads::new(Arc::new(SystemClock));
     let signals = ParserSignals::new();
     let callbacks = signals.callbacks(&clipboard);
-    let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
+    let mut term =
+        new_host_terminal(&launch.term, launch.cols, launch.rows, launch.scrollback, callbacks)?;
     term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
     term.set_kitty_graphics_limits(launch.kitty_graphics_limits)?;
     term.replace_default_colors(

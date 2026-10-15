@@ -3,6 +3,7 @@
 
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::OnceLock;
 
 use super::sys;
 use super::{ClipboardReadFn, ProgramStatusFn, program_status};
@@ -99,6 +100,34 @@ unsafe extern "C" fn size_trampoline(
     true
 }
 
+/// What XTVERSION reports: `ghostty <version>`, as Ghostty does, with the
+/// linked libghostty-vt's version, not libghostty's default "libghostty".
+fn xtversion() -> &'static str {
+    static XTVERSION: OnceLock<String> = OnceLock::new();
+    XTVERSION.get_or_init(|| {
+        let mut version = sys::GhosttyString { ptr: ptr::null(), len: 0 };
+        let out = (&mut version as *mut sys::GhosttyString).cast();
+        // SAFETY: the version string is static data in libghostty-vt.
+        let found = unsafe { sys::ghostty_build_info(sys::GHOSTTY_BUILD_INFO_VERSION_STRING, out) }
+            == sys::GHOSTTY_SUCCESS;
+        if !found || version.ptr.is_null() || version.len == 0 {
+            return "ghostty".to_owned();
+        }
+        // SAFETY: libghostty returned `len` readable bytes at `ptr`.
+        let bytes = unsafe { std::slice::from_raw_parts(version.ptr, version.len) };
+        format!("ghostty {}", String::from_utf8_lossy(bytes))
+    })
+}
+
+/// Answers XTVERSION (CSI > q) the way Ghostty does.
+unsafe extern "C" fn xtversion_trampoline(
+    _terminal: sys::GhosttyTerminal,
+    _userdata: *mut c_void,
+) -> sys::GhosttyString {
+    let version = xtversion();
+    sys::GhosttyString { ptr: version.as_ptr(), len: version.len() }
+}
+
 /// Points libghostty at `hooks` (heap-pinned by the terminal) and
 /// installs every trampoline the callbacks need.
 ///
@@ -115,6 +144,7 @@ pub(super) unsafe fn install(raw: sys::GhosttyTerminal, hooks: &mut Hooks) {
     set(sys::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED, title_changed_trampoline as *const c_void);
     set(sys::GHOSTTY_TERMINAL_OPT_BELL, bell_trampoline as *const c_void);
     set(sys::GHOSTTY_TERMINAL_OPT_SIZE, size_trampoline as *const c_void);
+    set(sys::GHOSTTY_TERMINAL_OPT_XTVERSION, xtversion_trampoline as *const c_void);
     if has_program_status {
         // Installed only with a consumer: libghostty answers the support
         // query exactly while this option is set.
@@ -140,6 +170,7 @@ pub(super) unsafe fn uninstall(raw: sys::GhosttyTerminal) {
         sys::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED,
         sys::GHOSTTY_TERMINAL_OPT_BELL,
         sys::GHOSTTY_TERMINAL_OPT_SIZE,
+        sys::GHOSTTY_TERMINAL_OPT_XTVERSION,
         sys::GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS,
         sys::GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT,
     ] {
