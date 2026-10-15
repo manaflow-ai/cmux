@@ -6,6 +6,11 @@
 //!
 //! One test per process: ACPMUX_HOME is process-wide.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, HarnessProfile, StoreMode};
 use acpmux::hub::Hub;
 use std::collections::BTreeMap;
