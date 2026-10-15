@@ -26,6 +26,10 @@ nonisolated enum AcpmuxPaneMethods {
         // read by cursor after watch's first page.
         "_acpmux/sessions",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
+        // A sent prompt's image (direct.ts promptImage, promptAttachments): a read like
+        // `_acpmux/events`, which acpmux answers only for an image the chat's own log names, by its
+        // content hash (never a path).
+        "_acpmux/attachment",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
