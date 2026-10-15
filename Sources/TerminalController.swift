@@ -6969,8 +6969,7 @@ class TerminalController {
            !v2HasNonNullParam(params, "tab_id"),
            !v2HasNonNullParam(params, "pane_id"),
            !(surfaceId.flatMap({ ws.panels[$0] }).map(Self.v2IsBrowserTab) ?? false) {
-            let browserIDs = ws.panels.values.filter(Self.v2IsBrowserTab).map(\.id)
-            if browserIDs.count == 1 { surfaceId = browserIDs[0] }
+            if let soleID = Self.v2SoleBrowserTabID(in: ws.panels.values) { surfaceId = soleID }
         }
         guard let surfaceId else {
             return (nil, .err(code: "not_found", message: "No focused browser surface", data: nil))
@@ -9551,14 +9550,25 @@ class TerminalController {
         if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanelForAutomation(focusedId) {
             return (panel, focusedId)
         }
-        let browserIDs = workspace.panels.values.filter(Self.v2IsBrowserTab).map(\.id)
-        if browserIDs.count == 1, let panel = workspace.browserPanelForAutomation(browserIDs[0]) {
-            return (panel, browserIDs[0])
+        if let soleID = Self.v2SoleBrowserTabID(in: workspace.panels.values),
+           let panel = workspace.browserPanelForAutomation(soleID) {
+            return (panel, soleID)
         }
         return nil
     }
 
     /// A live browser or a browser restore placeholder: what `tree` lists as a browser.
+    /// The browser a command that names no surface falls back to: the one
+    /// live browser, or, when none is live yet, the one restore placeholder.
+    /// Placeholders never make a single live browser ambiguous.
+    nonisolated static func v2SoleBrowserTabID(in panels: some Collection<any Panel>) -> UUID? {
+        let live = panels.filter { $0 is BrowserPanel }
+        if live.count == 1 { return live.first?.id }
+        guard live.isEmpty else { return nil }
+        let placeholders = panels.filter(v2IsBrowserTab)
+        return placeholders.count == 1 ? placeholders.first?.id : nil
+    }
+
     nonisolated static func v2IsBrowserTab(_ panel: any Panel) -> Bool {
         panel is BrowserPanel || panel is DeferredBrowserPanel
     }
