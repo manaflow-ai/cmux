@@ -193,9 +193,9 @@ try:
     settle(dark)
     retarget = sample(0.9, lambda: action("workspace.selectFirst"), (0.12, lambda: action("workspace.selectLast")))
     report["retarget"] = retarget
-    marker = next(i for i, (_, c) in enumerate(retarget) if c == "RETARGET")
-    before_turn = colors(retarget[:marker])
-    after_turn = colors(retarget[marker + 1:])
+    marker = next((i for i, (_, c) in enumerate(retarget) if c == "RETARGET"), None)
+    before_turn = colors(retarget[:marker]) if marker is not None else []
+    after_turn = colors(retarget[marker + 1:]) if marker is not None else []
     if before_turn and after_turn:
         jump = abs(oklab_l(rgb(after_turn[0])) - oklab_l(rgb(before_turn[-1])))
         span = abs(oklab_l(rgb(light)) - oklab_l(rgb(dark)))
@@ -217,8 +217,9 @@ try:
 
     # instant: enabled false.
     config(enabled=False, duration=400, curve="linear")
-    time.sleep(1.5)  # the config watcher applies the file
-    settle(light)
+    check(bool(wait(lambda: (window().get("backdrop") or {}).get("seconds") == "0.0", 10)), "instant: the app took enabled false")
+    action("workspace.selectFirst")
+    check(bool(settle(light)), "instant: the light workspace shows before the switch")
     instant = sample(0.4, lambda: action("workspace.selectLast"))
     report["instant"] = instant
     seen = colors(instant)

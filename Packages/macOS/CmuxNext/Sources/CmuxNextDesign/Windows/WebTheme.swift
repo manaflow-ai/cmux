@@ -145,14 +145,20 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       // appearance.colorTransition: every color variable is a registered <color>, so a theme or
       // workspace change transitions it (and everything that reads it) from the value on screen;
       // a quick second change retargets from the blend in flight. OKLab blends need non-legacy
-      // color syntax (CSS Color 4 mixes two rgb() values in sRGB).
+      // color syntax (CSS Color 4 mixes two rgb() or hex values in sRGB). Code that reads computed
+      // colors gets a second `cmux-theme` event once the blend ends.
       var registered = {};
       var transitionStyle = null;
       var rgba = /^rgba?\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*(?:,\\s*([\\d.]+)\\s*)?\\)$/;
+      var hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})?$/i;
       function colorValue(value, space) {
-        var m = space === 'oklab' && rgba.exec(value);
-        if (!m) return value;
-        return 'color(srgb ' + (m[1] / 255) + ' ' + (m[2] / 255) + ' ' + (m[3] / 255) + ' / ' + (m[4] === undefined ? 1 : m[4]) + ')';
+        if (space !== 'oklab') return value;
+        var m = rgba.exec(value);
+        if (m) return 'color(srgb ' + (m[1] / 255) + ' ' + (m[2] / 255) + ' ' + (m[3] / 255) + ' / ' + (m[4] === undefined ? 1 : m[4]) + ')';
+        m = hex.exec(value);
+        if (m) return 'color(srgb ' + (parseInt(m[1], 16) / 255) + ' ' + (parseInt(m[2], 16) / 255) + ' ' + (parseInt(m[3], 16) / 255) +
+          ' / ' + (m[4] === undefined ? 1 : parseInt(m[4], 16) / 255) + ')';
+        return value;
       }
       function register(name, value) {
         if (registered[name] !== undefined) return registered[name];
@@ -175,6 +181,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             ';transition-timing-function:' + ((transition && transition.easing) || 'ease-out') + '}'
           : '';
       }
+      function settled(payload) {
+        var root = document.documentElement;
+        var running = root.getAnimations ? root.getAnimations().filter(function (a) { return a.transitionProperty; }) : [];
+        if (!running.length) return;
+        Promise.allSettled(running.map(function (a) { return a.finished; })).then(function () {
+          if (window.cmuxTheme.current === payload) window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
+        });
+      }
       window.cmuxTheme = {
         current: null,
         apply: function (payload) {
@@ -184,20 +198,19 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           var space = payload.transition && payload.transition.space;
           var names = [];
           for (var key in payload.variables) if (register(key, payload.variables[key])) names.push(key);
-          // The first theme of a page shows at once (no fade in from transparent).
+          // The first theme of a page shows at once (no fade in from transparent): the values
+          // land with no transition, a style read commits them, then the transition turns on.
           if (first) setTransition(null, names);
-          else setTransition(payload.transition, names);
           for (var name in payload.variables) {
             root.style.setProperty(name, registered[name] ? colorValue(payload.variables[name], space) : payload.variables[name]);
           }
-          if (first && payload.transition) {
-            var later = payload.transition;
-            requestAnimationFrame(function () { setTransition(later, names); });
-          }
+          if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
+          setTransition(payload.transition, names);
           root.style.colorScheme = payload.colorScheme;
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
+          if (!first) settled(payload);
         }
       };
       ensureStyle();

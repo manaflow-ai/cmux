@@ -17,16 +17,16 @@ extension ThemeRGB {
         let t = min(max(fraction.isNaN ? 1 : fraction, 0), 1)
         if t == 0 { return self }
         if t == 1 { return other }
-        let alpha = alpha + (other.alpha - alpha) * t
+        let mixedAlpha = self.alpha + (other.alpha - self.alpha) * t
         let from = space.components(of: self), to = space.components(of: other)
         func mix(_ a: Double, _ b: Double) -> Double {
             let value = a * self.alpha + (b * other.alpha - a * self.alpha) * t
-            return alpha > 0 ? value / alpha : 0
+            return mixedAlpha > 0 ? value / mixedAlpha : 0
         }
-        // Lightness is never premultiplied in a way that loses it: with both opaque this is a plain mix.
+        // With both colors opaque this is a plain mix.
         let mixed = (mix(from.0, to.0), mix(from.1, to.1), mix(from.2, to.2))
         var color = space.color(from: mixed)
-        color.alpha = alpha
+        color.alpha = mixedAlpha
         return color
     }
 }

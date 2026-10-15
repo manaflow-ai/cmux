@@ -224,6 +224,7 @@ public final class WindowMaterialView: NSView {
             if tint != nil, layer.backgroundColor != nil, window?.isVisible == true {
                 ColorTransition.current.animate(layer, to: tint)
             } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
                 layer.backgroundColor = tint
             }
         }

@@ -33,6 +33,7 @@ extension NSView {
             if fill != nil, layer.backgroundColor != nil, window?.isVisible == true {
                 ColorTransition.current.animate(layer, to: fill)
             } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
                 layer.backgroundColor = fill
             }
         }

@@ -52,14 +52,9 @@ public final class DesignSettings {
         }
     }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
-    /// read it resolved through `ColorTransition.current`). A change posts
-    /// `ColorTransition.didChange` so web pages take the new CSS transition.
-    public var colorTransition = ColorTransition() {
-        didSet {
-            guard colorTransition != oldValue else { return }
-            NotificationCenter.default.post(name: ColorTransition.didChange, object: nil)
-        }
-    }
+    /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
+    /// next theme payload.
+    public var colorTransition = ColorTransition()
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default

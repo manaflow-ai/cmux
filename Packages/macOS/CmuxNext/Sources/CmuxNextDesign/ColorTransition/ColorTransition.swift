@@ -47,8 +47,6 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     /// Keyframes of one layer color blend: enough that the straight segments between OKLab
     /// samples differ from the true path by less than one 8-bit step.
     static let keyframes = 16
-    /// Posted when `appearance.colorTransition` changes (`DesignSettings.colorTransition`).
-    public static let didChange = Notification.Name("CmuxNextDesign.ColorTransition.didChange")
     /// The layer animation key of a background color blend.
     public static let layerKey = "cmux.colorTransition.backgroundColor"
 
@@ -80,11 +78,23 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         return resolved
     }
 
-    /// Seconds one change takes (a spring's settle time to 0.5%); 0 when instant.
+    /// Seconds one change takes (a spring: until it first comes within 0.5% of the target, where
+    /// a color holds); 0 when instant.
     public var seconds: TimeInterval {
         guard enabled else { return 0 }
-        if case .spring(let spring) = curve { return spring.settlingTime(within: 0.005) }
+        if case .spring(let spring) = curve { return Self.arrival(of: spring) }
         return duration.isFinite ? max(duration, 0) : 0
+    }
+
+    /// The first time a spring from rest reaches 99.5% of its way (at most 5 s).
+    static func arrival(of spring: SpringParameters) -> TimeInterval {
+        let step = 1.0 / 240
+        var time = 0.0
+        while time < 5 {
+            time += step
+            if 1 + SpringValue.solve(displacement: -1, velocity: 0, time: time, parameters: spring).displacement >= 0.995 { return time }
+        }
+        return 5
     }
 
     /// The change applies in one frame.
@@ -103,15 +113,18 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     }
 
     /// Progress (0...1) at each of `count` evenly spaced key times for the spring curve, from
-    /// rest (no velocity) toward 1, held at 1 past its target (a color never overshoots).
+    /// rest (no velocity) toward 1; it never decreases (a color never overshoots or dips back).
     func springProgress(count: Int) -> [Double]? {
         guard case .spring(let spring) = curve, count > 1 else { return nil }
         let total = seconds
+        var reached = 0.0
         return (0..<count).map { index in
             if index == count - 1 { return 1 }
             let time = total * Double(index) / Double(count - 1)
             let state = SpringValue.solve(displacement: -1, velocity: 0, time: time, parameters: spring)
-            return min(max(1 + state.displacement, 0), 1)
+            // A color never goes back: past its first arrival it holds (no dip after an overshoot).
+            reached = max(reached, min(max(1 + state.displacement, 0), 1))
+            return reached
         }
     }
 
@@ -135,10 +148,13 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         let animation = CAKeyframeAnimation(keyPath: "backgroundColor")
         let count = Self.keyframes
         let progress = springProgress(count: count)
-        animation.values = (0..<count).map { index in
+        var values: [CGColor] = (0..<count).map { index in
             let fraction = progress?[index] ?? Double(index) / Double(count - 1)
             return Self.cgColor(from.mixed(with: to, fraction: fraction, in: space))
         }
+        // The exact colors at both ends, so removing the animation changes nothing on screen.
+        if let shown, let color { values[0] = shown; values[count - 1] = color }
+        animation.values = values
         animation.keyTimes = (0..<count).map { NSNumber(value: Double($0) / Double(count - 1)) }
         animation.calculationMode = .linear
         animation.duration = seconds
@@ -205,8 +221,12 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
 extension ColorTransition {
     /// The transition in effect now: `appearance.colorTransition.*` under `ui.animationSpeed` and
     /// Reduce Motion.
+    /// Instant until the Ghostty config first reached the windows, so a launch shows its first
+    /// colors at once. `ui.animationSpeed: normal` does not lengthen it: the duration is the
+    /// user's own number.
     @MainActor
     public static var current: ColorTransition {
-        DesignSettings.shared.colorTransition.resolved(speedOff: Motion.speed == .off, systemReduceMotion: Motion.reduceMotion)
+        guard ThemeStore.shared.hasAppliedConfig else { return ColorTransition(enabled: false) }
+        return DesignSettings.shared.colorTransition.resolved(speedOff: Motion.speed == .off, systemReduceMotion: Motion.reduceMotion)
     }
 }
