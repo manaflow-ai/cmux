@@ -39,6 +39,7 @@ export interface AcpmuxRequests {
   "_acpmux/bookmark_set": { params: unknown; result: unknown };
   "_acpmux/prompt_withdraw": { params: unknown; result: unknown };
   "_acpmux/process/list": { params: unknown; result: unknown };
+  "_acpmux/process/tail": { params: unknown; result: unknown };
   "_acpmux/process/kill": { params: unknown; result: unknown };
   "_acpmux/kill": { params: unknown; result: unknown };
   "_acpmux/archive": { params: unknown; result: unknown };
@@ -205,6 +206,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/bookmark_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/prompt_withdraw", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/list", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/process/tail", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/kill", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: false },
