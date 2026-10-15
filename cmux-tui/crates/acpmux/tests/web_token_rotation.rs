@@ -6,11 +6,14 @@
 //! authenticated with it as its only credential (Web, Peer) is closed.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use futures::StreamExt;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 
 const OLD: &str = "old-dashboard-token-0123456789abcdef";
@@ -44,14 +47,13 @@ fn home(tag: &str) -> std::path::PathBuf {
 }
 
 fn start(home: &std::path::Path, extra: &[&str]) -> (Daemon, Value) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(home)
         .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
         .args(["--log", "error"])
         .args(extra)
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -103,12 +105,11 @@ fn page_status(port: u16, token: &str) -> u16 {
 
 /// `acpmux [--json] web …` against this home's daemon.
 fn cli(home: &std::path::Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    daemon_env::acpmux(home)
         .args(args)
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
         .stdin(Stdio::null())
         .output()
         .unwrap()

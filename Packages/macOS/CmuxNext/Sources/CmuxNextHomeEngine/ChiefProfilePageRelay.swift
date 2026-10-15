@@ -113,10 +113,8 @@ public final class ChiefProfilePageRelay {
     /// that connection was closed under it (the owner restarted). A mutation carries its
     /// idempotency key, so the owner applies it once.
     private func call(operation: String, params: [String: JSONValue], idempotencyKey: String?, gesture: Bool) async throws -> JSONValue {
-        var attempt = 0
-        // wakeup-allow: bounded, a second attempt only after a lost connection; every other error throws.
-        while true {
-            attempt += 1
+        // Two attempts at most: the second only after the first lost its connection.
+        for attempt in 1...2 {
             guard let owner, let main = owner.connection, let socket = await owner.socketPath(),
                   let identity = owner.identity else { throw DaemonError.notConnected }
             var used: DaemonConnection?
@@ -139,6 +137,8 @@ public final class ChiefProfilePageRelay {
                 if let used, self.relay?.connection === used { dropRelay() }
             }
         }
+        // Not reached: the second attempt returns or throws.
+        throw DaemonError.notConnected
     }
 
     nonisolated static func isConnectionLost(_ error: DaemonError) -> Bool {
