@@ -527,7 +527,8 @@ try:
     # not accept the first mouse; the Home page does.
     home_fm = page_state().get("accepts_first_mouse")
     R["open_settings"] = rpc("action.run", {"id": "openSettings", "wait": True}, 30)
-    settings = until(lambda: (lambda s: s if s.get("painted") else None)(
+    # The answer is the view's own and depends only on the page it shows, so the page need not have painted.
+    settings = until(lambda: (lambda s: s if "accepts_first_mouse" in s else None)(
         res(rpc("debug.page", {"page": "cmux.settings", "action": "state"}, 30)) or {}), 60) or {}
     check("settings_page_refuses_first_mouse_home_accepts", home_fm is True and settings.get("accepts_first_mouse") is False,
           {"home_channels": home_fm, "settings": settings.get("accepts_first_mouse"), "settings_painted": settings.get("painted")})
