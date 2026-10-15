@@ -66,7 +66,7 @@ import Testing
     @MainActor
     final class FakeChromiumProvider: BrowserEngineProviding {
         let kind = BrowserEngineKind.chromium
-        let availability = BrowserEngineAvailability.available
+        var availability = BrowserEngineAvailability.available
         let capabilities: BrowserEngineCapabilities = [.devToolsProtocol]
         private(set) var pages: [FakeChromiumPage] = []
         var initialState = BrowserPageState()
@@ -113,6 +113,7 @@ import Testing
         #expect(first.engineFallbackNotice == .notBundled)
         #expect(second.engineKind == .webkit)
         #expect(second.engineFallbackNotice == nil)
+        #expect(second.engineFallbackReason == .notBundled)
     }
 
     @Test func explicitUnavailableChromiumIsRefused() {
@@ -151,6 +152,77 @@ import Testing
         #expect(page.backCount == 1)
         panel.stopLoading()
         #expect(page.stopCount == 1)
+    }
+
+    @Test func sessionSnapshotRecordsOnlyNonWebKitEngines() throws {
+        var snapshot = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com/", profileID: nil, shouldRenderWebView: true,
+            pageZoom: 1, developerToolsVisible: false,
+            backHistoryURLStrings: nil, forwardHistoryURLStrings: nil
+        )
+        let webKitJSON = try JSONEncoder().encode(snapshot)
+        #expect(!String(decoding: webKitJSON, as: UTF8.self).contains("engine"))
+
+        snapshot.engine = .chromium
+        let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: JSONEncoder().encode(snapshot))
+        #expect(decoded.engine == .chromium)
+
+        var object = try #require(JSONSerialization.jsonObject(with: webKitJSON) as? [String: Any])
+        object["engine"] = "gecko"
+        let unknown = try JSONSerialization.data(withJSONObject: object)
+        let fromUnknown = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: unknown)
+        #expect(fromUnknown.engine == nil)
+    }
+
+    @Test func restoredPanelsKeepTheirEngine() {
+        let engines = runtime(providers: [FakeChromiumProvider()])
+        #expect(BrowserPanel.restoredEngineChoice(nil, runtime: engines).engine == .webkit)
+        #expect(BrowserPanel.restoredEngineChoice(.chromium, runtime: engines).engine == .chromium)
+        let unavailable = BrowserPanel.restoredEngineChoice(.chromium, runtime: runtime())
+        #expect(unavailable.engine == .webkit)
+        #expect(unavailable.fallback == .notBundled)
+    }
+
+    @Test func chromiumStartFailureFallsBackToWebKitWithNotice() throws {
+        let provider = FakeChromiumProvider()
+        let engines = runtime(providers: [provider])
+        let url = URL(string: "https://example.com/")!
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: engines
+        )
+        defer { panel.close() }
+        let page = try #require(provider.pages.first)
+        #expect(panel.engineKind == .chromium)
+
+        // The runtime fails to start after the page was created.
+        provider.availability = .unavailable(.startFailed("NSApp does not conform to CefAppProtocol"))
+        panel.handleEnginePageEvent(.navigationFailed(url, code: -1, message: "start failed", showsEngineErrorPage: false))
+
+        #expect(panel.activeEngineKind == .webkit)
+        #expect(panel.engineKind == .chromium)
+        #expect(panel.enginePage == nil)
+        #expect(page.closeCount == 1)
+        #expect(panel.engineFallbackNotice == .startFailed("NSApp does not conform to CefAppProtocol"))
+        #expect(panel.engineFallbackReason == .startFailed("NSApp does not conform to CefAppProtocol"))
+        #expect(panel.page is WebKitBrowserPage)
+        // Later explicit requests are refused with the reason.
+        #expect(BrowserPanel.resolvedEngineChoice(requested: .chromium, runtime: engines) == nil)
+    }
+
+    @Test func ordinaryChromiumLoadFailureKeepsTheChromiumPage() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        panel.handleEnginePageEvent(.navigationFailed(URL(string: "https://nope.invalid/"), code: -105, message: "NAME_NOT_RESOLVED", showsEngineErrorPage: true))
+        #expect(panel.engineKind == .chromium)
+        #expect(panel.engineFallbackNotice == nil)
     }
 
     @Test func closingTheChromiumPanelClosesItsPage() {

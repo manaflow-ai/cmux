@@ -28,11 +28,22 @@ public final class CEFBrowserPage: BrowserPage {
     private var muted = false
     private var lastFaviconURL: URL?
     private var isClosed = false
+    /// Kept to give popups this page opens the same feature wiring.
+    private let shimProvider: @MainActor () -> CEFShimLibrary?
+    private let devToolsLayoutStore: BrowserDevToolsLayoutStore
+    /// `cmux_shim_set_navigation_guard` mode bits this page wants.
+    private var navigationGuardMode: Int32 = 0
+    /// The mode last applied to the Chromium browser, nil before it exists.
+    private var appliedNavigationGuardMode: Int32?
+    /// Permission prompts waiting for the UI delegate, by shim token.
+    private var pendingPermissions: [Int32: Task<Void, Never>] = [:]
+    /// Downloads of this page, by shim token.
+    private var downloads: [Int32: BrowserPageDownload] = [:]
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
         .devTools, .devToolsProtocol, .trustedInput, .snapshots, .paneFullscreen,
-        .crossOriginFrames, .userScripts, .findMatchCount, .nativeFind,
+        .crossOriginFrames, .userScripts, .findMatchCount, .nativeFind, .downloads,
     ]
 
     /// The page's extension side (toolbar actions, extension calls); nil
@@ -52,6 +63,8 @@ public final class CEFBrowserPage: BrowserPage {
         extensions: CEFExtensionStores? = nil
     ) {
         self.browser = browser
+        self.shimProvider = shim
+        self.devToolsLayoutStore = devToolsLayoutStore
         extensionSupport = extensions.map { stores in
             CEFExtensionPageSupport(profileID: browser.configuration.profile, stores: stores) { [weak browser] in
                 browser?.browserID
@@ -315,6 +328,29 @@ public final class CEFBrowserPage: BrowserPage {
         set { muted = newValue }
     }
 
+    /// Turns Chromium's agent navigation guard on or off (mode bit 4): while
+    /// an agent drives the page, a main-frame navigation, redirect or
+    /// history step to a Chromium internal page is cancelled in Chromium.
+    /// Applied as soon as the browser exists.
+    /// - Parameter enabled: `true` while an agent drives the page.
+    public func setAgentNavigationGuard(_ enabled: Bool) {
+        if enabled {
+            navigationGuardMode |= Self.agentNavigationGuardBit
+        } else {
+            navigationGuardMode &= ~Self.agentNavigationGuardBit
+        }
+        applyNavigationGuardIfNeeded()
+    }
+
+    static let agentNavigationGuardBit: Int32 = 4
+
+    private func applyNavigationGuardIfNeeded() {
+        guard let id = browser.browserID, appliedNavigationGuardMode != navigationGuardMode,
+              let shim = CEFRuntime.shared.shim else { return }
+        shim.setNavigationGuard(id, navigationGuardMode)
+        appliedNavigationGuardMode = navigationGuardMode
+    }
+
     /// Answers a renderer hang.
     /// - Parameter terminate: `true` ends the renderer.
     public func answerUnresponsive(terminate: Bool) {
@@ -331,6 +367,8 @@ public final class CEFBrowserPage: BrowserPage {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        pendingPermissions.values.forEach { $0.cancel() }
+        pendingPermissions.removeAll()
         features.tearDown()
         browser.close()
         eventContinuation?.finish()
@@ -342,6 +380,8 @@ public final class CEFBrowserPage: BrowserPage {
     private func handle(_ event: CEFBrowserEvent) {
         switch event {
         case .stateChanged(let cefState):
+            // The browser may have been created since the guard was set.
+            applyNavigationGuardIfNeeded()
             extensionSupport?.noteBrowserID()
             emit(.stateChanged(Self.pageState(cefState)))
             if cefState.faviconURL != lastFaviconURL {
@@ -352,12 +392,10 @@ public final class CEFBrowserPage: BrowserPage {
             emit(.navigationStarted(url))
         case .loadFinished:
             emit(.navigationFinished(browser.state.url))
-        case .loadFailed(let code, let message, let url, _):
-            emit(.navigationFailed(url, code: code, message: message))
-        case .newBrowser(let popup, _, _, _):
-            // Popups are not hosted yet; refuse them rather than leave a
-            // hidden page running.
-            popup.close()
+        case .loadFailed(let code, let message, let url, let chromiumInterstitial):
+            emit(.navigationFailed(url, code: code, message: message, showsEngineErrorPage: chromiumInterstitial))
+        case .newBrowser(let popup, let disposition, let features, let userGesture):
+            handleNewBrowser(popup, disposition: disposition, features: features, userGesture: userGesture)
         case .closeRequested:
             emit(.closeRequested)
         case .closed:
@@ -386,8 +424,119 @@ public final class CEFBrowserPage: BrowserPage {
             emit(.unresponsiveChanged(true))
         case .renderResponsive:
             emit(.unresponsiveChanged(false))
+        case .permissionPrompt(_, let token, let permissions, let origin):
+            handlePermissionPrompt(token: token, bits: permissions, origin: origin)
+        case .permissionDismissed(_, let token):
+            pendingPermissions.removeValue(forKey: token)?.cancel()
+        case .download(let kind, _, let token, let a, let b, let s1, let s2):
+            handleDownload(kind: kind, token: token, a: a, b: b, s1: s1, s2: s2)
         default:
             break
+        }
+    }
+
+    // MARK: Permissions
+
+    /// Asks the UI delegate about a Chromium permission prompt and answers
+    /// it. Without a delegate the request is denied; `.prompt` leaves it
+    /// unanswered (Chromium keeps waiting; it is never dismissed).
+    private func handlePermissionPrompt(token: Int32, bits: Int64, origin: String) {
+        let request = BrowserChromiumPermissionRequest(rawValue: UInt32(truncatingIfNeeded: bits))
+            .pageRequest(origin: URL(string: origin))
+        pendingPermissions[token]?.cancel()
+        pendingPermissions[token] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let decision = await self.uiDelegate?.page(self, requestPermission: request) ?? .deny
+            guard !Task.isCancelled, self.pendingPermissions.removeValue(forKey: token) != nil else { return }
+            switch decision {
+            case .grant:
+                CEFRuntime.shared.answerPermission(token: token, allow: true)
+            case .deny:
+                CEFRuntime.shared.answerPermission(token: token, allow: false)
+            case .prompt:
+                break
+            }
+        }
+    }
+
+    // MARK: Downloads
+
+    /// Download events (`CMUX_SHIM_DOWNLOAD_*`): 34 started (the UI delegate
+    /// picks the destination), 35 progress, 36 done.
+    private func handleDownload(kind: Int32, token: Int32, a: Int64, b: Int64, s1: String, s2: String) {
+        switch kind {
+        case 34:
+            let download = BrowserPageDownload(
+                id: String(token),
+                url: URL(string: s1),
+                suggestedFilename: s2.isEmpty ? nil : s2,
+                expectedBytes: a >= 0 ? a : nil,
+                state: .pending
+            )
+            downloads[token] = download
+            emit(.downloadUpdated(download))
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    CEFRuntime.shared.continueDownload(token: token, to: nil)
+                    return
+                }
+                let destination = await self.uiDelegate?.page(self, destinationForDownload: download)
+                CEFRuntime.shared.continueDownload(token: token, to: destination?.path)
+                guard var current = self.downloads[token] else { return }
+                current.destination = destination
+                current.state = destination == nil ? .cancelled : .inProgress
+                self.downloads[token] = destination == nil ? nil : current
+                self.emit(.downloadUpdated(current))
+            }
+        case 35:
+            guard var download = downloads[token] else { return }
+            download.receivedBytes = a
+            download.expectedBytes = b >= 0 ? b : download.expectedBytes
+            download.isPaused = s2 == "paused"
+            download.state = .inProgress
+            downloads[token] = download
+            emit(.downloadUpdated(download))
+        case 36:
+            guard var download = downloads.removeValue(forKey: token) else { return }
+            if !s1.isEmpty { download.destination = URL(fileURLWithPath: s1) }
+            download.isPaused = false
+            download.state = switch a {
+            case 1: .completed
+            case 2: .cancelled
+            default: .failed("interrupted (\(b))")
+            }
+            emit(.downloadUpdated(download))
+        default:
+            break
+        }
+    }
+
+    /// A tab or popup Chromium created for this page (target=_blank,
+    /// `window.open`). It already lives in this page's Chromium window with
+    /// `window.opener` intact; the UI delegate hosts it or it closes.
+    private func handleNewBrowser(_ popup: CEFBrowser, disposition: CEFDisposition, features: CGRect?, userGesture: Bool) {
+        let route = ChromiumWindowOpenRoute.route(
+            disposition: ChromiumWindowOpenDisposition(raw: Int(disposition.rawValue)),
+            hasWindowFeatures: features != nil,
+            userGesture: userGesture,
+            hasOpener: true,
+            hasURL: popup.state.url != nil
+        )
+        guard let uiDelegate,
+              let placement = route.openRequestPlacement(
+                  width: features.map { Double($0.width) },
+                  height: features.map { Double($0.height) }
+              ) else {
+            popup.close()
+            return
+        }
+        let request = BrowserPageOpenRequest(url: popup.state.url, placement: placement, isUserGesture: userGesture)
+        switch uiDelegate.page(self, openNewPage: request) {
+        case .allowPopup:
+            let popupPage = CEFBrowserPage(browser: popup, shim: shimProvider, devToolsLayoutStore: devToolsLayoutStore)
+            uiDelegate.page(self, didCreatePopup: popupPage, for: request)
+        case .handled, .block:
+            popup.close()
         }
     }
 

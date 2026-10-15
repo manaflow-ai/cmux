@@ -2122,14 +2122,24 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     var webView: WKWebView
-    /// The engine rendering this panel's page, fixed at creation.
+    /// The engine the panel was created with. Fixed (and readable off the
+    /// main actor); see ``activeEngineKind`` for what renders now.
     let engineKind: BrowserEngineKind
+    /// The engine rendering the page now: ``engineKind``, or WebKit after a
+    /// Chromium runtime failed to start (``fallBackToWebKit(reason:)``).
+    var activeEngineKind: BrowserEngineKind { enginePage?.engineKind ?? .webkit }
+    /// The engines this panel resolves against (fallback notices, start failures).
+    let engineRuntime: BrowserEngineRuntime
     /// The page of a non-WebKit engine; `nil` for WebKit panels, whose page
     /// is ``webView``.
     private(set) var enginePage: (any BrowserPage)?
     /// Why this panel opened in WebKit although another engine was wanted,
     /// shown once per run as a notice; `nil` otherwise.
     @Published private(set) var engineFallbackNotice: BrowserEngineUnavailableReason?
+    /// Why this panel opened (or fell back) in WebKit although another engine
+    /// was wanted; kept for automation (`engine_fallback_reason`), unlike the
+    /// once-per-run notice.
+    private(set) var engineFallbackReason: BrowserEngineUnavailableReason?
     /// Whether a Chromium page's DevTools are open (the toolbar button shows its pressed fill).
     @Published var isEngineDevToolsOpen = false
     var enginePageEventsTask: Task<Void, Never>?
@@ -3771,8 +3781,10 @@ final class BrowserPanel: Panel, ObservableObject {
             runtime: engineRuntime
         )
         self.engineKind = enginePageSetup.page?.engineKind ?? .webkit
+        self.engineRuntime = engineRuntime ?? .shared
         self.enginePage = enginePageSetup.page
         self.engineFallbackNotice = enginePageSetup.notice
+        self.engineFallbackReason = enginePageSetup.fallback
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -6755,6 +6767,24 @@ extension BrowserPanel {
         faviconPNGData = pngData
     }
 
+    /// Drops a non-WebKit page whose engine stopped being available (its
+    /// runtime failed to start) and shows the page in WebKit with the
+    /// once-per-run fallback notice.
+    func fallBackToWebKit(reason: BrowserEngineUnavailableReason) {
+        guard enginePage != nil else { return }
+        let url = currentURL
+        closeEnginePage()
+        enginePage = nil
+        engineFallbackReason = reason
+        if engineRuntime.fallbackNotices.recordFallback(reason) {
+            engineFallbackNotice = reason
+        }
+        objectWillChange.send()
+        if let url, url.absoluteString != blankURLString {
+            navigate(to: url)
+        }
+    }
+
     /// Clears the fallback notice once the person dismissed it.
     func dismissEngineFallbackNotice() {
         engineFallbackNotice = nil
@@ -6765,7 +6795,7 @@ extension BrowserPanel {
     var page: any BrowserPage {
         if let enginePage { return enginePage }
         if let adapter = webKitPageAdapter, adapter.webView === webView { return adapter }
-        let adapter = WebKitBrowserPage(webView: webView)
+        let adapter = WebKitBrowserPage(webView: webView, devToolsController: self)
         webKitPageAdapter = adapter
         return adapter
     }
