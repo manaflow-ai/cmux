@@ -47,10 +47,12 @@ public final class BrowserPagePermissionCoordinator {
     /// A decision and whether a grant holds for this request only.
     public struct Outcome: Equatable, Sendable {
         public var decision: BrowserPagePermissionDecision
-        /// The engine must not keep the grant ("Allow this time", a session
-        /// tab's grant). Chromium saves every accepted prompt in its own
-        /// content settings, so the Chromium adapter resets the kinds to
-        /// "ask" for the origin right after accepting.
+        /// The engine must not keep the answer: "Allow this time", a session
+        /// tab's grant or deny, and every policy deny (cmux decides those
+        /// again each time). Chromium saves every answered prompt in its own
+        /// content settings, so the Chromium adapter resets the kinds to "ask"
+        /// once the answer has served its page. Only answers cmux remembers
+        /// itself ("Allow while visiting the site", "Never allow") stay saved.
         public var isOneTime: Bool
 
         public init(_ decision: BrowserPagePermissionDecision, isOneTime: Bool = false) {
@@ -69,9 +71,9 @@ public final class BrowserPagePermissionCoordinator {
         case .grant:
             return Outcome(.grant, isOneTime: true)
         case .deny:
-            return Outcome(.deny)
+            return Outcome(.deny, isOneTime: true)
         case .ask(let kinds):
-            guard let origin = request.origin else { return Outcome(.deny) }
+            guard let origin = request.origin else { return Outcome(.deny, isOneTime: true) }
             let profileStore = store(profileID)
             let settings = kinds.map { profileStore.setting($0, for: origin) }
             if settings.contains(.block) { return Outcome(.deny) }

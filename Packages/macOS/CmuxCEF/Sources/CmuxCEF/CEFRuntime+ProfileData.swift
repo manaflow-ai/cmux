@@ -21,6 +21,9 @@ extension CEFRuntime {
     @discardableResult
     public func clearCookies(profile: UUID, since: Date? = nil) async throws -> Int {
         let path = storage.cachePath(for: profile).path
+        // The shim opens the profile's request context (and its cookie
+        // database) for the call: from now on its files are Chromium's.
+        contextOpened(storage.contextKey(for: profile, offTheRecord: false))
         let start = since.map { Int64($0.timeIntervalSince1970 * 1_000_000) + Self.chromiumEpochOffset } ?? 0
         guard let shim else { throw CEFError.unavailable(unavailableReason ?? .notBundled) }
         let reply = try await CEFSiteReplies.shared.call(label: "cookie clear", timeout: Self.profileDataTimeout) { id in
@@ -35,6 +38,7 @@ extension CEFRuntime {
     public func importCookies(json: String, profile: UUID) async throws -> (written: Int, rejected: Int) {
         let path = storage.cachePath(for: profile).path
         guard let shim else { throw CEFError.unavailable(unavailableReason ?? .notBundled) }
+        contextOpened(storage.contextKey(for: profile, offTheRecord: false))
         let reply = try await CEFSiteReplies.shared.call(label: "cookie import", timeout: Self.profileDataTimeout) { id in
             path.withCString { pathPointer in json.withCString { shim.importCookies(pathPointer, id, $0) } }
         }
