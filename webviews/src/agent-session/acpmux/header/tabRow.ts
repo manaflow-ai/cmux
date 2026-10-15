@@ -19,13 +19,13 @@ const listeners = new Set<() => void>();
 
 const pixels = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
 
-/// The App's `tabRow` push; anything without a positive height ends the one-row header.
+/// The App's `tabRow` push; anything without a positive height ends the one-row header. Each
+/// offered row is a new one, even when it equals the last: the App offers it again after it forgot
+/// the tools' width (the page said ready again), and the page reports the width again for it.
 export function setTabRow(value: unknown): void {
   const raw = (value ?? {}) as { height?: unknown; trailingInset?: unknown };
   const height = pixels(raw.height);
-  const next = height > 0 ? { height, trailingInset: pixels(raw.trailingInset) } : NONE;
-  if (next.height === current.height && next.trailingInset === current.trailingInset) return;
-  current = next;
+  current = height > 0 ? { height, trailingInset: pixels(raw.trailingInset) } : NONE;
   for (const listener of listeners) listener();
 }
 
@@ -48,13 +48,13 @@ export function tabRowStyle(row: TabRow): CSSProperties | undefined {
   } as CSSProperties;
 }
 
-/// While `active`, reports the width of the tools the returned ref names (plus ``TAB_ROW_GAP``) each
-/// time it changes, so the App narrows the tabs by that much; reports 0 once it ends or the tools
+/// While in an offered `row`, reports the width of the tools the returned ref names (plus ``TAB_ROW_GAP``) each
+/// time it changes or the row is offered again, so the App narrows the tabs by that much; reports 0 once it ends or the tools
 /// leave (a New Tab page, a replay), so the tabs take the row back. `report` should be stable. The
 /// ref keeps the element without state: a render it caused on mount raced the chat's first
 /// snapshot (a relaunched new chat lost its kept draft).
 export function useTabRowTools(
-  active: boolean,
+  row: TabRow | undefined,
   report: (width: number) => void,
 ): (element: HTMLElement | null) => void {
   const tools = useRef<HTMLElement | null>(null);
@@ -63,7 +63,7 @@ export function useTabRowTools(
     stop.current?.();
     stop.current = undefined;
     const element = tools.current;
-    if (!active || !element || typeof ResizeObserver === "undefined") return;
+    if (!row || !element || typeof ResizeObserver === "undefined") return;
     let last = 0;
     const measure = () => {
       const box = Math.round(element.getBoundingClientRect().width);
@@ -79,7 +79,7 @@ export function useTabRowTools(
       observer.disconnect();
       if (last > 0) report(0);
     };
-  }, [active, report]);
+  }, [row, report]);
   useEffect(() => {
     follow();
     return () => {

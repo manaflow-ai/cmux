@@ -126,8 +126,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let shown = shownStripHeight
         stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
-        let tools = toolbarWidth(shown: shown)
-        let rowContent = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
+        let tools = toolbarWidth(shown: shown), rowContent = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowTools = rowContent?.tabRowWidth(room: bounds.width - tools) ?? 0 // a chat's tools in the row (PaneTabRowSharing)
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)

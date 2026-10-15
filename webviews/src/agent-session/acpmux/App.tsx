@@ -3083,7 +3083,7 @@ function AcpmuxPane() {
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
-  const tabRowTools = useTabRowTools(inTabRow, reportTabRowTools);
+  const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
   // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
   const stopsSubagents = snapshot.summary?.harness === "claude";
   const stopSubagent = useMemo(
