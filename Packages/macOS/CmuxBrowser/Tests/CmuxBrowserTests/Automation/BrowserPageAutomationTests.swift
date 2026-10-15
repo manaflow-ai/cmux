@@ -205,16 +205,32 @@ struct ChromiumBrowserPageAutomationTests {
         let automation = BrowserPageAutomation(page: page)
         let position = try #require(BrowserGeolocationOverride(latitude: 37.77, longitude: -122.42, accuracy: 5))
 
-        try await automation.applyEmulation(BrowserEmulationOverrides(geolocation: position, offline: true))
-        try await automation.applyEmulation(BrowserEmulationOverrides())
+        page.reply("Page.addScriptToEvaluateOnNewDocument", .success(#"{"identifier":"7"}"#))
+        let overrides = BrowserEmulationOverrides(geolocation: position, offline: true)
+        let script = try await automation.applyEmulation(overrides)
+        let cleared = try await automation.applyEmulation(BrowserEmulationOverrides(), replacingDocumentScript: script)
 
+        #expect(script == "7")
+        #expect(cleared == nil)
         #expect(page.methods() == [
             "Emulation.setGeolocationOverride", "Network.emulateNetworkConditions",
+            "Page.addScriptToEvaluateOnNewDocument",
             "Emulation.clearGeolocationOverride", "Network.emulateNetworkConditions",
+            "Page.removeScriptToEvaluateOnNewDocument",
         ])
         #expect((page.calls[0].params["latitude"] as? NSNumber)?.doubleValue == 37.77)
         #expect(page.calls[1].params["offline"] as? Bool == true)
-        #expect(page.calls[3].params["offline"] as? Bool == false)
+        // New documents get WebKit's emulation page script, so geolocation
+        // answers from the override without a permission prompt.
+        #expect(page.calls[2].params["source"] as? String == overrides.pageScript(dispatchesChangeEvents: false))
+        #expect(page.calls[4].params["offline"] as? Bool == false)
+        #expect(page.calls[5].params["identifier"] as? String == "7")
+        // The loaded document gets it too, both times (the second resets it).
+        #expect(page.evaluations.map(\.script) == [
+            overrides.pageScript(dispatchesChangeEvents: true),
+            BrowserEmulationOverrides().pageScript(dispatchesChangeEvents: true),
+        ])
+        #expect(page.evaluations.allSatisfy { $0.world == .page })
     }
 
     @Test("Mouse steps and text insertion are trusted DevTools input")
