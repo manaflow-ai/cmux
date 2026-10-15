@@ -72,14 +72,18 @@ would do it, spring curves", "proper physics". Design:
   6d3c98f4fe5): tab x and width are TWEENS, not springs (design-tokens.json
   `motion.tweens`: `tabOpen`, `tabClose`, `tabMove`, 200 ms, 1-(1-t)^2 =
   cubic-bezier(1/3, 2/3, 2/3, 1)); a new target restarts the 200 ms from the
-  value on screen with no velocity, the same target never restarts. Open: from
-  the previous tab's right edge minus 18 at width 18, no fade; the tabs and +
-  move on the same tween. Close: to width 18 with the left edge pinned to the
-  previous tab's right edge minus 18, no fade. A mouse close keeps the widths
+  value on screen with no velocity, a target equal after pixel rounding never
+  restarts. Open: from the previous tab's right edge at width 0, no fade; the
+  tabs and + move on the same tween. Close: to width 0 with the left edge
+  pinned to the previous tab's right edge, no fade. (Chrome starts and ends at
+  width 18 at prev.right - 18, but 18 is its tab overlap, so nothing shows; our
+  tabs do not overlap, so `motion.tabStrip` openStartWidth/closeEndWidth are 0.) A mouse close keeps the widths
   (closing mode) until the pointer leaves the strip extended 40 pt below and 60 pt
-  past its trailing edge, then 300 ms. A dragged tab follows the pointer, reorders
+  past its trailing edge, then 300 ms (mouse and middle-click closes only; Cmd-W,
+  the CLI and agents never freeze widths). A dragged tab follows the pointer, reorders
   after 16 x width / 200 pt of pointer travel since the last reorder, and settles
-  on `tabMove` when released. Widths: max 200 (appearance tabMaxWidth), every tab
+  on `tabMove` when released. Widths: max 200 compact / 240 comfortable (today's
+  maxima, appearance tabMaxWidth), every tab
   shrinks evenly to 56, then the inactive ones to 32 (active stays 56), pinned 64
   (`motion.tabStrip`). Reduce Motion, speed off and a live resize: 0 ms. Geometry and
   tweens come from cmux-motion through the app FFI (`MotionTween`, `MotionTabStrip`).

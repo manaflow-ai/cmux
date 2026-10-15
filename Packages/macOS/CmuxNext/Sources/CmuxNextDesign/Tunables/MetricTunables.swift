@@ -64,7 +64,7 @@ public nonisolated enum MetricTunables {
     public static let controlHeight = MetricTunable.make("controlHeight", .shape, "Control height", help: "Height of fields and small controls, and the tab strip's + button.",
                                                          compact: 24, comfortable: 30)
     public static let tabMaxWidth = MetricTunable.make("tabMaxWidth", .tabs, "Tab max width", help: "Widest an unpinned tab gets.",
-                                                       compact: 200, comfortable: 200, key: .tabMaxWidth)
+                                                       compact: 200, comfortable: 240, key: .tabMaxWidth)
     public static let tabMinWidth = MetricTunable.make("tabMinWidth", .tabs, "Tab min width", help: "Icon-only width (pinned and fully shrunk tabs).",
                                                        compact: 32, comfortable: 40)
 

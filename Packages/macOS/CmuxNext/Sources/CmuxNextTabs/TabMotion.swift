@@ -32,10 +32,12 @@ struct TabMotion {
     }
 }
 
-/// A tab's x or width on a tween token. Setting `target` restarts the
-/// token's duration (`Motion.duration`, 0 under Reduce Motion, speed off, a
-/// live resize, or open/close with `ui.animations.newTab` off) from the
-/// value on screen; the same target is a no-op.
+/// A tab's x or width on a tween token. A new target restarts the token's
+/// duration (`Motion.duration`, 0 under Reduce Motion, speed off, a live
+/// resize, or open/close with `ui.animations.newTab` off) from the value on
+/// screen. A target equal after pixel rounding (what the layout draws) is a
+/// no-op, so a relayout for a title or a spinner never restarts the 200 ms
+/// (Chrome tab_container_impl.cc L1170-1175).
 struct TabTween {
     private var tween: TweenValue
     /// The token the next new target uses.
@@ -51,7 +53,14 @@ struct TabTween {
 
     var target: CGFloat {
         get { tween.target }
-        set { tween.retarget(newValue, duration: Motion.duration(token), token: token) }
+        set { retarget(newValue, scale: 2) }
+    }
+
+    /// Sets the target unless it rounds to the same device pixel as now at `scale`.
+    mutating func retarget(_ value: CGFloat, scale: CGFloat) {
+        let pixel = { (v: CGFloat) in (v * max(scale, 1)).rounded() }
+        guard pixel(value) != pixel(tween.target) else { return }
+        tween.retarget(value, duration: Motion.duration(token), token: token)
     }
 
     /// Advances `dt` seconds. True while still moving.
