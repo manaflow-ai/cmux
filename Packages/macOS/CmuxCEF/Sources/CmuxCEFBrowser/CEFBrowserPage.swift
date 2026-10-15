@@ -257,10 +257,16 @@ public final class CEFBrowserPage: BrowserPage {
         return true
     }
 
-    /// The Chromium window follows ``contentView``'s presentation, so the
-    /// host view's window membership already shows or hides it.
-    /// - Parameter visible: Ignored.
-    public func setContentVisible(_ visible: Bool) {}
+    /// Shows or hides the page. The Chromium window follows ``contentView``'s
+    /// presentation, and a pane keeps the views of its other tabs in the
+    /// window, so a tab that is not on screen hides its host view: Chromium
+    /// then sees the page hidden and stops its frames and timers, as WebKit
+    /// does for a hidden web view.
+    /// - Parameter visible: `true` when the page is on screen.
+    public func setContentVisible(_ visible: Bool) {
+        guard browser.hostView.isHidden == visible else { return }
+        browser.hostView.isHidden = !visible
+    }
 
     /// Delivers a trusted input event through `Input.dispatch*Event`.
     /// - Parameter event: The event.
