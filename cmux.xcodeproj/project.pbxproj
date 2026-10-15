@@ -645,6 +645,7 @@
 		C41EF3EF3FDBF271EB9D11D8 /* ChiefProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF352A435AAEC2993C5BE /* ChiefProfile.swift */; };
 		C41EFF2E9C093B9D9E9421E9 /* ChiefRepresentables.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF0BB2279AE2577D5BB8B /* ChiefRepresentables.swift */; };
 		C41EF29DB736DD39558338AF /* ChiefService+Control.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFEB08D775CA1E34E119A /* ChiefService+Control.swift */; };
+		C41EFB84426FD41F1952A097 /* ChiefService+Pending.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF0ADBFC139043FA01C7B /* ChiefService+Pending.swift */; };
 		C41EF5F0F2ADB8E4E9E4CACC /* ChiefService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF74BF69493C6C47D91C5 /* ChiefService.swift */; };
 		C41EFEAEB08DAE57EECA1127 /* ChiefSettingsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF5662431A28A013F87A2 /* ChiefSettingsBridge.swift */; };
 		C41EF352735FB4EE811566B6 /* ChiefSettingsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF4B2F58E25DF07533982 /* ChiefSettingsPanel.swift */; };
@@ -654,6 +655,7 @@
 		C41EF58FF000CD7219406D6C /* ChiefTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF580ABAEC34BF541461B /* ChiefTranscriptView.swift */; };
 		C41EFA69FDC0B7F2ADA75E9D /* ChiefTurnContextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFD4052070BDA635A9D1E /* ChiefTurnContextBuilder.swift */; };
 		C41EF69DD6EC14119E2F575D /* ChiefWakeScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF6D8A03BFC8747E7EB30 /* ChiefWakeScheduler.swift */; };
+		C41EF8430A1F00A816DB2695 /* ChiefWorkingStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFB0F02F1EFFAC54E2BDB /* ChiefWorkingStatusView.swift */; };
 		811DB65B69FB55E2B57AAE6E /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A2CC959D489C3B451AD54C /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
@@ -5417,6 +5419,7 @@
 		C41EF352A435AAEC2993C5BE /* ChiefProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefProfile.swift; sourceTree = "<group>"; };
 		C41EF0BB2279AE2577D5BB8B /* ChiefRepresentables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefRepresentables.swift; sourceTree = "<group>"; };
 		C41EFEB08D775CA1E34E119A /* ChiefService+Control.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chief/ChiefService+Control.swift"; sourceTree = "<group>"; };
+		C41EF0ADBFC139043FA01C7B /* ChiefService+Pending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Chief/ChiefService+Pending.swift"; sourceTree = "<group>"; };
 		C41EF74BF69493C6C47D91C5 /* ChiefService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefService.swift; sourceTree = "<group>"; };
 		C41EF5662431A28A013F87A2 /* ChiefSettingsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefSettingsBridge.swift; sourceTree = "<group>"; };
 		C41EF4B2F58E25DF07533982 /* ChiefSettingsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefSettingsPanel.swift; sourceTree = "<group>"; };
@@ -5426,6 +5429,7 @@
 		C41EF580ABAEC34BF541461B /* ChiefTranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefTranscriptView.swift; sourceTree = "<group>"; };
 		C41EFD4052070BDA635A9D1E /* ChiefTurnContextBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefTurnContextBuilder.swift; sourceTree = "<group>"; };
 		C41EF6D8A03BFC8747E7EB30 /* ChiefWakeScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefWakeScheduler.swift; sourceTree = "<group>"; };
+		C41EFB0F02F1EFFAC54E2BDB /* ChiefWorkingStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefWorkingStatusView.swift; sourceTree = "<group>"; };
 		16A2CC959D489C3B451AD54C /* CJKIMEInputTests+DeadKeyComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CJKIMEInputTests+DeadKeyComposition.swift"; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
@@ -12457,6 +12461,8 @@
 				C41EFA4CBFC21AA8C0537552 /* TerminalController+Chief.swift */,
 				C41EFACFA450D15C2AD8EF63 /* ChiefFirstRunAgents.swift */,
 				C41EF0F46A59AD3C1240F6D3 /* ChiefFirstRunStrings.swift */,
+				C41EFB0F02F1EFFAC54E2BDB /* ChiefWorkingStatusView.swift */,
+				C41EF0ADBFC139043FA01C7B /* ChiefService+Pending.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15299,6 +15305,7 @@
 				C41EF3EF3FDBF271EB9D11D8 /* ChiefProfile.swift in Sources */,
 				C41EFF2E9C093B9D9E9421E9 /* ChiefRepresentables.swift in Sources */,
 				C41EF29DB736DD39558338AF /* ChiefService+Control.swift in Sources */,
+				C41EFB84426FD41F1952A097 /* ChiefService+Pending.swift in Sources */,
 				C41EF5F0F2ADB8E4E9E4CACC /* ChiefService.swift in Sources */,
 				C41EFEAEB08DAE57EECA1127 /* ChiefSettingsBridge.swift in Sources */,
 				C41EF352735FB4EE811566B6 /* ChiefSettingsPanel.swift in Sources */,
@@ -15308,6 +15315,7 @@
 				C41EF58FF000CD7219406D6C /* ChiefTranscriptView.swift in Sources */,
 				C41EFA69FDC0B7F2ADA75E9D /* ChiefTurnContextBuilder.swift in Sources */,
 				C41EF69DD6EC14119E2F575D /* ChiefWakeScheduler.swift in Sources */,
+				C41EF8430A1F00A816DB2695 /* ChiefWorkingStatusView.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				64FC98B1AF19A7558C109173 /* ClickByHintPreview.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
