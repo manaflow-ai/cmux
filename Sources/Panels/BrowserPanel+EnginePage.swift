@@ -193,7 +193,7 @@ extension BrowserPanel {
                 historyStore.recordTypedNavigation(url: url)
             }
         }
-        enginePage.load(request)
+        loadEnginePageRecoveringHang(request)
         // A WKNavigation-shaped callback cannot carry an engine load; tie the
         // load to automation's pending wait instead, and finish it from page events.
         associateEngineNavigation(targetURL: request.url)
@@ -264,7 +264,8 @@ extension BrowserPanel {
 
     /// Reloads the non-WebKit page for automation and ties the reload to its ticket.
     func beginEngineReloadForAutomation(_ page: any BrowserPage, targetURL: URL) {
-        page.reload()
+        // A hung page is ended first and reloaded in a new renderer.
+        reloadEnginePageRecoveringHang(fromOrigin: false)
         associateEngineNavigation(targetURL: targetURL)
     }
 

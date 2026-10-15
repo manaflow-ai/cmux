@@ -7,15 +7,19 @@ import SwiftUI
 /// (design spec §8).
 ///
 /// The crash page uses Chrome's own words (`ChromiumPageGone`: "Aw, Snap!"),
-/// sits on the same 92% chrome-background veil as the WebKit crash overlay
-/// (`BrowserPageRecoveryOverlay`), and offers Reload. The hang prompt is a
-/// card with Exit page and Wait. `BrowserPageRecoveryOverlay` hosts it, and
+/// sits on the opaque chrome background (the WebKit crash overlay's 0.92 veil
+/// would only show the host placeholder through the page window's hole, spec
+/// §0.9), and offers Reload under the error code. The hang prompt is an
+/// opaque card with Exit page and Wait. `BrowserPageRecoveryOverlay` hosts it, and
 /// the panel mounts that as an occluding page overlay so it shows above a
 /// Chromium page window; neither takes keyboard focus on appear.
 struct ChromiumPageFailureOverlay: View {
     let failure: ChromiumPageFailureState.Failure
     let metrics: BrowserChromeMetrics
     let backgroundColor: NSColor
+    /// The panel's page overlay coordinator; the hang card cuts its own
+    /// notched hole through it.
+    var overlays: BrowserPageOverlayCoordinator?
     /// Reload (crash page) or Wait (hang prompt).
     let primaryAction: () -> Void
     /// Exit page (hang prompt).
@@ -40,8 +44,9 @@ struct ChromiumPageFailureOverlay: View {
 
     private func crashPage(_ gone: ChromiumPageGone, isRepeat: Bool) -> some View {
         ZStack {
+            // Opaque: under the page window's hole there is no page to see
+            // through, only the host's placeholder (spec §0.9).
             Color(nsColor: backgroundColor)
-                .opacity(0.92)
             VStack(spacing: metrics.recoverySpacing) {
                 Image(systemName: "exclamationmark.triangle")
                     .cmuxFont(size: metrics.recoveryIconSize)
@@ -57,18 +62,7 @@ struct ChromiumPageFailureOverlay: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                Button(action: primaryAction) {
-                    Label(
-                        String(localized: "browser.error.reload", defaultValue: "Reload"),
-                        systemImage: "arrow.clockwise"
-                    )
-                    .cmuxFont(size: metrics.recoveryBodyFontSize, weight: .medium)
-                    .padding(.horizontal, 6)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .focusable(false)
-                .accessibilityIdentifier("BrowserChromiumCrashReloadButton")
+                // Chrome's sad tab order: message, error code, then Reload.
                 if let line = gone.errorCodeLine {
                     Text(line)
                         .cmuxFont(size: metrics.recoveryCaptionFontSize)
@@ -76,9 +70,22 @@ struct ChromiumPageFailureOverlay: View {
                         .textSelection(.enabled)
                         .accessibilityIdentifier("BrowserChromiumCrashErrorCode")
                 }
+                Button(action: primaryAction) {
+                    Label(
+                        String(localized: "browser.error.reload", defaultValue: "Reload"),
+                        systemImage: "arrow.clockwise"
+                    )
+                    .cmuxFont(size: metrics.recoveryBodyFontSize, weight: .medium)
+                    .padding(.horizontal, metrics.pageFailureButtonLabelPadding)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .focusable(false)
+                .padding(.top, metrics.recoverySpacing / 2)
+                .accessibilityIdentifier("BrowserChromiumCrashReloadButton")
             }
             .frame(maxWidth: metrics.recoveryMaxWidth)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, metrics.pageFailureHorizontalInset)
             .offset(y: -metrics.recoveryVerticalLift)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserChromiumCrashPage")
@@ -101,7 +108,7 @@ struct ChromiumPageFailureOverlay: View {
             .cmuxFont(size: metrics.recoveryBodyFontSize)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
+            HStack(spacing: metrics.unresponsiveCardButtonSpacing) {
                 Spacer(minLength: 0)
                 Button(action: exitPageAction) {
                     Text(String(localized: "browser.chromium.unresponsive.exit", defaultValue: "Exit page"))
@@ -122,14 +129,26 @@ struct ChromiumPageFailureOverlay: View {
         }
         .padding(metrics.unresponsiveCardPadding)
         .frame(minWidth: metrics.unresponsiveCardMinWidth, maxWidth: metrics.unresponsiveCardMaxWidth, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: metrics.unresponsiveCardCornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: metrics.unresponsiveCardCornerRadius, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        // Over a Chromium page the card sits in a notched hole of the page
+        // window: opaque fill and a hairline instead of material and a shadow
+        // (spec §0.9, chrome-ui's shared card treatment).
+        .browserPageOverlayCard(
+            overlays,
+            cornerRadius: metrics.unresponsiveCardCornerRadius,
+            fill: Color(nsColor: .windowBackgroundColor)
         )
-        .shadow(color: .black.opacity(0.11), radius: 6, y: 2)
-        .padding(16)
+        .browserPageOccluding(overlays, id: "pageFailure.card", cornerRadius: metrics.unresponsiveCardCornerRadius)
+        .padding(metrics.pageFailureHorizontalInset)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("BrowserChromiumUnresponsiveCard")
+    }
+}
+
+extension BrowserPageRecoveryPrompt {
+    /// Whether the prompt registers its own page-window hole (the hang card,
+    /// sized to the card) instead of one hole for the whole overlay.
+    var registersOwnPageOcclusion: Bool {
+        if case .chromiumUnresponsive = self { return true }
+        return false
     }
 }
