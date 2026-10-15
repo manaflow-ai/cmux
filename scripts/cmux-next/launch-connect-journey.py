@@ -45,7 +45,8 @@ MARKS = [
     "daemon.remembered_socket", "daemon.ensure_start", "daemon.ensure_end", "daemon.socket_connected",
     "daemon.identify_end", "daemon.handshake_end", "daemon.snapshot_start", "daemon.snapshot_end",
     "daemon.first_tree_applied", "daemon_snapshot_loaded", "restore.window_state_loaded", "restore.ledger_loaded",
-    "restore.flags_resolved", "restore.home_ensured", "restore.first_workspace_created", "first_tab_hold_released",
+    "restore.flags_resolved", "restore.home_ensured", "spawn.lane_entered", "spawn.pinned",
+    "spawn.terminal_env_ready", "spawn.workspace_created", "restore.first_workspace_created", "first_tab_hold_released",
     "connecting_status_shown", "connecting_view_left",
     "workspace_content_shown", "first_terminal_frame", "agent_pane.handshake_end",
 ]
