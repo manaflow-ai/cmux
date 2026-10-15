@@ -155,6 +155,10 @@ def leave_codex(j):
         return
     if "OpenAI Codex" not in text and "Ask Codex" not in text and not codex_working(text):
         return
+    if not j.sim.find(label="Control C", kind="Button"):
+        f = j.sim.find(ident="terminal.composer.field")
+        if f:
+            j.sim.tap_el(f[0]); time.sleep(1.2)
     for _ in range(3):
         j.keybar("Control C"); time.sleep(0.4)
         j.keybar("Control C"); time.sleep(2)
