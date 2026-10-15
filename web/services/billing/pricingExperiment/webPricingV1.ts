@@ -24,9 +24,18 @@ export const WEB_PRICING_ASSIGNMENT_COOKIE = "cmux_wp1";
 /**
  * Present only while this browser is in the running experiment. Exposure
  * events require it, so a paused experiment, a bot, or a preview of a variant
- * route never counts as an exposure.
+ * route never counts as an exposure. Its value says how the arm was chosen:
+ * `fresh` (drawn from the flag's current split, possibly by a prefetch
+ * moments earlier) or `pinned` (served from an older pin). A first exposure
+ * served from a pin is left out of the SRM window (EXPERIMENTS.md rule 5).
  */
 export const WEB_PRICING_LIVE_COOKIE = "cmux_wp1_live";
+export const WEB_PRICING_LIVE_VALUES = ["fresh", "pinned"] as const;
+export type WebPricingLiveValue = (typeof WEB_PRICING_LIVE_VALUES)[number];
+
+export function isWebPricingLive(value: string | null | undefined): value is WebPricingLiveValue {
+  return (WEB_PRICING_LIVE_VALUES as readonly string[]).includes(value ?? "");
+}
 
 export type WebPricingPlanId = "pro" | "max";
 export type WebPricingBillingPeriod = "year" | "month";

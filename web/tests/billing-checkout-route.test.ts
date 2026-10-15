@@ -695,7 +695,7 @@ describe("billing checkout route", () => {
 
     await GET(
       new NextRequest("https://cmux.test/api/billing/checkout?plan=pro&interval=year&cmux_experiment=forged", {
-        headers: { cookie: "cmux_wp1=highlight-pro; cmux_wp1_live=1" },
+        headers: { cookie: "cmux_wp1=highlight-pro; cmux_wp1_live=fresh" },
       }),
     );
 

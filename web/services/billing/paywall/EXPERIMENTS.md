@@ -152,8 +152,9 @@ run with fewer arms.
   `paywall_assignments`. Sign-in merges the anonymous person into the account
   with `identify`.
 - **Exposure:** `$feature_flag_called` from the browser when the page renders,
-  with `paywall_experiment`, `paywall_variant`, `paywall_platform = web` and
-  `paywall_channel`. It is recorded only when the proxy put this browser in the
+  with `paywall_experiment`, `paywall_variant`, `paywall_platform = web`,
+  `paywall_channel` and `paywall_sticky` (true when the arm came from a pin
+  older than a day, so the SRM window skips it). It is recorded only when the proxy put this browser in the
   running experiment (`cmux_wp1_live` cookie), the pinned variant is the
   rendered one, and the URL is `/pricing`. A bot (the proxy gives it no cookie),
   a visitor without JavaScript, a paused experiment and a staff preview of

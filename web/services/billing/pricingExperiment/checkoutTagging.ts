@@ -14,6 +14,7 @@ import {
   WEB_PRICING_ASSIGNMENT_COOKIE,
   WEB_PRICING_EXPERIMENT,
   WEB_PRICING_LIVE_COOKIE,
+  isWebPricingLive,
   renderableWebPricingVariant,
 } from "./webPricingV1";
 
@@ -34,7 +35,7 @@ type CookieReader = { get(name: string): { readonly value: string } | undefined 
 
 /** The running assignment of this browser, or null outside the experiment. */
 export function checkoutExperimentFromCookies(cookies: CookieReader): CheckoutExperiment | null {
-  if (cookies.get(WEB_PRICING_LIVE_COOKIE)?.value !== "1") return null;
+  if (!isWebPricingLive(cookies.get(WEB_PRICING_LIVE_COOKIE)?.value)) return null;
   const variant = cookies.get(WEB_PRICING_ASSIGNMENT_COOKIE)?.value;
   return renderableWebPricingVariant(variant) ? { experiment: WEB_PRICING_EXPERIMENT, variant: variant! } : null;
 }

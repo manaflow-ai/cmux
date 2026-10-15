@@ -54,7 +54,10 @@ export function withWebPricingExperiment(
     response.cookies.set(WEB_PRICING_ASSIGNMENT_COOKIE, assignment.variant, {
       path: "/", maxAge: PIN_MAX_AGE_SECONDS, sameSite: "lax", secure,
     });
-    response.cookies.set(WEB_PRICING_LIVE_COOKIE, "1", {
+    // A pin drawn within the live cookie's lifetime (a prefetch, then the
+    // navigation) is still a fresh draw; only an older pin counts as sticky.
+    const live = assignment.sticky && request.cookies.get(WEB_PRICING_LIVE_COOKIE)?.value !== "fresh" ? "pinned" : "fresh";
+    response.cookies.set(WEB_PRICING_LIVE_COOKIE, live, {
       path: "/", maxAge: LIVE_MAX_AGE_SECONDS, sameSite: "lax", secure,
     });
   } else if (assignment.reason === "paused" && request.cookies.has(WEB_PRICING_LIVE_COOKIE)) {

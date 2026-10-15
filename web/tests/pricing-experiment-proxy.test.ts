@@ -63,7 +63,7 @@ describe("web-pricing-v1 assignment at the proxy", () => {
     expect(response.headers.get("location")).toBeNull();
     expect(rewrittenPath(response)).toBe(path);
     expect(setCookie(response, "cmux_wp1")).toStartWith(`cmux_wp1=${variant};`);
-    expect(setCookie(response, "cmux_wp1_live")).toStartWith("cmux_wp1_live=1;");
+    expect(setCookie(response, "cmux_wp1_live")).toStartWith("cmux_wp1_live=fresh;");
     expect(response.headers.get("cache-control")).toBe("private, no-cache");
   });
 
@@ -78,12 +78,21 @@ describe("web-pricing-v1 assignment at the proxy", () => {
     const response = middleware(pricingRequest({ distinctId: "visitor-2", cookies: "cmux_wp1=yearly-emphasis" }));
 
     expect(rewrittenPath(response)).toBe("/en/pricing/yearly-emphasis");
-    expect(setCookie(response, "cmux_wp1_live")).toStartWith("cmux_wp1_live=1;");
+    // An older pin is sticky, so its first exposure stays out of the SRM window.
+    expect(setCookie(response, "cmux_wp1_live")).toStartWith("cmux_wp1_live=pinned;");
+  });
+
+  test("a prefetch draw followed by the navigation is still a fresh assignment", () => {
+    setWebPricingFlagForTesting(evenSplit);
+    const response = middleware(pricingRequest({ distinctId: "visitor-2", cookies: "cmux_wp1=yearly-emphasis; cmux_wp1_live=fresh" }));
+
+    expect(rewrittenPath(response)).toBe("/en/pricing/yearly-emphasis");
+    expect(setCookie(response, "cmux_wp1_live")).toStartWith("cmux_wp1_live=fresh;");
   });
 
   test("the kill switch serves control and ends exposure but keeps the pin for resume", () => {
     setWebPricingFlagForTesting({ ...evenSplit, active: false });
-    const response = middleware(pricingRequest({ distinctId: "visitor-5", cookies: "cmux_wp1=highlight-pro; cmux_wp1_live=1" }));
+    const response = middleware(pricingRequest({ distinctId: "visitor-5", cookies: "cmux_wp1=highlight-pro; cmux_wp1_live=fresh" }));
 
     expect(rewrittenPath(response)).toBe("/en/pricing");
     expect(setCookie(response, "cmux_wp1")).toBeNull();
@@ -103,7 +112,7 @@ describe("web-pricing-v1 assignment at the proxy", () => {
   });
 
   test("a cold instance serves control without ending the visitor's exposure state", () => {
-    const response = middleware(pricingRequest({ distinctId: "visitor-5", cookies: "cmux_wp1=highlight-pro; cmux_wp1_live=1" }));
+    const response = middleware(pricingRequest({ distinctId: "visitor-5", cookies: "cmux_wp1=highlight-pro; cmux_wp1_live=fresh" }));
 
     expect(rewrittenPath(response)).toBe("/en/pricing");
     expect(setCookie(response, "cmux_wp1")).toBeNull();

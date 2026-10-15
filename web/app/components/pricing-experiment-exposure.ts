@@ -2,12 +2,16 @@ import {
   WEB_PRICING_ASSIGNMENT_COOKIE,
   WEB_PRICING_LIVE_COOKIE,
   WEB_PRICING_PRODUCTION_HOSTS,
+  isWebPricingLive,
 } from "../../services/billing/pricingExperiment/webPricingV1";
 
 export type PricingExperimentAssignment = {
   readonly experiment: string;
   readonly variant: string;
 };
+
+/** An exposure: the rendered arm, and whether it came from an older pin. */
+export type PricingExposure = PricingExperimentAssignment & { readonly sticky: boolean };
 
 type ExposureClient = {
   register(properties: Record<string, unknown>): void;
@@ -39,11 +43,12 @@ export function isPublicPricingPath(pathname: string): boolean {
 export function pricingExposure(
   assignment: PricingExperimentAssignment,
   location: { readonly cookies: string; readonly pathname: string },
-): PricingExperimentAssignment | null {
+): PricingExposure | null {
   if (!PUBLIC_PRICING_PATH.test(location.pathname)) return null;
-  if (cookieValue(location.cookies, WEB_PRICING_LIVE_COOKIE) !== "1") return null;
+  const live = cookieValue(location.cookies, WEB_PRICING_LIVE_COOKIE);
+  if (!isWebPricingLive(live)) return null;
   if (cookieValue(location.cookies, WEB_PRICING_ASSIGNMENT_COOKIE) !== assignment.variant) return null;
-  return assignment;
+  return { ...assignment, sticky: live === "pinned" };
 }
 
 /**
@@ -79,9 +84,9 @@ export function syncPricingExperimentProperties(
  * channel is what keeps them out of the analysis.
  */
 export function exposureEventProperties(
-  exposure: PricingExperimentAssignment,
+  exposure: PricingExposure,
   hostname: string,
-): Record<string, string> {
+): Record<string, string | boolean> {
   return {
     $feature_flag: exposure.experiment,
     $feature_flag_response: exposure.variant,
@@ -89,5 +94,6 @@ export function exposureEventProperties(
     paywall_variant: exposure.variant,
     paywall_platform: "web",
     paywall_channel: (WEB_PRICING_PRODUCTION_HOSTS as readonly string[]).includes(hostname) ? "production" : "preview",
+    paywall_sticky: exposure.sticky,
   };
 }
