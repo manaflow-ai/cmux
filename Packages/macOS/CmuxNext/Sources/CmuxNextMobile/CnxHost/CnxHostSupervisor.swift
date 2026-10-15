@@ -26,11 +26,14 @@ public actor CnxHostSupervisor {
         /// The app's browser hosts for streamed browser tabs; nil when this
         /// build has none (hostd then refuses `browser` as unavailable).
         public var browserHosts: (any CnxBrowserHosting)?
+        /// This Mac's identity key, proved to phones that pinned it; nil: none.
+        public var macIdentity: CnxMacIdentity?
 
         public init(launch: CnxHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
-                    browserHosts: (any CnxBrowserHosting)? = nil) {
+                    browserHosts: (any CnxBrowserHosting)? = nil, macIdentity: CnxMacIdentity? = nil) {
+            self.macIdentity = macIdentity
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux
@@ -43,6 +46,12 @@ public actor CnxHostSupervisor {
     /// Every state change, newest kept when the reader lags.
     public nonisolated let states: AsyncStream<CnxHostState>
     private let continuation: AsyncStream<CnxHostState>.Continuation
+    /// Pairing requests and sign-outs from phones (``CnxHostEvent/pairRequest(_:)``,
+    /// ``CnxHostEvent/unpaired(phoneDeviceID:)``), in order.
+    public nonisolated let pairing: AsyncStream<CnxHostEvent>
+    private let pairingContinuation: AsyncStream<CnxHostEvent>.Continuation
+    /// The last `devices` line: sent to each new hostd and on every change.
+    private var devicesLine: Data?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cnx-host")
@@ -79,6 +88,7 @@ public actor CnxHostSupervisor {
 
     public init(clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         (states, continuation) = AsyncStream.makeStream(of: CnxHostState.self, bufferingPolicy: .bufferingNewest(1))
+        (pairing, pairingContinuation) = AsyncStream.makeStream(of: CnxHostEvent.self, bufferingPolicy: .bufferingNewest(32))
         self.clock = clock
         self.now = now
     }
@@ -122,6 +132,14 @@ public actor CnxHostSupervisor {
     /// Ends the live links of a phone the owner removed (hostd closes them at once).
     public func drop(phoneDeviceIDs: [String]) {
         for id in phoneDeviceIDs { process?.send(CnxHostLaunch.dropPhoneLine(id)) }
+    }
+
+    /// The phones this Mac approved: kept for each new hostd and sent to the
+    /// running one now (a pairing link waiting on the user passes at once).
+    public func setDevices(_ devices: CnxPairedDevices) {
+        let line = CnxHostLaunch.devicesLine(devices)
+        devicesLine = line
+        process?.send(line)
     }
 
     /// Shows a phase without running hostd (for example, not signed in).
@@ -219,6 +237,8 @@ public actor CnxHostSupervisor {
                 await sendToken(child, inputs: inputs)
             case .needAcpmux:
                 await sendAcpmux(child, inputs: inputs)
+            case .pairRequest, .unpaired:
+                pairingContinuation.yield(event)
             case let .needBrowser(request, tab, url):
                 startBrowser(child, inputs: inputs, request: request, tab: tab, url: url)
             case let .browserStop(tab):
@@ -237,6 +257,8 @@ public actor CnxHostSupervisor {
     /// What hostd needs before its first connect: a token and the acpmux endpoint.
     private func handOver(_ child: CnxHostProcess, inputs: Inputs) async {
         lastToken = nil
+        if let identity = inputs.macIdentity { child.send(CnxHostLaunch.macIdentityLine(identity)) }
+        if let devicesLine { child.send(devicesLine) }
         await sendToken(child, inputs: inputs)
         await sendAcpmux(child, inputs: inputs)
     }

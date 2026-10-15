@@ -9,15 +9,30 @@ import UIKit
 /// the artifacts sheet. Each phase start is appended to
 /// `Documents/terminal-demo-timeline.txt` (wall clock) to line up with a recording.
 public struct TerminalDemoRoot: View {
-    @State private var model = TerminalModel(session: MockTerminalSession(), artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
+    @State private var model: TerminalModel
+    @State private var host: TerminalTabHost
 
-    public init() {}
+    public init() {
+        let model = TerminalModel(session: MockTerminalSession(), artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
+        _model = State(initialValue: model)
+        _host = State(initialValue: TerminalTabHost(model: model))
+    }
 
     public static var isRequested: Bool { CommandLine.arguments.contains("-CnxTerminalDemo") }
 
+    /// `-CnxTerminalDemoEmbedded`: the workspace tab page (TabsKit chrome
+    /// insets, UIKit-presented Files and Links) instead of the standalone screen.
+    private static let embedded = CommandLine.arguments.contains("-CnxTerminalDemoEmbedded")
+
     public var body: some View {
-        NavigationStack {
-            TerminalScreen(model: model)
+        Group {
+            if Self.embedded {
+                TerminalTabPage(host: host, insets: EdgeInsets(top: 62, leading: 0, bottom: 90, trailing: 0), isInteractive: true)
+            } else {
+                NavigationStack {
+                    TerminalScreen(model: model)
+                }
+            }
         }
         .task {
             let phases = UserDefaults.standard.string(forKey: "CnxTerminalDemoPhases")?

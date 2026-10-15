@@ -219,6 +219,78 @@ struct MockDialer: MacLinkDialer {
         #expect(second.workspaces[0].lastActivityAt == earlier)
     }
 
+    @Test func tabsCarryTheirAgentStateAndTheMacsActiveTab() throws {
+        var agents = AgentStates()
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude")
+        agents.pending["sess-1"] = true
+        let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        let ws = tree.workspaces[0]
+        // The terminal runs Claude; the conversation tab has an open permission.
+        #expect(ws.tabs.map(\.agentStatus) == [.working, .waiting, nil])
+        #expect(ws.tabs[0].harness == "claude")
+        // The active screen's active pane's tab.
+        #expect(ws.activeTabID == "s7")
+        #expect(tree.workspaces[1].activeTabID == nil)
+        var blocked = AgentStates()
+        blocked.bySurface[7] = AgentState(state: "blocked", agent: "claude")
+        #expect(try DaemonTree(reply: Self.reply, macID: "m", agents: blocked).workspaces[0].tabs[1].agentStatus == .waiting)
+    }
+
+    @Test func activityTimesComeOnlyFromEvents() throws {
+        let start = Date(timeIntervalSince1970: 1000)
+        let first = try DaemonTree(reply: Self.reply, macID: "m", now: start)
+        // First sight is not an activity time.
+        #expect(!first.workspaces[0].hasActivityTime)
+        #expect(first.workspaces[0].lastActivityAt == start)
+        let event = Date(timeIntervalSince1970: 2000)
+        let second = try DaemonTree(reply: Self.reply, macID: "m", previous: first.workspaces, activity: [9: event],
+                                    now: Date(timeIntervalSince1970: 3000))
+        #expect(second.workspaces[0].hasActivityTime)
+        #expect(second.workspaces[0].lastActivityAt == event)
+        #expect(!second.workspaces[1].hasActivityTime)
+        // A known time is kept when no newer event arrives.
+        let third = try DaemonTree(reply: Self.reply, macID: "m", previous: second.workspaces, now: Date(timeIntervalSince1970: 4000))
+        #expect(third.workspaces[0].hasActivityTime)
+        #expect(third.workspaces[0].lastActivityAt == event)
+    }
+
+    /// The Mac's `updated_at_ms` (list-agents, agent-changed) is the workspace's activity time;
+    /// a newer phone-seen event (a title) still wins, and an older Mac without it changes nothing.
+    @Test func activityTimesComeFromTheMacsAgentReports() throws {
+        let agents = try #require(AgentState(json: ["surface": 1, "state": "working", "agent": "claude", "updated_at_ms": 2_000_000]))
+        #expect(agents.updatedAt == Date(timeIntervalSince1970: 2000))
+        #expect(AgentState(json: ["surface": 1, "state": "idle"])?.updatedAt == nil)
+        #expect(AgentState(json: ["state": "idle"]) == nil)
+        var states = AgentStates()
+        states.bySurface[1] = agents
+        let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: states, now: Date(timeIntervalSince1970: 9000))
+        #expect(tree.workspaces[0].hasActivityTime)
+        #expect(tree.workspaces[0].lastActivityAt == Date(timeIntervalSince1970: 2000))
+        let title = Date(timeIntervalSince1970: 3000)
+        let later = try DaemonTree(reply: Self.reply, macID: "m", agents: states, activity: [9: title])
+        #expect(later.workspaces[0].lastActivityAt == title)
+    }
+
+    /// A pending acpmux session says what it asks for; a terminal agent only "is waiting".
+    @Test func waitingTabsSayPermissionOrQuestion() throws {
+        var agents = AgentStates()
+        agents.pending["sess-1"] = true
+        agents.waitingFor["sess-1"] = .question
+        let asking = try DaemonTree(reply: Self.reply, macID: "m", agents: agents).workspaces[0].tabs[1]
+        #expect(asking.waitingFor == .question)
+        #expect(asking.waitingPhrase == "Claude has a question")
+        agents.waitingFor["sess-1"] = .permission
+        #expect(try DaemonTree(reply: Self.reply, macID: "m", agents: agents).workspaces[0].tabs[1].waitingPhrase == "Claude is asking permission")
+        agents.waitingFor = [:]
+        #expect(try DaemonTree(reply: Self.reply, macID: "m", agents: agents).workspaces[0].tabs[1].waitingPhrase == "Claude is waiting")
+        var terminal = AgentStates()
+        terminal.bySurface[1] = AgentState(state: "blocked", agent: "claude")
+        terminal.waitingFor["sess-1"] = .question
+        let blocked = try DaemonTree(reply: Self.reply, macID: "m", agents: terminal).workspaces[0].tabs[0]
+        #expect(blocked.agentStatus == .waiting && blocked.waitingFor == nil)
+        #expect(blocked.waitingPhrase == "Claude is waiting")
+    }
+
     @Test func errorReplyThrows() {
         let reply = Data(#"{"id":"m1","ok":false,"error":"list-workspaces is not available to a phone","error_code":"forbidden"}"#.utf8)
         #expect(throws: DaemonReplyError(message: "list-workspaces is not available to a phone", code: "forbidden")) {
@@ -233,6 +305,8 @@ struct MockDialer: MacLinkDialer {
         #expect(parse(#"{"event":"tree-changed"}"#) == .treeChanged)
         #expect(parse(#"{"event":"overflow"}"#) == .resubscribe)
         #expect(parse(#"{"event":"agent-changed","surface":1,"state":"blocked","agent":"claude"}"#) == .agentChanged(surface: 1, state: "blocked", agent: "claude"))
+        #expect(parse(#"{"event":"agent-changed","surface":1,"state":"working","agent":"claude","updated_at_ms":1760400000000,"since_ms":1760399000000}"#)
+            == .agentChanged(surface: 1, state: "working", agent: "claude", updatedAt: Date(timeIntervalSince1970: 1_760_400_000)))
         #expect(parse(#"{"event":"bell","surface":1}"#) == .other)
     }
 }
@@ -480,7 +554,7 @@ final class Counter: @unchecked Sendable {
         let request = try #require(store.pendingPermission?.request)
         store.respond(to: request, option: request.options[0])
         for _ in 0..<500 where store.clientError == nil { await Task.yield() }
-        #expect(store.clientError?.contains("Approve this on your Mac") == true)
+        #expect(store.clientError?.contains("approve on the Mac") == true)
         #expect(store.pendingPermission != nil)
 
         // A deny reaches the Mac; the decision record resolves the card.
@@ -500,13 +574,15 @@ final class Counter: @unchecked Sendable {
         feed.handle(.permissionPending(sessionID: "s1", permissionID: "perm", request: request), sessions: hub.sessions)
         let item = try #require(feedStore.items.first)
         #expect(item.id == "ask-perm")
+        // The session's open ask is a permission (Workspaces: "is asking permission").
+        #expect(feed.waitingFor == ["s1": .permission])
         #expect(item.workspaceTitle == "cmux")
         #expect(item.needsYou)
         guard case .permission(let permission) = item.kind else { Issue.record("not a permission"); return }
         feedStore.respond(item.id, option: permission.options[0])
         for _ in 0..<500 where feedStore.items.first?.error == nil { await Task.yield() }
         #expect(feedStore.items.first?.needsYou == true)
-        #expect(feedStore.items.first?.error?.contains("Approve this on your Mac") == true)
+        #expect(feedStore.items.first?.error?.contains("approve on the Mac") == true)
         feedStore.respond(item.id, option: permission.options[1])
         for _ in 0..<100 { await Task.yield() }
         #expect(feedStore.items.first?.resolution == "Denied")
@@ -530,6 +606,8 @@ final class Counter: @unchecked Sendable {
         feed.handle(.permissionPending(sessionID: "s1", permissionID: "pq", request: request), sessions: hub.sessions)
         let item = try #require(feedStore.items.first)
         guard case .question(let question) = item.kind else { Issue.record("not a question"); return }
+        // A question (Workspaces: "has a question").
+        #expect(feed.waitingFor == ["s1": .question])
         let first = try #require(question.items.first?.options.first)
         feedStore.answer(item.id, answer: AgentQuestionAnswer(selections: [question.items[0].id: .init(optionIDs: [first.id])]))
         for _ in 0..<500 where feedStore.items.first?.error == nil { await Task.yield() }

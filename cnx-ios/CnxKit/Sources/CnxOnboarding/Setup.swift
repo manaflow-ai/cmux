@@ -11,9 +11,9 @@ private let theme = CnxTheme.standard
 /// First-run setup after sign-in (SPEC 5.5). Each step is a full page pushed in
 /// a `NavigationStack`; progress is implicit.
 public struct SetupFlow: View {
-    /// A setup step.
+    /// A setup step. `createTeam` is pushed from the space choice, never planned.
     public enum Step: Hashable, Sendable {
-        case team, pairMac, notifications
+        case team, pairMac, notifications, createTeam
     }
 
     let steps: [Step]
@@ -21,6 +21,8 @@ public struct SetupFlow: View {
     let store: AppStore
     /// The user picked a team: live data moves to it.
     let teamPicked: (String) -> Void
+    /// The user picked their personal space: live data moves to it.
+    let personalPicked: () -> Void
     /// The user created a team: live data moves to it.
     let teamCreated: (AppStore.AccountTeam) -> Void
     /// Signs out to Welcome, to start over with another account.
@@ -33,6 +35,7 @@ public struct SetupFlow: View {
         steps: [Step], auth: CnxAuthModel, store: AppStore,
         signOut: @escaping () -> Void = {},
         teamPicked: @escaping (String) -> Void = { _ in },
+        personalPicked: @escaping () -> Void = {},
         teamCreated: @escaping (AppStore.AccountTeam) -> Void = { _ in },
         finish: @escaping () -> Void
     ) {
@@ -40,15 +43,26 @@ public struct SetupFlow: View {
         self.auth = auth
         self.store = store
         self.teamPicked = teamPicked
+        self.personalPicked = personalPicked
         self.teamCreated = teamCreated
         self.signOut = signOut
         self.finish = finish
     }
 
+    /// Whether setup should ask for notifications: only a build that can
+    /// receive pushes from the Macs, and only while the system has not asked.
+    /// (Chief's local alerts ask in context, on the first message to Chief.)
+    public static func asksForNotifications() async -> Bool {
+        guard BuildCapabilities.current.push else { return false }
+        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .notDetermined
+    }
+
     public var body: some View {
         NavigationStack(path: $path) {
-            page(steps.first ?? .notifications)
-                .navigationDestination(for: Step.self) { page($0) }
+            Group {
+                if let first = steps.first { page(first) } else { theme.colors.bg.color.ignoresSafeArea() }
+            }
+            .navigationDestination(for: Step.self) { page($0) }
         }
         .tint(theme.colors.label.color)
         // On every setup page, loading and failure included: who is signed
@@ -95,7 +109,15 @@ public struct SetupFlow: View {
 
     @ViewBuilder private func page(_ step: Step) -> some View {
         switch step {
-        case .team: TeamStep(auth: auth, store: store, picked: teamPicked, created: teamCreated, next: { advance(from: .team) })
+        case .team:
+            TeamStep(auth: auth, store: store, picked: teamPicked, personal: personalPicked,
+                     create: { path.append(.createTeam) }, next: { advance(from: .team) })
+        case .createTeam:
+            CreateTeamPage(auth: auth, created: teamCreated) {
+                // Back from the next page returns to the choice, not the form.
+                path.removeAll { $0 == .createTeam }
+                advance(from: .team)
+            }
         case .pairMac: PairMacStep(email: auth.user?.email, store: store, next: { advance(from: .pairMac) })
         case .notifications: NotificationsStep(next: { advance(from: .notifications) })
         }
@@ -110,32 +132,56 @@ public struct SetupFlow: View {
     }
 }
 
-private struct SetupPage<Content: View, Actions: View>: View {
-    let symbol: String
+/// A setup page (design spec, section 8): a 40 pt symbol or the welcome's art,
+/// a `title2` semibold title, the content, then the actions 24 pt above the
+/// account footer.
+private struct SetupPage<Header: View, Content: View, Actions: View>: View {
     let title: LocalizedStringKey
+    @ViewBuilder let header: () -> Header
     @ViewBuilder let content: () -> Content
     @ViewBuilder let actions: () -> Actions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Spacer(minLength: 24)
-            Image(systemName: symbol)
-                .font(.system(size: 48, weight: .regular))
-                .foregroundStyle(theme.colors.label)
-                .frame(maxWidth: .infinity)
-            Text(title)
-                .font(theme.type.heroTitle)
-                .foregroundStyle(theme.colors.label)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 20)
-            content().padding(.top, 28)
-            Spacer(minLength: 24)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header().frame(maxWidth: .infinity)
+                    Text(title)
+                        .font(theme.type.sidebarTitle)
+                        .foregroundStyle(theme.colors.label)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 20)
+                    content()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 24)
+                }
+                .padding(.top, 24)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .defaultScrollAnchor(.center, for: .alignment)
             VStack(spacing: 10) { actions() }
-                .padding(.bottom, 8)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
         }
         .padding(.horizontal, theme.metrics.sideMargin)
         .background(theme.colors.bg.color.ignoresSafeArea())
+    }
+}
+
+extension SetupPage where Header == SetupSymbol {
+    init(symbol: String, title: LocalizedStringKey, @ViewBuilder content: @escaping () -> Content, @ViewBuilder actions: @escaping () -> Actions) {
+        self.init(title: title, header: { SetupSymbol(name: symbol) }, content: content, actions: actions)
+    }
+}
+
+private struct SetupSymbol: View {
+    let name: String
+
+    var body: some View {
+        Image(systemName: name)
+            .font(.system(size: 40, weight: .regular))
+            .foregroundStyle(theme.colors.label)
     }
 }
 
@@ -157,41 +203,182 @@ private struct ExplainerRow: View {
     }
 }
 
-/// Pick a team when there are several, or create the first one. Until the
-/// account's teams have loaded it shows skeleton rows, never Create Team:
-/// an empty list before the answer is "not loaded", not "no teams".
+/// "Choose a space" (design spec, section 5): the title and Personal from the
+/// first frame, the account's teams under it (skeleton rows while they load,
+/// an inline retry if they can't), and "Create a team" once they're known.
+/// An empty list before the answer is "not loaded", never "no teams", so
+/// "Create a team" never shows as a placeholder.
 private struct TeamStep: View {
     let auth: CnxAuthModel
     let store: AppStore
     let picked: (String) -> Void
-    let created: (AppStore.AccountTeam) -> Void
+    let personal: () -> Void
+    let create: () -> Void
     let next: () -> Void
-    @State private var name = ""
-    @State private var isCreating = false
     @State private var isRetrying = false
-    @State private var error: String?
+    /// "Create a team" arrives 0.1 s after the team rows (its own fade: a
+    /// nested transition would not run inside the rows' insertion).
+    @State private var showsCreate = false
+
+    private enum Phase: Hashable { case loading, failed, loaded }
+
+    private var phase: Phase {
+        switch auth.teamList.phase {
+        case .loading: .loading
+        case .failed: .failed
+        case .loaded: .loaded
+        }
+    }
+
+    /// The account's teams, the personal space aside (it has its own row).
+    private var teams: [Team] { store.teams.filter { !$0.id.hasPrefix("personal-") } }
 
     var body: some View {
-        switch auth.teamList.phase {
-        case .loading:
-            ScrollView { SkeletonList(rows: 3, leadingSquare: 36).padding(.top, 72) }
-                .scrollDisabled(true)
-                .background(theme.colors.bg.color.ignoresSafeArea())
-                .accessibilityIdentifier("setup.teams.loading")
-        case .failed:
-            EmptyState(
-                symbol: "cloud",
-                title: "Couldn't load your teams",
-                message: "Check your connection and try again.",
-                primaryTitle: "Retry",
-                isPrimaryLoading: isRetrying,
-                primary: retry
-            )
-            .background(theme.colors.bg.color.ignoresSafeArea())
-            .accessibilityIdentifier("setup.teams.failed")
-        case .loaded:
-            loaded
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Choose a space")
+                        .font(theme.type.sidebarTitle)
+                        .foregroundStyle(theme.colors.label)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("Your Macs show up in the space they're signed in to. You can switch any time from the sidebar.")
+                        .font(theme.type.rowSubtitle)
+                        .foregroundStyle(theme.colors.label2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, theme.metrics.sideMargin)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+                VStack(spacing: 0) {
+                    row(action: pickPersonal) { personalRow }
+                        .accessibilityIdentifier("setup.teams.personal")
+                    ZStack(alignment: .top) {
+                        switch phase {
+                        case .loading:
+                            SkeletonList(rows: 2, leadingSquare: theme.metrics.teamAvatar, delay: .zero)
+                                .transition(.opacity)
+                                .accessibilityIdentifier("setup.teams.loading")
+                        case .failed:
+                            failedRow
+                                .transition(.opacity)
+                                .accessibilityIdentifier("setup.teams.failed")
+                        case .loaded:
+                            VStack(spacing: 0) {
+                                ForEach(teams) { team in
+                                    let presence = team.macDots()
+                                    row(action: { pick(team) }) {
+                                        SidebarTeamRow(
+                                            name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
+                                            dots: presence.dots, overflow: presence.overflow,
+                                            onlineCount: team.macs.filter(\.isOnline).count, isSelected: false
+                                        )
+                                    }
+                                }
+                                row(action: create) { createRow }
+                                    .opacity(showsCreate ? 1 : 0)
+                                    .allowsHitTesting(showsCreate)
+                                    .accessibilityIdentifier("setup.teams.create")
+                            }
+                            .transition(.opacity)
+                        }
+                    }
+                }
+                .animation(theme.motion.smooth.animation, value: phase)
+            }
         }
+        .onChange(of: phase, initial: true) { _, phase in
+            guard phase == .loaded else {
+                showsCreate = false
+                return
+            }
+            withAnimation(theme.motion.smooth.animation.delay(0.1)) { showsCreate = true }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(theme.colors.bg.color.ignoresSafeArea())
+        .accessibilityIdentifier("setup.teams.choose")
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) {
+            if case .setupPickTeam(let index) = DemoDirector.shared.command {
+                if index == 0 { pickPersonal() } else if teams.indices.contains(index - 1) { pick(teams[index - 1]) }
+            }
+        }
+        #endif
+    }
+
+    private func row<Label: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
+        Button(action: action, label: label)
+            .buttonStyle(.plain)
+            .padding(.horizontal, theme.metrics.selectedRowInset)
+    }
+
+    /// Personal needs only the signed-in user, so it is never a skeleton.
+    private var personalRow: some View {
+        let space = store.teams.first { $0.id.hasPrefix("personal-") }
+        let presence = space?.macDots() ?? (dots: [], overflow: 0)
+        return HStack(spacing: 12) {
+            Image(systemName: "person.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(theme.colors.label)
+                .frame(width: theme.metrics.teamAvatar, height: theme.metrics.teamAvatar)
+                .background(theme.colors.fillSelected, in: .rect(cornerRadius: theme.metrics.teamAvatarRadius, style: .continuous))
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Personal")
+                    .font(theme.type.rowTitle)
+                    .foregroundStyle(theme.colors.label)
+                HStack(spacing: 8) {
+                    Text("Just you").font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                    if !presence.dots.isEmpty { MacPresenceDots(dots: presence.dots, overflow: presence.overflow) }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, theme.metrics.sideMargin - theme.metrics.selectedRowInset)
+        .frame(minHeight: theme.metrics.teamRowHeight)
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var createRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(theme.colors.label)
+                .frame(width: theme.metrics.teamAvatar, height: theme.metrics.teamAvatar)
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.metrics.teamAvatarRadius, style: .continuous)
+                        .strokeBorder(theme.colors.separator, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                }
+            Text("Create a team")
+                .font(theme.type.rowTitle)
+                .foregroundStyle(theme.colors.label)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, theme.metrics.sideMargin - theme.metrics.selectedRowInset)
+        .frame(minHeight: theme.metrics.teamRowHeight)
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// A failed team list doesn't block setup: Personal stays selectable.
+    private var failedRow: some View {
+        HStack(spacing: 12) {
+            Text("Couldn't load your teams.")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+            Spacer(minLength: 0)
+            if isRetrying {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Retry", action: retry)
+                    .font(theme.type.rowSubtitle.weight(.semibold))
+                    .foregroundStyle(theme.colors.label)
+                    .frame(minHeight: 44)
+            }
+        }
+        .padding(.horizontal, theme.metrics.sideMargin)
+        .frame(minHeight: theme.metrics.teamRowHeight)
     }
 
     private func retry() {
@@ -202,74 +389,48 @@ private struct TeamStep: View {
         }
     }
 
-    @ViewBuilder private var loaded: some View {
-        if auth.teamList.teams.isEmpty && store.teams.allSatisfy({ $0.id.hasPrefix("personal-") }) {
-            SetupPage(symbol: "person.2", title: "Create your team") {
-                VStack(alignment: .leading, spacing: 10) {
-                    TextField("Team name", text: $name)
-                        .font(theme.type.body)
-                        .cnxInputField()
-                    if let error { Text(error).font(theme.type.meta).foregroundStyle(theme.colors.danger) }
-                }
-            } actions: {
-                PrimaryCapsule("Create team", isLoading: isCreating) { create() }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-                // Without a team the phone uses the personal space, as the Mac does.
-                TextCTA("Not now", action: next)
-            }
-            .accessibilityIdentifier("setup.teams.create")
-        } else {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Choose a team")
-                    .font(theme.type.heroTitle)
-                    .padding(.horizontal, theme.metrics.sideMargin)
-                    .padding(.top, 12)
-                Text("You can switch teams any time from the sidebar.")
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-                    .padding(.horizontal, theme.metrics.sideMargin)
-                    .padding(.top, 6)
-                    .padding(.bottom, 16)
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(store.teams) { team in
-                            let presence = team.macDots()
-                            Button {
-                                pick(team)
-                            } label: {
-                                SidebarTeamRow(
-                                    name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
-                                    dots: presence.dots, overflow: presence.overflow,
-                                    onlineCount: team.macs.filter(\.isOnline).count, isSelected: false
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.horizontal, theme.metrics.selectedRowInset)
-                        }
-                    }
-                }
-            }
-            .background(theme.colors.bg.color.ignoresSafeArea())
-            .accessibilityIdentifier("setup.teams.choose")
-            #if DEBUG
-            .onChange(of: DemoDirector.shared.serial) {
-                if case .setupPickTeam(let index) = DemoDirector.shared.command, store.teams.indices.contains(index) {
-                    pick(store.teams[index])
-                }
-            }
-            #endif
-        }
+    private func pickPersonal() {
+        theme.haptics.selection()
+        personal()
+        next()
     }
 
     private func pick(_ team: Team) {
         store.selectTeam(team.id)
         theme.haptics.selection()
         picked(team.id)
-        if !team.id.hasPrefix("personal-") { Task { await auth.selectTeam(team.id) } }
+        Task { await auth.selectTeam(team.id) }
         next()
+    }
+}
+
+/// "Create your team", pushed from the space choice (Back returns to it).
+private struct CreateTeamPage: View {
+    let auth: CnxAuthModel
+    let created: (AppStore.AccountTeam) -> Void
+    let next: () -> Void
+    @State private var name = ""
+    @State private var isCreating = false
+    @State private var error: String?
+
+    var body: some View {
+        SetupPage(symbol: "person.2", title: "Create your team") {
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("Team name", text: $name)
+                    .font(theme.type.body)
+                    .cnxInputField()
+                    .onSubmit(create)
+                if let error { Text(error).font(theme.type.meta).foregroundStyle(theme.colors.dangerText) }
+            }
+        } actions: {
+            PrimaryCapsule("Create team", isLoading: isCreating) { create() }
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .accessibilityIdentifier("setup.teams.create-page")
     }
 
     private func create() {
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty, !isCreating else { return }
         isCreating = true
         error = nil
         Task {
@@ -290,34 +451,91 @@ private struct TeamStep: View {
 /// "Connect your Mac": no pairing code. A Mac signed in to the same account
 /// with iPhone connections allowed appears by itself, in whichever team or
 /// personal space it uses: live discovery moves the phone to that team, the
-/// status line flips, and Continue appears.
+/// status line flips, and Continue appears. The welcome's art waits with it:
+/// a 1.5 s faint thread and dot every 2.4 s, then the ride and the chevron's bloom
+/// when the Mac shows up.
 private struct PairMacStep: View {
     let email: String?
     let store: AppStore
     let next: () -> Void
+    /// When the Mac showed up (the art's ride starts then).
+    @State private var foundAt: Date?
+    /// A Mac was already online when the page opened: the art starts settled.
+    @State private var foundAtStart = false
+    @State private var waitingSince = Date.now
+    /// The ride and bloom are playing.
+    @State private var riding = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var onlineMac: String? {
         store.activeTeam?.macs.first(where: \.isOnline)?.name
     }
 
     var body: some View {
-        SetupPage(symbol: "desktopcomputer", title: "Connect your Mac") {
+        SetupPage(title: "Connect your Mac") {
+            art
+        } content: {
             ConnectMacSteps(email: email, onlineMac: onlineMac, teamName: store.teams.count > 1 ? store.activeTeam?.name : nil,
                             noMacsForAccount: store.accountMacCount == 0)
         } actions: {
-            if onlineMac != nil {
-                PrimaryCapsule("Continue", action: next)
-            } else {
-                TextCTA("Not now", action: next)
+            ZStack {
+                if onlineMac != nil {
+                    PrimaryCapsule("Continue", action: next).transition(.opacity)
+                } else {
+                    TextCTA("Not now", action: next).transition(.opacity)
+                }
             }
+            .animation(theme.motion.snappy.animation, value: onlineMac != nil)
+        }
+        .onAppear { foundAtStart = onlineMac != nil }
+        .onChange(of: onlineMac != nil) { _, found in
+            guard found else {
+                // The Mac went away again: back to waiting.
+                foundAt = nil
+                foundAtStart = false
+                waitingSince = .now
+                return
+            }
+            guard foundAt == nil, !foundAtStart else { return }
+            foundAt = .now
+            riding = true
+            theme.haptics.success()
+        }
+        .task(id: foundAt) {
+            // Stops the art's clock once the bloom has settled: a bounded
+            // animation length, not synchronization.
+            guard foundAt != nil else { return }
+            try? await Task.sleep(for: .seconds(WelcomeArt.introDuration - WelcomeArt.rideStart + 0.1))
+            if !Task.isCancelled { riding = false }
         }
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) { if DemoDirector.shared.command == .setupNotNow { next() } }
         #endif
     }
+
+    /// The settled devices while waiting (Reduce Motion: no pulses), then
+    /// the ride and the bloom from the welcome's intro.
+    private var art: some View {
+        let settled = foundAtStart || (reduceMotion && onlineMac != nil)
+        let waiting = !settled && foundAt == nil && !reduceMotion
+        return TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !(riding || waiting))) { context in
+            let t: Double = {
+                if settled { return .infinity }
+                if let foundAt { return WelcomeArt.rideStart + context.date.timeIntervalSince(foundAt) }
+                return WelcomeArt.rideStart
+            }()
+            let idle: Double? = {
+                guard waiting else { return nil }
+                let u = context.date.timeIntervalSince(waitingSince).truncatingRemainder(dividingBy: 2.4)
+                return u < WelcomeArt.IdleStyle.waiting.duration ? u : nil
+            }()
+            WelcomeArt(t: t, idle: idle, idleStyle: .waiting, width: 200)
+        }
+    }
 }
 
-/// Notification priming before the system prompt.
+/// Notification priming before the system prompt. Planned only for builds
+/// that can receive pushes, while the system has not asked yet.
 private struct NotificationsStep: View {
     let next: () -> Void
 
@@ -328,12 +546,13 @@ private struct NotificationsStep: View {
                 ExplainerRow(symbol: "checkmark.circle", text: "Finished tasks")
                 ExplainerRow(symbol: "exclamationmark.triangle", text: "Errors that stop an agent")
             }
+            .frame(maxWidth: 340, alignment: .leading)
         } actions: {
             PrimaryCapsule("Turn on notifications") {
                 Task {
                     let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
                     // The token goes to the service once this phone is registered with its team.
-                    if granted { UIApplication.shared.registerForRemoteNotifications() }
+                    if granted, BuildCapabilities.current.push { UIApplication.shared.registerForRemoteNotifications() }
                     next()
                 }
             }

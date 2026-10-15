@@ -14,6 +14,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// Starts the agent session behind a new agent tab (nil: no agent tabs).
     private weak var acpmux: AcpmuxHub?
 
+    /// The capabilities each Mac's `version` service reported (nil: not known yet).
+    public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }
+
+    /// Whether a Mac streams browser tabs: it said `browser-stream-v1`. A Mac that
+    /// has not answered yet keeps the option (an older Mac's refusal then reads plainly).
+    nonisolated static func streamsBrowser(_ capabilities: Set<String>?) -> Bool {
+        capabilities.map { $0.contains("browser-stream-v1") || !$0.contains("removal-v1") } ?? true
+    }
+
     public init(sync: WorkspaceSync, link: LinkController, acpmux: AcpmuxHub? = nil) {
         self.sync = sync
         self.link = link
@@ -81,7 +90,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func tabKinds(on macID: String) -> [NewTabKind] {
         guard canManage(on: macID) else { return [] }
         let agents: [NewTabKind] = acpmux?.isReady == true ? [.agent("claude")] : []
-        return agents + [.terminal, .browser]
+        return agents + [.terminal] + (Self.streamsBrowser(capabilities(macID)) ? [.browser] : [])
     }
 
     /// Opens the tab on the Mac in the workspace's active pane, then waits

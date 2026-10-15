@@ -9,7 +9,13 @@
 //! - `{"type":"acpmux","url":"ws://127.0.0.1:<port>/","token":"<bearer>"}`:
 //!   the app's acpmux WebSocket, sent at start and on `need_acpmux` (it moves
 //!   when acpmux restarts).
+//! - `{"type":"devices","devices":[{"id","identity_key","approval_key"}],
+//!   "denied":[{"id","identity_key"}]}`: the phones the user approved, and those whose request
+//!   the user refused (`pairing.rs`). Sent at start and on every change.
 //!
+//! - `{"type":"mac_identity","private_key":"<hex>","public_key":"<hex>"}`: this
+//!   Mac's identity key from the app's Keychain, which `auth` proves to phones
+//!   that pinned it (`pairing.rs`). Sent at start; never logged.
 //! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
 //!   phone (Settings > Mobile > Remove): hostd closes its live links now.
 //!
@@ -41,12 +47,29 @@ pub fn enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var("CNX_CONTROL").is_ok_and(|v| v.trim() == "stdio"))
 }
 
+/// A value that never prints (the Mac's private key).
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(pub String);
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 /// One line from the app.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
     Token {
         token: String,
+    },
+    /// This Mac's identity key from the app's Keychain (`pairing::MacIdentity`):
+    /// the raw private scalar and the X9.63 public point, hex. Never logged.
+    MacIdentity {
+        private_key: Secret,
+        public_key: String,
     },
     Acpmux {
         url: String,
@@ -68,6 +91,7 @@ pub enum Inbound {
     BrowserGone {
         tab: String,
     },
+    Devices(crate::pairing::DeviceTrust),
     DropPhone {
         phone_device_id: String,
     },
@@ -104,6 +128,19 @@ pub enum Event {
     PhonePath { session_id: String, path: String },
     /// A phone's link ended.
     PhoneDown { session_id: String, reason: String },
+    /// A phone proved keys the Mac has not approved: ask the user.
+    /// `registered_at_ms` (epoch milliseconds, absent when unknown) is when
+    /// that phone device id first registered with the service, for the prompt.
+    PairRequest {
+        phone_device_id: String,
+        name: String,
+        identity_key: String,
+        approval_key: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        registered_at_ms: Option<i64>,
+    },
+    /// A paired phone signed out and asks the Mac to forget it.
+    Unpaired { phone_device_id: String },
     /// A phone opened browser tab `tab`: start the app's browser host on
     /// `url` and answer with `browser` (or `browser_failed`) for `request`.
     NeedBrowser { request: u64, tab: String, url: String },
@@ -127,6 +164,9 @@ pub fn emit(event: &Event) {
 pub struct Supplied {
     pub token: watch::Receiver<Option<String>>,
     pub acpmux: watch::Receiver<AcpmuxEndpoint>,
+    pub devices: watch::Receiver<Option<crate::pairing::DeviceTrust>>,
+    /// This Mac's identity key (`mac_identity`), once the app sent it.
+    pub identity: watch::Receiver<Option<crate::pairing::MacIdentity>>,
     /// Browser hosts the app starts for the `browser` service.
     pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
 }
@@ -135,6 +175,8 @@ pub struct Supplied {
 pub fn spawn_stdin_reader() -> Supplied {
     let (token_tx, token) = watch::channel(None);
     let (acpmux_tx, acpmux) = watch::channel(None);
+    let (devices_tx, devices) = watch::channel(None);
+    let (identity_tx, identity) = watch::channel(None);
     let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
     let broker = std::sync::Arc::clone(&browser);
     tokio::spawn(async move {
@@ -146,6 +188,17 @@ pub fn spawn_stdin_reader() -> Supplied {
                 }
                 Some(Inbound::Acpmux { url, token }) => {
                     acpmux_tx.send_replace(Some((url, token)));
+                }
+                Some(Inbound::MacIdentity { private_key, public_key }) => {
+                    match crate::pairing::MacIdentity::from_raw(&private_key.0, &public_key) {
+                        Some(key) => {
+                            identity_tx.send_replace(Some(key));
+                        }
+                        None => tracing::warn!("ignoring an unusable Mac identity key"),
+                    }
+                }
+                Some(Inbound::Devices(trust)) => {
+                    devices_tx.send_replace(Some(trust));
                 }
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
@@ -162,7 +215,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         tracing::info!("control input ended; exiting");
         std::process::exit(0);
     });
-    Supplied { token, acpmux, browser }
+    Supplied { token, acpmux, devices, identity, browser }
 }
 
 /// The wire name of a transport.
@@ -197,6 +250,19 @@ mod tests {
             Some(Inbound::Acpmux { url: "ws://127.0.0.1:1/".into(), token: Some("t".into()) })
         );
         assert_eq!(
+            Inbound::parse(
+                r#"{"type":"devices","devices":[{"id":"p","identity_key":"04","approval_key":"04"}],"denied":[{"id":"q","identity_key":"04"}]}"#
+            ),
+            Some(Inbound::Devices(crate::pairing::DeviceTrust {
+                devices: vec![crate::pairing::TrustedDevice {
+                    id: "p".into(),
+                    identity_key: "04".into(),
+                    approval_key: "04".into()
+                }],
+                denied: vec![crate::pairing::DeniedDevice { id: "q".into(), identity_key: "04".into() }],
+            }))
+        );
+        assert_eq!(
             Inbound::parse(r#"{"type":"drop_phone","phone_device_id":"P"}"#),
             Some(Inbound::DropPhone { phone_device_id: "P".into() })
         );
@@ -226,6 +292,18 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"relay"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
+        let request = |registered_at_ms| Event::PairRequest {
+            phone_device_id: "p".into(),
+            name: "n".into(),
+            identity_key: "04".into(),
+            approval_key: "04".into(),
+            registered_at_ms,
+        };
+        assert_eq!(
+            serde_json::to_string(&request(Some(1_791_961_929_681))).unwrap(),
+            r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","registered_at_ms":1791961929681}"#
+        );
+        assert!(!serde_json::to_string(&request(None)).unwrap().contains("registered_at_ms"));
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {

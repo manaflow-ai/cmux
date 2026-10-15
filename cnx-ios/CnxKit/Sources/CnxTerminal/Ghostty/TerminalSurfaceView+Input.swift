@@ -10,6 +10,10 @@ import UIKit
 extension TerminalSurfaceView {
     func perform(_ actions: [TerminalInputAction]) {
         guard let surface else { return }
+        // Something the person typed, pressed or pasted (not a key release
+        // or preedit). Ghostty's own replies to terminal queries also reach
+        // `onInput`, but never pass through here.
+        if actions.contains(where: \.isUserInput) { onUserInput?() }
         for action in actions {
             switch action {
             case .key(let event):

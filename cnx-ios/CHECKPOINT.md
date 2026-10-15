@@ -59,3 +59,14 @@ Apple sign-in, device removal, notarized Mac app); Chief over the link approved.
   with the locally built xcframework copied over.
 - Open: cmux-tui drops terminal input under a fast flood ("Broken pipe"), see `verify/terminal-input-lane.md`;
   phone UI to remove stale Macs (API ready); design loops: workspaces (implementing), onboarding (designer).
+
+## Update 2026-10-14 ~01:45 PT
+
+- `feat-cnx-ios` head `1c0f5bd0`: + removemac, Workspaces redesign, onboarding (3 rounds, converged),
+  Face ID approvals (phone side), hangfix, wsfields, review fixes, E2E rig. Prod iOS build
+  `~/cnx-ios-builds/20261014-ae6354ff98-prod/`. Mac PRs: #20414 (machost), draft #20491 (approvals, stacked).
+- E2E (iOS 26.5, Mac 604fc689): 17 pass / 4 fail / 3 blocked. Echo idle 15/32 ms, flood 0/17 ms,
+  link up 1.16/1.27 s (met); settled list 4.2/4.5 s and tab switch 1.17/1.28 s (missed, perf agent on it).
+  Failing: Files preview (Mac refuses "no workspace roots are shared"), terminal scrolled past prompt,
+  removed Mac comes back (machost), settled-list latency. Blocked: agent chat/Feed (no free agent), Chief send.
+- In flight: termfix, perf, Home+Chief implementer, terminal designer, machost (pairing dialog + removal regression).

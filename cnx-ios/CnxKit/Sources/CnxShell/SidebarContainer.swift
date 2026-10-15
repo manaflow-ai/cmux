@@ -127,6 +127,17 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         }
         strokeView.layer.borderColor = theme.colors.cardStroke.uiColor.resolvedColor(with: traitCollection).cgColor
         apply()
+        // Closed at launch: the sidebar is out of the accessibility tree
+        // and off screen until it opens (SPEC 6).
+        publish(open: model.isOpen)
+        setSidebarPresent(model.isOpen)
+    }
+
+    /// The closed sidebar is hidden, so VoiceOver and the accessibility tree
+    /// never reach controls that cannot be seen; it is shown again as soon
+    /// as a drag or an open begins.
+    private func setSidebarPresent(_ present: Bool) {
+        if sidebarController.view.isHidden == present { sidebarController.view.isHidden = !present }
     }
 
     override func viewDidLayoutSubviews() {
@@ -198,6 +209,7 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         let relativeVelocity = abs(distance) > 0.5 ? velocity / distance : 0
         animator?.stopAnimation(true)
         setCorners(rounded: true)
+        setSidebarPresent(true)
         publish(open: open)
         let animator = theme.motion.drawer.animator(initialVelocity: relativeVelocity)
         offset = target
@@ -206,7 +218,10 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
             guard let self, position == .end else { return }
             self.animator = nil
             self.model.progress = self.progress
-            if !open { self.setCorners(rounded: false) }
+            if !open {
+                self.setCorners(rounded: false)
+                self.setSidebarPresent(false)
+            }
             if open { UIAccessibility.post(notification: .screenChanged, argument: self.sidebarController.view) }
         }
         animator.isInterruptible = true
@@ -226,6 +241,7 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
             apply()
         }
         setCorners(rounded: true)
+        setSidebarPresent(true)
         isTracking = true
         trackingStart = offset
         wasPastThreshold = progress > 0.4

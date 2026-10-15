@@ -16,6 +16,7 @@ final class CnxGhosttyApp {
     private var tickScheduled = false
 
     private static var current: CnxGhosttyApp?
+    nonisolated static let wakeupGate = WakeupGate()
 
     /// Terminal theme: true black like the app chrome, the cmux-next ANSI palette.
     static let background = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
@@ -38,8 +39,14 @@ final class CnxGhosttyApp {
         runtime.supports_selection_clipboard = false
         // One hop to the main queue: actions (the scrollbar) must reach the
         // screen before the frames that follow them (see TerminalViewController).
+        // Wakeups arrive from Ghostty's threads, as often as output is
+        // parsed; one tick is queued at a time.
         runtime.wakeup_cb = { _ in
-            DispatchQueue.main.async { MainActor.assumeIsolated { CnxGhosttyApp.current?.tick() } }
+            guard CnxGhosttyApp.wakeupGate.claim() else { return }
+            DispatchQueue.main.async {
+                CnxGhosttyApp.wakeupGate.release()
+                MainActor.assumeIsolated { CnxGhosttyApp.current?.tick() }
+            }
         }
         runtime.action_cb = { _, target, action in
             guard target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface else { return false }
@@ -123,9 +130,26 @@ enum TerminalSurfaceEvent: Sendable {
     case scrollbar(total: Int, offset: Int, visible: Int)
     case cellSize
     case bell
-    /// A feed finished parsing on the output queue.
-    case outputProcessed
 }
+/// At most one queued main-thread tick for Ghostty's wakeups.
+final class WakeupGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var queued = false
+
+    /// True when the caller should queue a tick (none is queued).
+    func claim() -> Bool {
+        lock.withLock {
+            defer { queued = true }
+            return !queued
+        }
+    }
+
+    /// The queued tick is running; a later wakeup queues another.
+    func release() {
+        lock.withLock { queued = false }
+    }
+}
+
 /// Carries a main-actor object across the main-queue hop above.
 private struct SendableBox<Value: AnyObject>: @unchecked Sendable {
     let value: Value

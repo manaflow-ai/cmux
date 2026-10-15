@@ -40,9 +40,10 @@ struct HomeScreen: View {
         @Bindable var shell = shell
         NavigationStack(path: $shell.homePath) {
             ConversationsHome(store: shell.store, open: { route in
-                switch route {
-                case .chief: shell.homePath.append(ChiefRoute())
-                case let .agent(destination): shell.homePath.append(destination)
+                if let chief = route.chiefRoute {
+                    shell.homePath.append(chief)
+                } else if case let .agent(destination) = route {
+                    shell.homePath.append(destination)
                 }
             }) {
                 SidebarToolbarItem(sidebar: shell.sidebar)
@@ -56,12 +57,20 @@ struct WorkspacesScreen: View {
     let shell: ShellModel
 
     var body: some View {
+        list
+    }
+
+    private var list: some View {
         @Bindable var shell = shell
-        NavigationStack(path: $shell.workspacesPath) {
+        return NavigationStack(path: $shell.workspacesPath) {
             WorkspacesList(
                 store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
                 reconnect: shell.live.map { live in
                     { macID in live.retry(macID: macID) }
+                },
+                linking: shell.live.map { live in
+                    MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) },
+                               isLinkTarget: { live.link.target?.macID == $0 })
                 },
                 refresh: shell.live.map { live in { await live.workspaces.refresh() } },
                 switchTeam: { shell.switchTeam(to: $0) },

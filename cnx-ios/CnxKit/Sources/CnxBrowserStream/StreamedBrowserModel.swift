@@ -52,6 +52,8 @@ public final class StreamedBrowserModel: BrowserTabState {
         case connecting
         case live
         case waiting(String)
+        /// The Mac cannot stream browser tabs (its build has no browser host).
+        case unavailable
     }
 
     public let tab: String
@@ -136,7 +138,11 @@ public final class StreamedBrowserModel: BrowserTabState {
                 self?.opened(connection, sink: sink)
             } catch {
                 log.error("browser \(tab, privacy: .public): \(String(describing: error), privacy: .public)")
-                self?.failed(LinkErrorText.describe(error))
+                if LinkErrorText.noBrowserHost(error) {
+                    self?.unavailable()
+                } else {
+                    self?.failed(LinkErrorText.describe(error))
+                }
             }
         }
     }
@@ -164,6 +170,12 @@ public final class StreamedBrowserModel: BrowserTabState {
         decoder.requestKeyframe = { [weak connection] in connection?.requestKeyframe() }
         decoder.now = { [weak connection] in connection?.nowMicros() ?? 0 }
         decoder.reset()
+    }
+
+    private func unavailable() {
+        connecting = false
+        sink = nil
+        phase = .unavailable
     }
 
     private func failed(_ reason: String) {
@@ -319,6 +331,13 @@ public final class CGImageBox: @unchecked Sendable, Equatable {
 }
 
 enum LinkErrorText {
+    /// The Mac has no browser host: cnx-hostd's `no_browser_host`, or an older
+    /// Mac's "this build has no browser host" (never shown as is).
+    static func noBrowserHost(_ error: any Error) -> Bool {
+        guard let error = error as? LinkError else { return false }
+        return error.code == "no_browser_host" || error.message.localizedCaseInsensitiveContains("no browser host")
+    }
+
     static func describe(_ error: any Error) -> String {
         if let error = error as? LinkError {
             if error.code == "no-link" { return "Not connected to the Mac" }

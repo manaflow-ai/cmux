@@ -118,9 +118,31 @@ final class SinkBox: @unchecked Sendable {
     }
 
     @Test func aRefusedOpenSaysWhy() async {
-        let model = StreamedBrowserModel(tab: "s4", url: nil) { _ in throw LinkError(code: "unavailable", message: "no browser host on this Mac") }
+        let model = StreamedBrowserModel(tab: "s4", url: nil) { _ in throw LinkError(code: "unavailable", message: "browser host: exited") }
         model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
         for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
-        #expect(model.phase == .waiting("no browser host on this Mac"))
+        #expect(model.phase == .waiting("browser host: exited"))
+    }
+
+    /// A Mac with no browser host (this build's code, or an older Mac's words) is an
+    /// honest state, never the raw reason.
+    @Test func aMacWithoutABrowserHostIsUnavailable() async {
+        for error in [LinkError(code: "no_browser_host", message: "this Mac does not stream browser tabs"),
+                      LinkError(code: "unavailable", message: "this build has no browser host")] {
+            let model = StreamedBrowserModel(tab: "s5", url: nil) { _ in throw error }
+            model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
+            for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
+            #expect(model.phase == .unavailable)
+        }
+    }
+}
+
+/// A Mac without a browser host reads as an honest state, never its raw reason.
+@Suite struct NoBrowserHostTests {
+    @Test func theMacsMissingHostIsRecognized() {
+        #expect(LinkErrorText.noBrowserHost(LinkError(code: "no_browser_host", message: "this Mac does not stream browser tabs")))
+        #expect(LinkErrorText.noBrowserHost(LinkError(code: "unavailable", message: "this build has no browser host")))
+        #expect(!LinkErrorText.noBrowserHost(LinkError(code: "unavailable", message: "browser host vanished")))
+        #expect(!LinkErrorText.noBrowserHost(LinkError(code: "no-link", message: "Not connected to the Mac")))
     }
 }

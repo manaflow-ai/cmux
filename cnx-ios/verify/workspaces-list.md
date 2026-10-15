@@ -112,7 +112,8 @@ Yesterday, Previous 7 Days, Previous 30 Days, then months, by last activity).
   [content-size]` drives HID taps, swipes, a long press and typing with
   `axe` while `simctl io recordVideo` records. It saves a screenshot per step
   and 2 fps frames. Chips are tapped by accessibility id; the chip row is
-  scrolled first when the chip is off screen.
+  scrolled first when the chip is off screen. (The script was removed in the Inbox redesign,
+  2026-10-13, with the chips; `verify/record-wsdesign.sh` replaces it.)
 
 | Check | Result | Evidence (`wslist2/`) |
 | --- | --- | --- |

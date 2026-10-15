@@ -19,6 +19,10 @@ public enum CnxHostEvent: Sendable, Equatable {
     case phonePath(sessionID: String, path: String)
     /// A phone's link ended.
     case phoneDown(sessionID: String, reason: String)
+    /// A phone proved keys this Mac has not approved: ask the user (``CnxPairedDevices``).
+    case pairRequest(CnxPairRequest)
+    /// A paired phone signed out and asks this Mac to forget it.
+    case unpaired(phoneDeviceID: String)
     /// A phone opened a streamed browser tab: start a browser host for `tab`
     /// on `url` and answer `request` (``CnxHostLaunch/browserLine(request:port:secret:)``).
     case needBrowser(request: UInt64, tab: String, url: String)
@@ -55,6 +59,14 @@ public enum CnxHostEvent: Sendable, Equatable {
         case "phone_down":
             guard let session = wire.sessionId else { return nil }
             self = .phoneDown(sessionID: session, reason: wire.reason ?? "")
+        case "pair_request":
+            guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey else { return nil }
+            let registered = wire.registeredAtMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+            self = .pairRequest(CnxPairRequest(phoneDeviceID: phone, name: wire.name ?? "", identityKey: identity,
+                                               approvalKey: approval, registeredAt: registered))
+        case "unpaired":
+            guard let phone = wire.phoneDeviceId else { return nil }
+            self = .unpaired(phoneDeviceID: phone)
         case "need_browser":
             guard let request = wire.request, let tab = wire.tab else { return nil }
             self = .needBrowser(request: request, tab: tab, url: wire.url ?? "about:blank")
@@ -79,6 +91,10 @@ public enum CnxHostEvent: Sendable, Equatable {
         var phoneDeviceId: String?
         var transport: String?
         var path: String?
+        var name: String?
+        var identityKey: String?
+        var approvalKey: String?
+        var registeredAtMs: Int64?
         var request: UInt64?
         var tab: String?
         var url: String?

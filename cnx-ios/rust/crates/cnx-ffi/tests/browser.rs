@@ -67,6 +67,7 @@ async fn stream_over(transport: Transport) {
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
         upload_max_bytes: 1024 * 1024,
+        pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();

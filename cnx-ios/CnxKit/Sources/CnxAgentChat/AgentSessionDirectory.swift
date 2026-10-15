@@ -11,7 +11,12 @@ import SwiftUI
 @Observable
 public final class AgentSessionDirectory {
     public static let shared = AgentSessionDirectory()
-    private var stores: [String: AgentChatStore] = [:]
+    /// A cache, filled while a view body reads it: not observed, or the
+    /// first read of a tab would invalidate every view that read it (each
+    /// `AgentChatStore` is observable itself). `generation` tells readers
+    /// when a store was replaced (`invalidate`).
+    @ObservationIgnored private var stores: [String: AgentChatStore] = [:]
+    private var generation = 0
     public var makeSource: (AgentSessionSummary) -> any AgentSessionSource = { summary in
         #if DEBUG
         if DeveloperOptions.mockContentEnabled {
@@ -25,22 +30,30 @@ public final class AgentSessionDirectory {
     public init() {}
 
     public func store(for summary: AgentSessionSummary) -> AgentChatStore {
+        _ = generation
         if let store = stores[summary.id] { return store }
         let store = AgentChatStore(source: makeSource(summary))
         stores[summary.id] = store
         return store
     }
 
-    public func existingStore(id: String) -> AgentChatStore? { stores[id] }
+    public func existingStore(id: String) -> AgentChatStore? {
+        _ = generation
+        return stores[id]
+    }
 
     /// Forgets the tab's store; the next `store(for:)` builds one from
     /// `makeSource` again (the tab's session changed on the Mac).
-    public func invalidate(id: String) { stores[id] = nil }
+    public func invalidate(id: String) {
+        guard stores.removeValue(forKey: id) != nil else { return }
+        generation += 1
+    }
 
     public func store(workspace: Workspace, tab: WorkspaceTab, macName: String) -> AgentChatStore {
         store(for: AgentSessionSummary(
             id: tab.id, name: tab.subtitle ?? tab.title, harness: tab.harness ?? "claude", agentName: tab.title,
-            cwd: workspace.directory, workspaceTitle: workspace.title, macName: macName, branch: workspace.branch
+            cwd: workspace.directory, workspaceTitle: workspace.title, macName: macName, branch: workspace.branch,
+            status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle
         ))
     }
 }

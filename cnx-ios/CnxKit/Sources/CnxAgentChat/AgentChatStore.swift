@@ -315,6 +315,8 @@ public final class AgentChatStore {
             returnedDraft = ReturnedDraft(text: text, attachments: attachments)
         case .subagent(let change):
             applySubagent(change)
+        case .batch(let events):
+            for event in events { apply(event) }
         case .subagentUpdate(let id, let update):
             guard let index = subagents.firstIndex(where: { $0.id == id }) else { return }
             subagents[index].items.apply(update)

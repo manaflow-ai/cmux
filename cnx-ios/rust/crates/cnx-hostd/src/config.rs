@@ -33,6 +33,9 @@ pub struct ServiceConfig {
     /// Workspace roots the `file` service may read below. Empty denies all.
     pub file_roots: Vec<PathBuf>,
     pub acpmux: AcpmuxTarget,
+    /// Supervised: only phones the Mac approved are served (`pairing.rs`).
+    /// None (unsupervised): every admitted link is served.
+    pub pairing: Option<crate::pairing::Pairing>,
     /// `CNX_AGENT_TAB_HOST`: the `agent_session.host` this Mac's app records
     /// on its own agent tabs (`install:<id>`). Unset: no agent tabs from a phone.
     pub agent_tab_host: Option<String>,
@@ -177,12 +180,22 @@ impl HostConfig {
                 env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".acpmux")),
             ),
         };
+        let pairing = supplied.as_ref().map(|supplied| {
+            crate::pairing::Pairing::new(
+                device_id.clone(),
+                supplied.devices.clone(),
+                std::sync::Arc::new(|event| crate::control::emit(&event)),
+            )
+            .with_identity(supplied.identity.clone())
+        });
         let max_tabs = env("CNX_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CNX_RB_HOST")) {
-            // Supervised: the app starts its own bundled browser host.
-            (Some(supplied), _) => {
+            // Supervised: the app starts its own bundled browser host, when this
+            // build has one (`CNX_BROWSER_HOSTS=1`; Release builds ship none yet).
+            (Some(supplied), _) if env("CNX_BROWSER_HOSTS").as_deref() == Some("1") => {
                 crate::browser::BrowserConfig::new(Some(supplied.browser.launcher()), max_tabs)
             }
+            (Some(_), _) => crate::browser::BrowserConfig::new(None, max_tabs),
             (None, Some(exe)) => crate::browser::BrowserConfig::process(
                 PathBuf::from(exe),
                 env("CNX_RB_CACHE_DIR")
@@ -215,6 +228,7 @@ impl HostConfig {
                 default_socket: env("CNX_TUI_SOCKET").map(PathBuf::from),
                 file_roots,
                 acpmux,
+                pairing,
                 agent_tab_host: env("CNX_AGENT_TAB_HOST"),
                 uploads_dir: env("CNX_UPLOADS_DIR")
                     .map(PathBuf::from)

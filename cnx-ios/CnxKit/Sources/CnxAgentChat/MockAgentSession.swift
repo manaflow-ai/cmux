@@ -26,6 +26,8 @@ public final class MockAgentSession: AgentSessionSource {
     private let richFirstTurn: Bool
     /// false: a brand-new session (no earlier turns to replay).
     private let history: Bool
+    /// Events collected while replaying, sent as one `.batch`.
+    private var batch: [AgentSessionEvent]?
     /// Checkpoints recorded around turns (newest last).
     var checkpointLog: [AgentCheckpoint] = []
     /// Characters per streamed chunk and the delay between chunks (≈ 40 chars / 50 ms).
@@ -45,7 +47,13 @@ public final class MockAgentSession: AgentSessionSource {
     public func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         self.continuation = continuation
+        // History (and a waiting turn's opening) arrive as one change.
+        batch = []
         replayHistory()
+        if summary.status == .waiting { startWaitingTurn() }
+        let replayed = batch ?? []
+        batch = nil
+        continuation.yield(.batch(replayed))
         return stream
     }
 
@@ -98,7 +106,11 @@ public final class MockAgentSession: AgentSessionSource {
     }
 
     func emit(_ event: AgentSessionEvent) {
-        continuation?.yield(event)
+        if batch != nil {
+            batch?.append(event)
+        } else {
+            continuation?.yield(event)
+        }
     }
 
     // MARK: History
@@ -179,6 +191,61 @@ public final class MockAgentSession: AgentSessionSource {
                 self.permissionWaiter = nil
                 self.questionWaiter?.resume(returning: nil)
                 self.questionWaiter = nil
+                self.emit(.turnResult(turnId: turnID, status: .cancelled, errorText: nil, at: Date()))
+            }
+            self.running = nil
+            self.drainQueue()
+        }
+    }
+
+    /// A session the Mac reports as waiting (`summary.status == .waiting`):
+    /// a turn on the tab's task that is blocked on the person. Claude asks
+    /// a question; other agents ask to run a command. Opening the tab shows
+    /// the card, as the Workspaces list's "is waiting" promises.
+    private func startWaitingTurn() {
+        turnCount += 1
+        let turnID = "turn-waiting"
+        let start = Date().addingTimeInterval(-25 * 60)
+        emit(.userMessage(text: summary.name, promptId: "p-waiting", turnId: turnID, attachments: [], at: start))
+        emit(.turnStarted(turnId: turnID, at: start))
+        let asksQuestion = summary.harness == "claude"
+        if asksQuestion {
+            emit(.update(.agentMessageChunk(text: MockScript.beforeQuestion, messageId: "m-waiting")))
+            let question = MockScript.question(session: summary.id)
+            pendingQuestionID = question.id
+            emit(.question(question))
+        } else {
+            let permissionID = "perm-waiting"
+            pendingPermissionID = permissionID
+            let call = ACPToolCall(id: "x-waiting", title: "git merge --continue", kind: .execute, status: .pending,
+                                   rawInput: .object(["command": .string("git add -A && git merge --continue")]))
+            emit(.update(.agentMessageChunk(text: "The conflicts are resolved in 4 files. I need to commit the merge:", messageId: "m-waiting")))
+            emit(.update(.toolCall(call)))
+            emit(.permissionRequest(ACPPermissionRequest(id: permissionID, toolCall: call, options: [
+                ACPPermissionOption(id: "allow", name: "Allow once", kind: .allowOnce),
+                ACPPermissionOption(id: "deny", name: "Deny", kind: .rejectOnce),
+            ], cwd: summary.cwd)))
+        }
+        running = Task { [weak self] in
+            guard let self else { return }
+            do {
+                if asksQuestion {
+                    let answer = await withCheckedContinuation { self.questionWaiter = $0 }
+                    try Task.checkCancellation()
+                    let cellular = answer.flatMap { $0.selections["default"]?.optionIDs.first } ?? "webrtc"
+                    try await self.stream(MockScript.finalAnswer(cellular: cellular), messageID: "m-waiting-final")
+                } else {
+                    let choice = await withCheckedContinuation { self.permissionWaiter = $0 }
+                    try Task.checkCancellation()
+                    let allowed = choice != nil && choice != "deny"
+                    self.emit(.update(.toolCallUpdate(ACPToolCallUpdate(
+                        toolCallId: "x-waiting", status: allowed ? .completed : .failed,
+                        content: [.content(.text(allowed ? "[sync-upstream 7c1d2e9] Merge upstream/main" : "Denied by the person."))]
+                    ))))
+                    try await self.stream(allowed ? "Merged. The branch builds." : "Left the merge uncommitted.", messageID: "m-waiting-final")
+                }
+                self.emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: Date()))
+            } catch {
                 self.emit(.turnResult(turnId: turnID, status: .cancelled, errorText: nil, at: Date()))
             }
             self.running = nil

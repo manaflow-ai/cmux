@@ -67,8 +67,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var surfaceRows = 0
     /// Rows a TUI gets: between the toolbar and the composer, keyboard down.
     private var tuiRows = 0
-    /// A Mac terminal's primary screen on the bottom rows of the surface.
-    private var rowShift = TerminalRowShift()
     private var gridColumns = 0
     private var cell = CGSize.zero
     /// Ghostty's scrollbar: total rows, viewport top row, visible rows.
@@ -88,7 +86,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     #endif
     /// Viewports requested before the current one (frames for them may still arrive).
     private var recentTops: [Int] = []
-    private var following = true
+    private var follow = TerminalFollowPolicy()
+    private var following: Bool {
+        get { follow.following }
+        set { follow.following = newValue }
+    }
     /// Back from the alternate screen: until the user scrolls, Ghostty's
     /// latest viewport report places the surface. Frames on screen then
     /// have no earlier primary-screen frame to be matched against, and the
@@ -107,6 +109,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    isolated deinit {
+        outputLink?.invalidate()
+        if outputPaused { model.session.setOutputPaused(false) }
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -301,6 +308,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiClip.addGestureRecognizer(tuiTap)
 
         surface.onInput = { [weak self] data in self?.model.session.send(data) }
+        // Every input path (keyboard, key bar, composer, paste) goes through
+        // the surface's `perform`: typing brings the prompt into view, like Terminal.
+        surface.onUserInput = { [weak self] in self?.revealCursorForInput() }
         surface.onEvent = { [weak self] event in self?.surfaceEvent(event) }
         surface.onPresent = { [weak self] in self?.surfacePresented() }
         surface.onFocusChange = { [weak self] focused in
@@ -428,21 +438,119 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     // MARK: Session
 
+    /// Output waiting for the next display frame (see `pumpOutput`).
+    private var output = TerminalOutputQueue()
+    /// Runs while output is waiting; stopped when the queue is drained.
+    private var outputLink: CADisplayLink?
+    /// A batch is with Ghostty; the next waits for its completion.
+    private var feedInFlight = false
+    /// The next feed outside the display link waits until this time: the
+    /// end of the display frame of the last feed.
+    private var nextFeedAllowed: CFTimeInterval = 0
+    /// The session was asked to stop delivering output (the queue is over its high water).
+    private var outputPaused = false
+    /// The row shift's state; used only on the surface's output queue, in feed order.
+    private let rowShift = RowShiftBox()
+
     private func sessionEvent(_ event: TerminalSessionEvent) {
-        model.ingest(event)
         switch event {
         case .output(let data):
-            if let remote = model.session.remoteRows {
-                let offset = max(0, surface.grid.rows - remote)
-                surface.feed(rowShift.filter(data, offset: offset, remoteRows: remote))
-            } else {
-                surface.feed(data)
+            // Per chunk: queue the bytes and nothing else. Parsing, the row
+            // shift and the artifact scan happen once per display frame.
+            model.ingest(event)
+            output.append(data)
+            if !outputPaused, output.isOverHighWater {
+                outputPaused = true
+                model.session.setOutputPaused(true)
             }
+            scheduleOutput()
         case .alternateScreen(let on):
-            applyMode(tui: on)
+            // In order with the bytes: applied once the bytes before it were parsed.
+            output.append(alternateScreen: on)
+            scheduleOutput()
         default:
-            break
+            model.ingest(event)
         }
+    }
+
+    /// Feeds at once when nothing was fed in this display frame (an echo is
+    /// not held back to the next frame); otherwise the display link feeds at
+    /// the start of the next frame. Either way, at most one batch per frame.
+    private func scheduleOutput() {
+        if !feedInFlight, CACurrentMediaTime() >= nextFeedAllowed {
+            pumpOutput()
+        }
+        guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
+        let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
+            // A new frame: one more batch may go.
+            self?.nextFeedAllowed = 0
+            self?.pumpOutput()
+        }, selector: #selector(DisplayLinkProxy.step))
+        link.add(to: .main, forMode: .common)
+        outputLink = link
+    }
+
+    private var frameInterval: CFTimeInterval {
+        let fps = view.window?.screen.maximumFramesPerSecond ?? 60
+        return 1 / Double(max(30, fps))
+    }
+
+    /// One display frame: hands Ghostty the next batch (at most
+    /// `TerminalOutputQueue.frameBudget` bytes) when the previous one is
+    /// parsed, applying alternate screen switches in order on the way.
+    private func pumpOutput() {
+        while !feedInFlight, let step = output.next() {
+            switch step {
+            case .alternateScreen(let on):
+                model.ingest(.alternateScreen(on))
+                applyMode(tui: on)
+            case .bytes(let data):
+                feedInFlight = true
+                nextFeedAllowed = outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval
+                model.scanOutput(data)
+                let transform: (@Sendable (Data) -> Data)?
+                if let remote = model.session.remoteRows {
+                    let offset = max(0, surface.grid.rows - remote)
+                    let box = rowShift
+                    transform = { box.filter($0, offset: offset, remoteRows: remote) }
+                } else {
+                    transform = nil
+                }
+                let raw = data.count
+                surface.feed(data, transform: transform) { [weak self] in self?.outputProcessed(raw) }
+            }
+        }
+        if outputPaused, output.isUnderLowWater {
+            outputPaused = false
+            model.session.setOutputPaused(false)
+        }
+        if output.isEmpty, !feedInFlight { stopOutputLink() }
+    }
+
+    private func stopOutputLink() {
+        outputLink?.invalidate()
+        outputLink = nil
+    }
+
+    /// Ghostty parsed a batch (`raw` session bytes).
+    private func outputProcessed(_ raw: Int) {
+        feedInFlight = false
+        #if DEBUG
+        TerminalBenchProbe.shared?.outputProcessed(raw)
+        #endif
+        outputSinceProbe = true
+        #if DEBUG
+        if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm processed %@", debugState) }
+        #endif
+        if refreshAfterTUI, !model.isTUI {
+            // The switch back from the alternate screen is processed by
+            // now: ask for the primary screen's viewport and its report.
+            refreshAfterTUI = false
+            surface.scrollToActiveArea()
+        }
+        if scrollbar.total == 0 { scrollbar = (surface.grid.rows, 0, surface.grid.rows) }
+        updateDocument()
+        if output.isEmpty { stopOutputLink() }
     }
 
     private func surfaceEvent(_ event: TerminalSurfaceEvent) {
@@ -464,19 +572,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             view.setNeedsLayout()
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        case .outputProcessed:
-            outputSinceProbe = true
-            #if DEBUG
-            if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm processed %@", debugState) }
-            #endif
-            if refreshAfterTUI, !model.isTUI {
-                // The switch back from the alternate screen is processed by
-                // now: ask for the primary screen's viewport and its report.
-                refreshAfterTUI = false
-                surface.scrollToActiveArea()
-            }
-            if scrollbar.total == 0 { scrollbar = (surface.grid.rows, 0, surface.grid.rows) }
-            updateDocument()
         }
     }
 
@@ -557,6 +652,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // cursor moves Ghostty's viewport for a moment, so it is not repeated
         // for reports that only moved the viewport (scrolling).
         guard scrollbar.total != documentTotal || documentRows == 0 || outputSinceProbe else { return }
+        // The scrollback shrank (`clear`, ESC [3J): the rows the user was
+        // reading are gone. Follow the prompt again, like Terminal.
+        follow.scrollbackChanged(from: documentTotal, to: scrollbar.total, screenRows: surface.grid.rows)
         documentTotal = scrollbar.total
         outputSinceProbe = false
         var rows = scrollbar.total
@@ -567,9 +665,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         documentRows = rows
         let height = CGFloat(rows) * cell.height
         scrollView.contentSize = CGSize(width: view.bounds.width, height: height)
-        if following, !scrollView.isTracking, !scrollView.isDecelerating {
-            scrollView.contentOffset.y = maxOffsetY
+        // Pinned while following; a document that ends above the place on
+        // screen (nothing left there but blank rows) follows again.
+        if let target = follow.documentResized(offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY,
+                                               userIsScrolling: scrollView.isTracking || scrollView.isDecelerating) {
+            scrollView.contentOffset.y = target
         }
+        updateViewport(visibleMinY: scrollView.contentOffset.y)
+    }
+
+    /// Input is about to go to the program: on the primary screen, follow
+    /// the output again and jump to the prompt if the user scrolled away.
+    /// (Output alone never moves someone who scrolled up; typing does.)
+    private func revealCursorForInput() {
+        guard cell.height > 0, let target = follow.input(isTUI: model.isTUI, offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY) else { return }
+        fling?.stop()
+        fling = nil
+        scrollView.setContentOffset(CGPoint(x: 0, y: target), animated: false)
         updateViewport(visibleMinY: scrollView.contentOffset.y)
     }
 
@@ -623,6 +735,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// against the previous frame's rows for the candidate shifts (none, the
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
+        #if DEBUG
+        TerminalBenchProbe.shared?.presented()
+        #endif
         guard !model.isTUI, cell.height > 0 else { return }
         let scale = view.window?.screen.scale ?? 3
         let rowPixels = Int((cell.height * scale).rounded())
@@ -738,8 +853,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !model.isTUI else { return }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
-        let atBottom = scrollView.contentOffset.y >= maxOffsetY - cell.height
-        if scrollView.isTracking || scrollView.isDecelerating || fling != nil { following = atBottom }
+        if scrollView.isTracking || scrollView.isDecelerating || fling != nil {
+            follow.userScrolled(offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY, rowHeight: cell.height)
+        }
         // The rubber band past the top of a short scrollback is not a scroll
         // away from the prompt (verify/jump-button.md).
         setScrollButton(visible: scrollButtonVisibility.update(
@@ -811,7 +927,30 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 }
 
-/// The scroll view; touches on the surface scroll it.
+/// The row shift's state, owned by the surface's output queue: every
+/// `filter` call runs there, in feed order.
+final class RowShiftBox: @unchecked Sendable {
+    private var shift = TerminalRowShift()
+
+    func filter(_ data: Data, offset: Int, remoteRows: Int) -> Data {
+        shift.filter(data, offset: offset, remoteRows: remoteRows)
+    }
+}
+
+/// A display link target that does not retain the controller.
+@MainActor
+final class DisplayLinkProxy: NSObject {
+    private let action: @MainActor () -> Void
+
+    init(_ action: @escaping @MainActor () -> Void) {
+        self.action = action
+    }
+
+    @objc func step() {
+        action()
+    }
+}
+
 /// A view whose layer is a gradient.
 final class GradientView: UIView {
     override class var layerClass: AnyClass { CAGradientLayer.self }

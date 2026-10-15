@@ -96,11 +96,32 @@ impl IceSource {
     }
 }
 
+/// When a phone first registered (`GET /v1/me/devices` `createdAt`), for the
+/// pairing prompt. Every phone that may dial is the Mac owner's own device.
+fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing::RegistrationLookup {
+    Arc::new(move |phone: String| {
+        let (base_url, tokens) = (base_url.clone(), Arc::clone(&tokens));
+        Box::pin(async move {
+            let token = tokens.access_token().await.ok()?;
+            let devices = ApiClient::new(&base_url, &token).my_devices().await.ok()?;
+            devices
+                .into_iter()
+                .find(|d| d.device_id.eq_ignore_ascii_case(&phone) && d.kind != "mac")
+                .and_then(|d| d.created_at)
+                .and_then(|at| crate::pairing::epoch_millis(&at))
+        })
+    })
+}
+
 /// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
 /// the owner removed this Mac (`removed`): registering again would undo that.
 pub async fn run(config: HostConfig) -> Result<()> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
-    let services = Arc::new(config.services.clone());
+    let mut services = config.services.clone();
+    if let Some(pairing) = services.pairing.as_mut() {
+        pairing.registration = Some(registration_lookup(config.base_url.clone(), Arc::clone(&tokens)));
+    }
+    let services = Arc::new(services);
     // One ICE cache for the life of the process (reconnects keep it).
     let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
     if crate::notify::enabled() {
@@ -314,6 +335,7 @@ async fn answer_session(
             });
         }
     });
+    let auth = Arc::new(crate::pairing::LinkAuth::default());
     // The owner removed this phone (Settings > Mobile > Remove): end its link now.
     let mut drops = control::drops();
     let removable = connected.link.clone();
@@ -337,7 +359,21 @@ async fn answer_session(
             timeline.mark("first_channel");
             tracing::info!(session_id, timings = %timeline.summary(), "first channel");
         }
-        tokio::spawn(services::serve(Arc::clone(&context.services), peer.clone(), incoming));
+        // In open order: a channel opened after `auth` waits for it. One
+        // `auth` runs at a time per link.
+        if incoming.service == "auth" && context.services.pairing.is_some() && !auth.try_begin() {
+            tokio::spawn(services::refuse(incoming, "busy", "this iPhone's pairing is already running"));
+            continue;
+        }
+        if incoming.service == "auth" && context.services.pairing.is_none() {
+            auth.begin();
+        }
+        tokio::spawn(services::serve(
+            Arc::clone(&context.services),
+            peer.clone(),
+            Arc::clone(&auth),
+            incoming,
+        ));
     }
     let reason = connected.link.closed().await;
     path_watch.abort();

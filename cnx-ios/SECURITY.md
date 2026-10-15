@@ -4,7 +4,8 @@ This is the analysis that the repository's "Remote CLI relay" rule asks for
 (`skills/cmux-socket-policy/references/remote-relay-authorization.md`). It
 covers every path by which a phone reaches this Mac through `cnx-hostd`. Each
 path goes through one link service: `daemon`, `chief`, `acpmux`, `file`,
-`upload`, or `echo`.
+`upload`, or `echo`, and, when the app supervises hostd, only after the
+`auth` pairing service (below) accepted the phone.
 Any other service is refused with `unknown_service`.
 
 The daemon allowlist lives in one place:
@@ -29,12 +30,21 @@ policy (see `chief` below).
   imports) refuse it. The phone never proves the app's install key and never
   gets `user_origin_allowed`. This is deliberate: the phone is a scoped remote
   client, not the local owner.
+- **The Mac is pinned.** The phone pins each paired Mac's identity key on
+  first use (the Mac app's Keychain key, proved in every `auth` over the
+  phone's own nonce; PROTOCOL.md "Mac identity"). A host registered with a
+  stolen token under that Mac's device id cannot prove the key, so the phone
+  refuses it before it signs or sends anything, and says the Mac's identity
+  changed. A host under a new device id is a new Mac to the phone: it shows in
+  the list as one more Mac, and the person pairs it only by choice.
 - **Revoking.**
   - Turning off Settings > Mobile > Allow iPhone Connections stops hostd, so
     no link can start.
   - Remove in Settings > Mobile forgets the phone on the service
     (`DELETE /v1/devices/:id`, which closes its signaling socket). It also
     tells hostd (`drop_phone`), which closes that phone's live links at once.
+  - Remove also forgets the phone's paired keys on this Mac; its next link
+    asks the person again ("Allow … to connect to this Mac?").
   - A phone that is still signed in registers again. To keep a lost phone out,
     sign that session out of the account.
 
@@ -137,7 +147,7 @@ the owner's other agent conversations in Home.
 | `conversation-list`, `-snapshot`, `-history`, `-thread`, `-search` | Read the owner's own agent conversations (narrowed). |
 | `conversation-op`: `message.send` (`client_msg_id, parts, reply_to, thread_root`), `message.edit`, `message.retract`, `reaction.add/remove`, `read_cursor.set` | What the Mac's Home does in a conversation. |
 | `conversation-op`: `title.set` | Rename, as the Mac's Chief settings. |
-| `conversation-op`: `question.answer` | Answer Chief's questions; the owner stamps the respondent. |
+| `conversation-op`: `question.answer` with `approval` | Answer Chief's questions. Supervised, it counts only with the phone's Face ID signature over this Mac, conversation, question and answer (one use, at most 300 s; `chief_answers.rs`); hostd strips `approval`, and the owner stamps the respondent. An unsigned or forged answer is refused `forbidden`. |
 | `conversation-typing` (`conversation, on`) | Typing as the owner. |
 | `conversation-attachment-upload` (`begin` names an in-scope conversation; `chunk`, `commit`, `cancel` name the upload this connection began) and `-read` | Photos and files, under the owner's own limits (type allow list, 100 MB, hash checks). |
 | `cmux.protocol/2` `chief.engine.get`, `chief.engine.set` (`harness, model, effort, speed, compactor_speed`, strings), `chief.stop` (`name`) with `machine`/`session` only `current`, and no `origin` | The Mac Chief settings' model, harness and effort pickers and Stop (`ChiefControlClient`). |
@@ -190,7 +200,13 @@ the Mac.
 
 - **Terminal and browser tabs** use commands already on the allowlist:
   `new-tab {pane, cols, rows}` (size and placement only, as above),
-  `new-browser-tab {url, pane}`, and `close-surface {surface}`. Selecting a
+  `new-browser-tab {url, pane}`, and `close-surface {surface}`. The phone still
+  never names a folder: hostd adds the Mac's own choice to a phone's `new-tab`,
+  the folder of that pane's active tab (else another tab of the pane, else of
+  its workspace), from the daemon's own `list-workspaces`, canonicalized, never
+  `/`, the home folder or above (`pane_folder`). The terminal opens where the
+  person's other terminals in that workspace already are, as one made on the
+  Mac does; it gains no folder the phone's terminals in that pane lack. Selecting a
   tab stays on the phone (it remembers the last tab per workspace). The phone
   never sends `select-tab` or `report-focus` for its own navigation, because
   both move the Mac's view for the person sitting at it.
@@ -242,9 +258,55 @@ sent as an ACP `resource_link` to that path.
   cleaned up. Both are bounded only by the per-file cap and the person's
   disk.
 
+## `auth`: pairing a phone with this Mac
+
+When the app supervises hostd, every link starts with `auth`. A channel the
+phone opens after `auth` waits for its outcome (at most the signature and
+approval waits) and is refused with `unpaired` unless it pairs; a channel with
+no `auth` before it (`echo` included) is refused at once. The design is in
+`verify/phone-approvals.md`.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. Its arguments are two P-256 public keys, a display name and `pair` or `unpair`. It runs nothing and reads no file. |
+| Mutates or destroys objects the session does not own? | It can only ask the person to approve this link's own device id (stamped by the backend, never taken from the arguments), or, with `unpair` and a signature by the approved identity key, ask the app to forget that same device. |
+| Reads local state the remote should not see? | It answers only a fresh 32-byte challenge and the Mac's own device id. The paired list stays in the app (a 0600 file per signed-in user). |
+
+- **Prompt limits.** A token holder can bring any number of fresh key pairs,
+  so the deny list (keyed on the key) alone does not stop it re-asking. hostd
+  runs one `auth` at a time per link (`busy`), lets at most 32 channels wait
+  behind it (`busy`), and asks at most 3 new identity keys per device id and
+  6 in all per 10 minutes. After the person refuses a key, that device id
+  asks nothing for 10 minutes whatever key it brings (`rate_limited`). hostd
+  asks nothing until the app sent its approved list, so an approved phone is
+  never asked again after a hostd restart.
+- **Prompt content.** `pair_request` carries `registered_at_ms` (PROTOCOL.md
+  "Pairing"): when the backend first saw that device id. The phone sets the
+  `name` it shows, so a spoofed "Aziz's iPhone" from a device registered
+  minutes ago is visible as new.
+- **Rule 6 (tests):** `pairing::tests` and the pairing cases in
+  `tests/host.rs` (a token alone reaches no service, a forged signature asks
+  nobody, approval opens the link, a new approval key asks again, unpair
+  reaches the app, a refused key is closed `denied`, channels opened
+  behind `auth` wait for it, one `auth` per link, a refusal silences new keys
+  from that device id, and nothing is asked before the app's list arrives).
+
+## Test-only pairing seed (DEBUG builds)
+
+A hidden rig app cannot press the person-only "Allow … to connect?" prompt.
+For tagged test instances only, a DEBUG build reads `CMUX_NEXT_IPHONE_PAIRING_SEED`
+once at launch: the path of a JSON file `{"devices": [{"id"?, "name"?,
+"identityKey"?, "approvalKey"?}]}`. When a phone asks, the app reads that file;
+an entry whose given fields all match the request (at least an `id` or a `name`)
+pairs it without the prompt, exactly as Allow would (`IPhonePairingSeed`). A
+Release build compiles none of it and ignores the variable, so it is no path
+for anyone but a developer who launches their own DEBUG build with it. The e2e
+rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
+simulator; it never clicks Allow and never writes `paired-devices.json`.
+
 ## Decisions for the person
 
-- Phone-signed approvals or relayed Mac approvals for agent permission
-  questions.
+- Phone pairing and Face ID signed approvals (`verify/phone-approvals.md`),
+  a trust-policy change recommended on issue #13742.
 - None for the service: production builds use the production Worker
   (`https://cnx-ios-api.cmux.dev`), and development builds use the dev Worker.

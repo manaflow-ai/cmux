@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextMobileHost
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -83,6 +84,7 @@ final class NotificationCenterService {
         })
         tasks.append(followPermissionBridge(services, principal: principal))
         desktop.onOpen = { [weak self] id, surface in
+            if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }

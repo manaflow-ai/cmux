@@ -65,6 +65,11 @@ import Testing
         withHost.agentTabHost = "install:mac-1"
         #expect(withHost.environment(inherited: [:])["CNX_AGENT_TAB_HOST"] == "install:mac-1")
         #expect(environment["CNX_CHIEF_SESSION"] == nil)
+        // Browser tabs only from a build that bundles the host (Release has none yet).
+        #expect(environment["CNX_BROWSER_HOSTS"] == nil)
+        var withBrowser = launch
+        withBrowser.browserHosts = true
+        #expect(withBrowser.environment(inherited: [:])["CNX_BROWSER_HOSTS"] == "1")
         var chief = launch
         chief.chiefSession = "cmux-chief-c39c6f72"
         #expect(chief.environment(inherited: [:])["CNX_CHIEF_SESSION"] == "cmux-chief-c39c6f72")

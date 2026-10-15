@@ -201,6 +201,8 @@ pub const SPENT_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 6
 pub struct Answerer<'a> {
     pub person: bool,
     pub decision: Option<(&'a str, &'a str)>,
+    /// A phone's signed decision (`approvers.rs`), with its `decisionNonce`.
+    pub approver: Option<(&'a str, &'a Value)>,
 }
 
 impl<'a> Answerer<'a> {
@@ -212,7 +214,14 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(proof)) => Some((nonce, proof)),
             _ => None,
         };
-        Self { person, decision }
+        let approver = match (
+            field(DECISION_NONCE_FIELD),
+            meta.and_then(|m| m.get(super::approvers::DECISION_FIELD)).filter(|v| v.is_object()),
+        ) {
+            (Some(nonce), Some(signed)) => Some((nonce, signed)),
+            _ => None,
+        };
+        Self { person, decision, approver }
     }
 }
 
@@ -236,6 +245,8 @@ pub struct PersonGate {
     instance: std::sync::OnceLock<String>,
     /// Decision nonces that counted once, with when.
     spent: StdMutex<std::collections::VecDeque<(String, std::time::Instant)>>,
+    /// The person's phones that may allow with a signature (`approvers.rs`).
+    pub approvers: super::approvers::ApproverSet,
 }
 
 impl PersonGate {
@@ -288,6 +299,30 @@ impl PersonGate {
             return false;
         };
         cmux_local_auth::tokens_match(proof, &expected) && !self.spent(nonce)
+    }
+
+    /// Whether `signed` is an enrolled approver's signature for this exact
+    /// prompt, option, nonce and answers on this daemon run, unexpired, with
+    /// a nonce that has not counted yet. It spends nothing.
+    pub fn approver_proves(
+        &self,
+        session: &str,
+        permission: &str,
+        option: &str,
+        nonce: &str,
+        answers: Option<&Value>,
+        signed: &Value,
+    ) -> bool {
+        self.approvers.verifies(
+            self.instance(),
+            session,
+            permission,
+            option,
+            nonce,
+            answers,
+            signed,
+            super::approvers::unix_now(),
+        ) && !self.spent(nonce)
     }
 
     fn spent(&self, nonce: &str) -> bool {
@@ -555,8 +590,21 @@ impl Hub {
         params: &Value,
     ) -> Result<(), RpcError> {
         match m {
+            // Who may sign an allow is the person's own choice (`approvers.rs`).
+            method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
+                Err(person_required("changing or reading trusted approvers"))
+            }
             method::MUX_PERMISSION_RESPOND => {
                 let option = params.get("optionId").filter(|v| !v.is_null());
+                // A phone's signed allow or answer (`approvers.rs`). Never
+                // with `answeredBy`: that stays the person's own claim.
+                if option.is_some_and(|o| self.approver_decided(params, o))
+                    && params
+                        .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
+                        .is_none_or(Value::is_null)
+                {
+                    return Ok(());
+                }
                 let proved = option.is_some_and(|o| self.person_decided(params, o));
                 // Who answered for the person is the person's own claim, or
                 // comes with the person's decision proof (cx-0q7o).
@@ -699,6 +747,26 @@ impl Hub {
         crate::server::session_key(params)
             .ok()
             .is_some_and(|k| self.resolve(k).is_err() && self.resolve_remote(k).is_some())
+    }
+
+    /// Whether a phone's allow (or answer) carries an enrolled approver's
+    /// signature for the pending prompt it answers (`approvers.rs`). The
+    /// answer checks it again under the prompt's lock and spends the nonce.
+    fn approver_decided(&self, params: &Value, option: &Value) -> bool {
+        let Some(option) = option.as_str() else { return false };
+        let Some((nonce, signed)) = Answerer::of(false, params).approver else { return false };
+        let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
+        else {
+            return false;
+        };
+        let Some(pid) = params.get("permissionId").and_then(Value::as_str) else { return false };
+        let pending_nonce = {
+            let state = s.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(p) = state.pending.get(pid) else { return false };
+            p.decision_nonce.clone()
+        };
+        cmux_local_auth::tokens_match(nonce, &pending_nonce)
+            && self.person.approver_proves(&s.id, pid, option, nonce, params.get("answers"), signed)
     }
 
     /// Whether a relayed allow carries the person's decision proof for the

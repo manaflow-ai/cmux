@@ -102,6 +102,36 @@ import Testing
         #expect(store.clientError == nil)
     }
 
+    /// A tab the Mac reports as waiting opens on its card, and the replayed
+    /// history arrives as one change (no past turn ever shows "Working").
+    @Test func waitingMockSessionsOpenOnTheirCard() async throws {
+        func session(_ harness: String) -> MockAgentSession {
+            let mock = MockAgentSession(
+                summary: AgentSessionSummary(id: "t-\(harness)", name: "Resolve merge conflicts", harness: harness, agentName: harness,
+                                             cwd: "~", workspaceTitle: "w", macName: "m", status: .waiting),
+                sleep: { _ in await Task.yield() }
+            )
+            mock.chunkSize = 4000
+            return mock
+        }
+        let codex = AgentChatStore(source: session("codex"))
+        while codex.turns.isEmpty { await Task.yield() }
+        // Everything replayed in one step: history done, the waiting turn up, its ask pending.
+        #expect(codex.turns.dropLast().allSatisfy { $0.status == .completed })
+        #expect(codex.turns.last?.prompt == "Resolve merge conflicts")
+        let permission = try #require(codex.pendingPermission)
+        codex.respond(to: permission.request, option: permission.request.options.first)
+        while codex.isRunning { await Task.yield() }
+        #expect(codex.turns.last?.status == .completed)
+
+        let claude = AgentChatStore(source: session("claude"))
+        while claude.turns.isEmpty { await Task.yield() }
+        let question = try #require(claude.pendingQuestion)
+        claude.answer(question, with: AgentQuestionAnswer(selections: ["default": .init(optionIDs: ["webrtc"])]))
+        while claude.isRunning { await Task.yield() }
+        #expect(claude.turns.last?.status == .completed)
+    }
+
     @Test func mockStreamsFullTurn() async throws {
         let mock = MockAgentSession(
             summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),

@@ -58,7 +58,7 @@ struct FeedCell: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .transition(.opacity)
-                    // The answer was refused (a phone can only decline): offer the decline.
+                    // The answer was refused (an unpaired phone, or Face ID cancelled): offer the decline.
                     if case .question(let question) = item.kind, question.isPending {
                         Button("Decline", role: .destructive) {
                             withAnimation(.cnxSmooth) { store.decline(item.id) }
@@ -205,6 +205,16 @@ struct FeedCell: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .transition(.opacity)
+            } else if let pending = item.pending {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text(pending)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("feed.permission.pending")
+                .transition(.opacity)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     if let command = request.toolCall.command {
@@ -212,9 +222,13 @@ struct FeedCell: View {
                     }
                     HStack(spacing: 8) {
                         ForEach(request.options) { option in
-                            Button(feedTitle(option)) {
+                            Button {
                                 withAnimation(.cnxSmooth) { store.respond(item.id, option: option) }
+                            } label: {
+                                // An allow is signed after Face ID (verify/phone-approvals.md).
+                                if option.isAllow { Label(feedTitle(option), systemImage: "faceid") } else { Text(feedTitle(option)) }
                             }
+                            .accessibilityHint(option.isAllow ? "Approve with Face ID" : "")
                             .buttonStyle(CnxCapsuleButtonStyle(option.kind == .allowOnce ? .primary : (option.isAllow ? .secondary : .destructive), size: .compact))
                         }
                     }

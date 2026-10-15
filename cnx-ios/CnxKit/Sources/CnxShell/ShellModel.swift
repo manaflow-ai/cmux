@@ -77,7 +77,10 @@ final class ShellModel {
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
         self.mockMode = mockMode
         #if DEBUG
-        let mock = MockWorkspaceCreationBackend()
+        // `-cnx-mock-create-delay <seconds>` holds mock creations open, so
+        // the list's pending row can be seen (verify/record-wsdesign.sh).
+        let delay = UserDefaults.standard.double(forKey: "cnx-mock-create-delay")
+        let mock = delay > 0 ? MockWorkspaceCreationBackend(latency: .seconds(delay)) : MockWorkspaceCreationBackend()
         mockCreation = mock
         offlineCreation = mockMode ? mock : UnavailableWorkspaceCreationBackend()
         #else
@@ -114,7 +117,10 @@ final class ShellModel {
             terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
             terminalTabs.uploaderProvider = { [weak live] tab in live?.terminalUploader(tabID: tab.id) }
-            creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
+            let backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
+            // New Browser Tab only for a Mac that streams browser tabs (`browser-stream-v1`).
+            backend.capabilities = { [weak store] mac in store?.macCapabilities[mac] }
+            creator.backend = backend
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
@@ -204,7 +210,14 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         if store.isOffline { return .offline }
-        return live?.banner
+        // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
+        switch live?.pairingState {
+        case .waiting(let mac)?: return .waitingForPairing(on: mac)
+        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac)
+        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone")
+        case .failed(let reason)?: return .failed("Pairing failed: \(reason)")
+        default: return live?.banner
+        }
     }
 
     /// Saves a team's color and emoji (and `PUT /prefs` when live).

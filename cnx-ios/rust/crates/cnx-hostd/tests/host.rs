@@ -7,7 +7,11 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use cnx_hostd::config::{AcpmuxTarget, ServiceConfig};
+use cnx_hostd::control::Event;
 use cnx_hostd::host::{AnswerContext, IceSource, serve_signaling};
+use cnx_hostd::pairing::{
+    DeniedDevice, DeviceTrust, MacIdentity, Pairing, TrustedDevice, challenge_message, mac_proof_message,
+};
 use cnx_link::testing::{FakeOptions, FakeSignaling};
 use cnx_link::{
     Channel, ChannelEvent, Connected, DialError, DialOptions, LinkConfig, SignalingClient, TransportKind,
@@ -22,7 +26,13 @@ struct Fixture {
     _server: FakeSignaling,
     _dirs: Vec<tempfile::TempDir>,
     phone: SignalingClient,
+    phone_id: String,
+    /// Pairing on: the app's `devices` line and the events hostd emitted.
+    trust: Option<tokio::sync::watch::Sender<Option<DeviceTrust>>>,
+    events: Option<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Event>>>,
     mac_id: String,
+    /// Pairing on: this Mac's identity key (`mac_identity`).
+    mac_key: Option<String>,
     root: std::path::PathBuf,
     outside: std::path::PathBuf,
     uploads: std::path::PathBuf,
@@ -124,6 +134,15 @@ async fn fake_acpmux() -> String {
 }
 
 async fn fixture(fake: FakeOptions) -> Fixture {
+    fixture_with(fake, false).await
+}
+
+async fn fixture_with(fake: FakeOptions, pairing: bool) -> Fixture {
+    fixture_trust(fake, pairing, true).await
+}
+
+/// `loaded`: whether the app already sent its (empty) `devices` list.
+async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixture {
     let server = FakeSignaling::start(fake).await;
     let sockets = tempfile::tempdir().unwrap();
     let root = tempfile::tempdir().unwrap();
@@ -141,6 +160,7 @@ async fn fixture(fake: FakeOptions) -> Fixture {
         default_socket: None,
         file_roots: vec![root.path().to_path_buf()],
         acpmux: AcpmuxTarget::Fixed { url: fake_acpmux().await, token: Some("acp-token".into()) },
+        pairing: None,
         agent_tab_host: Some("install:mac-test".into()),
         uploads_dir: uploads.path().to_path_buf(),
         upload_max_bytes: 1024 * 1024,
@@ -149,7 +169,27 @@ async fn fixture(fake: FakeOptions) -> Fixture {
             4,
         ),
     };
+    let mut services = services;
     let mac_id = uuid::Uuid::new_v4().to_string();
+    let (mut trust, mut events, mut mac_key) = (None, None, None);
+    if pairing {
+        let (trust_tx, trust_rx) = tokio::sync::watch::channel(loaded.then(DeviceTrust::default));
+        let (events_tx, events_rx) = tokio::sync::mpsc::unbounded_channel();
+        let identity = MacIdentity::generate().unwrap();
+        mac_key = Some(identity.public_key().to_owned());
+        services.pairing = Some(
+            Pairing::new(
+                mac_id.clone(),
+                trust_rx,
+                Arc::new(move |event| {
+                    let _ = events_tx.send(event);
+                }),
+            )
+            .with_identity(tokio::sync::watch::channel(Some(identity)).1),
+        );
+        trust = Some(trust_tx);
+        events = Some(tokio::sync::Mutex::new(events_rx));
+    }
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
     tokio::spawn(serve_signaling(
         mac,
@@ -161,14 +201,16 @@ async fn fixture(fake: FakeOptions) -> Fixture {
             exclude_cgnat: false,
         },
     ));
-    let phone =
-        SignalingClient::connect(&server.base_url, "user:alice", "team", &uuid::Uuid::new_v4().to_string())
-            .await
-            .unwrap();
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
     Fixture {
         _server: server,
         phone,
+        phone_id,
+        trust,
+        events,
         mac_id,
+        mac_key,
         root: root.path().to_path_buf(),
         outside: outside.path().to_path_buf(),
         uploads: uploads.path().to_path_buf(),
@@ -259,6 +301,8 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(value["link"], 2);
     assert!(value["hostd"].is_string());
+    // This fixture has a browser host: a phone may offer browser tabs.
+    assert_eq!(value["capabilities"], serde_json::json!(["removal-v1", "browser-stream-v1"]));
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
     // and responses stay whole lines in order.
@@ -480,4 +524,391 @@ async fn dials_without_a_stamped_user_are_refused() {
         let error = connect(&fixture, kind).await.err().expect("refused");
         assert_eq!(error, DialError::Bye("not_admitted".into()));
     }
+}
+
+// ---- Pairing (src/pairing.rs) ----
+
+struct PhoneKeys {
+    identity: ring::signature::EcdsaKeyPair,
+    identity_hex: String,
+    approval_hex: String,
+}
+
+fn p256() -> ring::signature::EcdsaKeyPair {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair};
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap()
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn phone_keys() -> PhoneKeys {
+    use ring::signature::KeyPair;
+    let identity = p256();
+    let identity_hex = hex(identity.public_key().as_ref());
+    PhoneKeys { identity, identity_hex, approval_hex: hex(p256().public_key().as_ref()) }
+}
+
+fn json_frame(event: Option<ChannelEvent>) -> serde_json::Value {
+    match event {
+        Some(ChannelEvent::Data(data)) => serde_json::from_slice(&data).unwrap(),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+/// Opens `auth`, signs the challenge with `signer`, and returns the channel
+/// after the signature went out.
+async fn auth(
+    link: &cnx_link::Link,
+    fixture: &Fixture,
+    keys: &PhoneKeys,
+    signer: &ring::signature::EcdsaKeyPair,
+    action: &str,
+) -> Channel {
+    let mut channel = link
+        .open(
+            "auth",
+            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                               "name": "Test iPhone", "action": action}),
+        )
+        .await
+        .unwrap();
+    let challenge = json_frame(channel.recv().await);
+    assert_eq!(challenge["mac"], fixture.mac_id);
+    let message = challenge_message(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        challenge["challenge"].as_str().unwrap(),
+        &keys.identity_hex,
+        &keys.approval_hex,
+        action,
+    );
+    let signature = hex(signer.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    channel
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let link = &connected.link;
+
+    // Before auth: every service is refused.
+    for service in ["daemon", "acpmux", "file", "echo"] {
+        let mut channel = link.open(service, serde_json::json!({})).await.unwrap();
+        assert_eq!(drain(&mut channel).await.1, "unpaired", "{service}");
+    }
+
+    // A signature by another key proves nothing and asks nobody.
+    let mut forged = auth(link, &fixture, &keys, &p256(), "pair").await;
+    assert_eq!(drain(&mut forged).await.1, "unpaired");
+
+    // Unknown keys: hostd asks the app, the phone waits, the user allows.
+    let mut channel = auth(link, &fixture, &keys, &keys.identity, "pair").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let request = fixture.events.as_ref().unwrap().lock().await.recv().await.unwrap();
+    assert_eq!(
+        request,
+        Event::PairRequest {
+            phone_device_id: fixture.phone_id.clone(),
+            name: "Test iPhone".into(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+            registered_at_ms: None,
+        }
+    );
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
+        devices: vec![TrustedDevice {
+            id: fixture.phone_id.clone(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+        }],
+        denied: vec![],
+    }));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+    let mut echo = link.open("echo", serde_json::json!({})).await.unwrap();
+    echo.send(Bytes::from_static(b"ping")).await.unwrap();
+    assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"ping"))));
+    link.close("done");
+
+    // The next link with the same keys passes at once; with a new approval
+    // key it asks again.
+    let connected = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let mut channel = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+    let rotated = PhoneKeys {
+        approval_hex: hex(ring::signature::KeyPair::public_key(&p256()).as_ref()),
+        ..phone_keys()
+    };
+    let rotated = PhoneKeys {
+        identity: keys.identity,
+        identity_hex: keys.identity_hex.clone(),
+        approval_hex: rotated.approval_hex,
+    };
+    let mut channel = auth(&connected.link, &fixture, &rotated, &rotated.identity, "pair").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    assert!(matches!(
+        fixture.events.as_ref().unwrap().lock().await.recv().await,
+        Some(Event::PairRequest { .. })
+    ));
+
+    // Unpair by the paired identity key: the app hears it.
+    let mut channel =
+        auth(&connected.link, &fixture, &keys_like(&rotated), &rotated.identity, "unpair").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+    assert_eq!(
+        fixture.events.as_ref().unwrap().lock().await.recv().await,
+        Some(Event::Unpaired { phone_device_id: fixture.phone_id.clone() })
+    );
+}
+
+fn keys_like(keys: &PhoneKeys) -> PhoneKeys {
+    PhoneKeys {
+        identity: p256(),
+        identity_hex: keys.identity_hex.clone(),
+        approval_hex: keys.approval_hex.clone(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_phone_the_user_refused_is_closed_denied() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut channel = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let _ = fixture.events.as_ref().unwrap().lock().await.recv().await;
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
+        devices: vec![],
+        denied: vec![DeniedDevice { id: fixture.phone_id.clone(), identity_key: keys.identity_hex.clone() }],
+    }));
+    assert_eq!(drain(&mut channel).await.1, "denied");
+    // The next try with the same key is refused at once, without asking.
+    let mut again = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
+    assert_eq!(drain(&mut again).await.1, "denied");
+    assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
+    let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
+    assert_eq!(drain(&mut daemon).await.1, "unpaired");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn channels_opened_after_auth_wait_for_it() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let link = &connected.link;
+    // The phone opens auth and, without waiting, its other channels.
+    let mut channel = link
+        .open(
+            "auth",
+            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                               "name": "Test iPhone", "action": "pair"}),
+        )
+        .await
+        .unwrap();
+    let mut echo = link.open("echo", serde_json::json!({})).await.unwrap();
+    echo.send(Bytes::from_static(b"early")).await.unwrap();
+    let challenge = json_frame(channel.recv().await);
+    let message = challenge_message(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        challenge["challenge"].as_str().unwrap(),
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+    );
+    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let _ = fixture.events.as_ref().unwrap().lock().await.recv().await;
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
+        devices: vec![TrustedDevice {
+            id: fixture.phone_id.clone(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+        }],
+        denied: vec![],
+    }));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+    // The echo opened before approval is served once the phone is paired.
+    assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"early"))));
+
+    // On a link whose auth is refused, a channel opened behind it is refused too.
+    let other = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let mut forged = other
+        .link
+        .open(
+            "auth",
+            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                               "name": "Test iPhone", "action": "pair"}),
+        )
+        .await
+        .unwrap();
+    let mut daemon = other.link.open("daemon", serde_json::json!({})).await.unwrap();
+    let challenge = json_frame(forged.recv().await);
+    let message = challenge_message(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        challenge["challenge"].as_str().unwrap(),
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+    );
+    let signature = hex(p256().sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    forged.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    assert_eq!(drain(&mut forged).await.1, "unpaired");
+    assert_eq!(drain(&mut daemon).await.1, "unpaired");
+}
+
+fn trusting(fixture: &Fixture, keys: &PhoneKeys) -> DeviceTrust {
+    DeviceTrust {
+        devices: vec![TrustedDevice {
+            id: fixture.phone_id.clone(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+        }],
+        denied: vec![],
+    }
+}
+
+fn open_auth_args(keys: &PhoneKeys) -> serde_json::Value {
+    serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                       "name": "Test iPhone", "action": "pair"})
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_link_runs_one_auth_at_a_time() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut first = connected.link.open("auth", open_auth_args(&keys)).await.unwrap();
+    let _challenge = json_frame(first.recv().await);
+    let mut second = connected.link.open("auth", open_auth_args(&phone_keys())).await.unwrap();
+    assert_eq!(drain(&mut second).await.1, "busy");
+    assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_a_refusal_new_keys_for_that_phone_ask_nothing() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut channel = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let _ = fixture.events.as_ref().unwrap().lock().await.recv().await;
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
+        devices: vec![],
+        denied: vec![DeniedDevice { id: fixture.phone_id.clone(), identity_key: keys.identity_hex.clone() }],
+    }));
+    assert_eq!(drain(&mut channel).await.1, "denied");
+    // A fresh key pair from the same device id: refused, and the Mac is not asked.
+    let fresh = phone_keys();
+    let mut again = auth(&connected.link, &fixture, &fresh, &fresh.identity, "pair").await;
+    assert_eq!(drain(&mut again).await.1, "rate_limited");
+    assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_paired_phone_is_not_asked_before_the_app_sends_its_devices() {
+    let fixture = fixture_trust(FakeOptions::default(), true, false).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut channel = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
+    // The list arrives and names this phone: it passes without a prompt (an
+    // early prompt would still be queued below).
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+    assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
+}
+
+// ---- Mac identity and signed Chief answers (#13742 gaps 1 and 2) ----
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_mac_proves_its_key_and_a_chief_answer_needs_the_phones_signature() {
+    use ring::signature::KeyPair;
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let approval = p256();
+    let keys = PhoneKeys { approval_hex: hex(approval.public_key().as_ref()), ..phone_keys() };
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let link = &connected.link;
+
+    // auth with the phone's nonce: the challenge carries the Mac's key and its
+    // signature over this phone, nonce and challenge.
+    let phone_nonce = "pinnonce0123456789abcdef";
+    let mut channel = link
+        .open(
+            "auth",
+            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                               "name": "Test iPhone", "action": "pair", "macNonce": phone_nonce}),
+        )
+        .await
+        .unwrap();
+    let challenge = json_frame(channel.recv().await);
+    let nonce = challenge["challenge"].as_str().unwrap();
+    assert_eq!(challenge["macKey"].as_str(), fixture.mac_key.as_deref());
+    let proof = mac_proof_message(&fixture.mac_id, &fixture.phone_id, phone_nonce, nonce);
+    let mac_key = fixture.mac_key.as_deref().unwrap();
+    assert!(cnx_hostd::pairing::verify(mac_key, &proof, challenge["macSignature"].as_str().unwrap()));
+    // The same proof does not hold for another phone nonce (no replay).
+    let other = mac_proof_message(&fixture.mac_id, &fixture.phone_id, "othernonce0123456789", nonce);
+    assert!(!cnx_hostd::pairing::verify(mac_key, &other, challenge["macSignature"].as_str().unwrap()));
+    let message = challenge_message(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        nonce,
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+    );
+    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+
+    // Chief: an unsigned answer is refused before it reaches the owner; the
+    // phone's signed one passes, without its approval field.
+    let mut chief = link.open("chief", serde_json::json!({})).await.unwrap();
+    let mut buffer = Vec::new();
+    chief.send(Bytes::from_static(b"{\"id\":\"l\",\"cmd\":\"conversation-list\"}\n")).await.unwrap();
+    let list = next_line(&mut chief, &mut buffer).await;
+    assert_eq!(list["id"], "l");
+    let op = serde_json::json!({"kind": "question.answer", "message_id": "msg_Q", "part_index": 0,
+                                "answer": {"selections": {"q": ["yes"]}}});
+    let unsigned = serde_json::json!({"id": "a1", "cmd": "conversation-op", "conversation": "conv_CHIEF",
+                                      "idempotency_key": "k1", "op": op});
+    chief.send(Bytes::from(format!("{unsigned}\n"))).await.unwrap();
+    let refused = next_line(&mut chief, &mut buffer).await;
+    assert_eq!(refused["id"], "a1");
+    assert_eq!(refused["error_code"], "forbidden", "{refused}");
+    let expires = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 60;
+    let digest = cnx_hostd::chief_answers::answer_digest(&op["answer"]);
+    let signed_bytes = cnx_hostd::chief_answers::message(&cnx_hostd::chief_answers::Parts {
+        mac: &fixture.mac_id,
+        approver: &fixture.phone_id,
+        conversation: "conv_CHIEF",
+        message_id: "msg_Q",
+        part_index: 0,
+        nonce: "answernonce0123456789",
+        expires_at: expires,
+        answer: &digest,
+    });
+    let signature = hex(approval.sign(&ring::rand::SystemRandom::new(), &signed_bytes).unwrap().as_ref());
+    let mut signed = unsigned.clone();
+    signed["id"] = serde_json::json!("a2");
+    signed["approval"] = serde_json::json!({"approver": fixture.phone_id, "nonce": "answernonce0123456789",
+                                            "expiresAt": expires, "signature": signature});
+    chief.send(Bytes::from(format!("{signed}\n"))).await.unwrap();
+    let passed = next_line(&mut chief, &mut buffer).await;
+    assert_eq!(passed["id"], "a2");
+    assert_eq!(passed["data"]["cmd"], "conversation-op", "{passed}");
+    // The same approval again is spent.
+    signed["id"] = serde_json::json!("a3");
+    chief.send(Bytes::from(format!("{signed}\n"))).await.unwrap();
+    let replay = next_line(&mut chief, &mut buffer).await;
+    assert_eq!(replay["error_code"], "forbidden", "{replay}");
 }

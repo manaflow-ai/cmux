@@ -57,6 +57,47 @@ enum IPhoneHostStrings {
     static func phone(_ shortID: String) -> String {
         String(format: String(localized: "iphone.phone.title", defaultValue: "iPhone %@", table: "IPhone", bundle: .module), shortID)
     }
+    static func pairTitle(_ name: String) -> String {
+        String(format: String(localized: "iphone.pair.title", defaultValue: "Allow “%@” to connect to this Mac?", table: "IPhone", bundle: .module), name)
+    }
+    static func pairBody(_ account: String) -> String {
+        String(format: String(localized: "iphone.pair.body",
+                              defaultValue: "It is signed in as %@. Once allowed, it can open your terminals and agent chats, and approve agent actions with Face ID.",
+                              table: "IPhone", bundle: .module), account)
+    }
+    static func pairKey(_ fingerprint: String) -> String {
+        String(format: String(localized: "iphone.pair.key", defaultValue: "Device key %@", table: "IPhone", bundle: .module), fingerprint)
+    }
+    static var pairAllow: String { String(localized: "iphone.pair.allow", defaultValue: "Allow", table: "IPhone", bundle: .module) }
+    static var pairDeny: String { String(localized: "iphone.pair.deny", defaultValue: "Don't Allow", table: "IPhone", bundle: .module) }
+    static var unnamedPhone: String { String(localized: "iphone.pair.unnamed", defaultValue: "iPhone", table: "IPhone", bundle: .module) }
+    static func signedInAs(_ account: String) -> String {
+        String(format: String(localized: "iphone.pair.account", defaultValue: "Signed in as %@", table: "IPhone", bundle: .module), account)
+    }
+    /// When the backend registered the asking phone: "Registered today" makes a brand-new device stand out.
+    static func deviceRegistered(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) {
+            return String(localized: "iphone.pair.registered.today", defaultValue: "Registered today", table: "IPhone", bundle: .module)
+        }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return String(localized: "iphone.pair.registered.yesterday", defaultValue: "Registered yesterday", table: "IPhone", bundle: .module)
+        }
+        return String(format: String(localized: "iphone.pair.registered.date", defaultValue: "Registered %@", table: "IPhone", bundle: .module),
+                      date.formatted(date: .abbreviated, time: .omitted))
+    }
+    static func noticeTitle(_ name: String) -> String {
+        String(format: String(localized: "iphone.notice.title", defaultValue: "“%@” wants to connect to this Mac", table: "IPhone", bundle: .module), name)
+    }
+    static var noticeReview: String { String(localized: "iphone.notice.review", defaultValue: "Review", table: "IPhone", bundle: .module) }
+    static var pendingTitle: String { String(localized: "iphone.pending.title", defaultValue: "Connection Requests", table: "IPhone", bundle: .module) }
+    static func blocked(_ count: Int) -> String {
+        String(format: String(localized: "iphone.pending.blocked", defaultValue: "Blocked requests: %lld", table: "IPhone", bundle: .module), count)
+    }
+    static var blockedHelp: String {
+        String(localized: "iphone.pending.blockedHelp",
+               defaultValue: "After you choose Don't Allow, new requests from this account are ignored for 10 minutes, and too many at once are ignored too.",
+               table: "IPhone", bundle: .module)
+    }
     static func since(_ time: String) -> String {
         String(format: String(localized: "iphone.phone.since", defaultValue: "Since %@", table: "IPhone", bundle: .module), time)
     }

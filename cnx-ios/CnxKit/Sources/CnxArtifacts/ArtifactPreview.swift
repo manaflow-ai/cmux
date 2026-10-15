@@ -13,6 +13,8 @@ public struct ArtifactPreview: View {
     let source: any ArtifactSource
     @Binding var showSource: Bool
     @State private var content: Result<ArtifactContent, any Error>?
+    /// Bumped by Try Again: reloads the artifact.
+    @State private var attempt = 0
     @Environment(\.openURL) private var openURL
 
     public init(artifact: TerminalArtifact, source: any ArtifactSource, showSource: Binding<Bool>) {
@@ -30,8 +32,18 @@ public struct ArtifactPreview: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("artifact.loading")
             case .failure(let error):
-                ContentUnavailableView("Can't open \(artifact.name)", systemImage: "exclamationmark.triangle",
-                                       description: Text(error.localizedDescription))
+                // Never a blank page: what the Mac said, and a way to try again.
+                ContentUnavailableView {
+                    Label("Can't open \(artifact.name)", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error.localizedDescription)
+                } actions: {
+                    Button("Try Again") {
+                        content = nil
+                        attempt += 1
+                    }
+                    .accessibilityIdentifier("artifact.retry")
+                }
             case .success(let loaded):
                 view(for: loaded)
             }
@@ -68,7 +80,7 @@ public struct ArtifactPreview: View {
                 .accessibilityLabel("More")
             }
         }
-        .task(id: artifact) {
+        .task(id: ArtifactLoad(artifact: artifact, attempt: attempt)) {
             do { content = .success(try await source.load(artifact)) } catch { content = .failure(error) }
         }
     }
@@ -106,6 +118,12 @@ public struct ArtifactPreview: View {
             }
         }
     }
+}
+
+/// What `ArtifactPreview` loads: the artifact, again for each Try Again.
+private struct ArtifactLoad: Hashable {
+    let artifact: TerminalArtifact
+    let attempt: Int
 }
 
 /// A video that starts playing when it opens (system controls on tap).

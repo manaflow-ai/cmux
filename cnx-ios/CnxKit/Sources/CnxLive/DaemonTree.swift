@@ -28,7 +28,12 @@ public struct DaemonTree: Sendable {
 
     /// Parses a `list-workspaces` reply (`{"ok":true,"data":{...}}` or the bare data object).
     /// `previous` keeps activity times for workspaces it already knew.
-    public init(reply: Data, macID: String, previous: [Workspace] = [], agents: AgentStates = AgentStates(), now: Date = Date()) throws {
+    /// `activity` is when the phone last saw an event (agent state, title)
+    /// for each surface: the daemon reports no activity times, so a
+    /// workspace with no event since the phone connected has no known time
+    /// (`hasActivityTime` false; `lastActivityAt` is then first sight).
+    public init(reply: Data, macID: String, previous: [Workspace] = [], agents: AgentStates = AgentStates(),
+                activity: [Int: Date] = [:], now: Date = Date()) throws {
         guard let object = try JSONSerialization.jsonObject(with: reply) as? [String: Any] else {
             throw DaemonReplyError(message: "list-workspaces reply is not an object")
         }
@@ -49,10 +54,13 @@ public struct DaemonTree: Sendable {
             var activeTab: [String: Any]?
             var working = false
             var blocked = false
+            var observed: Date?
+            var focusOrder = 0
             for case let screen as [String: Any] in ws["screens"] as? [Any] ?? [] {
                 let activePane = screen["active_pane"] as? Int
                 if screen["active"] as? Bool == true, let activePane { panes[key] = activePane }
                 for case let pane as [String: Any] in screen["panes"] as? [Any] ?? [] {
+                    focusOrder = max(focusOrder, pane["focused_at"] as? Int ?? 0)
                     if panes[key] == nil, let id = pane["id"] as? Int { panes[key] = id }
                     let paneTabs = pane["tabs"] as? [[String: Any]] ?? []
                     for (index, tab) in paneTabs.enumerated() {
@@ -66,7 +74,10 @@ public struct DaemonTree: Sendable {
                         let state = agents[surface]
                         if state?.state == "working" { working = true }
                         if state?.state == "blocked" { blocked = true }
-                        guard let mapped = Self.tab(tab, id: id, agent: state, bindings: &agentTabs) else { continue }
+                        // Activity: the Mac's last agent report, else what the phone saw (titles).
+                        for seen in [activity[surface], state?.updatedAt].compactMap(\.self) { observed = max(observed ?? seen, seen) }
+                        guard let mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
+                                                    waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
                         tabs.append(mapped)
                     }
                 }
@@ -77,6 +88,11 @@ public struct DaemonTree: Sendable {
             let unread = (ws["unread_count"] as? Int ?? 0) > 0 || ws["marked_unread"] as? Bool == true
             let old = previousByID[key]
             let pendingAgents = tabs.contains { tab in agentTabs[tab.id]?.session.flatMap { agents.pending[$0] } ?? false }
+            let known = old.flatMap { $0.hasActivityTime ? $0.lastActivityAt : nil }
+            let activityAt = [observed, known].compactMap(\.self).max()
+            let activeTabID = (activeTab?["surface"] as? Int).map(Self.tabID(surface:)).flatMap { id in
+                tabs.contains { $0.id == id } ? id : nil
+            }
             result.append(Workspace(
                 id: key,
                 macID: macID,
@@ -84,12 +100,15 @@ public struct DaemonTree: Sendable {
                 directory: Self.abbreviated(source?["cwd"] as? String) ?? old?.directory ?? "",
                 branch: source?["git_branch"] as? String,
                 tabs: tabs,
-                lastActivityAt: old?.lastActivityAt ?? now,
+                lastActivityAt: activityAt ?? old?.lastActivityAt ?? now,
                 needsAttention: blocked || pendingAgents,
                 isWorking: working,
                 hasUnread: unread,
                 colorHex: color,
-                icon: ws["icon"] as? String
+                icon: ws["icon"] as? String,
+                hasActivityTime: activityAt != nil,
+                focusOrder: focusOrder,
+                activeTabID: activeTabID
             ))
         }
         workspaces = result
@@ -100,7 +119,16 @@ public struct DaemonTree: Sendable {
     }
 
     /// One daemon tab as an app tab, or nil for tabs the phone does not show (pages, conversations).
-    static func tab(_ tab: [String: Any], id: String, agent: AgentState?, bindings: inout [String: AgentBinding]) -> WorkspaceTab? {
+    /// `agent` is the surface's agent state; `pending` marks acpmux sessions
+    /// with an open permission or question. Both set the tab's `agentStatus`.
+    static func tab(_ tab: [String: Any], id: String, agent: AgentState?, pending: [String: Bool] = [:],
+                    waitingFor: [String: WorkspaceTab.WaitingFor] = [:],
+                    bindings: inout [String: AgentBinding]) -> WorkspaceTab? {
+        var status: WorkspaceTab.AgentStatus? = switch agent?.state {
+        case "blocked": .waiting
+        case "working": .working
+        default: nil
+        }
         // Conversation tabs carry an `about:blank` placeholder title.
         let rawTitle = (tab["title"] as? String).flatMap { $0 == "about:blank" ? nil : $0 }
         let title = (tab["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? rawTitle ?? ""
@@ -108,7 +136,7 @@ public struct DaemonTree: Sendable {
         case "pty", "remote-terminal":
             let subtitle = Self.abbreviated(tab["cwd"] as? String)
             return WorkspaceTab(id: id, kind: .terminal, title: title.isEmpty ? "Terminal" : title, subtitle: subtitle,
-                                harness: agent?.agent)
+                                harness: agent?.agent, agentStatus: status)
         case "browser":
             let url = (tab["url"] as? String).flatMap(URL.init(string:))
             return WorkspaceTab(id: id, kind: .browser, title: title.isEmpty ? (url?.host() ?? "Browser") : title, url: url)
@@ -116,9 +144,15 @@ public struct DaemonTree: Sendable {
             guard let session = (tab["conversation"] as? [String: Any])?["agent_session"] as? [String: Any] else { return nil }
             let binding = AgentBinding(session: session["session"] as? String, harness: session["harness"] as? String, host: session["host"] as? String)
             bindings[id] = binding
+            var asks: WorkspaceTab.WaitingFor?
+            if let session = binding.session, pending[session] == true {
+                status = .waiting
+                asks = waitingFor[session]
+            }
             let harness = binding.harness ?? "agent"
             return WorkspaceTab(id: id, kind: .agent, title: title.isEmpty ? Self.agentName(harness) : title,
-                                subtitle: binding.session == nil ? "New chat" : nil, harness: harness)
+                                subtitle: binding.session == nil ? "New chat" : nil, harness: harness, agentStatus: status,
+                                waitingFor: status == .waiting ? asks : nil)
         default:
             return nil
         }
@@ -150,6 +184,9 @@ public struct AgentStates: Sendable {
     public var bySurface: [Int: AgentState] = [:]
     /// acpmux session id → has a pending permission or question.
     public var pending: [String: Bool] = [:]
+    /// acpmux session id → what its open ask is, when the phone has seen it
+    /// (a question wins over a permission). Absent: "is waiting".
+    public var waitingFor: [String: WorkspaceTab.WaitingFor] = [:]
 
     public init() {}
 
@@ -159,10 +196,26 @@ public struct AgentStates: Sendable {
 public struct AgentState: Hashable, Sendable {
     public var state: String
     public var agent: String?
+    /// The Mac's last report for this agent (`updated_at_ms`), when it sends one.
+    public var updatedAt: Date?
 
-    public init(state: String, agent: String?) {
+    public init(state: String, agent: String?, updatedAt: Date? = nil) {
         self.state = state
         self.agent = agent
+        self.updatedAt = updatedAt
+    }
+
+    /// An agent row of `list-agents` or an `agent-changed` event.
+    public init?(json: [String: Any]) {
+        guard json["surface"] is Int else { return nil }
+        self.init(state: json["state"] as? String ?? "unknown", agent: json["agent"] as? String,
+                  updatedAt: Self.date(json["updated_at_ms"]))
+    }
+
+    /// Epoch milliseconds (`updated_at_ms`) as a date; nil when absent (older Macs).
+    static func date(_ value: Any?) -> Date? {
+        guard let ms = (value as? NSNumber)?.doubleValue, ms > 0 else { return nil }
+        return Date(timeIntervalSince1970: ms / 1000)
     }
 }
 
@@ -182,7 +235,7 @@ public enum DaemonEvent: Equatable, Sendable {
     case treeChanged
     /// The subscription ended (`overflow`): subscribe again, then re-list.
     case resubscribe
-    case agentChanged(surface: Int, state: String, agent: String?)
+    case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil)
     case titleChanged(surface: Int, title: String)
     case other
 
@@ -194,7 +247,8 @@ public enum DaemonEvent: Equatable, Sendable {
             return .resubscribe
         case "agent-changed":
             guard let surface = object["surface"] as? Int else { return .other }
-            return .agentChanged(surface: surface, state: object["state"] as? String ?? "unknown", agent: object["agent"] as? String)
+            return .agentChanged(surface: surface, state: object["state"] as? String ?? "unknown", agent: object["agent"] as? String,
+                                 updatedAt: AgentState.date(object["updated_at_ms"]))
         case "title-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")

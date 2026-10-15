@@ -5,7 +5,7 @@ import Testing
 /// A backend whose creations finish when the test says so.
 @MainActor
 final class ScriptedBackend: WorkspaceCreationBackend {
-    var creatable: Set<String> = ["mac-studio", "mac-mini-2"]
+    var creatable: Set<String> = ["mac-studio", "mbp"]
     var options = WorkspaceCreationOptions.basic
     var requests: [NewWorkspaceRequest] = []
     /// The result for the next creation: a real workspace or a refusal.
@@ -130,10 +130,14 @@ final class ScriptedBackend: WorkspaceCreationBackend {
     }
 
     @Test func thePreferredMacWinsWhenAvailable() throws {
-        let (_, creator, backend) = make()
+        let (store, creator, backend) = make()
         #expect(creator.targetMac?.id == "mac-studio")
-        creator.prefer(macID: "mac-mini-2")
-        #expect(try #require(creator.create()).macID == "mac-mini-2")
+        // Wake the MacBook Pro so two Macs can take a workspace.
+        var macs = try #require(store.activeTeam?.macs)
+        macs[1].isOnline = true
+        store.setMacs(macs, teamID: store.activeTeamID)
+        creator.prefer(macID: "mbp")
+        #expect(try #require(creator.create()).macID == "mbp")
         backend.creatable = ["mac-studio"]
         #expect(creator.targetMac?.id == "mac-studio")
     }

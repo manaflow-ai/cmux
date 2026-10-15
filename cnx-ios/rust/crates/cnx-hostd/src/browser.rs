@@ -104,6 +104,11 @@ impl Default for BrowserConfig {
 }
 
 impl BrowserConfig {
+    /// Whether this Mac can stream browser tabs (the version service's `browser-stream-v1`).
+    pub fn available(&self) -> bool {
+        self.launcher.is_some()
+    }
+
     /// `launcher` None refuses every open with `unavailable`.
     pub fn new(launcher: Option<Launcher>, max_tabs: usize) -> Self {
         Self { launcher, max_tabs: max_tabs.max(1), hosts: Arc::default(), next_viewer: Arc::default() }
@@ -138,7 +143,7 @@ impl BrowserConfig {
         let launcher = self
             .launcher
             .clone()
-            .ok_or_else(|| Refusal::new("unavailable", "no browser host on this Mac"))?;
+            .ok_or_else(|| Refusal::new("no_browser_host", "this Mac does not stream browser tabs"))?;
         let mut hosts = self.hosts.lock().await;
         hosts.retain(|_, entry| entry.host.guard.alive());
         if !hosts.contains_key(tab) {

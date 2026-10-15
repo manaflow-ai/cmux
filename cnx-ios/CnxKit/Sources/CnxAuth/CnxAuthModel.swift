@@ -19,6 +19,16 @@ public final class CnxAuthModel {
     /// Sign-in method.
     public enum Provider: String, Sendable, Hashable, CaseIterable {
         case apple, google, github, email
+
+        /// The provider's name as the welcome writes it.
+        public var displayName: String {
+            switch self {
+            case .apple: "Apple"
+            case .google: "Google"
+            case .github: "GitHub"
+            case .email: "email"
+            }
+        }
     }
 
     /// The signed-in user as the UI shows it.
@@ -276,7 +286,7 @@ public final class CnxAuthModel {
             }
             return true
         } catch {
-            errorMessage = Self.message(for: error)
+            errorMessage = Self.message(for: error, provider: provider)
             return false
         }
     }
@@ -423,13 +433,9 @@ public final class CnxAuthModel {
     /// coordinator) and this model's team list.
     public func signOut() async {
         if let willSignOut, !isMock {
-            // At most 3 s: an unreachable service never holds sign-out.
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await willSignOut() }
-                group.addTask { try? await Task.sleep(for: .seconds(3)) }
-                await group.next()
-                group.cancelAll()
-            }
+            // At most 3 s: an unreachable service or a half-dead link never
+            // holds sign-out (the work goes on in the background).
+            await BoundedWait(.seconds(3)).run { await willSignOut() }
         }
         teamsUserID = nil
         fetchedTeams.reset()
@@ -438,6 +444,21 @@ public final class CnxAuthModel {
             return
         }
         await coordinator?.signOut()
+    }
+
+    /// The welcome's message for a failed provider sign-in, naming the
+    /// provider ("Couldn't sign in with Google. Try again."), or `nil` for a
+    /// user cancel. Connection problems keep their own words.
+    public static func message(for error: any Error, provider: Provider) -> String? {
+        if let error = error as? ASAuthorizationError, error.code == .canceled { return nil }
+        if error is CancellationError { return nil }
+        switch AuthError(displaySafe: error) {
+        case .cancelled: return nil
+        case .offline: return "You're offline. Check your connection and try again."
+        case .networkError: return "Couldn't reach the sign-in service. Check your connection and try again."
+        case .timedOut: return "Sign-in timed out. Check your connection and try again."
+        default: return "Couldn't sign in with \(provider.displayName). Try again."
+        }
     }
 
     /// A user-facing message for an auth error, or `nil` for a user cancel.

@@ -36,6 +36,8 @@ let package = Package(
         // Safari-style tabs (workspaces) and the Messages-style conversation (Chief).
         .package(path: "../../Packages/iOS/CmuxTabsKit"),
         .package(path: "../../Packages/iOS/CmuxConversation"),
+        // The agents' brand marks (Claude, Codex), shared with the Mac app.
+        .package(path: "../../Packages/Shared/CmuxAgentBrands"),
     ],
     targets: [
         .target(name: "CnxDesign"),
@@ -92,6 +94,7 @@ let package = Package(
         // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
         .target(name: "CnxChief", dependencies: [
             "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat",
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
         ]),
@@ -122,11 +125,12 @@ let package = Package(
         .testTarget(name: "CnxAgentChatTests", dependencies: ["CnxAgentChat", "CnxDiff", "CnxMarkdown", "CnxArtifacts"]),
         .testTarget(name: "CnxTerminalTests", dependencies: ["CnxTerminal"]),
         .testTarget(name: "CnxBrowserStreamTests", dependencies: ["CnxBrowserStream", "CnxTransport"]),
-        .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel"]),
+        .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel", "CnxAgentChat"]),
         .testTarget(name: "CnxLiveTests", dependencies: [
             "CnxLive", "CnxTransport", "CnxModel", "CnxAgentChat", "CnxFeed", "CnxTerminal",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
+        .testTarget(name: "CnxShellTests", dependencies: ["CnxShell"]),
         .testTarget(name: "CnxChiefTests", dependencies: [
             "CnxChief", "CnxTransport", "CnxModel", "CnxAgentChat",
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),

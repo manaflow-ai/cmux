@@ -1,6 +1,7 @@
 import CmuxAgentQuestion
 import CnxAgentChat
 import CnxFeed
+import CnxModel
 import Foundation
 import OSLog
 
@@ -31,6 +32,16 @@ public final class LiveFeed: FeedActions {
     private(set) var openAsks: [String: Set<String>] = [:]
     /// Every ask's session, by Feed item id.
     private var askSessions: [String: String] = [:]
+    /// Every open ask's kind, by Feed item id.
+    private var askKinds: [String: WorkspaceTab.WaitingFor] = [:]
+
+    /// What each session with open asks waits for: a question wins over a permission.
+    public var waitingFor: [String: WorkspaceTab.WaitingFor] {
+        openAsks.compactMapValues { asks in
+            let kinds = Set(asks.compactMap { askKinds[$0] })
+            return kinds.contains(.question) ? .question : kinds.contains(.permission) ? .permission : nil
+        }
+    }
 
     public init(store: FeedStore, hub: AcpmuxHub?, now: @escaping @MainActor () -> Date = Date.init,
                 place: @escaping @MainActor (String) -> Place?) {
@@ -47,12 +58,15 @@ public final class LiveFeed: FeedActions {
             let session = sessions[sessionID]
             let kind: FeedItem.Kind
             let markdown: String
+            let waits: WorkspaceTab.WaitingFor
             switch mapped {
             case .question(let question):
                 kind = .question(question)
+                waits = .question
                 markdown = question.summary
             case .permissionRequest(let permission):
                 kind = .permission(permission)
+                waits = .permission
                 markdown = permission.toolCall.title.isEmpty ? "Permission requested" : "**Permission:** \(permission.toolCall.title)"
             default:
                 return
@@ -62,10 +76,12 @@ public final class LiveFeed: FeedActions {
             log.info("feed ask \(id, privacy: .public)")
             openAsks[sessionID, default: []].insert(id)
             askSessions[id] = sessionID
+            askKinds[id] = waits
             store.upsert(item(id: id, kind: kind, sessionID: sessionID, session: session, markdown: markdown,
                               quote: session?.lastPrompt.map { FeedItem.Quote($0) }), atTop: true)
         case .sessionChanged(let session, let recordKind, let seq):
             if session.pendingPermissions == 0, let asks = openAsks.removeValue(forKey: session.id) {
+                for id in asks { askKinds[id] = nil }
                 for id in asks { store.resolveElsewhere(id, text: "Answered") }
             }
             guard recordKind == "turn_result" else { return }
@@ -127,6 +143,7 @@ public final class LiveFeed: FeedActions {
         let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         for (sessionID, asks) in openAsks where (byID[sessionID]?.pendingPermissions ?? 0) == 0 {
             openAsks[sessionID] = nil
+            for id in asks { askKinds[id] = nil }
             for id in asks { store.resolveElsewhere(id, text: "Answered") }
         }
         for session in sessions where session.pendingPermissions > 0 {

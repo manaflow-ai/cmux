@@ -6,10 +6,22 @@ import CnxModel
 import Foundation
 import UIKit
 
-/// Where a conversation opened from New Message lives in Home.
+/// A conversation Home opens on its own stack: Chief (from select mode's
+/// Forward), Chief with the composer focused (Home's compose button), or an
+/// agent's chat.
 public enum HomeConversationRoute: Hashable, Sendable {
     case chief
+    case chiefComposing
     case agent(AgentChatDestination)
+
+    /// The navigation value to push for Chief, nil for an agent.
+    public var chiefRoute: ChiefRoute? {
+        switch self {
+        case .chief: ChiefRoute()
+        case .chiefComposing: ChiefRoute(focusesComposer: true)
+        case .agent: nil
+        }
+    }
 }
 
 /// One recipient New Message can address: Chief, or an agent tab of an
@@ -34,7 +46,7 @@ final class ChiefDirectory: ConversationDirectory, @unchecked Sendable {
     static func recipients(store: AppStore, identity: ChiefIdentity) -> [ChiefRecipient] {
         var all = [ChiefRecipient(
             contact: ConversationContact(
-                id: chiefContactID, name: identity.title, initials: "C", colorHex: "#636366",
+                id: chiefContactID, name: identity.title, initials: identity.avatar, colorHex: "#636366",
                 handles: [ConversationContactHandle(value: String(localized: "Runs your agents"), label: "Chief", service: .iMessage)]
             ),
             route: .chief
@@ -102,7 +114,7 @@ final class ChiefDirectory: ConversationDirectory, @unchecked Sendable {
     }
 }
 
-/// Home's compose button and select mode's Forward: Messages' New Message
+/// Select mode's Forward in the Chief conversation: Messages' New Message
 /// sheet (CmuxConversation's `ConversationComposeViewController`) over a
 /// `ChiefDirectory`. The first send opens the conversation in Home's stack
 /// and sends there:

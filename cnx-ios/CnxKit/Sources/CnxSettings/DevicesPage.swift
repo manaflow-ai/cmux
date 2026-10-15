@@ -18,16 +18,20 @@ public struct SettingsDevice: Identifiable, Hashable, Sendable {
     /// Live presence for a Mac; nil for a phone.
     public var online: Bool?
     public var lastSeenAt: Date?
+    /// When the account first registered it (nil when the list doesn't say).
+    public var addedAt: Date?
     public var isThisDevice: Bool
     /// A phone with an APNs token registered.
     public var receivesNotifications: Bool
 
-    public init(ids: [String], kind: Kind, name: String, online: Bool?, lastSeenAt: Date?, isThisDevice: Bool, receivesNotifications: Bool) {
+    public init(ids: [String], kind: Kind, name: String, online: Bool?, lastSeenAt: Date?, addedAt: Date? = nil,
+                isThisDevice: Bool, receivesNotifications: Bool) {
         self.ids = ids
         self.kind = kind
         self.name = name
         self.online = online
         self.lastSeenAt = lastSeenAt
+        self.addedAt = addedAt
         self.isThisDevice = isThisDevice
         self.receivesNotifications = receivesNotifications
     }
@@ -101,14 +105,15 @@ struct PairedMacsPage: View {
         .refreshable { await load() }
         .task { await load() }
         .confirmationDialog(
-            pendingRemoval.map { "Remove \($0.name)?" } ?? "",
+            pendingRemoval.map { "Remove \(displayName($0))?" } ?? "",
             isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
             titleVisibility: .visible,
             presenting: pendingRemoval
         ) { device in
             Button("Remove", role: .destructive) { Task { await remove(device) } }
         } message: { device in
-            Text(Self.removalExplanation(device, connected: isConnected(device)))
+            Text(Self.removalExplanation(device, connected: isConnected(device), honorsRemoval: honorsRemoval(device),
+                                         displayName: displayName(device)))
         }
         .alert("Couldn't remove", isPresented: Binding(get: { removalError != nil }, set: { if !$0 { removalError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -133,6 +138,17 @@ struct PairedMacsPage: View {
             next.lastSeenAt = mac.lastSeenAt ?? device.lastSeenAt
             return next
         }
+    }
+
+    /// Tags for Macs that share a name ("Aziz's MacBook Pro" twice), so
+    /// the rows and the remove confirmation say which one.
+    private var sameNames: MacNameDisambiguation {
+        MacNameDisambiguation(macs.map { (id: $0.id, name: $0.name) })
+    }
+
+    /// The name with its tag when another Mac has the same name.
+    private func displayName(_ device: SettingsDevice) -> String {
+        device.kind == .mac ? sameNames.displayName(id: device.id, name: device.name) : device.name
     }
 
     private func canRemove(_ device: SettingsDevice) -> Bool {
@@ -167,15 +183,24 @@ struct PairedMacsPage: View {
         device.kind == .mac && device.ids.contains { store.macConnection[$0] != nil }
     }
 
+    /// Whether the Mac's host keeps itself off after a removal (`removal-v1`, said by its
+    /// `version` service when this phone linked to it). Unknown counts as no.
+    private func honorsRemoval(_ device: SettingsDevice) -> Bool {
+        MacRemovalCopy.honorsRemoval(device.ids.map { store.macCapabilities[$0] })
+    }
+
     /// The confirmation's message: what removal does, and how the device comes back.
-    static func removalExplanation(_ device: SettingsDevice, connected: Bool) -> String {
+    /// `honorsRemoval`: the Mac stays off once removed; an older Mac adds itself back.
+    /// `displayName`: the name as the list tells it apart (defaults to the name).
+    static func removalExplanation(_ device: SettingsDevice, connected: Bool, honorsRemoval: Bool = false,
+                                   displayName: String? = nil) -> String {
         guard device.kind == .mac else {
             return "It stops receiving notifications from your Macs and leaves this list. It comes back when cmux on it signs in again."
         }
-        var parts = ["\(device.name) leaves the Mac list on all your devices, and this iPhone forgets its saved workspaces."]
+        var parts = ["\(displayName ?? device.name) leaves the Mac list on all your devices, and this iPhone forgets its saved workspaces."]
         if connected { parts.append("This iPhone disconnects from it now.") }
         if device.online == true {
-            parts.append("It's online, so cmux on that Mac can add it back. To keep it off, turn off Settings → Mobile on that Mac.")
+            parts.append(MacRemovalCopy.online(honorsRemoval: honorsRemoval))
         } else {
             parts.append("To use it again, sign in to cmux on that Mac or turn on Settings → Mobile there.")
         }
@@ -202,6 +227,8 @@ struct PairedMacsPage: View {
             }
         }
         .accessibilityElement(children: .combine)
+        // By device id: same-name Macs stay distinct for tests and the rig.
+        .accessibilityIdentifier(device.kind == .mac ? "settings.pairedMacs.\(device.id)" : "settings.pairedPhones.\(device.id)")
         .deleteDisabled(!canRemove(device))
     }
 
@@ -210,9 +237,17 @@ struct PairedMacsPage: View {
             let notifications = device.receivesNotifications ? "Notifications on" : "Notifications off"
             return device.isThisDevice ? "This iPhone · \(notifications)" : notifications
         }
-        if device.online == true { return status(device)?.text ?? "Online" }
-        guard let seen = device.lastSeenAt else { return "Offline" }
-        return "Last seen \(seen.formatted(.relative(presentation: .named)))"
+        let presence: String
+        if device.online == true {
+            presence = status(device)?.text ?? "Online"
+        } else if let seen = device.lastSeenAt {
+            presence = "Last seen \(seen.formatted(.relative(presentation: .named)))"
+        } else {
+            presence = "Offline"
+        }
+        // Same-name Macs: when each was added and its ID tag.
+        guard let detail = sameNames.detail(for: device.id, addedAt: device.addedAt) else { return presence }
+        return "\(presence) · \(detail)"
     }
 
     /// Presence plus this phone's own connection, for a Mac this phone knows:
@@ -255,7 +290,7 @@ struct PairedMacsPage: View {
             removalError = failure
             theme.haptics.error()
         } catch {
-            removalError = ServiceFailureMessage(text: "Couldn't remove \(device.name): \(error.localizedDescription)")
+            removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)): \(error.localizedDescription)")
             theme.haptics.error()
         }
     }

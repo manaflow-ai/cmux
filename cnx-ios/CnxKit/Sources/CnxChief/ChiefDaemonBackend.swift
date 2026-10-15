@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import CnxAgentChat
 import CnxTransport
 import CryptoKit
 import Foundation
@@ -33,6 +34,15 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
     public static func open(link: any MacLink, identity: ChiefIdentity = .standard) async throws -> ChiefDaemonBackend {
         let channel = try await link.openChannel(service: service, args: [:])
         return ChiefDaemonBackend(client: DaemonClient(channel: channel), identity: identity)
+    }
+
+    /// Answers the question part `partIndex` of `messageID` (`question.answer`).
+    /// The Mac counts it only with this iPhone's Face ID approval
+    /// (cnx-hostd `chief_answers.rs`): `signer` asks for Face ID and signs this
+    /// exact answer for this Mac, conversation and question.
+    public func answerQuestion(messageID: String, partIndex: Int, answer: JSONValue,
+                               signer: any ChiefAnswerSigning) async throws -> ConversationMessage {
+        try await core.answer(messageID: messageID, partIndex: partIndex, answer: answer, signer: signer)
     }
 
     /// Renames the conversation (`title.set`), as the Mac's Chief settings do.
@@ -266,6 +276,25 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             return message
         }
 
+        func answer(messageID: String, partIndex: Int, answer: JSONValue,
+                    signer: any ChiefAnswerSigning) async throws -> ConversationMessage {
+            let id = try await resolve()
+            let approval = try await signer.approval(conversation: id, messageID: messageID, partIndex: partIndex, answer: answer)
+            let answerObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(answer), options: .fragmentsAllowed)
+            guard let approvalObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(approval)) as? [String: Any] else {
+                throw ConversationBackendError(code: -32602, message: "the approval is not a JSON object")
+            }
+            let op: [String: Any] = ["kind": "question.answer", "message_id": messageID, "part_index": partIndex, "answer": answerObject]
+            let result = try await call("conversation-op", ["conversation": id, "idempotency_key": UUID().uuidString,
+                                                            "op": op, "approval": approvalObject])
+            guard let change = result["change"] as? [String: Any], let object = change["message"] as? [String: Any],
+                  let message = await decode(object) else {
+                throw ConversationBackendError(code: -4, message: "conversation-op returned no message")
+            }
+            remember(message)
+            return message
+        }
+
         func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
             var latest: ConversationMessage?
             if let current = known[messageID]?.reactions.first(where: { $0.participantID == identity.meID })?.reaction, current != reaction {
@@ -436,4 +465,11 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             continuation = nil
         }
     }
+}
+
+/// Signs one Chief question answer with the iPhone's approval key after Face ID
+/// (CnxLive `ChiefAnswerSigner`, cnx-hostd `chief_answers.rs`).
+public protocol ChiefAnswerSigning: Sendable {
+    /// `{approver, nonce, expiresAt, signature}` for this exact answer.
+    func approval(conversation: String, messageID: String, partIndex: Int, answer: JSONValue) async throws -> JSONValue
 }
