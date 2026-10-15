@@ -60,8 +60,15 @@ class App:
         self.binary = os.path.join(app, "Contents/MacOS/cmux DEV")
         self.cli = os.path.join(app, "Contents/Resources/bin/cmux")
         self.acpmux = os.path.join(app, "Contents/Resources/bin/acpmux")
-        self.socket = f"/tmp/cmux-debug-{tag}.sock"
         self.proc = None
+
+    @property
+    def socket(self):
+        """The control socket the app's own rule names (build_names.py): ~/.local/state/cmux first, then /tmp."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        found = subprocess.run([sys.executable, os.path.join(here, "build_names.py"), "socket", self.app],
+                               capture_output=True, text=True).stdout.split()
+        return next((p for p in found if os.path.exists(p)), found[0] if found else f"/tmp/cmux-debug-{self.tag}.sock")
 
     def rpc(self, method, params=None, timeout=30):
         try:
