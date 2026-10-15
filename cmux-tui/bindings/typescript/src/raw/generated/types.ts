@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6a4ba878d29c643390f0367714f8f8ba922296f984a8e3a5e763773a3aa7ef0c. */
+/* cmux-tui mux protocol 12, IR 6854d2d91f7e368b0270551ce6575bf9d17533646214a67a6bd984e18ab9a020. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -506,6 +506,25 @@ export type HistorySearchHit = {
 export type HistorySearchRange = {
   "end": number;
   "start": number;
+};
+
+export type HomeChiefState = "working" | "waiting" | "idle";
+
+export type HomeInboxKind = "chief" | "direct" | "channel" | "group";
+
+export type HomeInboxRow = {
+  "activity_at": string;
+  "chief"?: string;
+  "chief_state"?: HomeChiefState;
+  "id": string;
+  "kind": HomeInboxKind;
+  "last_author"?: string;
+  "marked_unread": boolean;
+  "name": string;
+  "pin_position"?: bigint;
+  "pinned": boolean;
+  "preview"?: string;
+  "unread": bigint;
 };
 
 export type Id = bigint;

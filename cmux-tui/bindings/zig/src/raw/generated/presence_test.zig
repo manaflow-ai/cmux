@@ -193,6 +193,11 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "status");
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "title");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "chief");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "chief_state");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "last_author");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "pin_position");
+    try expectExplicitNullRejected(protocol.HomeInboxRow, "preview");
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
     try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_name");
