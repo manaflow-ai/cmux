@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxCEF
 import SwiftUI
 
 /// Places a non-WebKit page's content view in a browser pane.
@@ -149,11 +150,14 @@ final class BrowserEnginePageContainerView: NSView {
     }
 
     private func reclaimKeyFromPageWindowIfOverPane() {
-        guard let window, let keyWindow = NSApp.keyWindow, keyWindow !== window, keyWindow.isChromiumPageWindow,
+        // A hidden tab's container shares the pane rect with the tab shown
+        // in its place; it must not take the keys from that tab's page.
+        guard let window, !isHiddenOrHasHiddenAncestor, let keyWindow = NSApp.keyWindow, keyWindow !== window,
+              keyWindow.isChromiumPageWindow,
               keyWindow.chromiumActingWindow(fallback: NSApp.mainWindow) === window else { return }
         let paneRect = window.convertToScreen(convert(bounds, to: nil))
         guard paneRect.contains(CGPoint(x: keyWindow.frame.midX, y: keyWindow.frame.midY)) else { return }
-        window.makeKey()
+        ChromiumFocusReentrancyGate.shared.run { window.makeKey() }
     }
 
     private static func isMouseDown(_ event: NSEvent?) -> Bool {
