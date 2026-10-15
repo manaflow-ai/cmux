@@ -104,6 +104,7 @@ export function ChatHeaderTools({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
+  sessionRail,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -149,6 +150,8 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  /// The session side rail's toggle (Debug Settings `agent.sessionRail`, summary/SessionRail.tsx), before the summary.
+  sessionRail?: ReactNode;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -383,6 +386,7 @@ export function ChatHeaderTools({
       ) : (
         buttons
       )}
+      {sessionRail}
       {summary}
       <ChatMenu
         items={rows}

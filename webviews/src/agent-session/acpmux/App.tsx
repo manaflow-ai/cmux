@@ -103,6 +103,7 @@ import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
+import { useSessionRail } from "./summary/SessionRail";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
 import { useSummaryCard } from "./summary/cardState";
 import {
@@ -2698,6 +2699,8 @@ function AcpmuxPane() {
     },
     [snapshot.rows, openDiff],
   );
+  // The session side rail (Debug Settings `agent.sessionRail`): its button in the header, the rail beside the chat.
+  const sessionRail = useSessionRail({ snapshot, machineName, onOpenOutput: openOutput });
   // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
   // the selected chat. A chat with no turn yet has no changes view to open.
   const gitIntents = useRef(0);
@@ -5329,6 +5332,7 @@ function AcpmuxPane() {
                           configureQuickActions({ quickActions: before }),
                         );
                       }}
+                      sessionRail={sessionRail.button}
                       summary={<SummaryButton card={summaryCard} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
@@ -5434,6 +5438,8 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
+        {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
         {artifact && (
           <ArtifactPanel
             key={artifact.opened}
