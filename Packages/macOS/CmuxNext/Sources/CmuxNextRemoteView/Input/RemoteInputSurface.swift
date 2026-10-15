@@ -66,6 +66,14 @@ public final class RemoteInputSurface {
         }
     }
 
+    /// Whether a click or scroll on the surface reaches it (and so the
+    /// host). Off while the picture is not live: a click there neither takes
+    /// the keyboard nor goes to the host.
+    public var acceptsPointer: Bool {
+        get { capture.acceptsPointer }
+        set { capture.acceptsPointer = newValue }
+    }
+
     /// cmux shortcut matcher: true keeps the chord in the viewer.
     public var isLocalShortcut: (NSEvent) -> Bool {
         get { capture.controller.isLocalShortcut }

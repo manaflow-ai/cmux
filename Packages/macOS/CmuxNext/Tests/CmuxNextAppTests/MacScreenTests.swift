@@ -229,7 +229,10 @@ struct MacScreenInputGateTests {
         // What Connect does to the input (no network here: the session is not started).
         pane.model.gate = .open
         pane.view.syncInputGate()
-        #expect(pane.view.input.controlMode)
+        // Open, but no picture yet: the connecting card shows and the screen takes no input
+        // until it is live (MacScreenCardInputTests).
+        #expect(pane.model.card != nil)
+        #expect(pane.view.input.controlMode == MacScreenPaneView.takesInput(gate: pane.model.gate, card: pane.model.card))
         // Not in a window, so not first responder: the state says so.
         #expect(pane.model.capturesKeyboard == pane.view.input.hasKeyboard)
         pane.close()
@@ -237,7 +240,7 @@ struct MacScreenInputGateTests {
 
     @Test func forgottenMacStopsInput() {
         let pane = MacScreenPane(name: "Gate Test", pairing: pairing(), preferences: ScreenPreferences(), confirmed: true)
-        #expect(pane.view.input.controlMode)
+        #expect(pane.model.gate == .open)
         pane.forgotten()
         #expect(pane.model.gate == .missing)
         #expect(!pane.view.input.controlMode)
@@ -682,7 +685,7 @@ struct MacScreenCardInputTests {
         // No picture yet: a card shows over the screen.
         #expect(pane.model.card != nil)
         #expect(!pane.view.input.controlMode)
-        #expect(pane.view.capture.isHidden)
+        #expect(!pane.view.input.acceptsPointer)
         let area = pane.view.screenRect
         for local in [CGPoint(x: area.minX + 8, y: area.maxY - 8), CGPoint(x: area.midX, y: area.midY)] {
             let hit = pane.view.hitTest(pane.view.convert(local, to: root))

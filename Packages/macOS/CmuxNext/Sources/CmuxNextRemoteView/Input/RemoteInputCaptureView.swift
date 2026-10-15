@@ -16,6 +16,9 @@ final class RemoteInputCaptureView: NSView {
     var controlMode = false {
         didSet { updateActive() }
     }
+    /// False: clicks and scrolls pass through to what is under the surface
+    /// (a state card over the picture), never to the host.
+    var acceptsPointer = true
 
     private var isFirstResponder = false
     private var markedText = NSAttributedString()
@@ -25,6 +28,7 @@ final class RemoteInputCaptureView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { acceptsPointer ? super.hitTest(point) : nil }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

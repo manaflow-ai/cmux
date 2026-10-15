@@ -128,12 +128,14 @@ public final class MacScreenPane {
             self?.model.displays = sizes
             self?.model.currentDisplay = current
         }
-        // Only an open screen takes the keyboard (a confirm or missing card does not).
+        // Only a live screen takes the keyboard (no card shows: not confirm, missing,
+        // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
-            model.capturesKeyboard = focused && model.gate == .open
+            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.card)
             handlers.keyboardChanged()
         }
+        view.onInputGateChange = { [weak self] in self?.handlers.keyboardChanged() }
         let actions = view.chrome.actions
         actions.connect = { [weak self] in self?.reconnect() }
         actions.disconnect = { [weak self] in self?.disconnectByPerson() }
@@ -379,12 +381,28 @@ public final class MacScreenPaneView: NSView {
         }
     }
 
-    /// Input goes to the other Mac only while the screen is open (not behind a
-    /// confirm or missing card), and the keyboard state says exactly that.
+    /// Input goes to the other Mac only while the screen is live with no card
+    /// over it (connected, with a picture), and the keyboard state says
+    /// exactly that. Under a card a click neither reaches the host nor takes
+    /// the keyboard. A screen that had the keyboard before a drop keeps it
+    /// (nothing is sent meanwhile; keys stay in cmux) and uses it again once
+    /// the picture is back; a released one still needs a click.
     func syncInputGate() {
-        input.controlMode = model.gate == .open
-        model.capturesKeyboard = input.hasKeyboard
+        let live = Self.takesInput(gate: model.gate, card: model.card)
+        input.controlMode = live
+        input.acceptsPointer = live
+        let captures = input.hasKeyboard
+        if model.capturesKeyboard != captures { model.capturesKeyboard = captures }
+        onInputGateChange?()
     }
+
+    /// Whether the screen takes input: open, with no card (live, with a picture).
+    static func takesInput(gate: MacScreenPaneModel.Gate, card: MacScreenCard?) -> Bool {
+        gate == .open && card == nil
+    }
+
+    /// The input gate was synced (the pane tells the system shortcut tap).
+    var onInputGateChange: (() -> Void)?
 
     #if DEBUG
     /// Where the picture sits in the pane, for `debug.mac_screen`.
@@ -400,6 +418,8 @@ public final class MacScreenPaneView: NSView {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.needsLayout = true
+                // The card came or went: input follows at once, not on the next layout.
+                self?.syncInputGate()
                 self?.observe()
             }
         }
