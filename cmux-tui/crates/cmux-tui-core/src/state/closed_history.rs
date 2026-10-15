@@ -425,12 +425,7 @@ impl Mux {
                 return Ok(());
             }
             if live {
-                self.tab_group_add(
-                    StripRequest::local(actor, "closed.reopen"),
-                    &id,
-                    move |_| Ok(members),
-                    None,
-                )?;
+                self.rejoin_closed_tab_group(actor, &id, members)?;
             } else {
                 self.tab_group_create(
                     StripRequest::local(actor, "closed.reopen"),
@@ -440,6 +435,9 @@ impl Mux {
                     id.clone(),
                     archive["icon"].as_str().map(str::to_string),
                 )?;
+                if let Some(saved) = archive["saved_id"].as_str() {
+                    self.relink_saved_tab_group(actor, &id, saved)?;
+                }
             }
         }
         let outcome = self.tab_group_outcome(&id);
