@@ -22,7 +22,7 @@ extension SidebarTransientItem {
     /// shown while `home.channelsEnabled` is on. The App activates it (`home.switchView` channels).
     public static let channelsID = LayoutItemID(LayoutItemID.transientPrefix + "channels")
 
-    public static var channels: SidebarTransientItem {
+    @MainActor public static var channels: SidebarTransientItem {
         SidebarTransientItem(id: channelsID, info: SidebarItemInfo(title: SectionStrings.channels, symbol: "number"),
                              after: [SidebarLayoutDocument.homeRef, .builtIn(.home)])
     }

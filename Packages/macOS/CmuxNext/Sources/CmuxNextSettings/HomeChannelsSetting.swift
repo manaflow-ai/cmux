@@ -16,7 +16,7 @@ extension HomeChannelsSetting {
     /// sidebar's Channels entry follows the applied setting; turned off while Channels shows, the dock
     /// selects Home (`HomeDock.followChannelsSetting`). The palette lists the one that changes something.
     /// `unavailable` is the refusal while settings are not loaded.
-    public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?, unavailable: String) {
+    @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?, unavailable: String) {
         for (id, on) in [("home.enableChannels", true), ("home.disableChannels", false)] as [(ActionID, Bool)] {
             registry.bind(id, isEnabled: { DesignSettings.shared.homeChannelsEnabled != on }, invoke: { invocation in
                 guard let settings = settings() else { return registry.refuse(unavailable) }
