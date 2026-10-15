@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "ម៉ាស៊ីន {memory} GiB ត្រូវការ cmux {plan}។ គម្រោងរបស់អ្នកគាំទ្ររហូតដល់ {max} GiB។",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "មិនអាចផ្ទៀងផ្ទាត់ទំហំ RAM របស់ម៉ាស៊ីនប្រភពបានទេ។",

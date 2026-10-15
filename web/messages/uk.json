@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Для машин із {memory} ГіБ потрібен cmux {plan}. Ваш тариф підтримує до {max} ГіБ.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Не вдалося перевірити обсяг RAM вихідної машини.",

@@ -93,7 +93,7 @@ async function refusal(operation: Promise<unknown>) {
 }
 
 describe("team plan change", () => {
-  test("Team to Team Max previews an immediate prorated charge on the same item and seats", async () => {
+  test("Team to Team Max previews an immediate prorated charge on the same item, leaving Stripe's seat count alone", async () => {
     const result = await previewTeamPlanChange({ teamId: "team-1", target: "team_max" }, deps);
 
     expect(statusTeams).toEqual(["team-1"]);
@@ -101,7 +101,7 @@ describe("team plan change", () => {
       customer: "cus_team",
       subscription: "sub_team",
       subscription_details: {
-        items: [{ id: "si_team", price: "price_team_max", quantity: 3 }],
+        items: [{ id: "si_team", price: "price_team_max" }],
         proration_behavior: "always_invoice",
         proration_date: NOW,
       },
@@ -125,7 +125,7 @@ describe("team plan change", () => {
     const update = calls.find((call) => call.method === "update");
     expect(update?.args[0]).toBe("sub_team");
     expect(update?.args[1]).toEqual({
-      items: [{ id: "si_team", price: "price_team_max", quantity: 3 }],
+      items: [{ id: "si_team", price: "price_team_max" }],
       proration_behavior: "always_invoice",
       proration_date: NOW - 60,
       payment_behavior: "error_if_incomplete",
@@ -152,7 +152,7 @@ describe("team plan change", () => {
     expect(result.credit).toBe(29_000);
     const args = calls.find((call) => call.method === "createPreview")?.args[0] as { subscription_details: unknown };
     expect(args.subscription_details).toMatchObject({
-      items: [{ id: "si_team", price: "price_team", quantity: 3 }],
+      items: [{ id: "si_team", price: "price_team" }],
       proration_behavior: "create_prorations",
     });
   });

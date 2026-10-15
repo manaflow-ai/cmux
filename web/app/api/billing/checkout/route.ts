@@ -471,7 +471,9 @@ function teamPlanSwitchURL(
   plan: TeamPlanId,
   teamId: string,
 ): URL | null {
-  const switchable = status.hasActiveSubscription && !status.cancelAtPeriodEnd &&
+  // A past-due subscription keeps the portal path, where payment is fixed.
+  const switchable = (status.subscriptionStatus === "active" || status.subscriptionStatus === "trialing") &&
+    !status.cancelAtPeriodEnd &&
     status.teamPlanId !== null && status.teamPlanId !== undefined && status.teamPlanId !== plan;
   if (!switchable) return null;
   const url = new URL(TEAM_PLAN_SWITCH_PATH, requestOrigin(request));

@@ -221,6 +221,16 @@ export function maxTierUpgradePlanId(planId: string | null | undefined): typeof 
   return normalized === TEAM_PLAN_ID ? TEAM_MEMORY_UPGRADE_PLAN_ID : MEMORY_UPGRADE_PLAN_ID;
 }
 
+/**
+ * The plan id published to installed clients, which only know the ids that
+ * existed before Team Max: Team Max reports as "max", the tier it grants, so
+ * an older app treats its members as paid with the Max sizes. The exact id
+ * is published alongside as `subscriptionPlanId`.
+ */
+export function installedClientPlanId(planId: string): string {
+  return normalizedPlanId(planId) === TEAM_MAX_PLAN_ID ? MAX_PLAN_ID : planId;
+}
+
 /** Return the first paid plan that can create the requested ladder size. */
 export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
   const current = normalizedPlanId(currentPlanId);

@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Máquinas com {memory} GiB exigem cmux {plan}. Seu plano permite até {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Não foi possível verificar a RAM da máquina de origem.",

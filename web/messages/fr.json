@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Les machines de {memory} Gio nécessitent cmux {plan}. Votre forfait prend en charge jusqu’à {max} Gio.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "La taille de RAM de la machine source n’a pas pu être vérifiée.",

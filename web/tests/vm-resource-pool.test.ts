@@ -189,18 +189,25 @@ describe("Cloud VM resource pool policy", () => {
       action: "Pause or delete a VM, or upgrade the team to Team Max.",
       upgradePlanId: "team_max",
       upgradeUrl: "https://cmux.com/api/billing/checkout?plan=team_max&teamId=team",
+      teamId: "team",
+      details: expect.objectContaining({ teamId: "team" }),
     });
     const teamMax = await respondVmWorkflowError(refusal("team_max", "vcpus"), { locale: "en" });
     expect(await teamMax?.json()).toMatchObject({ action: "Pause or delete a VM.", upgradePlanId: null });
   });
 
-  test("a Team asking for a Max size is offered Team Max by name", async () => {
-    const response = await vmMemoryRequiresPlanResponse({ memoryMb: 32 * GB, maxMemoryMb: 16 * GB, planId: "team", upgradePlanId: "team_max" });
-    const payload = await response.json() as { message: string; upgradePlanId: string; upgradeUrl: string };
+  test("a Team asking for a Max size is offered Team Max by name, for its own team", async () => {
+    const response = await vmMemoryRequiresPlanResponse({ memoryMb: 32 * GB, maxMemoryMb: 16 * GB, planId: "team", upgradePlanId: "team_max", teamId: "team-1" });
+    const payload = await response.json() as { message: string; action: string; upgradePlanId: string; upgradeUrl: string; teamId: string; details: { teamId: string } };
     expect(payload.upgradePlanId).toBe("team_max");
     expect(payload.message).toContain("Team Max");
     expect(payload.message).not.toContain("Team_max");
-    expect(payload.upgradeUrl).toBe("https://cmux.com/api/billing/checkout?plan=team_max&cmux_source=vm_memory_limit");
+    expect(payload.upgradeUrl).toBe("https://cmux.com/api/billing/checkout?plan=team_max&teamId=team-1&cmux_source=vm_memory_limit");
+    expect(payload.teamId).toBe("team-1");
+    expect(payload.details.teamId).toBe("team-1");
+    // The CLI checkout sells personal plans only, so a Team Max refusal never suggests it.
+    expect(payload.action).not.toContain("cmux billing checkout");
+    expect(payload.action).toContain(payload.upgradeUrl);
   });
 
   test("the refusal is localized", async () => {

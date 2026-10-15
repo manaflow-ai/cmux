@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 的机器需要 cmux {plan}。当前套餐最多支持 {max} GiB。",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "无法验证源机器的内存大小。",

@@ -135,7 +135,7 @@ describe("billing plan route", () => {
     expect(response.teamBillingManagement).toBe("stripe");
   });
 
-  test("reports team_max for an active Team Max subscription row", async () => {
+  test("reports team_max as teamSubscriptionPlanId for an active Team Max subscription row", async () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
     });
@@ -143,7 +143,9 @@ describe("billing plan route", () => {
 
     const response = await planResponse();
 
-    expect(response.teamPlanId).toBe("team_max");
+    // Installed clients only know free/team; the exact plan rides alongside.
+    expect(response.teamPlanId).toBe("team");
+    expect(response.teamSubscriptionPlanId).toBe("team_max");
     expect(response.teamBillingManagement).toBe("stripe");
   });
 
@@ -155,7 +157,8 @@ describe("billing plan route", () => {
 
     const response = await planResponse();
 
-    expect(response.teamPlanId).toBe("team_max");
+    expect(response.teamPlanId).toBe("team");
+    expect(response.teamSubscriptionPlanId).toBe("team_max");
     expect(response.teamBillingManagement).toBe("none");
   });
 

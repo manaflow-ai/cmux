@@ -105,8 +105,13 @@ async function resolveTeamSwitch(
   };
 }
 
+/**
+ * Only the Price changes. The quantity is left out so Stripe keeps the
+ * item's live seat count; sending the count read a moment ago could undo a
+ * concurrent seat reconcile.
+ */
 function swappedItems(change: TeamSwitch) {
-  return [{ id: change.itemId, price: change.price, quantity: change.quantity }];
+  return [{ id: change.itemId, price: change.price }];
 }
 
 export async function previewTeamPlanChange(

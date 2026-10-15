@@ -18,6 +18,7 @@ import {
   isPaidVmPlan,
   lockedMemoryOptionsMbForPlan,
   maxActiveVmsForPlan,
+  installedClientPlanId,
   maxDiskMbForPlan,
   maxMemoryMbForPlan,
   maxTierUpgradePlanId,
@@ -117,6 +118,13 @@ describe("Free / Team / Team Max entitlement matrix", () => {
       expect(upgradePlanForMemory(memoryMb, "team_max", env)).toBeNull();
     }
     expect(lockedMemoryOptionsMbForPlan("team_max", env).memoryOptionsMb).toEqual([]);
+  });
+
+  test("installed clients that predate Team Max see its tier, Max, as the plan id", () => {
+    expect(installedClientPlanId("team_max")).toBe("max");
+    for (const plan of ["free", "go", "pro", "max", "team", "founders"]) {
+      expect(installedClientPlanId(plan)).toBe(plan);
+    }
   });
 
   test("the pool upgrade names Team Max for a Team, Max for personal plans, nothing at the Max tier", () => {

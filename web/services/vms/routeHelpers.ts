@@ -616,14 +616,18 @@ export async function vmMemoryRequiresPlanResponse(input: {
   readonly maxMemoryMb: number;
   readonly planId: string;
   readonly upgradePlanId: string;
+  /** The billing team; Team Max is bought for this team, never an implicit one. */
+  readonly teamId?: string | null;
 }, locale: Locale = "en"): Promise<Response> {
   const memoryGb = Math.round(input.memoryMb / 1024);
   const maxGb = Math.round(input.maxMemoryMb / 1024);
   const upgradeName = vmPlanDisplayName(input.upgradePlanId);
-  const upgradeUrl = `https://cmux.com/api/billing/checkout?plan=${encodeURIComponent(input.upgradePlanId)}&cmux_source=vm_memory_limit`;
+  const team = input.upgradePlanId === "team_max" && input.teamId ? { teamId: input.teamId } : {};
+  const upgradeUrl = `https://cmux.com/api/billing/checkout?plan=${encodeURIComponent(input.upgradePlanId)}` +
+    `${team.teamId ? `&teamId=${encodeURIComponent(team.teamId)}` : ""}&cmux_source=vm_memory_limit`;
   const copy = await vmMemoryErrorCopy("memoryPlan", locale, {
     memory: memoryGb, max: maxGb, plan: upgradeName, planId: input.upgradePlanId, upgradeUrl,
-  });
+  }, input.upgradePlanId === "team_max" ? "teamAction" : "action");
   return vmErrorResponse({
     error: "vm_memory_requires_plan",
     status: 402,
@@ -632,11 +636,12 @@ export async function vmMemoryRequiresPlanResponse(input: {
     displayTitle: copy.title,
     phase: "billing",
     retryable: false,
-    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, upgradePlanId: input.upgradePlanId },
+    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, upgradePlanId: input.upgradePlanId, ...team },
     extra: {
       upgradeRequired: true,
       upgradeUrl,
       upgradePlanId: input.upgradePlanId,
+      ...team,
       planId: input.planId,
       memoryMb: input.memoryMb,
       maxMemoryMb: input.maxMemoryMb,
@@ -745,6 +750,7 @@ export async function vmResourcePoolExceededResponse(
       requested: error.requested,
       upgradePlanId,
       ...(upgradeUrl ? { upgradeUrl } : {}),
+      ...(upgradePlanId === "team_max" ? { teamId: error.billingTeamId } : {}),
     },
     details: {
       resource: error.resource,
@@ -755,6 +761,7 @@ export async function vmResourcePoolExceededResponse(
       requestedVcpus: error.requested.vcpus,
       requestedMemoryMb: error.requested.memoryMb,
       upgradePlanId,
+      ...(upgradePlanId === "team_max" ? { teamId: error.billingTeamId } : {}),
     },
   });
 }
@@ -951,7 +958,7 @@ export const vmWorkflowErrorResponders = {
     }
     const upgradePlanId = upgradePlanForMemory(error.memoryMb, error.planId);
     if (!upgradePlanId) return vmMemoryUnavailableResponse(error.maxMemoryMb, context.locale);
-    return vmMemoryRequiresPlanResponse({ ...error, memoryMb: error.memoryMb, upgradePlanId }, context.locale);
+    return vmMemoryRequiresPlanResponse({ ...error, memoryMb: error.memoryMb, upgradePlanId, teamId: error.billingTeamId }, context.locale);
   },
   VmOperationUnsupportedError: (error, context) => vmUnsupportedOperationResponse(error, context.locale),
   VmProviderOperationError: (error, context) => {

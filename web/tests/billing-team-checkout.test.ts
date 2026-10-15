@@ -275,6 +275,16 @@ describe("Team Max checkout", () => {
     expect(createSession).not.toHaveBeenCalled();
   });
 
+  test("a past-due Team subscription keeps the portal path to fix payment", async () => {
+    dbRows.customers = [{ id: "cus_team_b" }];
+    dbRows.subscriptions = [{ ...activeTeamSubscriptionRow(), status: "past_due" }];
+
+    const response = await checkoutGet("plan=team_max&teamId=team-b");
+
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/api/billing/portal");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
   test("a team already on Team Max asking for Team Max manages billing in the portal", async () => {
     dbRows.customers = [{ id: "cus_team_b" }];
     dbRows.subscriptions = [{ ...activeTeamSubscriptionRow(), plan: "team_max" }];

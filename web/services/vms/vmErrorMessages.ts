@@ -266,10 +266,12 @@ export async function vmMemoryErrorCopy(
   kind: "memoryPlan" | "memoryUnknown" | "memoryUnavailable",
   locale: Locale,
   values: Record<string, string | number> = {},
+  /** `teamAction` for a Team Max upgrade, which the CLI checkout cannot buy. */
+  actionKey: "action" | "teamAction" = "action",
 ): Promise<VmRequiresProCopy> {
   const t = createTranslator({ locale, messages: await loadMessages(locale), namespace: `vmErrors.${kind}` }) as unknown as (key: string, values?: Record<string, string | number>) => string;
   return { title: kind === "memoryPlan" ? t("title", values) : t("message", values),
-    message: t("message", values), action: t("action", values) };
+    message: t("message", values), action: t(actionKey, values) };
 }
 
 /** Localized copy for the Go plan's hard limits. */

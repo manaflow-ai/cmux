@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "เครื่องขนาด {memory} GiB ต้องใช้ cmux {plan} แผนของคุณรองรับสูงสุด {max} GiB",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "ไม่สามารถตรวจสอบขนาด RAM ของเครื่องต้นทางได้",
