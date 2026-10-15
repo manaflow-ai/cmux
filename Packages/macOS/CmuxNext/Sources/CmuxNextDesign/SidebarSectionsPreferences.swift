@@ -22,6 +22,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
     case none
     /// A header per folder: the front tab's working directory.
     case folder
+    /// Needs you, Working, Done and No agent, from each row's merged status
+    /// (`SidebarStatusBucket`). Labs only (`labs.sidebarStatusGrouping`):
+    /// without the flag it reads as `none`.
+    case status
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
