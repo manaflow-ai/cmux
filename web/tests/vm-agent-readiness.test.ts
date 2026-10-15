@@ -73,6 +73,11 @@ function machine(options: { teamAgents?: Record<string, boolean>; codexConfig?: 
   chmodSync(path.join(bin, "cmux"), 0o755);
   writeFileSync(path.join(bin, "cmux-tui"), "#!/bin/sh\nexit 0\n");
   chmodSync(path.join(bin, "cmux-tui"), 0o755);
+  // The exec prelude takes HOME from `getent passwd "$(id -u)"`. A Linux host
+  // answers with the runner's real home and would move the check off this
+  // machine's home; answer with it instead (macOS has no getent at all).
+  writeFileSync(path.join(bin, "getent"), `#!/bin/sh\n[ "$1" = passwd ] || exit 2\nprintf '%s\\n' 'cmux:x:1000:1000::${home}:/bin/sh'\n`);
+  chmodSync(path.join(bin, "getent"), 0o755);
   const curlLog = path.join(root, "curl.log");
   const team = JSON.stringify({ teamId: "t", agents: options.teamAgents ?? { claude: true, codex: true, opencode: true } });
   writeFileSync(
