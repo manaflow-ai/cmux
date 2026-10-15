@@ -632,13 +632,15 @@ The vault lives in this Mac's Keychain (this device only). Scopes: `all` (every 
 ## Open a repo (`cmux vm clone`)
 
 ```bash
-cmux vm clone <repo> [--machine <id>|--new] [--size <preset>] [--branch <b>] [--dir <remote-dir>] [--agent <claude|codex|opencode|pi> [-- <prompt>]] [--no-open] [--dry-run] [--json]
+cmux vm clone <repo> [--machine <id>|--new] [--size <preset>] [--branch <b>] [--dir <remote-dir>] [--agent <claude|codex|opencode|pi> [-- <prompt>]] [--save-warm] [--cold] [--no-open] [--dry-run] [--json]
 cmux vm repo clone <repo> [same options]              # alias
 cmux vm clone owner/repo --agent claude -- "fix the flaky test"
 cmux vm clone .                                         # this checkout's origin remote and branch
 ```
 
 `<repo>` is an https URL (also `/tree/<branch>`), `git@github.com:o/r.git`, `o/r`, or `.`. The machine is `--machine` (an id or a label, resolved before anything runs), else the one this repo (or `.` directory) was cloned onto last, else your only running machine (a hand-made one; stderr says `Using <label> (your only running machine). Use --new for a fresh one.`), else `vm agent`'s router (an idle pool machine, then a new one). Several running machines are never guessed between, and `vm run`'s rule that hand-made machines are never drafted is unchanged. On a machine the clone just provisioned, the daemon's first workspace (`workspace-1`) is renamed for the repo and reused instead of left beside a second workspace (`--json` reports `adopted_initial_workspace`). Cloud Secrets sync first (`vm.secrets_sync` with the repo's project key), so a `GH_TOKEN` from `cmux vm secrets import --gh` authenticates private GitHub clones; no credential is ever in the clone command. The checkout lands in `work/<repo>`; a re-run fetches and checks out instead of cloning again. A workspace named after the repo opens with a terminal in the checkout, and `--agent` starts that agent there. A repo's `.cmux/cloud.json` `setup` commands run with Cloud Secrets in reach, so only `.` runs them unasked; any other repo is asked about on a terminal and skipped without one (`Setup skipped: run again with --setup …`), and updating an existing checkout never re-runs them. `--setup` runs them without asking; `--skip-setup` never does. As an agent, pass `--setup` only for a repository the user trusts. Phase timings print on stderr and `Open: cmux vm open <m>/<ws>` on stdout.
+
+**Warm starts.** `--save-warm` snapshots the machine after setup and before `--agent` starts (`vm.snapshot`, named `cmux warm start <project>`) and records it on this Mac (`~/.cmuxterm/vm-warm-starts.json`, one per repository; the one it replaces is deleted). `"warm": true` in `.cmux/cloud.json` does the same after the first successful trusted setup of a new checkout. Later, a clone of that repository that needs a new machine (`--new`, or nothing to reuse) restores the snapshot (`vm.restore`) instead of provisioning, cloning and setting up: the checkout is fetched, setup is skipped (`--setup` refreshes dependencies), the machine's `~/.config/cmux/env` is cleared and Cloud Secrets are delivered again, and stderr says `Warm start from snapshot (saved 3 days ago) 4.1s`. A restore that fails never blocks the clone: `Warm start from snapshot <id> failed (<reason>); cloning on a fresh machine instead.` `--cold`, `--machine` and `--size` never restore. `cmux vm snapshot warm` lists warm starts, `cmux vm snapshot warm rm <repo>` forgets one (and deletes its snapshot unless `--keep-snapshot`). A paused machine the clone reuses is woken first with one line (`Waking brave-otter… 2.3s`); `vm agent` and `vm open` do the same, and `vm exec` is woken by the backend inside its own request.
 
 ## Surfaces and display
 
@@ -742,6 +744,10 @@ Provider-dependent: `cmux vm ls --json` → `capabilities.snapshot` / `capabilit
 
 ```bash
 cmux vm snapshot <id> [--name <name>] [--json]    # alias: cmux vm checkpoint
+cmux vm snapshot ls <id> [--json]
+cmux vm snapshot rm <id> <snapshot-id> [--json]
+cmux vm snapshot warm [ls] [--json]               # this Mac's warm starts, one per repository
+cmux vm snapshot warm rm <repo> [--keep-snapshot] [--json]
 ```
 
 Socket `vm.snapshot {id, name?}`. Text `OK snapshot=<snapshot id>`; `--json` the payload (`snapshot_id` or `id`). Sidebar: machine row › Checkpoint.
