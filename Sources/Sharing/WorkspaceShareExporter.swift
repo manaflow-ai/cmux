@@ -742,23 +742,22 @@ final class WorkspaceShareExporter {
             full: true,
             includeTheme: startsNewStream || previousEmissionState == nil
         )?.frame,
-        let emission = try? fullFrame.renderGridEmission(
-            comparedTo: previousEmissionState
-        ) else { return nil }
+        let emission = try? fullFrame.renderGridEmission(comparedTo: previousEmissionState),
+        case let .emit(emittedFrame, emittedState) = emission else { return nil }
 
-        let kind: WorkspaceShareTerminalVTFrame.Kind = emission.frame.full ? .snapshot : .patch
+        let kind: WorkspaceShareTerminalVTFrame.Kind = emittedFrame.full ? .snapshot : .patch
         let bytes = kind == .snapshot
-            ? emission.frame.vtReplacementBytes()
-            : emission.frame.vtPatchBytes()
+            ? emittedFrame.vtReplacementBytes()
+            : emittedFrame.vtPatchBytes()
         guard let payload = try? terminalTransportTracker.makeFrame(
             surfaceId: surfaceID,
             kind: kind,
-            columns: emission.frame.columns,
-            rows: emission.frame.rows,
+            columns: emittedFrame.columns,
+            rows: emittedFrame.rows,
             data: bytes
         ) else { return nil }
 
-        terminalEmissionStateBySurfaceID[panel.id] = emission.state
+        terminalEmissionStateBySurfaceID[panel.id] = emittedState
         return payload
     }
 
