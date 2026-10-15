@@ -66,6 +66,8 @@ extension TabStripView {
                 // Chrome: it shrinks to the close width with its left edge pinned to the previous
                 // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
                 dying.insert(id)
+                let shown = displayed.filter { !dying.contains($0.id) || $0.id == id }.map(\.id)
+                if let i = shown.firstIndex(of: id) { closingAnchors[id] = .some(i > 0 ? shown[i - 1] : nil) }
                 motion[id]?.use(.tabClose)
                 motion[id]?.width.target = metrics.chrome.closeEndWidth
                 cell.beginClosing()
@@ -78,6 +80,7 @@ extension TabStripView {
         for item in ordered {
             if let cell = cells[item.id] {
                 dying.remove(item.id)
+                closingAnchors[item.id] = nil
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
@@ -178,6 +181,7 @@ extension TabStripView {
         cells[id] = nil
         motion[id] = nil
         dying.remove(id)
+        closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }
         if closeHoveredID == id { closeHoveredID = nil }
     }
