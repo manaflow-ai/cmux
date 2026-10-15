@@ -55,7 +55,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         window.displayIfNeeded()
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: surface.hostedView)
-            surface.teardownHostedSurfaceForTesting()
+            surface.releaseHostedSurfaceForTesting()
             window.close()
         }
         TerminalWindowPortalRegistry.bind(
