@@ -89,14 +89,26 @@ fn session(id: &str, name: &str, tags: serde_json::Value) -> serde_json::Value {
 fn sessions(a: &Path, b: &Path) -> serde_json::Value {
     let (ia, ib) = (home_id(a), home_id(b));
     json!([
-        session("s-a-turn", &format!("optchat-{ia}-turn"),
-                json!({"cmux.chief": ia, "cmux.chief.role": "turn"})),
-        session("s-a-sub", &format!("optchat-sub-{ia}-a1"),
-                json!({"mux.parent": format!("optchat-chief:{ia}")})),
-        session("s-b-turn", &format!("optchat-{ib}-turn"),
-                json!({"cmux.chief": ib, "cmux.chief.role": "turn"})),
-        session("s-b-sub", &format!("optchat-sub-{ib}-a1"),
-                json!({"mux.parent": format!("optchat-chief:{ib}")})),
+        session(
+            "s-a-turn",
+            &format!("optchat-{ia}-turn"),
+            json!({"cmux.chief": ia, "cmux.chief.role": "turn"})
+        ),
+        session(
+            "s-a-sub",
+            &format!("optchat-sub-{ia}-a1"),
+            json!({"mux.parent": format!("optchat-chief:{ia}")})
+        ),
+        session(
+            "s-b-turn",
+            &format!("optchat-{ib}-turn"),
+            json!({"cmux.chief": ib, "cmux.chief.role": "turn"})
+        ),
+        session(
+            "s-b-sub",
+            &format!("optchat-sub-{ib}-a1"),
+            json!({"mux.parent": format!("optchat-chief:{ib}")})
+        ),
         session("s-person", "my-chat", json!({})),
     ])
 }
@@ -104,7 +116,10 @@ fn sessions(a: &Path, b: &Path) -> serde_json::Value {
 fn wait_for(what: &str, limit: Duration, mut done: impl FnMut() -> bool) {
     let deadline = Instant::now() + limit;
     while !done() {
-        assert!(Instant::now() < deadline, "{what} did not happen within {limit:?}");
+        assert!(
+            Instant::now() < deadline,
+            "{what} did not happen within {limit:?}"
+        );
         std::thread::sleep(Duration::from_millis(50)); // test harness: poll a file the fake writes
     }
 }
@@ -156,7 +171,11 @@ fn two_chiefs_on_one_acpmux_reach_only_their_own_sessions() {
     let (a, b) = (chief_home.join("c/aaaa1111"), chief_home.join("c/bbbb2222"));
     let acpmux_home = chief_home.join("acpmux");
     let bin = fake_acpmux(&acpmux_home);
-    std::fs::write(acpmux_home.join("sessions.json"), sessions(&a, &b).to_string()).unwrap();
+    std::fs::write(
+        acpmux_home.join("sessions.json"),
+        sessions(&a, &b).to_string(),
+    )
+    .unwrap();
     let socket = acpmux_home.join("acpmux.sock");
     let mut daemon = Command::new(&bin)
         .args(["daemon", "run"])
@@ -174,9 +193,18 @@ fn two_chiefs_on_one_acpmux_reach_only_their_own_sessions() {
     let listed = chief(&a, &acpmux_home, &bin, &["agents", "list"]);
     let text = String::from_utf8_lossy(&listed.stdout);
     assert!(listed.status.success(), "{listed:?}");
-    assert!(text.contains(&format!("optchat-sub-{}-a1", home_id(&a))), "{text}");
-    assert!(!text.contains(&home_id(&b)), "Chief A listed Chief B's session: {text}");
-    assert!(!text.contains("my-chat"), "Chief A listed the person's session: {text}");
+    assert!(
+        text.contains(&format!("optchat-sub-{}-a1", home_id(&a))),
+        "{text}"
+    );
+    assert!(
+        !text.contains(&home_id(&b)),
+        "Chief A listed Chief B's session: {text}"
+    );
+    assert!(
+        !text.contains("my-chat"),
+        "Chief A listed the person's session: {text}"
+    );
 
     // Chief A cannot send to, allow or deny Chief B's sessions, by name or id.
     let b_sub = format!("optchat-sub-{}-a1", home_id(&b));
@@ -187,10 +215,17 @@ fn two_chiefs_on_one_acpmux_reach_only_their_own_sessions() {
             vec!["agents", "deny", target],
         ] {
             let out = chief(&a, &acpmux_home, &bin, &args);
-            assert!(!out.status.success(), "{args:?} reached another Chief: {out:?}");
+            assert!(
+                !out.status.success(),
+                "{args:?} reached another Chief: {out:?}"
+            );
         }
     }
-    assert!(calls(&acpmux_home).is_empty(), "requests reached other sessions: {:?}", calls(&acpmux_home));
+    assert!(
+        calls(&acpmux_home).is_empty(),
+        "requests reached other sessions: {:?}",
+        calls(&acpmux_home)
+    );
 
     // Ending Chief A ends its turn and its child only; the daemon stays.
     let ended = chief(&a, &acpmux_home, &bin, &["end-sessions"]);
@@ -198,7 +233,10 @@ fn two_chiefs_on_one_acpmux_reach_only_their_own_sessions() {
     let mut got = calls(&acpmux_home);
     got.sort();
     assert_eq!(got, ["_acpmux/kill s-a-sub", "_acpmux/kill s-a-turn"]);
-    assert!(daemon.try_wait().unwrap().is_none(), "the shared daemon was stopped");
+    assert!(
+        daemon.try_wait().unwrap().is_none(),
+        "the shared daemon was stopped"
+    );
     let _ = daemon.kill();
     let _ = daemon.wait();
 }
@@ -231,7 +269,9 @@ fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&P
     // stays the default: a non-default one needs the owner daemon to start).
     command.env("MUX_CHIEF_TITLE", "Test Chief");
     if let Some(chief_home) = shared {
-        command.env("OPTCHAT_ACPMUX_SHARED", "1").env("CMUX_CHIEF_HOME", chief_home);
+        command
+            .env("OPTCHAT_ACPMUX_SHARED", "1")
+            .env("CMUX_CHIEF_HOME", chief_home);
     }
     let mut host = command.spawn().unwrap();
     let mut guard = Leftovers(vec![host.id() as i32]);
@@ -239,7 +279,11 @@ fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&P
     wait_for("the host starting acpmux", Duration::from_secs(30), || {
         std::fs::read_to_string(&pid_file).is_ok_and(|p| !p.is_empty())
     });
-    let fake: i32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    let fake: i32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
     guard.0.push(fake);
     // SAFETY: the pid is our own child.
     unsafe { libc::kill(host.id() as i32, libc::SIGTERM) };
@@ -262,7 +306,11 @@ fn a_shared_host_leaves_the_chief_homes_acpmux_running_and_ends_only_its_session
     let (mine, other) = (chief_home.join("c/aaaa1111"), chief_home.join("c/bbbb2222"));
     let acpmux_home = chief_home.join("acpmux");
     std::fs::create_dir_all(&acpmux_home).unwrap();
-    std::fs::write(acpmux_home.join("sessions.json"), sessions(&mine, &other).to_string()).unwrap();
+    std::fs::write(
+        acpmux_home.join("sessions.json"),
+        sessions(&mine, &other).to_string(),
+    )
+    .unwrap();
     let fake = host_stops(dir.path(), &mine, &acpmux_home, Some(&chief_home));
     let _guard = Leftovers(vec![fake]);
     assert_eq!(
@@ -273,10 +321,9 @@ fn a_shared_host_leaves_the_chief_homes_acpmux_running_and_ends_only_its_session
     // None of the starting Chief's identity reaches the daemon (its
     // sessions would act as that Chief): it looks as if the default Chief's
     // host had started it.
-    let identity: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(acpmux_home.join("identity.json")).unwrap(),
-    )
-    .unwrap();
+    let identity: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(acpmux_home.join("identity.json")).unwrap())
+            .unwrap();
     assert_eq!(
         identity,
         json!({"MUX_HOME": chief_home.display().to_string(),
@@ -285,8 +332,15 @@ fn a_shared_host_leaves_the_chief_homes_acpmux_running_and_ends_only_its_session
     );
     let mut got = calls(&acpmux_home);
     got.sort();
-    assert_eq!(got, ["_acpmux/kill s-a-sub", "_acpmux/kill s-a-turn"], "no shutdown, own sessions only");
-    assert!(alive(fake), "the shared acpmux stopped with one Chief's host");
+    assert_eq!(
+        got,
+        ["_acpmux/kill s-a-sub", "_acpmux/kill s-a-turn"],
+        "no shutdown, own sessions only"
+    );
+    assert!(
+        alive(fake),
+        "the shared acpmux stopped with one Chief's host"
+    );
 }
 
 #[test]
@@ -301,6 +355,34 @@ fn a_host_with_its_own_acpmux_home_keeps_its_own_daemon() {
         mux_home.display().to_string(),
         "its own daemon's Chief home is its MUX_HOME"
     );
-    assert_eq!(calls(&acpmux_home), ["shutdown"], "it shuts the daemon it started down");
+    assert_eq!(
+        calls(&acpmux_home),
+        ["shutdown"],
+        "it shuts the daemon it started down"
+    );
     wait_for("its daemon ending", Duration::from_secs(5), || !alive(fake));
+}
+
+/// The default Chief's host (no shared flag, `ACPMUX_HOME` = the Chief home's
+/// acpmux) starts that acpmux for every Chief of the home: its credential
+/// (`MUX_AGENT_TOKEN_FILE`, the token that binds as `agent_mux`) stays out of
+/// the daemon, so no session the daemon starts inherits it.
+#[test]
+fn the_default_chiefs_host_starts_the_chief_homes_acpmux_without_its_credential() {
+    let dir = tempfile::tempdir().unwrap();
+    let chief_home = dir.path().join("h");
+    let acpmux_home = chief_home.join("acpmux");
+    let fake = host_stops(dir.path(), &chief_home, &acpmux_home, None);
+    let _guard = Leftovers(vec![fake]);
+    let identity: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(acpmux_home.join("identity.json")).unwrap())
+            .unwrap();
+    assert!(
+        identity.get("MUX_AGENT_TOKEN_FILE").is_none(),
+        "the Chief home's acpmux got the default Chief's token file: {identity}"
+    );
+    assert!(
+        identity.get("OPTCHAT_CHIEF_PARTICIPANT").is_none(),
+        "{identity}"
+    );
 }
