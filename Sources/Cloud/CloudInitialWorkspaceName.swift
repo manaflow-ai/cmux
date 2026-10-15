@@ -10,6 +10,14 @@ import Foundation
 /// the adopted name should be replaced. `cmux vm clone` and `cmux vm dev`
 /// already name their workspace for the repository, so those names are never
 /// counter names and pass through untouched.
+///
+/// A machine created without opening it (the router's pool machines behind
+/// `cmux vm run`, `vm agent` and `vm clone`) never reaches that bind, and a
+/// clone then adds its repository workspace beside the untouched counter one,
+/// after which the sole-workspace rule can never name it. `vm clone` therefore
+/// asks ``adoptableInitialWorkspaceID(_:)`` on a machine it just provisioned and
+/// names that first workspace for the repository instead. This file is compiled
+/// into the CLI as well so both sides share one definition of a counter name.
 struct CloudInitialWorkspaceName: Equatable {
     /// The cmux-tui workspace this decision is about.
     var remoteWorkspaceID: String
@@ -38,6 +46,18 @@ struct CloudInitialWorkspaceName: Equatable {
         guard let label = machineLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty,
               !machineRawIDs.contains(label), !Self.isDaemonCounterName(label) else { return nil }
         return label
+    }
+
+    /// The workspace a named request on a brand-new machine should take over
+    /// rather than add a second one beside it: the machine's only workspace,
+    /// still carrying the daemon's counter name. Nil when the machine has any
+    /// other workspace or the first one was already named, which means
+    /// someone chose that name. Callers ask only about a machine they created
+    /// moments ago, so the counter workspace holds nothing but an idle shell.
+    static func adoptableInitialWorkspaceID(_ workspaces: [(id: String, name: String)]) -> String? {
+        guard workspaces.count == 1, let only = workspaces.first,
+              !only.id.isEmpty, isDaemonCounterName(only.name) else { return nil }
+        return only.id
     }
 
     /// `workspace-<digits>`, the only shape cmux-tui's `default_workspace_name`

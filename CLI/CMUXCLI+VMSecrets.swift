@@ -232,7 +232,9 @@ extension CMUXCLI {
     private func runVMSecretsRemove(_ args: [String], client: SocketClient, json: Bool) throws {
         let options = try Self.parseVMSecretsOptions(args, verb: "rm", valueFlags: ["--scope", "--machine"], boolFlags: ["--project", "--no-sync"])
         let names = try Self.vmSecretsNames(options.positional, verb: "rm")
-        let spec = try resolveVMSecretsMachineScope(Self.vmSecretsScopeSpec(options) ?? .all, client: client)
+        // The message names the scope as typed (a machine by its label, not its id).
+        let typedSpec = Self.vmSecretsScopeSpec(options) ?? .all
+        let spec = try resolveVMSecretsMachineScope(typedSpec, client: client)
         var params = vmSecretsScopeParams(spec, directory: FileManager.default.currentDirectoryPath)
         params["names"] = names
         if options.flags.contains("--no-sync") { params["sync"] = false }
@@ -252,9 +254,9 @@ extension CMUXCLI {
         // wrong scope), even when other names were removed.
         if !notStored.isEmpty {
             throw CLIError(message: String(
-                format: String(localized: "cloudSecrets.cli.rm.notStored", defaultValue: "No secret named %1$@ in %2$@."),
+                format: String(localized: "cloudSecrets.cli.rm.notStored", defaultValue: "No secret named %1$@ for %2$@."),
                 notStored.joined(separator: ", "),
-                Self.vmSecretsScopePhrase(spec)
+                Self.vmSecretsScopePhrase(typedSpec)
             ))
         }
     }
@@ -379,6 +381,11 @@ extension CMUXCLI {
 
     // MARK: - `vm agent` hook
 
+    /// How long `vm agent` waits on the app for each pre-launch Cloud Secrets request
+    /// (the sync and the missing-secret check). Both are best-effort, so a hung app
+    /// delays the agent by at most this much per request, never minutes.
+    static let vmAgentSecretsPreLaunchTimeout: TimeInterval = 30
+
     /// Brings the agent's machine up to date before the agent starts, linking it to the
     /// working directory's project when it has a git remote. Never fatal: a failure is
     /// one stderr line and the agent starts anyway.
@@ -388,7 +395,7 @@ extension CMUXCLI {
             params["project_remote_url"] = remote
         }
         do {
-            let response = try client.sendV2(method: "vm.secrets_sync", params: params, responseTimeout: 260)
+            let response = try client.sendV2(method: "vm.secrets_sync", params: params, responseTimeout: Self.vmAgentSecretsPreLaunchTimeout)
             if let error = response["error"] as? String, !error.isEmpty {
                 cliWriteStderr(Self.vmSecretsAgentWarning(error) + "\n")
             }
@@ -476,7 +483,7 @@ extension CMUXCLI {
         } else if let directory, let remote = Self.vmSecretsGitRemoteURL(directory: directory) {
             params["project_remote_url"] = remote
         }
-        guard let response = try? client.sendV2(method: "vm.secrets_check", params: params, responseTimeout: 60) else {
+        guard let response = try? client.sendV2(method: "vm.secrets_check", params: params, responseTimeout: Self.vmAgentSecretsPreLaunchTimeout) else {
             // An app without the check (or without `files`): no warning rather than a wrong one.
             return nil
         }
@@ -704,6 +711,15 @@ extension CMUXCLI {
                 selector, list
             ))
         case .unknown:
+            // Kept as typed so a secret left by a deleted machine can still be listed
+            // and removed, but a typo must not pass silently.
+            cliWriteStderr(String(
+                format: String(
+                    localized: "cloudSecrets.cli.scope.unknownMachine",
+                    defaultValue: "Warning: no machine is named %@ (see `cmux vm ls`); using it as typed, so a secret stored for it reaches no machine until one has that id."
+                ),
+                selector
+            ) + "\n")
             return spec
         }
     }
@@ -779,33 +795,78 @@ extension CMUXCLI {
     // MARK: - Hidden prompt
 
     /// Reads one line from the terminal with echo off. Echo is restored on return and,
-    /// through a signal handler, on Ctrl-C or termination while the prompt is open.
+    /// through signal handlers, on Ctrl-C, Ctrl-\\ or termination while the prompt is
+    /// open; Ctrl-Z restores it while stopped and hides input again on resume.
+    /// Canonical mode is off too, so a value longer than the terminal's line buffer
+    /// (MAX_CANON, 1024 bytes on macOS) is read whole, up to the newline.
     static func readVMSecretHidden(prompt: String) throws -> String {
         cliWriteStderr(prompt)
         var original = termios()
         let hasTerminal = tcgetattr(STDIN_FILENO, &original) == 0
-        var previousInt: (@convention(c) (Int32) -> Void)?
-        var previousTerm: (@convention(c) (Int32) -> Void)?
-        if hasTerminal {
-            vmSecretsSavedTermios = original
-            previousInt = signal(SIGINT, vmSecretsRestoreTerminalAndExit)
-            previousTerm = signal(SIGTERM, vmSecretsRestoreTerminalAndExit)
-            var hidden = original
-            hidden.c_lflag &= ~tcflag_t(ECHO)
-            _ = tcsetattr(STDIN_FILENO, TCSAFLUSH, &hidden)
-        }
-        defer {
-            if hasTerminal {
-                _ = tcsetattr(STDIN_FILENO, TCSANOW, &original)
-                signal(SIGINT, previousInt ?? SIG_DFL)
-                signal(SIGTERM, previousTerm ?? SIG_DFL)
-                vmSecretsSavedTermios = nil
+        guard hasTerminal else {
+            guard let line = readLine(strippingNewline: true) else {
+                throw CLIError(message: String(localized: "cloudSecrets.cli.set.noInput", defaultValue: "vm secrets set: no value entered"), exitCode: 2)
             }
+            return try vmSecretsEnteredValue(line)
+        }
+        var hidden = original
+        hidden.c_lflag &= ~tcflag_t(ECHO | ICANON)
+        // One byte at a time, blocking: the line is assembled here, not by the tty.
+        withUnsafeMutableBytes(of: &hidden.c_cc) { cc in
+            cc[Int(VMIN)] = 1
+            cc[Int(VTIME)] = 0
+        }
+        vmSecretsSavedTermios = original
+        vmSecretsHiddenTermios = hidden
+        let handled: [Int32] = [SIGINT, SIGTERM, SIGQUIT, SIGHUP]
+        var previous: [Int32: (@convention(c) (Int32) -> Void)?] = [:]
+        for signalNumber in handled {
+            previous[signalNumber] = signal(signalNumber, vmSecretsRestoreTerminalAndExit)
+        }
+        let previousStop = signal(SIGTSTP, vmSecretsSuspendWithTerminalRestored)
+        _ = tcsetattr(STDIN_FILENO, TCSAFLUSH, &hidden)
+        defer {
+            _ = tcsetattr(STDIN_FILENO, TCSANOW, &original)
+            for signalNumber in handled {
+                signal(signalNumber, previous[signalNumber] ?? SIG_DFL)
+            }
+            signal(SIGTSTP, previousStop ?? SIG_DFL)
+            vmSecretsSavedTermios = nil
+            vmSecretsHiddenTermios = nil
             cliWriteStderr("\n")
         }
-        guard let line = readLine(strippingNewline: true) else {
+        var bytes: [UInt8] = []
+        var sawInput = false
+        while true {
+            var byte: UInt8 = 0
+            let count = Darwin.read(STDIN_FILENO, &byte, 1)
+            if count < 0, errno == EINTR { continue }
+            guard count == 1 else { break }
+            sawInput = true
+            switch byte {
+            case 0x0A, 0x0D:
+                return try vmSecretsEnteredValue(String(decoding: bytes, as: UTF8.self))
+            case 0x04 where bytes.isEmpty:
+                // Ctrl-D on an empty line: no value.
+                throw CLIError(message: String(localized: "cloudSecrets.cli.set.noInput", defaultValue: "vm secrets set: no value entered"), exitCode: 2)
+            case 0x7F, 0x08:
+                // Backspace removes one whole UTF-8 character.
+                while let last = bytes.popLast(), last & 0xC0 == 0x80 {}
+            case 0x15:
+                bytes.removeAll()
+            default:
+                bytes.append(byte)
+            }
+        }
+        // End of input without a newline: whatever was typed is the value.
+        guard sawInput, !bytes.isEmpty else {
             throw CLIError(message: String(localized: "cloudSecrets.cli.set.noInput", defaultValue: "vm secrets set: no value entered"), exitCode: 2)
         }
+        return try vmSecretsEnteredValue(String(decoding: bytes, as: UTF8.self))
+    }
+
+    /// A typed value without its line ending; blank input is no value.
+    private static func vmSecretsEnteredValue(_ line: String) throws -> String {
         let value = line.hasSuffix("\r") ? String(line.dropLast()) : line
         guard !value.trimmingCharacters(in: .whitespaces).isEmpty else {
             throw CLIError(message: String(localized: "cloudSecrets.cli.set.noInput", defaultValue: "vm secrets set: no value entered"), exitCode: 2)
@@ -1310,8 +1371,25 @@ extension CMUXCLI {
 }
 
 /// The terminal settings to restore if a signal arrives while a hidden prompt is open.
-/// Written only around `readVMSecretHidden`, read only by the signal handler below.
+/// Written only around `readVMSecretHidden`, read only by the signal handlers below.
 nonisolated(unsafe) private var vmSecretsSavedTermios: termios?
+/// The prompt's own settings (echo and canonical mode off), re-applied after Ctrl-Z.
+nonisolated(unsafe) private var vmSecretsHiddenTermios: termios?
+
+/// Ctrl-Z while the prompt is open: show echo again for the shell, stop, and hide
+/// input again once the job is continued. tcsetattr is async-signal-safe.
+private func vmSecretsSuspendWithTerminalRestored(_ signalNumber: Int32) {
+    if var saved = vmSecretsSavedTermios {
+        _ = tcsetattr(STDIN_FILENO, TCSANOW, &saved)
+    }
+    signal(SIGTSTP, SIG_DFL)
+    raise(SIGTSTP)
+    // Continued.
+    signal(SIGTSTP, vmSecretsSuspendWithTerminalRestored)
+    if var hidden = vmSecretsHiddenTermios {
+        _ = tcsetattr(STDIN_FILENO, TCSANOW, &hidden)
+    }
+}
 
 /// Restores echo, then re-raises the signal with its default action so the shell sees
 /// the usual exit status.

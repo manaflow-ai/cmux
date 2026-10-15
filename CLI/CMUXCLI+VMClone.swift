@@ -29,8 +29,10 @@ extension CMUXCLI {
           cmux vm clone git@github.com:acme/api.git --machine vivid-newt --no-open --json
 
         Clones a repository on a Cloud machine and opens a workspace named after it, with a
-        terminal in the checkout. In order: pick a machine (the one this repository used
-        last, then an idle pool machine, then a new one); sync Cloud Secrets so GH_TOKEN
+        terminal in the checkout. In order: pick a machine (--machine; else the one this
+        repository used last; else your only running machine, said so on stderr; else an
+        idle pool machine; else a new one, whose first workspace is named for the
+        repository); sync Cloud Secrets so GH_TOKEN
         reaches git; clone into work/<repo>, or fetch and check out if it is already there;
         name any secrets the repository declares that the machine lacks; run the
         repository's .cmux/cloud.json `setup` in a "setup" terminal; start --agent as a tab
@@ -43,13 +45,15 @@ extension CMUXCLI {
 
         Options:
           --machine <id>       Use this machine instead of routing.
-          --new                Use a new pool machine.
+          --new                Use a new pool machine, even when one of yours is running.
           --size <4g|8g|16g|24g|32g|64g|MB>
                                Memory for a new machine (24g and up need cmux Max).
           --branch <b>         Check out this branch (wins over /tree/<branch>).
           --dir <path>         Checkout on the machine, relative to home (default: work/<repo>).
           --agent <claude|codex|opencode|pi> [-- <prompt>]
                                Start an agent in the checkout; with a prompt it runs one-shot.
+          --setup              Run the repository's setup commands without asking (also
+                               on a checkout that already existed).
           --skip-setup         Do not run the repository's setup commands.
           --no-open            Do everything on the machine; open nothing here.
           --focus, --no-focus  \(openFocusDefaultHelp)
@@ -58,8 +62,11 @@ extension CMUXCLI {
                                agent_terminal_id, open, timings, …}.
 
         Private repositories: add a GitHub token once with `cmux vm secrets import --gh`.
-        Setup commands come from the repository and run with your Cloud Secrets in reach;
-        pass --skip-setup for a repository you do not trust.
+        Setup commands come from the repository and run with your Cloud Secrets in reach,
+        so only `.` (your own checkout) runs them on its own. For any other repository
+        the commands are listed and, on a terminal, you are asked first; without a
+        terminal they are skipped unless you pass --setup. A checkout that already
+        existed is only updated: its setup runs again only with --setup.
         """
     }
 
@@ -81,6 +88,9 @@ extension CMUXCLI {
         /// The normalized project key: lowercased `host/path`, no `.git`
         /// (`github.com/owner/repo`), the same shape Cloud Secrets uses.
         let projectKey: String
+
+        /// `owner/repo` (or the bare name) for messages.
+        var displayName: String { owner.map { "\($0)/\(name)" } ?? name }
     }
 
     /// Parses a repository argument (everything except `.`, which needs the local git
@@ -104,7 +114,7 @@ extension CMUXCLI {
                 localized: "cli.vm.clone.unrecognizedRepo",
                 defaultValue: "vm clone: '%@' is not a repository. Use https://github.com/<owner>/<repo>, <owner>/<repo>, git@<host>:<path>.git, an https git URL, or `.`."
             ),
-            text
+            vmCloneRedactedRepoArgument(text)
         ))
         let credentialsError = CLIError(message: String(
             localized: "cli.vm.clone.credentialsInURL",
@@ -188,6 +198,17 @@ extension CMUXCLI {
 
     /// `[user@]host:path` (git's scp-like syntax). Requires a dotted host or a user so a
     /// bare `name:thing` is not mistaken for a remote.
+    /// The repository argument as an error may echo it: any `user:password@` (or token)
+    /// before the host of a `scheme://` URL becomes `***@`, so a pasted credential never
+    /// lands in a terminal scrollback or a log.
+    static func vmCloneRedactedRepoArgument(_ text: String) -> String {
+        guard let schemeEnd = text.range(of: "://") else { return text }
+        let afterScheme = text[schemeEnd.upperBound...]
+        let authorityEnd = afterScheme.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) ?? afterScheme.endIndex
+        guard let at = afterScheme[..<authorityEnd].lastIndex(of: "@") else { return text }
+        return String(text[..<schemeEnd.upperBound]) + "***" + String(afterScheme[at...])
+    }
+
     static func parseVMCloneSCPLike(_ text: String) -> (host: String, path: String)? {
         guard !text.contains("://"), let colon = text.firstIndex(of: ":") else { return nil }
         let authority = String(text[..<colon])
@@ -250,7 +271,7 @@ extension CMUXCLI {
         if dir.hasPrefix("~/") { dir.removeFirst(2) }
         while dir.count > 1, dir.hasSuffix("/") { dir.removeLast() }
         let components = dir.split(separator: "/", omittingEmptySubsequences: true)
-        guard !dir.isEmpty, dir != "/",
+        guard !dir.isEmpty, dir != "/", !dir.hasPrefix("-"),
               !components.contains(where: { $0 == ".." || $0 == "." }),
               !dir.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) || CharacterSet.newlines.contains($0) }) else {
             throw CLIError(message: String(
@@ -390,7 +411,7 @@ extension CMUXCLI {
         let newMachine = String(format: String(localized: "cli.vm.clone.plan.machineNew", defaultValue: "a new %@ machine"), size)
         if forceNew { return newMachine + " (--new)" }
         guard let routed else {
-            return String(localized: "cli.vm.clone.plan.machineRouted", defaultValue: "the one this repository used last, else an idle pool machine, else a new one")
+            return String(localized: "cli.vm.clone.plan.machineRouted", defaultValue: "the one this repository used last, else your only running machine, else an idle pool machine, else a new one")
         }
         if routed.wouldProvision { return newMachine }
         return "\(routed.id) (\(routed.reason))"
@@ -565,6 +586,164 @@ extension CMUXCLI {
         "/cmux-vm-clone/\(projectKey)"
     }
 
+    // MARK: - Machine choice
+
+    /// Which rule picked the machine, for the stderr note and the JSON payload.
+    enum VMCloneMachinePick: Equatable {
+        /// `--machine` or `--new`: the router's own answer.
+        case explicit
+        /// The machine this repository (or `.` folder) was cloned onto last.
+        case sticky
+        /// The person's only awake machine that the router did not create.
+        case onlyRunning
+        /// `vm run`'s pool router: an idle pool machine, a sleeper, or a new one.
+        case router
+    }
+
+    /// The machine `vm clone` uses, with its label and the rule that chose it.
+    struct VMCloneSelection {
+        let run: VMRunSelection
+        let pick: VMCloneMachinePick
+        /// The machine's label from `vm.list`, when it has one.
+        let label: String?
+
+        var id: String { run.id }
+        var created: Bool { run.created }
+        var reason: String { run.reason }
+        var wouldProvision: Bool { run.wouldProvision }
+    }
+
+    /// The clone-specific step before `vm run`'s router, read from one `vm.list`: the
+    /// machine this repository was cloned onto last (whoever created it, since a
+    /// clone onto it was an explicit choice), then the person's only running machine.
+    /// A clone is an explicit request for a checkout, unlike `vm run` drafting a pool
+    /// machine for a command, so a machine they made by hand and left running is the
+    /// least surprising place for it; `--new` opts out. Several running machines are
+    /// not guessed between: the router (pool, then a new machine) decides. Pure.
+    static func vmCloneMachinePick(
+        vms: [[String: Any]],
+        poolIDs: Set<String>,
+        boundMachine: String?
+    ) -> (pick: VMCloneMachinePick, id: String)? {
+        func status(_ vm: [String: Any]) -> String { ((vm["status"] as? String) ?? "").lowercased() }
+        if let boundMachine,
+           let bound = vms.first(where: { ($0["id"] as? String) == boundMachine }),
+           ["running", "ready", "standby", "paused"].contains(status(bound)) {
+            return (.sticky, boundMachine)
+        }
+        let running = vms.filter { vm in
+            guard let id = vm["id"] as? String, !id.isEmpty, !poolIDs.contains(id) else { return false }
+            // Base is its own persistent workspace (`vm base open`), not a place for checkouts.
+            if let base = vm["base"], !(base is NSNull) { return false }
+            return ["running", "ready"].contains(status(vm))
+        }
+        guard running.count == 1, let id = running[0]["id"] as? String else { return nil }
+        return (.onlyRunning, id)
+    }
+
+    /// The label `vm ls` shows for a machine, when it has one.
+    static func vmCloneMachineLabel(_ id: String, vms: [[String: Any]]) -> String? {
+        guard let vm = vms.first(where: { ($0["id"] as? String) == id }) else { return nil }
+        return [vm["displayName"], vm["slug"]]
+            .compactMap { $0 as? String }
+            .first { !$0.isEmpty && $0 != id }
+    }
+
+    /// `--machine` > the repository's machine > the person's only running machine >
+    /// `vm run`'s router (idle pool machine, sleeper, new pool machine). The router's
+    /// policy itself is unchanged: it still never drafts a hand-made machine.
+    func selectVMForClone(
+        machineOverride: String?,
+        pinnedLabel: String? = nil,
+        forceNew: Bool,
+        memoryMb: Int?,
+        routingDirectory: String,
+        allowProvision: Bool = true,
+        client: SocketClient
+    ) throws -> VMCloneSelection {
+        func routed(_ pick: VMCloneMachinePick, vms: [[String: Any]]) throws -> VMCloneSelection {
+            let run = try selectVMForRun(
+                machineOverride: machineOverride,
+                forceNew: forceNew,
+                memoryMb: memoryMb,
+                workDirectory: routingDirectory,
+                allowProvision: allowProvision,
+                client: client
+            )
+            return VMCloneSelection(run: run, pick: pick, label: pinnedLabel ?? Self.vmCloneMachineLabel(run.id, vms: vms))
+        }
+        if machineOverride != nil || forceNew { return try routed(.explicit, vms: []) }
+        // An app that cannot list leaves the decision to the router, which says why.
+        guard let listed = try? client.sendV2(method: "vm.list", responseTimeout: 60),
+              let vms = listed["vms"] as? [[String: Any]] else { return try routed(.router, vms: []) }
+        let binding = Self.loadVMRunBindings()[Self.vmRunWorkKey(forDirectory: routingDirectory)]
+        guard let choice = Self.vmCloneMachinePick(vms: vms, poolIDs: Self.loadVMRunPool(), boundMachine: binding?.machine) else {
+            return try routed(.router, vms: vms)
+        }
+        let reason = choice.pick == .sticky
+            ? "reused, holds this repository's checkout"
+            : "your only running machine"
+        return VMCloneSelection(
+            run: VMRunSelection(id: choice.id, created: false, reason: reason),
+            pick: choice.pick,
+            label: Self.vmCloneMachineLabel(choice.id, vms: vms)
+        )
+    }
+
+    /// `--machine <id|label>` → the machine id and its label, through the resolver every
+    /// `cmux vm` verb uses. An unknown machine is an error before anything runs; an app
+    /// that cannot list machines gets the argument as typed (it then names the failure).
+    func resolveVMCloneMachine(_ selector: String, client: SocketClient) throws -> (id: String, label: String?) {
+        guard let listed = try? client.sendV2(method: "vm.list", responseTimeout: 60),
+              let vms = listed["vms"] as? [[String: Any]] else { return (selector, nil) }
+        switch VMMachineSelectorResolver().resolve(selector, vms: vms) {
+        case .id(let id), .label(id: let id):
+            return (id, Self.vmCloneMachineLabel(id, vms: vms))
+        case .ambiguous(let matches):
+            let list = matches.map { "  \($0.id)  \($0.label)" }.joined(separator: "\n")
+            throw CLIError(message: String(
+                format: String(localized: "cli.vm.machineLabel.ambiguous", defaultValue: "%1$@ is the label of more than one machine; use an id:\n%2$@"),
+                selector, list
+            ))
+        case .unknown:
+            throw CLIError(message: String(
+                format: String(localized: "cli.vm.clone.unknownMachine", defaultValue: "vm clone: no machine named %@. Run `cmux vm ls` to see your machines."),
+                selector
+            ))
+        }
+    }
+
+    /// Names a just-provisioned machine's first workspace for the repository when it is
+    /// still the daemon's untouched counter workspace
+    /// (`CloudInitialWorkspaceName.adoptableInitialWorkspaceID`). Returns that workspace
+    /// and its idle starter shell, or nil to create the repository's workspace beside
+    /// it as before (an unreadable catalog, a renamed or second workspace, a failed rename).
+    func adoptVMCloneInitialWorkspace(machine: String, name: String, client: SocketClient) -> (workspaceID: String, starterTerminal: String?)? {
+        guard let catalog = try? client.sendV2(method: "vm.tree", params: ["id": machine, "refresh": true], responseTimeout: 120),
+              let payload = VMRemoteWorkspaceResolver().vmMachinePayload(machine, from: catalog),
+              let rawWorkspaces = payload["remote_workspaces"] as? [[String: Any]] else { return nil }
+        let workspaces = rawWorkspaces.compactMap { workspace -> (id: String, name: String)? in
+            guard let id = workspace["id"] as? String, let name = workspace["name"] as? String else { return nil }
+            return (id: id, name: name)
+        }
+        guard let workspaceID = CloudInitialWorkspaceName.adoptableInitialWorkspaceID(workspaces) else { return nil }
+        let starter: String?
+        switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: machine, catalog: catalog) {
+        case .resolved(let resolvedWorkspace, let terminal, _) where resolvedWorkspace == workspaceID:
+            starter = terminal
+        case .empty:
+            starter = nil
+        default:
+            return nil
+        }
+        guard (try? client.sendV2(
+            method: "vm.workspace_rename",
+            params: ["id": machine, "workspace_id": workspaceID, "name": name],
+            responseTimeout: 120
+        )) != nil else { return nil }
+        return (workspaceID, starter)
+    }
+
     // MARK: - `.`: this folder's origin remote
 
     /// `.`: the origin remote of the folder's repository and the branch it tracks there.
@@ -591,7 +770,17 @@ extension CMUXCLI {
             ))
         }
         var branch = branchOverride
-        if branch == nil,
+        if branch == nil, git(["rev-parse", "--abbrev-ref", "HEAD"]) == "HEAD" {
+            // A detached HEAD (a tag, a bisect, a CI checkout) names no branch to follow.
+            let commit = git(["rev-parse", "--short", "HEAD"]) ?? "HEAD"
+            cliWriteStderr(String(
+                format: String(
+                    localized: "cli.vm.clone.dotDetachedHead",
+                    defaultValue: "Note: this checkout is on a detached HEAD (%1$@), so the machine clones origin's default branch, not that commit. Pass --branch <name> to clone a branch."
+                ),
+                commit
+            ) + "\n")
+        } else if branch == nil,
            let local = git(["rev-parse", "--abbrev-ref", "HEAD"]), local != "HEAD" {
             if let upstream = git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]),
                upstream.hasPrefix("origin/") {
@@ -667,6 +856,7 @@ extension CMUXCLI {
         var focus: Bool?
         var dryRun = false
         var skipSetup = false
+        var forceSetup = false
         var index = 0
         while index < flags.count {
             let arg = flags[index]
@@ -692,6 +882,7 @@ extension CMUXCLI {
             case "--no-open": noOpen = true
             case "--dry-run": dryRun = true
             case "--skip-setup": skipSetup = true
+            case "--setup": forceSetup = true
             case "--json": break
             default:
                 if arg.hasPrefix("-") {
@@ -709,6 +900,17 @@ extension CMUXCLI {
         }
         if machineOverride != nil, forceNew {
             throw CLIError(message: "vm clone: --machine and --new are exclusive\n\n\(Self.vmCloneUsage)")
+        }
+        if forceSetup, skipSetup {
+            throw CLIError(message: "vm clone: --setup and --skip-setup are exclusive\n\n\(Self.vmCloneUsage)")
+        }
+        // `--machine <label>` becomes the id before anything runs: the clone sends several
+        // requests to the machine, so the lazy retry every other verb uses would repeat them.
+        var pinnedLabel: String?
+        if let typed = machineOverride {
+            let resolved = try resolveVMCloneMachine(typed, client: client)
+            machineOverride = resolved.id
+            pinnedLabel = resolved.label
         }
         if let agent, !Self.vmAgentNames.contains(agent) {
             throw CLIError(message: "vm clone: --agent must be one of \(Self.vmAgentNames.joined(separator: ", "))\n\n\(Self.vmCloneUsage)")
@@ -775,18 +977,19 @@ extension CMUXCLI {
         if dryRun {
             // Which machine routing would pick, read without creating one. No socket (or
             // no sign-in) leaves the plan without it rather than failing the dry run.
-            var routed: VMRunSelection?
+            var routed: VMCloneSelection?
             if machineOverride == nil, !forceNew {
-                routed = try? selectVMForRun(
+                routed = try? selectVMForClone(
                     machineOverride: nil,
+                    pinnedLabel: nil,
                     forceNew: false,
                     memoryMb: memoryMb,
-                    workDirectory: routingDirectory,
+                    routingDirectory: routingDirectory,
                     allowProvision: false,
                     client: client
                 )
             }
-            let machineText = Self.vmCloneDryRunMachineText(pinned: machineOverride, forceNew: forceNew, routed: routed, memoryMb: memoryMb)
+            let machineText = Self.vmCloneDryRunMachineText(pinned: machineOverride, forceNew: forceNew, routed: routed?.run, memoryMb: memoryMb)
             if jsonOutput {
                 var plan: [String: Any] = [:]
                 plan["dry_run"] = true
@@ -801,6 +1004,7 @@ extension CMUXCLI {
                 plan["agent_command"] = orNull(agentArgv)
                 plan["open"] = open
                 plan["skip_setup"] = skipSetup
+                plan["setup"] = Self.vmCloneSetupPlanValue(isOwnCheckout: repoArg == ".", forceSetup: forceSetup, skipSetup: skipSetup)
                 print(jsonString(plan))
             } else {
                 let branchText = spec.branch.map { " (branch \($0))" } ?? " (default branch)"
@@ -808,9 +1012,16 @@ extension CMUXCLI {
                 print("plan: project \(spec.projectKey)")
                 print("plan: machine \(machineText), checkout \(remoteDir)")
                 print("plan: workspace \(workspaceName) (get-or-create)\(open ? ", opened here" : ", not opened")")
-                print(skipSetup
-                    ? "plan: setup skipped (--skip-setup)"
-                    : "plan: setup from .cmux/cloud.json `setup`, if the repository has one")
+                switch Self.vmCloneSetupPlanValue(isOwnCheckout: repoArg == ".", forceSetup: forceSetup, skipSetup: skipSetup) {
+                case "skip":
+                    print("plan: setup skipped (--skip-setup)")
+                case "run":
+                    print(forceSetup
+                        ? "plan: setup from .cmux/cloud.json `setup` (--setup), if the repository has one"
+                        : "plan: setup from .cmux/cloud.json `setup` on a new checkout, if the repository has one")
+                default:
+                    print("plan: setup from .cmux/cloud.json `setup` only after you confirm it at the prompt, or with --setup")
+                }
                 if let agentArgv {
                     print("plan: agent \(agentArgv.map { $0.posixShellWord }.joined(separator: " "))")
                 }
@@ -825,19 +1036,32 @@ extension CMUXCLI {
             cliWriteStderr("[cmux vm clone] \(label) \(String(format: "%.1fs", seconds)) \u{2014} \(detail)\n")
         }
 
-        // 1. Machine: `vm agent`'s router, keyed per repository.
+        // 1. Machine: --machine, this repository's machine, the person's only running
+        // machine, then `vm agent`'s router (selectVMForClone).
         let machineLabel = String(localized: "cli.vm.clone.phase.machine", defaultValue: "Machine")
         let machineStarted = Date()
-        let selection = try selectVMForRun(
+        let selection = try selectVMForClone(
             machineOverride: machineOverride,
+            pinnedLabel: pinnedLabel,
             forceNew: forceNew,
             memoryMb: memoryMb,
-            workDirectory: routingDirectory,
+            routingDirectory: routingDirectory,
             client: client
         )
-        Self.saveVMRunBinding(workKey: Self.vmRunWorkKey(forDirectory: routingDirectory), machine: selection.id)
-        phase("machine", machineLabel, machineStarted, detail: "\(selection.id) (\(selection.reason))")
         let machine = selection.id
+        let machineName = selection.label ?? Self.vmMachineDisplayName(machine)
+        phase("machine", machineLabel, machineStarted, detail: machineName == machine
+            ? "\(machine) (\(selection.reason))"
+            : "\(machineName) \(machine) (\(selection.reason))")
+        if selection.pick == .onlyRunning {
+            cliWriteStderr(String(
+                format: String(
+                    localized: "cli.vm.clone.onlyRunningMachine",
+                    defaultValue: "Using %@ (your only running machine). Use --new for a fresh one."
+                ),
+                machineName
+            ) + "\n")
+        }
 
         // 2. Secrets: GH_TOKEN and the project's keys land before git runs. A Mac without
         // Cloud Secrets (older app) or a failed delivery still clones public repositories.
@@ -880,7 +1104,7 @@ extension CMUXCLI {
                         localized: "cli.vm.clone.conflict",
                         defaultValue: "vm clone: %1$@ on %2$@ already holds %3$@. Pass --dir <path> to clone somewhere else."
                     ),
-                    remoteDir, machine, what
+                    remoteDir, machineName, what
                 ))
             }
             if Self.vmCloneLooksLikeAuthFailure(cloneStderr) {
@@ -889,7 +1113,7 @@ extension CMUXCLI {
                         localized: "cli.vm.clone.authFailed",
                         defaultValue: "vm clone: %1$@ could not read %2$@ \u{2014} the repository is private or the machine has no access to it. Add a GitHub token with `cmux vm secrets import --gh`, then run this again."
                     ),
-                    machine, spec.cloneURL
+                    machineName, spec.cloneURL
                 ))
             }
             let detail = cloneStderr.isEmpty ? "" : "\n\(cloneStderr)"
@@ -898,10 +1122,13 @@ extension CMUXCLI {
                     localized: "cli.vm.clone.failed",
                     defaultValue: "vm clone: git failed on %1$@ (exit %2$ld)%3$@"
                 ),
-                machine, cloneExit, detail
+                machineName, cloneExit, detail
             ))
         }
         let updated = cloneStdout.contains("cmux-clone=updated")
+        // Bound only once the machine holds the checkout, so a failed clone never makes
+        // the next one return to a machine without it.
+        Self.saveVMRunBinding(workKey: Self.vmRunWorkKey(forDirectory: routingDirectory), machine: machine)
         let result = updated ? "updated" : "cloned"
         phase(
             "clone",
@@ -939,6 +1166,12 @@ extension CMUXCLI {
         // checkout, opened here unless --no-open.
         let workspaceLabel = String(localized: "cli.vm.clone.phase.workspace", defaultValue: "Workspace")
         let workspaceStarted = Date()
+        // A machine provisioned for this clone already has the daemon's `workspace-1`
+        // with an idle home shell. Name that first workspace for the repository (the
+        // get-or-create below then finds it) instead of adding a second one beside it.
+        let adoptedWorkspace = selection.created
+            ? adoptVMCloneInitialWorkspace(machine: machine, name: workspaceName, client: client)
+            : nil
         var workspaceParams: [String: Any] = [
             "id": machine,
             "name": workspaceName,
@@ -948,15 +1181,20 @@ extension CMUXCLI {
         if !open { workspaceParams["open"] = false }
         let workspaceResponse = try client.sendV2(method: "vm.workspace_new", params: workspaceParams, responseTimeout: 240)
         let remoteWorkspace = (workspaceResponse["remote_workspace_id"] as? String) ?? "?"
-        let existingWorkspace = (workspaceResponse["existing"] as? Bool) ?? false
+        let adopted = adoptedWorkspace.map { $0.workspaceID == remoteWorkspace } ?? false
+        // An adopted workspace is new to this clone: its starter shell is replaced by
+        // one in the checkout, exactly like a workspace created just now.
+        let existingWorkspace = adopted ? false : ((workspaceResponse["existing"] as? Bool) ?? false)
         var starterTerminal = (workspaceResponse["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (adopted ? adoptedWorkspace?.starterTerminal : nil)
         let localWorkspace = (workspaceResponse["workspace_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         // A fresh workspace's starter shell begins in the home directory. Replace it with
         // a terminal started in the checkout (a native cwd, so nothing is typed into it
         // and the sidebar shows the checkout); an existing workspace keeps whatever its
         // terminals are doing. Without the checkout's absolute path, or when the new
         // terminal cannot start, the starter is moved with `cd` as before.
-        if !existingWorkspace, let starter = starterTerminal {
+        if !existingWorkspace, starterTerminal != nil || adopted {
+            let starter = starterTerminal
             var replaced = false
             if let checkoutPath {
                 var params: [String: Any] = [
@@ -969,16 +1207,18 @@ extension CMUXCLI {
                 if open, let localWorkspace { params["workspace_id"] = localWorkspace }
                 if let response = try? client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240),
                    let terminal = (response["terminal_id"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
-                    _ = try? client.sendV2(
-                        method: "vm.terminal_close",
-                        params: ["id": machine, "terminal_id": starter],
-                        responseTimeout: 120
-                    )
+                    if let starter {
+                        _ = try? client.sendV2(
+                            method: "vm.terminal_close",
+                            params: ["id": machine, "terminal_id": starter],
+                            responseTimeout: 120
+                        )
+                    }
                     starterTerminal = terminal
                     replaced = true
                 }
             }
-            if !replaced {
+            if !replaced, let starter {
                 _ = try client.sendV2(
                     method: "vm.terminal_write",
                     params: [
@@ -995,19 +1235,34 @@ extension CMUXCLI {
             "workspace",
             workspaceLabel,
             workspaceStarted,
-            detail: "\(workspaceName) \(remoteWorkspace)\(existingWorkspace ? " (existing)" : "")"
+            detail: "\(workspaceName) \(remoteWorkspace)\(existingWorkspace ? " (existing)" : "")\(adopted ? " (the machine's first workspace)" : "")"
         )
 
         // 6. Setup: the manifest's commands in a visible "setup" terminal, followed here
         // step by step. A failure stops before the agent and leaves the terminal open.
+        // Repository-declared commands run with Cloud Secrets in reach, so only the
+        // person's own checkout (`.`) runs them unasked (vmCloneSetupDecision).
         var setupOutcome: VMCloneSetupOutcome?
+        var setupSkipReason: VMCloneSetupSkipReason?
         if !setupCommands.isEmpty {
             let shown = setupCommands.map { Self.vmSecretsPrintable($0, limit: 60) }.joined(separator: "; ")
-            if skipSetup {
-                cliWriteStderr(String(
-                    format: String(localized: "cli.vm.clone.setup.skipped", defaultValue: "Setup skipped (--skip-setup): %1$@"),
-                    shown
-                ) + "\n")
+            var decision = Self.vmCloneSetupDecision(
+                isOwnCheckout: repoArg == ".",
+                updated: updated,
+                forceSetup: forceSetup,
+                skipSetup: skipSetup,
+                interactive: isatty(STDIN_FILENO) == 1 && isatty(STDERR_FILENO) == 1
+            )
+            if decision == .prompt {
+                decision = Self.vmCloneConfirmSetup(
+                    commands: setupCommands,
+                    repository: spec.displayName,
+                    machineName: machineName
+                ) ? .run : .skip(.declined)
+            }
+            if case .skip(let reason) = decision {
+                setupSkipReason = reason
+                cliWriteStderr(Self.vmCloneSetupSkippedNote(reason, repository: spec.displayName, shown: shown) + "\n")
             } else {
                 let setupLabel = String(localized: "cli.vm.clone.phase.setup", defaultValue: "Setup")
                 let setupStarted = Date()
@@ -1031,7 +1286,11 @@ extension CMUXCLI {
                     setupLabel,
                     setupStarted,
                     detail: outcome.failure == nil
-                        ? String(format: String(localized: "cli.vm.clone.setup.doneDetail", defaultValue: "%ld step(s) in terminal %@"), outcome.steps.count, outcome.terminalID)
+                        // One key with plural variations in the catalog (localization-plurals.json).
+                        ? String(
+                            format: String(localized: "cli.vm.clone.setup.doneDetail", defaultValue: "%ld steps in terminal %@"),
+                            outcome.steps.count, outcome.terminalID
+                        )
                         : String(format: String(localized: "cli.vm.clone.setup.failedDetail", defaultValue: "stopped in terminal %@"), outcome.terminalID)
                 )
             }
@@ -1083,6 +1342,8 @@ extension CMUXCLI {
             payload["workspace_name"] = workspaceName
             payload["workspace_id"] = remoteWorkspace
             payload["existing_workspace"] = existingWorkspace
+            payload["adopted_initial_workspace"] = adopted
+            payload["machine_label"] = orNull(selection.label)
             payload["local_workspace_id"] = orNull(localWorkspace)
             payload["terminal_id"] = orNull(starterTerminal)
             payload["agent"] = orNull(agent)
@@ -1092,25 +1353,26 @@ extension CMUXCLI {
             payload["missing_secrets"] = missingSecrets
             payload["setup"] = Self.vmCloneSetupPayload(
                 commands: setupCommands,
-                skipped: skipSetup,
-                outcome: setupOutcome
+                skipped: setupSkipReason != nil,
+                outcome: setupOutcome,
+                skipReason: setupSkipReason
             )
             if let agentSurface { payload["agent_surface_id"] = agentSurface }
             print(jsonString(payload))
             if let setupOutcome, setupFailed {
-                throw vmCloneSetupFailure(setupOutcome, machine: machine, address: address, repoArg: repoArg)
+                throw vmCloneSetupFailure(setupOutcome, machine: machine, machineName: machineName, address: address, repoArg: repoArg)
             }
             return
         }
         cliWriteStderr(summary + "\n")
         if let setupOutcome, setupFailed {
-            throw vmCloneSetupFailure(setupOutcome, machine: machine, address: address, repoArg: repoArg)
+            throw vmCloneSetupFailure(setupOutcome, machine: machine, machineName: machineName, address: address, repoArg: repoArg)
         }
         print(String(
             format: updated
                 ? String(localized: "cli.vm.clone.doneUpdated", defaultValue: "Updated %1$@ in %2$@ on %3$@.")
                 : String(localized: "cli.vm.clone.doneCloned", defaultValue: "Cloned %1$@ into %2$@ on %3$@."),
-            spec.projectKey, remoteDir, machine
+            spec.projectKey, remoteDir, machineName
         ))
         print(String(
             format: String(localized: "cli.vm.clone.openAddress", defaultValue: "Open: cmux vm open %@"),
@@ -1122,6 +1384,100 @@ extension CMUXCLI {
                 agent, address, agentTerminal
             ))
         }
+    }
+
+    // MARK: - Setup trust
+
+    /// Why the repository's setup commands did not run.
+    enum VMCloneSetupSkipReason: String, Equatable {
+        /// `--skip-setup`.
+        case flag = "skip_setup"
+        /// The checkout already existed and was only updated (no `--setup`).
+        case existingCheckout = "existing_checkout"
+        /// Another person's repository with no terminal to ask on (no `--setup`).
+        case needsConfirmation = "needs_confirmation"
+        /// Asked at the prompt and not confirmed.
+        case declined = "declined"
+    }
+
+    enum VMCloneSetupDecision: Equatable {
+        case run
+        case prompt
+        case skip(VMCloneSetupSkipReason)
+    }
+
+    /// Whether a clone runs the repository's `.cmux/cloud.json` setup. The commands run
+    /// with the person's Cloud Secrets in reach, so only their own checkout (`.`) runs
+    /// them unasked; any other repository asks on a terminal and is skipped without one.
+    /// An update of an existing checkout never re-runs setup on its own. `--setup` and
+    /// `--skip-setup` decide outright. Pure.
+    static func vmCloneSetupDecision(
+        isOwnCheckout: Bool,
+        updated: Bool,
+        forceSetup: Bool,
+        skipSetup: Bool,
+        interactive: Bool
+    ) -> VMCloneSetupDecision {
+        if skipSetup { return .skip(.flag) }
+        if forceSetup { return .run }
+        if updated { return .skip(.existingCheckout) }
+        if isOwnCheckout { return .run }
+        return interactive ? .prompt : .skip(.needsConfirmation)
+    }
+
+    /// `--dry-run`'s `setup` field: `run`, `skip`, or `confirm` (asked, or skipped
+    /// without a terminal). An existing checkout is only known once the clone runs.
+    static func vmCloneSetupPlanValue(isOwnCheckout: Bool, forceSetup: Bool, skipSetup: Bool) -> String {
+        if skipSetup { return "skip" }
+        if forceSetup || isOwnCheckout { return "run" }
+        return "confirm"
+    }
+
+    /// The one-line note for a skipped setup, naming how to run it.
+    static func vmCloneSetupSkippedNote(_ reason: VMCloneSetupSkipReason, repository: String, shown: String) -> String {
+        switch reason {
+        case .flag:
+            return String(
+                format: String(localized: "cli.vm.clone.setup.skipped", defaultValue: "Setup skipped (--skip-setup): %1$@"),
+                shown
+            )
+        case .existingCheckout:
+            return String(
+                format: String(
+                    localized: "cli.vm.clone.setup.skippedExisting",
+                    defaultValue: "Setup skipped: %1$@ was already checked out on the machine. Run again with --setup to run its setup commands (%2$@)."
+                ),
+                repository, shown
+            )
+        case .needsConfirmation:
+            return String(
+                format: String(
+                    localized: "cli.vm.clone.setup.skippedUnconfirmed",
+                    defaultValue: "Setup skipped: run again with --setup to run the setup commands from %1$@ (%2$@)."
+                ),
+                repository, shown
+            )
+        case .declined:
+            return String(localized: "cli.vm.clone.setup.skippedDeclined", defaultValue: "Setup skipped.")
+        }
+    }
+
+    /// Lists the setup commands on stderr and asks once; only `y` or `yes` runs them.
+    static func vmCloneConfirmSetup(commands: [String], repository: String, machineName: String) -> Bool {
+        for (index, command) in commands.enumerated() {
+            cliWriteStderr("  \(index + 1). \(Self.vmSecretsPrintable(command, limit: 200))\n")
+        }
+        cliWriteStderr(String(
+            format: String(
+                localized: "cli.vm.clone.setup.confirm",
+                defaultValue: "Run these %1$ld setup commands from %2$@ on %3$@? They run with your Cloud Secrets. [y/N] "
+            ),
+            commands.count, repository, machineName
+        ))
+        guard let answer = readLine(strippingNewline: true)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() else { return false }
+        return answer == "y" || answer == "yes"
     }
 
     // MARK: - Setup run
@@ -1140,10 +1496,20 @@ extension CMUXCLI {
             let exitCode: Int
         }
 
+        /// Why setup stopped short, with each part kept apart so the final error is
+        /// one self-contained sentence per case rather than a clause spliced into another.
+        enum Stop: Equatable {
+            case exited(step: Int, total: Int, command: String, code: Int)
+            case terminalClosed(step: Int, total: Int, command: String)
+            case timedOut(step: Int, total: Int, command: String, seconds: TimeInterval)
+        }
+
         let terminalID: String
         var steps: [Step] = []
-        /// Why setup stopped; nil when every step exited 0.
+        /// Why setup stopped, as a clause for the JSON `error` field; nil when every
+        /// step exited 0.
         var failure: String?
+        var stop: Stop?
         var exitCode: Int32 = 0
     }
 
@@ -1222,6 +1588,7 @@ extension CMUXCLI {
                     format: String(localized: "cli.vm.clone.setup.stepFailure", defaultValue: "setup step %1$ld/%2$ld `%3$@` exited %4$ld"),
                     index + 1, total, label(index), code
                 )
+                outcome.stop = .exited(step: index + 1, total: total, command: label(index), code: code)
                 outcome.exitCode = Int32((1...255).contains(code) ? code : 1)
                 return true
             }
@@ -1267,14 +1634,20 @@ extension CMUXCLI {
             }
             if outcome.steps.count == total { break }
             let current = outcome.steps.count
-            if wait.exited {
+            if wait.state == .exited {
                 clearLive()
                 outcome.failure = String(
                     format: String(localized: "cli.vm.clone.setup.exited", defaultValue: "the setup terminal closed during step %1$ld/%2$ld `%3$@`"),
                     current + 1, total, label(current)
                 )
+                outcome.stop = .terminalClosed(step: current + 1, total: total, command: label(current))
                 outcome.exitCode = 1
                 return outcome
+            }
+            if wait.state == .unknown, page.text.isEmpty {
+                // No wait method blocked this slice: poll the output at a bounded pace
+                // (the deadline below still ends the follow).
+                Thread.sleep(forTimeInterval: Self.vmCloneSetupPollInterval())
             }
             let silent = now.timeIntervalSince(lastOutputAt)
             if !stallNoticed, silent >= Self.vmCloneSetupStallSeconds {
@@ -1291,6 +1664,7 @@ extension CMUXCLI {
                     format: String(localized: "cli.vm.clone.setup.timedOut", defaultValue: "setup step %1$ld/%2$ld `%3$@` was still running after %4$ld minutes (not stopped)"),
                     current + 1, total, label(current), Int(Self.vmCloneSetupTimeoutSeconds / 60)
                 )
+                outcome.stop = .timedOut(step: current + 1, total: total, command: label(current), seconds: Self.vmCloneSetupTimeoutSeconds)
                 outcome.exitCode = 1
                 return outcome
             }
@@ -1308,29 +1682,63 @@ extension CMUXCLI {
         return outcome
     }
 
+    /// What one wait slice learned about the setup terminal's process.
+    enum VMCloneSetupTerminalState: Equatable {
+        /// The daemon says the process is still running (or the slice timed out on it).
+        case running
+        /// The daemon says the process exited.
+        case exited
+        /// Neither wait could run (an older app or daemon, a dropped request): nothing
+        /// is known, which is never read as "exited". The caller polls the output.
+        case unknown
+    }
+
+    struct VMCloneSetupWait: Equatable {
+        var matched: Bool
+        var screen: String
+        var state: VMCloneSetupTerminalState
+    }
+
+    /// Seconds between output reads while neither wait method is available.
+    /// `CMUX_VM_CLONE_SETUP_POLL_SECONDS` (0 < s <= 2) shortens it for tests against a mock.
+    static func vmCloneSetupPollInterval(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_CLONE_SETUP_POLL_SECONDS"],
+              let parsed = TimeInterval(raw), parsed.isFinite, parsed > 0, parsed <= 2 else { return 2 }
+        return parsed
+    }
+
     /// Blocks until the screen shows `pattern` or one slice passes. When the wait cannot
-    /// run (the terminal ended, or an older machine), blocks on the process instead
-    /// (`vm.terminal_wait_exit`, same slice) so the follow loop never spins; `exited`
-    /// reports a terminal whose shell is gone.
-    func waitForVMCloneSetupStep(machine: String, terminalID: String, pattern: String, client: SocketClient) -> (matched: Bool, screen: String, exited: Bool) {
+    /// run, blocks on the process instead (`vm.terminal_wait_exit`, same slice); only a
+    /// daemon answer of "exited" reports a terminal whose shell is gone.
+    func waitForVMCloneSetupStep(machine: String, terminalID: String, pattern: String, client: SocketClient) -> VMCloneSetupWait {
         let slice = Self.vmCloneSetupSliceMs
-        do {
-            let response = try client.sendV2(
-                method: "vm.terminal_wait",
-                params: ["id": machine, "terminal_id": terminalID, "pattern": pattern, "timeout_ms": slice],
-                responseTimeout: TimeInterval(slice / 1000 + 60)
+        if let response = try? client.sendV2(
+            method: "vm.terminal_wait",
+            params: ["id": machine, "terminal_id": terminalID, "pattern": pattern, "timeout_ms": slice],
+            responseTimeout: TimeInterval(slice / 1000 + 60)
+        ) {
+            return VMCloneSetupWait(
+                matched: (response["matched"] as? Bool) == true,
+                screen: (response["text"] as? String) ?? "",
+                state: (response["exited"] as? Bool) == true ? .exited : .running
             )
-            return ((response["matched"] as? Bool) == true, (response["text"] as? String) ?? "", (response["exited"] as? Bool) == true)
-        } catch {
-            guard let response = try? client.sendV2(
-                method: "vm.terminal_wait_exit",
-                params: ["id": machine, "terminal_id": terminalID, "timeout_ms": slice],
-                responseTimeout: TimeInterval(slice / 1000 + 60)
-            ) else {
-                return (false, "", true)
-            }
-            return (false, "", (response["state"] as? String) == "exited")
         }
+        // The screen wait cannot run (the terminal ended, or an older machine): block on
+        // the process for the same slice instead, so the follow loop never spins.
+        if let response = try? client.sendV2(
+            method: "vm.terminal_wait_exit",
+            params: ["id": machine, "terminal_id": terminalID, "timeout_ms": slice],
+            responseTimeout: TimeInterval(slice / 1000 + 60)
+        ) {
+            return VMCloneSetupWait(
+                matched: false,
+                screen: "",
+                state: (response["state"] as? String) == "exited" ? .exited : .running
+            )
+        }
+        return VMCloneSetupWait(matched: false, screen: "", state: .unknown)
     }
 
     /// One `vm.terminal_output` window after `after`, and the offset to read from next.
@@ -1348,7 +1756,12 @@ extension CMUXCLI {
     }
 
     /// `setup` in the JSON result: `none` (nothing declared), `skipped`, `done`, or `failed`.
-    static func vmCloneSetupPayload(commands: [String], skipped: Bool, outcome: VMCloneSetupOutcome?) -> [String: Any] {
+    static func vmCloneSetupPayload(
+        commands: [String],
+        skipped: Bool,
+        outcome: VMCloneSetupOutcome?,
+        skipReason: VMCloneSetupSkipReason? = nil
+    ) -> [String: Any] {
         let status: String
         if commands.isEmpty {
             status = "none"
@@ -1358,6 +1771,7 @@ extension CMUXCLI {
             status = outcome?.failure == nil ? "done" : "failed"
         }
         var payload: [String: Any] = ["status": status, "commands": commands]
+        if let skipReason, outcome == nil, !commands.isEmpty { payload["skip_reason"] = skipReason.rawValue }
         if let outcome {
             payload["terminal_id"] = outcome.terminalID
             payload["steps"] = outcome.steps.map { step -> [String: Any] in
@@ -1370,13 +1784,9 @@ extension CMUXCLI {
 
     /// The error a failed setup ends the run with: what failed, where the terminal is,
     /// and the rerun that skips setup.
-    func vmCloneSetupFailure(_ outcome: VMCloneSetupOutcome, machine: String, address: String, repoArg: String) -> CLIError {
-        let reason = outcome.failure ?? ""
+    func vmCloneSetupFailure(_ outcome: VMCloneSetupOutcome, machine: String, machineName: String, address: String, repoArg: String) -> CLIError {
         let message = [
-            String(
-                format: String(localized: "cli.vm.clone.setup.failed", defaultValue: "vm clone: %1$@ on %2$@. The \"setup\" terminal stays open in the checkout."),
-                reason, machine
-            ),
+            Self.vmCloneSetupFailureHeadline(outcome, machineName: machineName),
             String(
                 format: String(localized: "cli.vm.clone.setup.openTerminal", defaultValue: "Open: cmux vm open %@"),
                 "\(address)/\(outcome.terminalID)"
@@ -1387,6 +1797,49 @@ extension CMUXCLI {
             ),
         ].joined(separator: "\n")
         return CLIError(message: message, exitCode: outcome.exitCode)
+    }
+
+    /// The first line of a failed setup: one whole sentence per way setup stops, with
+    /// the step, the command, the exit code and the machine each a placeholder of its own.
+    static func vmCloneSetupFailureHeadline(_ outcome: VMCloneSetupOutcome, machineName: String) -> String {
+        switch outcome.stop {
+        case .exited(let step, let total, let command, let code)?:
+            return String(
+                format: String(
+                    localized: "cli.vm.clone.setup.failed.exit",
+                    defaultValue: "vm clone: setup step %1$ld of %2$ld (`%3$@`) exited with code %4$ld on %5$@. The \"setup\" terminal stays open in the checkout."
+                ),
+                step, total, command, code, machineName
+            )
+        case .terminalClosed(let step, let total, let command)?:
+            return String(
+                format: String(
+                    localized: "cli.vm.clone.setup.failed.closed",
+                    defaultValue: "vm clone: the \"setup\" terminal on %4$@ closed during setup step %1$ld of %2$ld (`%3$@`)."
+                ),
+                step, total, command, machineName
+            )
+        case .timedOut(let step, let total, let command, let seconds)?:
+            let limit = DateComponentsFormatter.localizedString(
+                from: DateComponents(second: Int(seconds)),
+                unitsStyle: .full
+            ) ?? "\(Int(seconds))s"
+            return String(
+                format: String(
+                    localized: "cli.vm.clone.setup.failed.timedOut",
+                    defaultValue: "vm clone: setup step %1$ld of %2$ld (`%3$@`) was still running on %4$@ after %5$@. It was not stopped; the \"setup\" terminal stays open in the checkout."
+                ),
+                step, total, command, machineName, limit
+            )
+        case nil:
+            return String(
+                format: String(
+                    localized: "cli.vm.clone.setup.failed.unknown",
+                    defaultValue: "vm clone: setup did not finish on %@. The \"setup\" terminal stays open in the checkout."
+                ),
+                machineName
+            )
+        }
     }
 
     /// `vm.secrets_sync` for the machine and the repository's project, so GH_TOKEN and the

@@ -69,15 +69,29 @@ extension SurfaceCatalog {
 }
 
 extension SurfaceCatalog {
-    /// Replaces the daemon's counter name on a machine's sole workspace with
+    /// Records that this session created `machine`, so its first bind may name its
+    /// first workspace (``nameInitialWorkspaceForWhatItIs(localWorkspaceID:machine:receiptName:)``).
+    @MainActor
+    func noteMachineCreatedThisSession(_ machine: SurfaceMachineID) {
+        machinesAwaitingInitialWorkspaceName.insert(machine)
+    }
+
+    /// Replaces the daemon's counter name on a new machine's sole workspace with
     /// its project or machine label (``CloudInitialWorkspaceName``), on both
     /// sides: the local title now, and the daemon name through the shared
     /// rename queue, whose pending intent keeps reconciliation from flashing
     /// the counter name back. A failed rename leaves the daemon name, which
     /// the next reconciliation adopts again.
+    ///
+    /// Only a machine this session created qualifies (``noteMachineCreatedThisSession(_:)``).
+    /// Opening an existing machine also binds with a generated title, and renaming
+    /// its weeks-old `workspace-1` there would rename it on every device after
+    /// wherever its focused terminal happens to be. The mark is spent once the
+    /// machine's workspace list has been seen at a bind, named or not.
     @MainActor
     func nameInitialWorkspaceForWhatItIs(localWorkspaceID: UUID, machine: SurfaceMachineID, receiptName: String?) {
-        guard let workspace = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID),
+        guard machinesAwaitingInitialWorkspaceName.contains(machine),
+              let workspace = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID),
               workspace.effectiveCustomTitleSource != .user,
               let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
               !remoteWorkspaceID.isEmpty,
@@ -89,6 +103,8 @@ extension SurfaceCatalog {
         let known = info?.remoteWorkspaces == nil ? nil
             : CloudTreeNodeBuilder.remoteWorkspaces(info: info, resources: catalogSnapshot.resources(on: machine))
         let remote = known?.first { $0.id == remoteWorkspaceID }
+        // The list is known: this bind decides, whatever it decides.
+        if known != nil { machinesAwaitingInitialWorkspaceName.remove(machine) }
         let decision = CloudInitialWorkspaceName(
             remoteWorkspaceID: remoteWorkspaceID,
             remoteName: cloudStates[machine]?.lookupIndex.workspace(id: remoteWorkspaceID)?.name

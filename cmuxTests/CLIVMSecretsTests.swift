@@ -392,7 +392,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 1, "stdout=\(result.stdout) stderr=\(result.stderr)")
         XCTAssertTrue(result.stdout.contains("OK removed ANTHROPIC_API_KEY"), result.stdout)
         XCTAssertTrue(result.stdout.contains("Synced 1 change to brave-otter: ANTHROPIC_API_KEY removed"), result.stdout)
-        XCTAssertTrue(result.stderr.contains("No secret named NOT_STORED in all machines."), result.stderr)
+        XCTAssertTrue(result.stderr.contains("No secret named NOT_STORED for all machines."), result.stderr)
     }
 
     func testVMSecretsListShowsRelativeAgesAndJSONKeepsTimestamps() throws {

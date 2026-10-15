@@ -1795,6 +1795,11 @@ extension CMUXCLI {
         }
         if path == "~" { return nil }
         if path.hasPrefix("~/") { path.removeFirst(2) }
+        // A leading dash is a flag that lost its value (`--remote-cwd --name x`), never a
+        // directory to `cd` into.
+        guard !path.hasPrefix("-") else {
+            throw CLIError(message: "vm agent: --remote-cwd '\(raw)' is not a directory; name one relative to the machine's home (e.g. work/app)\n\n\(vmAgentUsage)")
+        }
         while path.count > 1, path.hasSuffix("/") { path.removeLast() }
         return path.isEmpty || path == "." ? nil : path
     }

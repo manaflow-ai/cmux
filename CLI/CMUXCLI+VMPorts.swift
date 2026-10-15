@@ -81,11 +81,11 @@ extension CMUXCLI {
                     localized: "cli.vm.ports.inventoryUnavailable",
                     defaultValue: "Could not list the ports listening inside %1$@: %2$@"
                 ),
-                vmId,
+                Self.vmMachineDisplayName(vmId),
                 detail.isEmpty ? ((response["stderr"] as? String) ?? "") : detail
             ))
         }
-        for line in Self.vmPortsTableLines(vmId: vmId, rows: rows, showAll: showAll) {
+        for line in Self.vmPortsTableLines(vmId: Self.vmMachineDisplayName(vmId), rows: rows, showAll: showAll) {
             print(line)
         }
     }
@@ -195,6 +195,12 @@ extension CMUXCLI {
     /// ports that do listen. An unavailable inventory never blocks the open; a
     /// not-found machine is rethrown so a label can still be resolved.
     func vmPortOpenPreflight(vmId: String, port: Int, client: SocketClient) throws {
+        // The inventory is a `vm.exec`, which would wake a parked machine just to look.
+        // A paused or sleeping machine skips the check; the open itself decides.
+        if let status = (try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30))?["status"] as? String,
+           Self.vmPortPreflightSkipsStatus(status) {
+            return
+        }
         let response: [String: Any]
         do {
             response = try client.sendV2(
@@ -209,9 +215,14 @@ extension CMUXCLI {
         guard (response["exit_code"] as? Int ?? 0) == 0,
               let inventory = CloudListeningPort.inventory(socketListing: (response["stdout"] as? String) ?? "")
         else { return }
-        if let message = Self.vmPortNotListeningMessage(vmId: vmId, port: port, inventory: inventory) {
+        if let message = Self.vmPortNotListeningMessage(vmId: Self.vmMachineDisplayName(vmId), port: port, inventory: inventory) {
             throw CLIError(message: message)
         }
+    }
+
+    /// Machine states the port preflight leaves alone rather than wake.
+    static func vmPortPreflightSkipsStatus(_ status: String) -> Bool {
+        ["paused", "standby", "asleep", "sleeping", "stopped", "suspended"].contains(status.lowercased())
     }
 
     /// nil when `port` is listening; otherwise the refusal naming the person's ports.

@@ -86,7 +86,7 @@ cmux vm clone .`}</CodeBlock>
 
       <DocsHeading level={2} id="options">{t("optionsTitle")}</DocsHeading>
       <p>{t("optionsDesc")}</p>
-      <CodeBlock lang="bash">{`cmux vm clone <repo> [--machine <id> | --new] [--size <4g|8g|16g|24g|32g|64g>] [--branch <b>] [--dir <remote-dir>] [--agent claude|codex|opencode|pi [-- <prompt>]] [--skip-setup] [--no-open] [--focus|--no-focus] [--dry-run] [--json]`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux vm clone <repo> [--machine <id> | --new] [--size <4g|8g|16g|24g|32g|64g>] [--branch <b>] [--dir <remote-dir>] [--agent claude|codex|opencode|pi [-- <prompt>]] [--setup | --skip-setup] [--no-open] [--focus|--no-focus] [--dry-run] [--json]`}</CodeBlock>
 
       <DocsHeading level={2} id="private-repos">{t("privateTitle")}</DocsHeading>
       <p>{t.rich("privateDesc", { code, link: secretsLink })}</p>

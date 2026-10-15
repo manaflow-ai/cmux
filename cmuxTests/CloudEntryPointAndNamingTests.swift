@@ -70,6 +70,18 @@ struct CloudInitialWorkspaceNameTests {
         #expect(!CloudInitialWorkspaceName.isDaemonCounterName("workspace-١"))
         #expect(!CloudInitialWorkspaceName.isDaemonCounterName("workspace-"))
     }
+
+    @Test("A brand-new machine's sole counter workspace is the one a named workspace takes over")
+    func adoptableInitialWorkspace() {
+        #expect(CloudInitialWorkspaceName.adoptableInitialWorkspaceID([(id: "ws_1", name: "workspace-1")]) == "ws_1")
+        // A chosen name, a second workspace, or nothing reported: create beside it as before.
+        #expect(CloudInitialWorkspaceName.adoptableInitialWorkspaceID([(id: "ws_1", name: "brave-otter")]) == nil)
+        #expect(CloudInitialWorkspaceName.adoptableInitialWorkspaceID([
+            (id: "ws_1", name: "workspace-1"), (id: "ws_2", name: "api"),
+        ]) == nil)
+        #expect(CloudInitialWorkspaceName.adoptableInitialWorkspaceID([]) == nil)
+        #expect(CloudInitialWorkspaceName.adoptableInitialWorkspaceID([(id: "", name: "workspace-1")]) == nil)
+    }
 }
 
 @Suite("Sidebar Cloud button presentation")

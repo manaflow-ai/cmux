@@ -7178,6 +7178,12 @@ struct CMUXCLI {
             // (vmMachineLabelRetryArguments, CMUXCLI+VMMachineLabels.swift).
             var vmVerbArguments = Array(commandArgs.dropFirst())
             var vmMachineLabelResolved = false
+            // A verb that reads stdin cannot be run twice: its label is resolved first,
+            // and it never retries (vmArgumentsConsumeStdin).
+            if Self.vmArgumentsConsumeStdin(verb: sub, arguments: vmVerbArguments, stdinIsTerminal: isatty(STDIN_FILENO) == 1) {
+                vmVerbArguments = try vmMachineLabelPreResolvedArguments(verb: sub, arguments: vmVerbArguments, client: client)
+                vmMachineLabelResolved = true
+            }
             vmVerbAttempt: while true {
             let rest = vmVerbArguments
             do {
@@ -21292,217 +21298,93 @@ struct CMUXCLI {
 
             \(quickStart)
 
-            `cmux vm <verb> --help` prints that verb's own usage.
+            `cmux vm <verb> --help` prints that verb's own usage. A machine is its id or
+            its label from `vm ls`. `cloud` is an alias for `vm`; requires `cmux auth login`.
 
-            Verbs that open a workspace or pane (new, base open/reset, fork, restore,
-            shell, attach, ssh, tui, open, workspace new/open, agent) take --focus /
-            --no-focus.
-            \(Self.openFocusDefaultHelp)
+            Machines:
+              ls                        List your machines, their state, and plan usage.
+              new [--size <4g|8g|16g|24g|32g|64g>] [--name <label>] [--detach|-d]
+                                        Create a machine: the devbox with devtools, coding
+                                        agents and a VNC screen.
+              open <target> [--workspace <ws>]
+                                        Open <machine> (its shell), <machine>/<ws>[/<term>],
+                                        <machine>:desktop, or <machine>:port/<n>.
+              open <id> <port> [--print]
+                                        Show an HTTP port of the machine in a browser split.
+              tree [<machine>|local] [--refresh]
+                                        Every workspace, terminal, port, and display, with
+                                        the address `vm open` accepts.
+              ports <id> [--all]        Show your servers inside the machine.
+              rename <id> <label>       Change the machine's label.
+              pause|resume <id>         Park the machine (compute and billing stop) / wake it.
+              rm <id>                   Destroy the machine.
 
-            Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
-            Machines live on your private network with no public ports. Terminal
-            and embedded browser access uses user-space WireGuard automatically.
-            Private Cloud URLs keep their machine's address and original port.
-            The optional system VPN is only needed for access from other apps.
-
-            Subcommands:
-              guide | --skill           \(Self.guideDescription)
-              ls                        List your cloud VMs.
-              domains                   \(domainsDescription)
-              workspace new <machine> [--name <name>] [--reuse] [--focus|--no-focus]
-                                        Create a workspace on the machine (its ⌘N) and
-                                        open it as a new local workspace; --reuse opens
-                                        the one already named so instead of a duplicate.
-              workspace open <machine> <ws-id> [--focus|--no-focus]
-                                        Open a machine workspace here: a new local
-                                        workspace with one pane per terminal.
-              workspace rename <machine> <ws-id> <name>
-                                        Rename a machine workspace.
-              workspace close <machine> <ws-id>
-                                        Close a machine workspace; its terminals keep
-                                        running and detach into the Terminals pool.
-              workspace rm <machine> <ws-id>
-                                        Delete a machine workspace AND kill every
-                                        terminal in it. Permanent.
-              terminal close <machine> <term-id>
-                                        End a terminal on the machine.
-              terminal send <machine> <term-id> [text] [--keys enter,ctrl+c,…]
-                                        Type into a machine terminal headlessly (no
-                                        pane, no focus); --keys presses named keys after.
-              terminal read <machine> <term-id>
-                                        Print the terminal's visible screen.
-              terminal rename <machine> <term-id> <name>
-                                        Rename a terminal for every client.
-              terminal wait <machine> <term-id> --pattern <regex> [--timeout <s>]
-                                        Block until the screen matches; exit 1 on timeout.
-              terminal wait-exit <machine> <term-id> [--timeout <s>]
-                                        Block until the terminal's process exits: prints
-                                        `exited code=<n>`; `pending` + exit 1 if still running.
-              terminal output <machine> <term-id> [--after <offset>] [--max-bytes <n>]
-                                        Print the terminal's retained output (the whole log);
-                                        --json adds next_offset to read only what is new.
-              layout export <machine> [<ws-id|name>] [--raw]
-                                        Print a machine workspace's layout as a declarative
-                                        layout document (the same JSON `cmux layout`,
-                                        `new-workspace --layout`, and cmux.json use);
-                                        --raw prints the daemon's own LayoutDocument.
-              layout apply <machine> (<file>|-|--from-saved <name>) [--workspace <ws-id>] [--name <n>] [--cwd <dir>] [--open]
-                                        Build panes, splits, and tabs on the machine from a
-                                        layout document (a new workspace, or an empty one);
-                                        --open then shows it here with the same geometry.
-              env set <machine> KEY=VALUE… [--from-file <.env>]
-                                        Set environment variables for every terminal, agent,
-                                        and command cmux starts on the machine (persisted in
-                                        its ~/.config/cmux/env; names only are echoed back).
-              env ls <machine> [--show]  List them (names; --show adds values).
-              env rm <machine> KEY…      Remove them.
-              secrets [ls|set|import|rm|sync|status|check|link|unlink]
-                                        Cloud Secrets: API keys kept in this Mac's Keychain and
-                                        delivered to every machine end to end; see
-                                        `cmux vm secrets --help`.
-              clone <repo> [--agent <claude|codex|opencode|pi>]
+            Work on a machine:
+              clone <repo> [--agent <claude|codex|opencode|pi>] [-- <prompt>]
                                         Clone a repo (URL, owner/repo, or `.`) onto a machine
                                         with your secrets, open its workspace, and optionally
-                                        start an agent in it (alias: `repo clone`); see
-                                        `cmux vm clone --help`.
-              tab rename <machine> <tab-id> <name>
-                                        Rename one daemon tab placement.
-              prompt [--open <agent>]   Install the cmux-cloud skill file and print the
-                                        kickoff prompt for any agent; --open starts a
-                                        local claude|codex|opencode|pi terminal with it.
-              tree [<machine>|local] [--refresh]
-                                        Finder-style view of every surface: This Mac
-                                        (terminals by workspace, browsers), then each
-                                        machine's Workspaces, Ports, VNC Displays,
-                                        and final Terminals index — each with the
-                                        address
-                                        `vm open` / `surface open` accepts.
-              self <machine> [<path>]   Who the machine is, as the platform sees it: the
-                                        reflection `cmux self` prints inside it (name,
-                                        owner, team, plan; paths owner|machine|peers|
-                                        integrations) — read through your session, no
-                                        shell started.
-              status <id>                Print provider, status, and image.
-              base open [--workspace <id>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
-                                        Open Base, your persistent cloud workspace.
-                                        Reuses the same VM every time. The first
-                                        \(String(localized: "cli.vm.help.baseCreate", defaultValue: "open creates it: the devbox with a VNC screen."))
-                                        --no-focus opens it without switching
-                                        to its workspace.
-              base reset [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
-                                        Create a new Base generation. The previous
-                                        VM is retained so accidental resets are
-                                        recoverable.
-              new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
-                                        \(String(localized: "cli.vm.help.newDevbox", defaultValue: "Create a new machine: the devbox with devtools,"))
-                                        \(String(localized: "cli.vm.help.newDevboxScreen", defaultValue: "coding agents and a VNC screen. The server picks"))
-                                        \(String(localized: "cli.vm.help.newDevboxImage", defaultValue: "the image for the size; --image <id> is an"))
-                                        \(String(localized: "cli.vm.help.newDevboxOverride", defaultValue: "explicit override you normally omit."))
-                                        \(String(localized: "cli.vm.help.newSizesVcpu", defaultValue: "vCPUs follow --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."))
-                                        --no-focus opens the machine without
-                                        switching to its workspace (what the New
-                                        Machine sheet does).
-              snapshot <id> [--name <name>]
-                                        Create a provider snapshot/checkpoint and print its id.
-                                        Alias: `checkpoint`.
-              snapshot ls <id>          List the machine's snapshots, newest first
-                                        (`<id>  <created>  <name|->`).
-              snapshot rm <id> <snapshot-id>
-                                        Delete one of the machine's snapshots. Permanent.
-              fork <id> [--name <name>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
-                                        Fork a VM as a tracked Cloud VM and open it unless
-                                        --detach is passed.
-              restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
-                                        Restore a snapshot as a tracked Cloud VM.
-              stats <id>                     CPU, memory, and disk right now (sleeping machines stay asleep)
-              resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]
-                                        \(resizeDescription)
-              network <id> [set|add-domain|remove-domain|add-range|remove-range|preset] ...
-                                        \(networkDescription)
-              agent-updates <id> [latest|image]
-                                        \(agentUpdatesDescription)
-              tui <id> [--window <id|ref|index>] [--focus|--no-focus]
-                                        Open a workspace attached through the machine's
-                                        cmux-tui remote daemon (enrolls this Mac on first use).
-              shell <id> [--window <id|ref|index>] [--focus|--no-focus]
-                                        Drop into an interactive shell on an existing VM.
-                                        Alias: `attach <id>`. Machines with a desktop image
-                                        also stream their screen into a browser split.
-              desktop <id> [--workspace <id|ref|index>]
-                                        Open the machine's noVNC desktop as a pane in your
-                                        workspace. Alias: `vnc <id>`.
-              open <target> [--workspace <ws>] [--focus|--no-focus]
-                                        Open a tree address: <machine> (its shell),
-                                        <machine>/<ws>[/<term>] (a cmux-tui workspace or one
-                                        terminal — reuses the pane already showing it),
-                                        <machine>:desktop, <machine>:port/<n>.
-              open <id> <port> [--print]
-                                        Mint a private HTTPS URL for an HTTP port on the VM
-                                        and show it in a browser split. --print only prints.
-              ssh <id> [--window <id|ref|index>] [--focus|--no-focus]
-                                        Drop into a cmux-managed SSH workspace for an existing
-                                        VM, using the same session path as `cmux ssh`.
-              ssh-info <id>             Print SSH connection details when the Cloud VM
-                                        exposes SSH.
-              pause <id>                Park the machine: compute stops (and stops billing);
-                                        the volume, workspaces and history stay.
-              resume <id>               Wake a paused machine; the daemon and terminals return.
-              rm <id>                   Destroy a VM.
+                                        start an agent in it (alias: `repo clone`).
+              agent --agent <claude|codex|opencode|pi> [--machine <id>] [--wait] -- <prompt>
+                                        Start a coding agent in a detached terminal on a
+                                        routed machine; reattach with `vm open`.
+              run [--sync] [--machine <id>] [--new] -- <command...>
+                                        Run a command on a routed pool machine and pass its
+                                        exit code through.
               exec [--timeout <s>] <id> -- <command...>
-                                        Run a shell command inside the VM and print stdout;
-                                        --timeout 1…900 seconds (default 30).
-              run [--sync] [--pull <remote>] [--machine <id>] [--new] -- <command...>
-                                        Run a command without naming a machine: the router
-                                        reuses an idle pool machine, wakes a sleeper, or
-                                        provisions a fresh one, then passes the exit code through.
-              route [--cwd <dir>] [--new] [--provision]
-                                        Print the machine `run`/`agent` would use for a
-                                        directory and why, without running anything.
-              agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <n>] [--no-open] [--focus|--no-focus] [--wait [--output] [--timeout <s>]] -- <prompt or args...>
-                                        Start a coding agent as a detached terminal in a
-                                        machine's cmux-tui session (routed like `run`);
-                                        reattach with `vm open <machine>/<ws>/<term>`.
-                                        --wait blocks until it exits and passes the exit
-                                        code through; --output then prints its whole log.
-              dev <machine> [<dir>] [--name <workspace>] [--layout <file>] [--command <c>] [--port <n>] [--sync|--no-sync] [--no-open]
-                                        One command from a folder to a running dev layout:
-                                        route + sync the folder + detect the dev command +
-                                        a named workspace with a dev pane, a shell, and a
-                                        browser tab on its port, opened here.
-              push <id> <local> [remote] [--exclude <pattern>]... [--no-default-excludes]
-                                        Copy a local file or directory onto the VM over the
-                                        private Cloud link using SCP. Alias: `upload`.
-              push <id> <local> [remote] --watch [--interval <s>]
-                                        Keep pushing: re-sync whenever a local file changes,
-                                        until Ctrl-C.
-              push --secret <id> <local-file> [remote] [--mode <octal>]
-                                        A file that must never transit the control plane
-                                        (token, deploy key, .npmrc): over the machine's link
-                                        into `cmux file receive`, mode 600 by default.
-              pull <id> <remote> [local]
-                                        Copy a file or directory from the VM to local disk.
-                                        Alias: `download`.
-              wait <id> [--timeout <seconds>] [--wake]
-                                        Block until the VM reports a ready status; --wake also
-                                        runs a trivial exec so a sleeping machine is awake.
-              tools <id>                Inspect installed tools inside the VM.
-              ports <id> [--all]        Show your servers inside the VM (--all: system ports too).
-              handoff <id>              Print a short attach handoff block.
-              promote-template <id>     Snapshot a VM with a template-oriented name.
+                                        Run a shell command inside the machine; print stdout.
+              dev <machine> [<dir>]     Sync a folder and open a dev layout (server, shell,
+                                        browser) for it.
+              push <id> <local> [remote] [--watch]  /  pull <id> <remote> [local]
+                                        Copy files to or from the machine.
+              secrets [ls|set|import|rm|sync|status|check|link|unlink]
+                                        API keys from this Mac's Keychain, delivered to every
+                                        machine end to end.
+              env set|ls|rm <machine> …
+                                        Environment variables for everything cmux starts there.
+
+            Workspaces and terminals:
+              workspace new <machine> [--name <name>] [--reuse]
+              workspace open|rename|close|rm <machine> <ws-id> …
+                                        Machine workspaces (⌘N there); `rm` also kills its
+                                        terminals.
+              terminal wait-exit|wait|send|read|output|rename|close <machine> <term-id> …
+                                        Drive a machine terminal headlessly.
+              tab rename <machine> <tab-id> <name>
+              layout export|apply <machine> …
+                                        Print a workspace's layout, or build one from a file.
+
+            More:
+              base open|reset           Base, your persistent cloud workspace.
+              status <id>               Provider, status, and image.
+              stats <id>                CPU, memory, and disk right now.
+              resize <id>               \(resizeDescription)
+              network <id> …            \(networkDescription)
+              agent-updates <id> …      \(agentUpdatesDescription)
+              snapshot <id> [ls|rm]     Create, list, or delete snapshots (alias: `checkpoint`).
+              fork <id> | restore <snapshot-id>
+                                        A new tracked machine from a machine or a snapshot.
+              route [--cwd <dir>]       Print the machine `run`/`agent` would use, and why.
+              wait <id> [--wake]        Block until the machine is ready.
+              shell <id> (alias: attach) | ssh <id> | ssh-info <id> | tui <id>
+                                        Interactive shells and the cmux-tui attach.
+              desktop <id> (alias: vnc) The machine's noVNC desktop as a pane.
+              self <machine> [<path>]   The machine as the platform sees it.
+              domains                   \(domainsDescription)
+              tools <id> | handoff <id> | promote-template <id>
+                                        Installed tools, an attach handoff block, a template
+                                        snapshot.
+              prompt [--open <agent>]   Install the cmux-cloud skill file; print the kickoff
+                                        prompt for any agent.
+              guide | --skill           \(Self.guideDescription)
+
+            Verbs that open a workspace or pane take --focus / --no-focus.
+            \(Self.openFocusDefaultHelp)
+            Machines live on your private network with no public ports; terminals and the
+            embedded browser reach them over user-space WireGuard automatically.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
-                                         `bun run dev` derives this from CMUX_PORT/PORT for
-                                         local testing from the web worktree.
-
-            Example:
-              cmux vm base open
-              cmux vm base reset
-              cmux vm new
-              cmux vm ls
-              cmux vm fork <id>
-              cmux cloud exec <id> -- echo hello
-              cmux vm rm <id>
+              CMUX_DEBUG=1               Also print how a machine label resolved to its id.
             """
         case "rpc":
             return """

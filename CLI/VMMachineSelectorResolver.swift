@@ -22,20 +22,20 @@ struct VMMachineSelectorResolver: Sendable {
         case unknown
     }
 
-    func resolve(_ rawSelector: String, vms: [[String: Any]]) -> Resolution {
+    /// `exactLabelOnly` (destructive verbs) accepts only the machine's own label as
+    /// `vm ls` shows it, spelled exactly: no case folding and no slug alias.
+    func resolve(_ rawSelector: String, vms: [[String: Any]], exactLabelOnly: Bool = false) -> Resolution {
         let selector = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selector.isEmpty else { return .unknown }
         let rows = vms.compactMap { vm -> (id: String, labels: [String])? in
             guard let id = vm["id"] as? String, !id.isEmpty else { return nil }
-            let labels = [vm["displayName"], vm["slug"]]
-                .compactMap { $0 as? String }
-                .filter { !$0.isEmpty }
-            return (id: id, labels: labels)
+            let labels = Self.labels(of: vm)
+            return (id: id, labels: exactLabelOnly ? Array(labels.prefix(1)) : labels)
         }
         if rows.contains(where: { $0.id == selector }) { return .id(selector) }
         // Exact spelling first; a case-insensitive match only when nothing matches exactly.
         var matches = rows.filter { $0.labels.contains(selector) }
-        if matches.isEmpty {
+        if matches.isEmpty, !exactLabelOnly {
             let folded = selector.lowercased()
             matches = rows.filter { row in row.labels.contains { $0.lowercased() == folded } }
         }
@@ -45,6 +45,18 @@ struct VMMachineSelectorResolver: Sendable {
         default:
             return .ambiguous(matches.map { Match(id: $0.id, label: $0.labels.first ?? $0.id) })
         }
+    }
+
+    /// A machine's labels, the one `vm ls` shows first (its display name, else its slug).
+    private static func labels(of vm: [String: Any]) -> [String] {
+        [vm["displayName"], vm["slug"]]
+            .compactMap { $0 as? String }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The label `vm ls` shows for the machine `id`, for messages.
+    func primaryLabel(of id: String, vms: [[String: Any]]) -> String? {
+        vms.first { ($0["id"] as? String) == id }.flatMap { Self.labels(of: $0).first }
     }
 
     /// The tokens of a `cmux vm <verb>` argument list that may name a machine, in the
@@ -84,6 +96,7 @@ struct VMMachineSelectorResolver: Sendable {
         "--agent", "--name", "--cwd", "--remote-cwd", "--size", "--timeout", "--remote-workspace",
         "--workspace", "--window", "--keys", "--pattern", "--after", "--max-bytes", "--cpu",
         "--memory", "--disk", "--provider", "--from-file", "--from-saved", "--branch",
+        "--pull", "--dir", "--interval", "--exclude", "--mode", "--reason", "--port", "--command", "--layout",
     ]
 
     /// `arguments` with the token at `index` (or its machine prefix) replaced by `id`.

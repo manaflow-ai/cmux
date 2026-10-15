@@ -289,7 +289,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        XCTAssertEqual(log.methods, ["vm.env_set"], log.methods.description)
+        // `-` reads stdin, which a label retry could not read twice: the machine is looked
+        // up first (this mock has no list, so it stands as typed), then one env_set.
+        XCTAssertEqual(log.methods, ["vm.list", "vm.env_set"], log.methods.description)
         // dotenv rules applied on the Mac (comments, `export`, matching quotes, inline
         // comment); every value reaches the app byte for byte, quotes and padding included.
         XCTAssertEqual(vmEnvSetEntryLines(log), [
@@ -305,6 +307,54 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
         XCTAssertTrue(result.stdout.contains("OK set 9 variables on brave-otter"), result.stdout)
         XCTAssertFalse(result.stdout.contains("postgres://"), "values never echo back: \(result.stdout)")
+    }
+
+    func testVMEnvSetFromStdinResolvesAMachineLabelBeforeReadingStdin() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-env-label")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMLayoutEnvRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            log.append(request)
+            let params = (request["params"] as? [String: Any]) ?? [:]
+            switch method {
+            case "vm.list":
+                return self.v2Response(id: id, ok: true, result: ["vms": [["id": "vm-f944", "displayName": "proud-white-sloth", "status": "running"]]])
+            case "vm.env_set" where params["id"] as? String == "vm-f944":
+                let keys = ((params["entries"] as? [[String: Any]]) ?? []).compactMap { $0["key"] as? String }
+                return self.v2Response(id: id, ok: true, result: ["machine": "vm-f944", "keys": keys, "count": keys.count])
+            default:
+                return self.v2Response(id: id, ok: false, error: [
+                    "code": "vm_error", "message": "The Cloud VM request failed.",
+                    "data": ["http_status": 404, "backend_code": "vm_not_found"],
+                ])
+            }
+        }
+        let result = runProcessWithInput(
+            executablePath: cliPath,
+            arguments: ["vm", "env", "set", "proud-white-sloth", "-"],
+            environment: vmLayoutEnvEnvironment(socketPath: socketPath),
+            standardInput: "FROM_STDIN=1\nSECOND=2\n",
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        // Resolved before the verb ran, so stdin was read once and reached the one request.
+        XCTAssertEqual(log.methods, ["vm.list", "vm.env_set"], log.methods.description)
+        XCTAssertEqual(vmEnvSetEntryLines(log), ["FROM_STDIN=1", "SECOND=2"])
+        XCTAssertFalse(result.stderr.contains("is the label of"), result.stderr)
     }
 
     func testVMEnvSetRejectsInvalidKeysWithoutTouchingTheSocket() throws {

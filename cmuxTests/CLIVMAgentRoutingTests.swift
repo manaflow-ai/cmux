@@ -50,6 +50,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     private func runVMAgentRoutingCLI(
         _ name: String,
         arguments: [String],
+        extraEnvironment: [String: String] = [:],
         respond: @escaping @Sendable (_ method: String, _ params: [String: Any]) -> VMAgentRoutingReply?
     ) throws -> (result: ProcessRunResult, log: VMAgentRoutingRequestLog) {
         let cliPath = try bundledCLIPath()
@@ -89,6 +90,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["HOME"] = home.path
         environment["CFFIXED_USER_HOME"] = home.path
         environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment.removeValue(forKey: "CMUX_DEBUG")
+        environment.merge(extraEnvironment) { _, override in override }
         let result = runProcess(executablePath: cliPath, arguments: arguments, environment: environment, timeout: 60)
         wait(for: [handled], timeout: 60)
         XCTAssertFalse(result.timedOut, "\(arguments) timed out: \(result.stderr)")
@@ -243,7 +246,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.stdout, "Linux\n")
         XCTAssertEqual(log.vmMethods, ["vm.exec", "vm.list", "vm.exec"], log.vmMethods.description)
         XCTAssertEqual(log.params(of: "vm.exec").map { $0["id"] as? String }, ["cgc-eval-r0", "vivid-newt"])
+        // A label that resolves is silent: no "is the label of" line on every command.
+        XCTAssertEqual(result.stderr, "", result.stderr)
+    }
+
+    func testVMMachineLabelResolutionIsTracedOnlyUnderCMUXDebug() throws {
+        let (result, _) = try runVMAgentRoutingCLI(
+            "veld",
+            arguments: ["vm", "exec", "cgc-eval-r0", "--", "true"],
+            extraEnvironment: ["CMUX_DEBUG": "1"]
+        ) { method, params in
+            switch method {
+            case "vm.exec":
+                guard params["id"] as? String == "vivid-newt" else { return Self.vmNotFound }
+                return .result(["exit_code": 0, "stdout": "", "stderr": ""])
+            case "vm.list": return .result(Self.vmLabelList)
+            default: return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
         XCTAssertTrue(result.stderr.contains("cgc-eval-r0 is the label of vivid-newt"), result.stderr)
+    }
+
+    func testVMPortsNamesALabeledMachineByItsLabel() throws {
+        // `vm ports <label>` with nothing listening: the empty-state line names the
+        // machine the way it was typed, not by the id the label resolved to.
+        let (result, log) = try runVMAgentRoutingCLI(
+            "vpl",
+            arguments: ["vm", "ports", "cgc-eval-r0"]
+        ) { method, params in
+            switch method {
+            case "vm.exec":
+                guard params["id"] as? String == "vivid-newt" else { return Self.vmNotFound }
+                return .result(["exit_code": 0, "stdout": "", "stderr": ""])
+            case "vm.list": return .result(Self.vmLabelList)
+            case "vm.status": return .result(["id": "vivid-newt"])
+            case "vm.publication_list": return .result(["publications": []])
+            default: return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.params(of: "vm.exec").map { $0["id"] as? String }, ["cgc-eval-r0", "vivid-newt"])
+        XCTAssertTrue(result.stdout.contains("listening inside cgc-eval-r0 yet"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("vivid-newt"), result.stdout)
+        XCTAssertFalse(result.stderr.contains("is the label of"), result.stderr)
     }
 
     func testVMMachineIdsCostNoListRead() throws {
@@ -333,6 +379,74 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.stderr.contains("is the label of"), result.stderr)
     }
 
+    func testVMDestructiveVerbsNeedTheExactLabel() throws {
+        // A case-folded label is a near miss on `vm rm`: refused, naming the machine.
+        let (folded, foldedLog) = try runVMAgentRoutingCLI(
+            "vrmf",
+            arguments: ["vm", "rm", "CGC-EVAL-R0"]
+        ) { method, params in
+            switch method {
+            case "vm.destroy":
+                return params["id"] as? String == "vivid-newt" ? .result(["ok": true]) : Self.vmNotFound
+            case "vm.list": return .result(Self.vmLabelList)
+            default: return nil
+            }
+        }
+        XCTAssertNotEqual(folded.status, 0, folded.stdout)
+        XCTAssertEqual(foldedLog.vmMethods, ["vm.destroy", "vm.list"], "nothing is destroyed on a near miss")
+        XCTAssertTrue(folded.stderr.contains("Did you mean cgc-eval-r0 (vivid-newt)?"), folded.stderr)
+
+        // The slug is not an alias for a destructive verb once the machine has a label.
+        let (slug, slugLog) = try runVMAgentRoutingCLI(
+            "vrms",
+            arguments: ["vm", "pause", "proud-white-sloth"]
+        ) { method, params in
+            switch method {
+            case "vm.pause":
+                return params["id"] as? String == "vm-f944" ? .result(["ok": true]) : Self.vmNotFound
+            case "vm.list":
+                return .result(["vms": [["id": "vm-f944", "displayName": "my box", "slug": "proud-white-sloth", "status": "running"]]])
+            default: return nil
+            }
+        }
+        XCTAssertNotEqual(slug.status, 0, slug.stdout)
+        XCTAssertEqual(slugLog.vmMethods, ["vm.pause", "vm.list"], slugLog.vmMethods.description)
+        XCTAssertTrue(slug.stderr.contains("Did you mean my box (vm-f944)?"), slug.stderr)
+
+        // The exact label still works.
+        let (exact, exactLog) = try runVMAgentRoutingCLI(
+            "vrme",
+            arguments: ["vm", "rm", "cgc-eval-r0"]
+        ) { method, params in
+            switch method {
+            case "vm.destroy":
+                return params["id"] as? String == "vivid-newt" ? .result(["ok": true]) : Self.vmNotFound
+            case "vm.list": return .result(Self.vmLabelList)
+            default: return nil
+            }
+        }
+        XCTAssertEqual(exact.status, 0, "stdout=\(exact.stdout) stderr=\(exact.stderr)")
+        XCTAssertEqual(exactLog.params(of: "vm.destroy").map { $0["id"] as? String }, ["cgc-eval-r0", "vivid-newt"])
+    }
+
+    func testVMNeverRerunsACommandThatRanOnTheMachine() throws {
+        // The app accepted the label (as the backend accepts slugs) and the command ran
+        // and failed with "not found" on its stderr: that is the command's own failure,
+        // never a machine lookup, so it is not run a second time.
+        let (result, log) = try runVMAgentRoutingCLI(
+            "vrr",
+            arguments: ["vm", "exec", "cgc-eval-r0", "--", "missing-tool"]
+        ) { method, _ in
+            switch method {
+            case "vm.exec": return .result(["exit_code": 127, "stdout": "", "stderr": "bash: missing-tool: command not found\n"])
+            case "vm.list": return .result(Self.vmLabelList)
+            default: return nil
+            }
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(log.vmMethods, ["vm.exec"], log.vmMethods.description)
+    }
+
     // MARK: - vm terminal read on an exited terminal
 
     func testVMTerminalReadReportsAnExitedTerminalOnStderr() throws {
@@ -365,9 +479,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let lines = result.stdout.components(separatedBy: "\n")
         let usage = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("Usage: cmux vm <") }, result.stdout)
         let quickStart = try XCTUnwrap(lines.firstIndex { $0 == "Quick start:" }, result.stdout)
-        let subcommands = try XCTUnwrap(lines.firstIndex { $0 == "Subcommands:" }, result.stdout)
+        // The verbs follow in short groups, the rarely used ones below a "More:" fold.
+        let groups = ["Machines:", "Work on a machine:", "Workspaces and terminals:", "More:"]
+        let groupLines = try groups.map { heading in
+            try XCTUnwrap(lines.firstIndex { $0 == heading }, "\(heading) missing from:\n\(result.stdout)")
+        }
+        XCTAssertEqual(groupLines, groupLines.sorted(), "groups out of order: \(groupLines)")
         XCTAssertLessThan(usage, quickStart)
-        XCTAssertLessThan(quickStart, subcommands)
+        XCTAssertLessThan(quickStart, groupLines[0])
+        XCTAssertLessThan(lines.count, 120, "the overview stays short; flags live in `cmux vm <verb> --help`")
         XCTAssertLessThan(quickStart, 8, "the quick start is on the first screen")
         let block = lines[quickStart..<min(quickStart + 7, lines.count)].joined(separator: "\n")
         for command in [
@@ -379,5 +499,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ] {
             XCTAssertTrue(block.contains(command), "\(command) missing from:\n\(block)")
         }
+        // A verb folded to one overview line still prints its full flags on its own.
+        let fork = runProcess(executablePath: cliPath, arguments: ["vm", "fork", "--help"], environment: environment, timeout: 30)
+        XCTAssertEqual(fork.status, 0, fork.stderr)
+        XCTAssertTrue(fork.stdout.contains("Usage: cmux vm fork <id> [--name <name>]"), fork.stdout)
+        XCTAssertFalse(fork.stdout.contains("Usage: cmux vm <"), fork.stdout)
     }
 }

@@ -45,6 +45,11 @@ final class SurfaceCatalog {
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// Admits one display creation per machine so repeated clicks cannot project the same guest twice.
     var activeDisplayCreations: Set<SurfaceMachineID> = []
+    /// Machines this app session created (`recordCreatedMachine`: the New Machine flows,
+    /// `vm.create` from `cmux vm new` and the router) whose first workspace has not yet
+    /// been named for what it is. Only these are auto-named; opening an existing machine
+    /// never renames its workspace (nameInitialWorkspaceForWhatItIs).
+    var machinesAwaitingInitialWorkspaceName: Set<SurfaceMachineID> = []
     /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
     let sidebarOrganization: CloudSidebarOrganizationStore
@@ -175,6 +180,7 @@ final class SurfaceCatalog {
         }
         closeURLBackedPanes(on: machine)
         cloudWorkspaceDeletionLedger.remove(machine: machine)
+        machinesAwaitingInitialWorkspaceName.remove(machine)
         providers[machine] = nil
         machines[machine] = nil
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
