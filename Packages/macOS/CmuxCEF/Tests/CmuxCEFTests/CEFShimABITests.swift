@@ -121,3 +121,20 @@ import Testing
         #expect(ChromiumWindowRule.verdict(facts(visible: false)) == .allow)
     }
 }
+
+@Suite struct CEFSignalActionsTests {
+    /// What a start resets is put back exactly (here SIGPIPE ignored).
+    @Test func restorePutsBackTheCapturedAction() {
+        var original = sigaction()
+        sigaction(SIGPIPE, nil, &original)
+        defer { sigaction(SIGPIPE, &original, nil) }
+        signal(SIGPIPE, SIG_IGN)
+        let saved = CEFSignalActions.capture()
+        #expect(saved.count == CEFSignalActions.signals.count)
+        signal(SIGPIPE, SIG_DFL)
+        saved.restore()
+        var now = sigaction()
+        sigaction(SIGPIPE, nil, &now)
+        #expect(unsafeBitCast(now.__sigaction_u.__sa_handler, to: Int.self) == unsafeBitCast(SIG_IGN, to: Int.self))
+    }
+}

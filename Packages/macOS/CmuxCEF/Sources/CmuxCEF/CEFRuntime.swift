@@ -279,6 +279,9 @@ public final class CEFRuntime {
         // a page cmux did not ask to focus.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
+        // Chromium resets every signal action; the app's stay (CEFSignalActions).
+        let signalActions = CEFSignalActions.capture()
+        defer { signalActions.restore() }
         let ok = switchStorage.withUnsafeBufferPointer { buffer in
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(
