@@ -71,6 +71,49 @@ struct VaultClaudeCustomTitleTests {
     }
 
     @Test
+    func nameRecordedBetweenTheWindowsStillLabelsTheSession() async throws {
+        let fixture = try ClaudeTranscriptFixture()
+        defer { fixture.tearDown() }
+        let padding = String(repeating: "x", count: 2_000)
+        var lines = [fixture.userLine("/login")]
+        for _ in 0..<((SessionIndexStore.headByteCap / padding.utf8.count) + 4) {
+            lines.append(fixture.assistantLine(padding))
+        }
+        lines.append(fixture.customTitleLine("Named a few turns in"))
+        for _ in 0..<((SessionIndexStore.tailByteCap / padding.utf8.count) + 4) {
+            lines.append(fixture.assistantLine(padding))
+        }
+        try fixture.writeTranscript(sessionId: "between", lines: lines)
+
+        let entry = try await fixture.loadEntry(sessionId: "between")
+
+        #expect(entry.title == "Named a few turns in")
+    }
+
+    @Test
+    func renameBetweenTheWindowsOutranksTheNameInTheHead() async throws {
+        let fixture = try ClaudeTranscriptFixture()
+        defer { fixture.tearDown() }
+        let padding = String(repeating: "x", count: 2_000)
+        var lines = [
+            fixture.userLine("Fix the billing export"),
+            fixture.customTitleLine("Early name"),
+        ]
+        for _ in 0..<((SessionIndexStore.headByteCap / padding.utf8.count) + 4) {
+            lines.append(fixture.assistantLine(padding))
+        }
+        lines.append(fixture.customTitleLine("Later name"))
+        for _ in 0..<((SessionIndexStore.tailByteCap / padding.utf8.count) + 4) {
+            lines.append(fixture.assistantLine(padding))
+        }
+        try fixture.writeTranscript(sessionId: "renamed", lines: lines)
+
+        let entry = try await fixture.loadEntry(sessionId: "renamed")
+
+        #expect(entry.title == "Later name")
+    }
+
+    @Test
     func clearedNameFallsBackToTheFirstPrompt() async throws {
         let fixture = try ClaudeTranscriptFixture()
         defer { fixture.tearDown() }
