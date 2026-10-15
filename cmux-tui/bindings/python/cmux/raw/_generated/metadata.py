@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297'
+IR_SHA256 = '17530afdd85225eeee774d694d6cf5fce69280f3a49aeb2859db1f8735a1a17f'
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,18 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'surfaces': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'answer-frontend-browser-tab-close': CommandMetadata(
+        'answer-frontend-browser-tab-close',
+        'control',
+        12,
+        'frontend-tab-close-request-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'outcome': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
         },
     ),
     'apply-layout': CommandMetadata(
@@ -344,6 +356,18 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'client-attention': CommandMetadata(
+        'client-attention',
+        'control',
+        12,
+        'client-attention-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'client-focus': CommandMetadata(
@@ -1455,6 +1479,17 @@ COMMANDS = {
         {
             'force': CommandFieldMetadata(None, None),
             'session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'frontend-browser-tab-close-subscribe': CommandMetadata(
+        'frontend-browser-tab-close-subscribe',
+        'control',
+        12,
+        'frontend-tab-close-request-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'owner': CommandFieldMetadata(None, None),
         },
     ),
     'get-blob': CommandMetadata(
@@ -2651,6 +2686,23 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'report-client-attention': CommandMetadata(
+        'report-client-attention',
+        'control',
+        12,
+        'client-attention-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'app_active': CommandFieldMetadata(None, None),
+            'client_id': CommandFieldMetadata(None, None),
+            'key_window': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'recent_input': CommandFieldMetadata(None, None),
+            'tab': CommandFieldMetadata(None, None),
+            'utc_offset_minutes': CommandFieldMetadata(None, None),
+        },
+    ),
     'report-focus': CommandMetadata(
         'report-focus',
         'control',
@@ -2662,6 +2714,33 @@ COMMANDS = {
             'client_id': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'tab': CommandFieldMetadata(None, None),
+        },
+    ),
+    'report-frontend-browser-tab-removed': CommandMetadata(
+        'report-frontend-browser-tab-removed',
+        'control',
+        12,
+        'frontend-tab-close-request-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'reason': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'request-frontend-browser-tab-close': CommandMetadata(
+        'request-frontend-browser-tab-close',
+        'control',
+        12,
+        'frontend-tab-close-request-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'reason': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'resize-attached-view': CommandMetadata(
@@ -3699,6 +3778,8 @@ EVENTS = {
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
+    'frontend-browser-tab-close-requested': EventMetadata('frontend-browser-tab-close-requested', 12, 'frontend-tab-close-request-v1', ('control',), 'emitted'),
+    'frontend-browser-tab-close-settled': EventMetadata('frontend-browser-tab-close-settled', 12, 'frontend-tab-close-request-v1', ('control',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),

@@ -101,6 +101,8 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::browser_profiles::error_code(error))
         .or_else(|| crate::mux::feed_local::feed_error_code(error))
         .or_else(|| super::clipboard_read::error_code(error))
+        .or_else(|| super::client_attention::error_code(error))
+        .or_else(|| super::frontend_browser_close::error_code(error))
         .or_else(|| super::chief_inspect::error_code(error))
         .or_else(|| super::icon_assets::error_code(error))
         .or_else(|| super::conversations::error_code(error))
