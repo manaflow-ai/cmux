@@ -324,7 +324,9 @@ export function messageLink(conversation: string, message?: string, scheme = "cm
  * any build scheme; query and fragment ignored), the grammar the daemon's link read accepts. */
 export function parseConversationLink(url: string): { conversation: string; message?: string } | undefined {
   if (url.length > 512) return undefined;
-  const match = /^[a-z][a-z0-9-]*:\/\/conversation\/([A-Za-z0-9_]+)(?:\/message\/([A-Za-z0-9_]+))?\/?(?:[?#].*)?$/.exec(url);
+  const match = /^[a-z][a-z0-9-]*:\/\/conversation\/([A-Za-z0-9_]+)(?:\/message\/([A-Za-z0-9_]+))?\/?(?:[?#].*)?$/.exec(
+    url,
+  );
   if (!match) return undefined;
   return match[2] ? { conversation: match[1]!, message: match[2] } : { conversation: match[1]! };
 }
