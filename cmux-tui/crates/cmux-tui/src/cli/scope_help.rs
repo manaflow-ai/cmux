@@ -28,7 +28,7 @@ the positional URL.
 browser profile list shows each profile's id, name, color, icon and index,
 never its cookies, history or site data. browser profile open opens a tab in
 the profile, in the named pane, else the focused one; the URL must be http or
-https.
+https. Without --engine the tab uses the browser.defaultEngine setting.
 ";
 
 pub(super) const NOTIFICATION_HELP: &str = "\

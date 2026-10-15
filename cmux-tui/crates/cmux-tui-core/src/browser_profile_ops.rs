@@ -36,9 +36,9 @@ use crate::{Mux, PaneId, ResourceTarget};
 /// and shows `extra.browser_profile_id` on frontend browser tabs.
 pub(crate) const CAPABILITY: &str = "browser-profile-agent-v1";
 
-/// The engine of a tab `browser.profile.open` makes when the caller names
-/// none (the app's default engine).
-const DEFAULT_ENGINE: &str = "webkit";
+/// The setting that names the engine of a new browser tab
+/// (`chromium` or `webkit`; the app's `cef` engine is Chromium).
+const DEFAULT_ENGINE_SETTING: &str = "browser.defaultEngine";
 
 const OPEN: &str = "browser.profile.open";
 
@@ -164,8 +164,7 @@ fn create(
     };
     let (profile, changed) = mux
         .personal_mutation(|registry| registry.create_browser_profile(input))
-        // The registry checks the name, color and icon: the caller's input.
-        .map_err(|error| ResourceError::validation_invalid(None, error.to_string()))?;
+        .map_err(|error| registry_error(error, "browser.profile.create", key))?;
     Ok(json!({"browser_profile": public_profile(&profile)?, "changed": changed}))
 }
 
@@ -205,9 +204,20 @@ fn open(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .resolve_browser_profile_id(&profile)
-        .map_err(|error| ResourceError::validation_invalid(Some("profile"), error.to_string()))?;
+        .map_err(|error| {
+            let message = error.to_string();
+            // An unknown or ambiguous name is the caller's; a store
+            // failure is not.
+            if message.starts_with("unknown browser profile")
+                || message.starts_with("browser profile name is ambiguous")
+            {
+                ResourceError::validation_invalid(Some("profile"), message)
+            } else {
+                registry_error(error, OPEN, key)
+            }
+        })?;
     let record = FrontendBrowserRecord {
-        engine: string(fields, "engine").unwrap_or_else(|| DEFAULT_ENGINE.to_string()),
+        engine: string(fields, "engine").unwrap_or_else(|| default_engine(mux).to_string()),
         url,
         title: string(fields, "title"),
         favicon_url: None,
@@ -222,10 +232,10 @@ fn open(
             pane,
             record,
             None,
-            &format!("{OPEN}:{key}"),
+            &tab_key(key),
             FrontendTabPlacement { activate, after: None },
         )
-        .map_err(|error| ResourceError::validation_invalid(None, error.to_string()))?;
+        .map_err(|error| registry_error(error, OPEN, key))?;
     let surface = &outcome.surface;
     let failed = |reason: &str| ResourceError::operation_failed(OPEN, reason, json!({}));
     let identity = surface.resource_identity().ok_or_else(|| failed("the new tab has no id"))?;
@@ -244,6 +254,43 @@ fn open(
         "pane_id": pane_id.as_str(),
         "profile_id": profile_id,
     }))
+}
+
+/// The key of the tab `open` makes for `key`: a digest, so any key the
+/// envelope accepts (up to 128 bytes) leaves room for the prefix.
+fn tab_key(key: &str) -> String {
+    let digest = Sha256::digest(key.as_bytes());
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("{OPEN}:{hex}")
+}
+
+/// The person's `browser.defaultEngine` as a frontend engine: `webkit`,
+/// else `cef` (the setting's default, `chromium`).
+fn default_engine(mux: &Arc<Mux>) -> &'static str {
+    let target = cmux_config::Target::Key(DEFAULT_ENGINE_SETTING.to_string());
+    let value = mux.with_settings(|state| state.get(&target).row.and_then(|row| row.value));
+    match value.as_ref().and_then(Value::as_str) {
+        Some("webkit") => "webkit",
+        _ => "cef",
+    }
+}
+
+/// A registry or creation failure as the catalog error: the registry's
+/// `bad request` checks are validation.invalid, a key that named another
+/// request is idempotency.conflict, and the rest (the store, a pane that
+/// closed meanwhile) are operation.failed.
+fn registry_error(error: anyhow::Error, operation: &str, key: &str) -> ResourceError {
+    if let Some(resource) = error.downcast_ref::<ResourceError>() {
+        return resource.clone();
+    }
+    let message = error.to_string();
+    if let Some(reason) = message.strip_prefix("bad request: ") {
+        return ResourceError::validation_invalid(None, reason);
+    }
+    if message.starts_with("idempotency.conflict") {
+        return ResourceError::idempotency_conflict(key, operation);
+    }
+    ResourceError::operation_failed(operation, message, json!({}))
 }
 
 /// The pane the selectors name, else none (the daemon's focused pane).
