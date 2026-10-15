@@ -41,6 +41,25 @@ import Testing
         #expect(CloudListeningPortKind.classify(port: 33015, addresses: ["127.0.0.1"], processes: ["containerd", "node"]) == .app)
     }
 
+    @Test("Only cmux's own processes are cmux; a user's cmux-named program is theirs")
+    func cmuxProcessNames() {
+        for name in ["cmux-tui", "cmuxd", "cmuxd-remote", "cmux-cloud-adapter", "cmux-cloud-adap"] {
+            #expect(CloudListeningPortKind.classify(port: 41235, addresses: ["127.0.0.1"], processes: [name]) == .cmux, "\(name)")
+        }
+        for name in ["cmux-demo", "cmuxapp", "CMUX-TUI"] {
+            #expect(CloudListeningPortKind.classify(port: 4000, addresses: ["0.0.0.0"], processes: [name]) == .app, "\(name)")
+        }
+    }
+
+    @Test("Only the resolver stub's loopback addresses are DNS")
+    func loopbackAliases() {
+        #expect(CloudListeningPortKind.classify(port: 5355, addresses: ["127.0.0.53"], processes: []) == .dns)
+        #expect(CloudListeningPortKind.classify(port: 5355, addresses: ["127.0.0.54"], processes: []) == .dns)
+        // Another 127/8 address is a service someone bound there on purpose.
+        #expect(CloudListeningPortKind.classify(port: 8000, addresses: ["127.0.1.1"], processes: ["python3"]) == .app)
+        #expect(CloudListeningPortKind.classify(port: 8000, addresses: ["127.0.0.2"], processes: []) == .app)
+    }
+
     @Test("Fixed system ports stay hidden whatever the owner")
     func fixedSystemPorts() {
         #expect(CloudListeningPortKind.classify(port: 22, addresses: ["0.0.0.0"], processes: ["node"]) == .ssh)
