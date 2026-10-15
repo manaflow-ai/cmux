@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // An open menu never draws a focus ring around itself, and its items are at full ink (Leo
 // 2026-10-11, the New Tab "…" menu: "hella ugly"). The popup takes focus when it opens so its keys
 // work, and the global keyboard ring (desktop.css) drew a thick square around the whole menu, while
@@ -14,6 +15,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("menu-focus.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -62,6 +64,7 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
+    await warmDevServer(base, "/gallery/frame.html");
     browser = await engine!.launch({ headless: true });
     // The first loads compile the gallery and can run Vite's dependency optimizer, which reloads
     // the page: with a cold server, whichever test came first timed out in `goto` or lost its page
