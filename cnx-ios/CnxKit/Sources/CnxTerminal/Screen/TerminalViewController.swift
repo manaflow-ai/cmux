@@ -98,8 +98,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var presentedTop = 0
     private var documentTotal = 0
     private var outputSinceProbe = false
-    /// Row signatures of the frame on screen.
+    /// Row signatures of the frame on screen (the last one read).
     private var presentedRows: [UInt64]?
+    /// The scrollback viewport a read frame confirmed: frames after it are
+    /// placed without a pixel read until something moves the viewport.
+    private var steadyViewport: TerminalSteadyViewport?
+    /// Presents placed with and without a pixel read (the frame log reports them).
+    private(set) var presentReads = 0
+    private(set) var presentSkips = 0
     #if DEBUG
     var presentLog: [String] = []
     private var presentDebug = ""
@@ -114,6 +120,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// have no earlier primary-screen frame to be matched against, and the
     /// first report after the switch can still describe the alternate screen.
     private var placesFromReport = false
+    /// V5-1 rule switch for A/B on the rig (`-CnxNoJumpAwait` turns it off).
+    private static let jumpAwaitsFrame = !CommandLine.arguments.contains("-CnxNoJumpAwait")
     private var refreshAfterTUI = false
     private(set) var started = false
     private var fling: FlingAnimator?
@@ -544,6 +552,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             updateViewport(visibleMinY: scrollView.contentOffset.y)
             return
         }
+        // A move whose rows the frame on screen does not show (Jump to
+        // bottom from deep history, a restore) waits for the frame that
+        // does; moved at once, the page was black for a frame (V5-1).
+        // Only a jump: none of the target's rows are in the frame on screen
+        // (following output moves a row or a few and keeps its own rule).
+        if Self.jumpAwaitsFrame, !forceScroll, !fromOutput, freezeView == nil, let document, surfaceRows > 0, abs(scrollView.contentOffset.y - target) > 0.5,
+           TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows)
+               .isDisjoint(visibleTop: min(document.endRow - 1, originRow + Int(floor(max(0, target) / cell.height))),
+                           visibleBottom: min(document.endRow, originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height)))) {
+            followAwaitsPresent = true
+            armFollowFallback(ticks: 6)
+            updateViewport(visibleMinY: target)
+            return
+        }
+        forceScroll = false
         followAwaitsPresent = false
         if abs(scrollView.contentOffset.y - target) > 0.5 {
             settingOffset = true
@@ -846,6 +869,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         outputLink = nil
     }
 
+    /// Ghostty pruned `rows` of its oldest rows (`TerminalHistoryPrune`):
+    /// everything held in absolute rows moves up by them, and the offset with
+    /// the document, in this transaction, so the rows on screen stay put
+    /// (also mid-fling: UIKit's deceleration and the fling continue from the
+    /// moved offset).
+    private func historyPruned(_ rows: Int) {
+        sizingLog.notice("history pruned \(rows, privacy: .public) rows at the top (total \(self.scrollbar.total, privacy: .public)): rows held move up")
+        scroll.shiftRows(by: -rows)
+        presentedTop -= rows
+        viewportTop = max(0, viewportTop - rows)
+        recentTops = recentTops.map { max(0, $0 - rows) }
+        steadyViewport = nil
+        restoredMark = nil
+        guard let current = document, cell.height > 0 else { return }
+        let next = TerminalDocumentLayout(originRow: current.originRow - rows, endRow: current.endRow - rows)
+        let reference = max(current.originRow, presentedTop + rows)
+        let shiftY = next.contentY(ofRow: reference - rows, cellHeight: cell.height) - current.contentY(ofRow: reference, cellHeight: cell.height)
+        document = next
+        documentTotal = max(0, documentTotal - rows)
+        settingOffset = true
+        scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
+        if shiftY != 0 { scrollView.contentOffset.y += shiftY }
+        settingOffset = false
+        place(atRow: presentedTop)
+    }
+
     /// The reader's rows kept over a mirror reset (V2-3).
     private var readingMark: TerminalReadingMark?
     /// The replay is parsed; the mark is placed at the next scrollbar report.
@@ -983,6 +1032,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func scrollbarReported(total: Int, offset: Int, visible: Int) {
+        if !model.isTUI, !replayGate.isReplaying,
+           let pruned = TerminalHistoryPrune.prunedRows(previousTotal: scrollbar.total, previousOffset: scrollbar.offset,
+                                                         total: total, offset: offset, requestedTop: viewportTop,
+                                                         rows: max(1, surfaceRows)) {
+            historyPruned(pruned)
+        }
         scrollbar = (total, offset, visible)
         let restoring = readingMarkAwaitsReport
         if restoring { restoreReadingMark() }
@@ -1301,11 +1356,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         presentDebug = ""
         #endif
-        if let rows = surface.presentedRowSignatures(rowHeight: rowPixels) {
+        let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
+                                         recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
+        let epoch = surface.viewportEpoch
+        if !placesFromReport, let known = match.knownTop(steady: steadyViewport, epoch: epoch) {
+            // Reading scrollback while output streams: the viewport has not
+            // moved since a read frame confirmed it, so no pixel read.
+            top = known
+            presentSkips += 1
+            #if DEBUG
+            presentDebug = " steady"
+            #endif
+        } else if let rows = measured("present-read", { surface.presentedRowSignatures(rowHeight: rowPixels) }) {
+            steadyViewport = nil
             if let previous = presentedRows {
-                let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
-                                                 recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
-                top = match.top(previous: previous, current: rows)
+                let result = match.match(previous: previous, current: rows)
+                top = result.top
+                steadyViewport = placesFromReport ? nil : match.confirmed(result, epoch: epoch)
                 #if DEBUG
                 if CommandLine.arguments.contains("-CnxPresentLog") {
                     presentDebug = match.candidateShifts.map { String(format: " %d:%.2f", $0, TerminalPresentMatch.score(previous, rows, shift: $0)) }.joined()
@@ -1313,6 +1380,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 #endif
             }
             presentedRows = rows
+            presentReads += 1
         }
         #if DEBUG
         if CommandLine.arguments.contains("-CnxPresentLog") {
@@ -1328,17 +1396,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var followAwaitsPresent = false
     private var followFallback: CADisplayLink?
     private var followFallbackTicks = 0
+    private var followFallbackLimit = 2
+    /// The fallback moves the page even if no frame covers it yet.
+    private var forceScroll = false
 
-    private func armFollowFallback() {
+    private func armFollowFallback(ticks: Int = 2) {
+        followFallbackLimit = max(ticks, followFallback == nil ? 0 : followFallbackLimit)
         guard followFallback == nil else { return }
         followFallbackTicks = 0
         let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
             guard let self else { return }
             self.followFallbackTicks += 1
-            guard self.followFallbackTicks >= 2 || !self.followAwaitsPresent else { return }
+            guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
             self.followFallback?.invalidate()
             self.followFallback = nil
-            if self.followAwaitsPresent { self.applyScroll() }
+            if self.followAwaitsPresent {
+                self.forceScroll = true
+                self.applyScroll()
+                self.forceScroll = false
+            }
         }, selector: #selector(DisplayLinkProxy.step))
         link.add(to: .main, forMode: .common)
         followFallback = link
@@ -1355,6 +1431,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private func applyMode(tui: Bool) {
         presentedRows = nil
+        steadyViewport = nil
         // Moving the surface to another superview resigns first responder:
         // typing into vim, then `:q`, used to drop the keyboard's input on the
         // floor (the composer still said "Typing into terminal").

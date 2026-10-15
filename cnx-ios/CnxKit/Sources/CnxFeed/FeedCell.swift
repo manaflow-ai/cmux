@@ -9,11 +9,15 @@ import UIKit
 /// SPEC 8.2 Feed cell: avatar column, header, quote bubble, status chip,
 /// web-rendered markdown capped at 8 lines with Show more, inline answer UI,
 /// inline reply composer, and the footer actions.
+///
+/// The cell is a value of its event: it compares equal while `item` and
+/// `expanded` are unchanged, so a live change to one event re-renders that
+/// cell only, never every cell on screen (`FeedRow`). Actions reach the store
+/// through `context`, one shared object whose identity never changes.
 struct FeedCell: View {
     let item: FeedItem
-    let store: FeedStore
-    let open: () -> Void
-    @Binding var expanded: Bool
+    let context: FeedRowContext
+    let expanded: Bool
     @State private var contentHeight: CGFloat?
     @State private var replying = false
     @State private var replyText = ""
@@ -27,13 +31,15 @@ struct FeedCell: View {
     @ScaledMetric(relativeTo: .body) private var collapsedHeight: CGFloat = 224
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    init(item: FeedItem, store: FeedStore, open: @escaping () -> Void, expanded: Binding<Bool>) {
+    init(item: FeedItem, context: FeedRowContext, expanded: Bool) {
         self.item = item
-        self.store = store
-        self.open = open
-        _expanded = expanded
+        self.context = context
+        self.expanded = expanded
         _contentHeight = State(initialValue: WebMarkdownRenderer.shared.cachedHeight(markdown: item.markdown, style: .body))
     }
+
+    private var store: FeedStore { context.store }
+    private func open() { context.open(item) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -102,14 +108,20 @@ struct FeedCell: View {
                 // At accessibility sizes the source wraps under the name instead of truncating.
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.agentName).font(.subheadline.weight(.semibold))
-                    Text("\(item.workspaceTitle) · \(relativeTime)").font(.subheadline).foregroundStyle(.secondary)
+                    TimelineView(.everyMinute) { timeline in
+                        Text("\(item.workspaceTitle) · \(relativeTime(at: timeline.date))").font(.subheadline).foregroundStyle(.secondary)
+                    }
                 }
                 .fixedSize(horizontal: false, vertical: true)
             } else {
                 HStack(spacing: 4) {
                     Text(item.agentName).font(.subheadline.weight(.semibold)).lineLimit(1).layoutPriority(2)
                     Text("· \(item.workspaceTitle)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(0)
-                    Text("· \(relativeTime)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1).fixedSize()
+                    // The cell re-renders only when its event changes: the time keeps itself current.
+                    TimelineView(.everyMinute) { timeline in
+                        Text("· \(relativeTime(at: timeline.date))").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    }
+                    .layoutPriority(1)
                 }
             }
             Spacer(minLength: 4)
@@ -126,8 +138,8 @@ struct FeedCell: View {
         }
     }
 
-    private var relativeTime: String {
-        let seconds = Int(Date().timeIntervalSince(item.createdAt))
+    private func relativeTime(at now: Date) -> String {
+        let seconds = Int(now.timeIntervalSince(item.createdAt))
         switch seconds {
         case ..<45: return "now"
         case ..<3600: return "\(max(1, seconds / 60))m"
@@ -205,7 +217,7 @@ struct FeedCell: View {
             }
             if isOverflowing {
                 Button(expanded ? "Show less" : "Show more") {
-                    withAnimation(.cnxSmooth) { expanded.toggle() }
+                    withAnimation(.cnxSmooth) { context.setExpanded(item.id, !expanded) }
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -353,6 +365,7 @@ struct FeedCell: View {
             Spacer()
             footerButton(copied ? "checkmark" : "doc.on.doc", "Copy") {
                 UIPasteboard.general.string = item.markdown
+                if !copied { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7) }
                 withAnimation(.cnxSnap) { copied = true }
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))
@@ -369,7 +382,6 @@ struct FeedCell: View {
         .frame(height: 44)
         .padding(.vertical, -6)
         .padding(.trailing, 8)
-        .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
     }
 
     private func footerButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
@@ -384,7 +396,7 @@ struct FeedCell: View {
         guard let command = director.command else { return }
         switch command {
         case .feedExpand(let id) where id == item.id:
-            withAnimation(.cnxSmooth) { expanded = true }
+            withAnimation(.cnxSmooth) { context.setExpanded(item.id, true) }
         case .feedReply(let id, let text) where id == item.id:
             Task {
                 withAnimation(.cnxSmooth) { replying = true }
@@ -437,6 +449,45 @@ struct AgentAvatar: View {
         case "gemini": "sparkles"
         case "terminal": "terminal"
         default: "sparkle"
+        }
+    }
+}
+
+/// What every Feed row shares: the store and the screen's actions. One
+/// object for the screen's life, so rows compare by identity (`FeedRow`).
+@MainActor
+final class FeedRowContext {
+    let store: FeedStore
+    /// Opens an event (set by the Feed screen; it owns the navigation path).
+    var open: (FeedItem) -> Void = { _ in }
+    /// Shows more or less of an event's body.
+    var setExpanded: (String, Bool) -> Void = { _, _ in }
+
+    init(store: FeedStore) {
+        self.store = store
+    }
+}
+
+/// One Feed row: the swipe actions around the cell. Equatable on the event
+/// and its expansion only, so `.equatable()` skips every row whose event did
+/// not change when the store publishes (the Mac's live events arrive several
+/// times a second while an agent works).
+struct FeedRow: View, Equatable {
+    let item: FeedItem
+    let expanded: Bool
+    let context: FeedRowContext
+    let swipe: FeedSwipeCoordinator
+
+    nonisolated static func == (lhs: FeedRow, rhs: FeedRow) -> Bool {
+        lhs.item == rhs.item && lhs.expanded == rhs.expanded && lhs.context === rhs.context && lhs.swipe === rhs.swipe
+    }
+
+    var body: some View {
+        let context = context
+        let item = item
+        FeedSwipeRow(id: item.id, actions: item.swipeActions(store: context.store, open: { context.open(item) }), coordinator: swipe) {
+            FeedCell(item: item, context: context, expanded: expanded)
+                .background(Color.cnxBackground)
         }
     }
 }

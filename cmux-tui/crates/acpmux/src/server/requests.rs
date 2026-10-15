@@ -161,6 +161,12 @@ async fn dispatch_request(
         method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
             Err(crate::hub::person::person_required("changing or reading trusted approvers"))
         }
+        method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
+            hub.person.set_workspace_roots(&params)
+        }
+        method::MUX_WORKSPACE_ROOTS_SET => {
+            Err(crate::hub::person::person_required("changing the workspace folders"))
+        }
         method::MUX_PERSON_HOLDS => {
             // The unix socket only: the app reaches a daemon it started over
             // its own exec channel (`acp stdio`), never over a WebSocket.

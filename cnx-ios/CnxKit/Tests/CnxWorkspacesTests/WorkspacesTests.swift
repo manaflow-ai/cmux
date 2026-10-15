@@ -66,7 +66,7 @@ import SwiftUI
         let (_, source) = make(backend: refusing)
         refusing.failNext = "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
         let before = source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] }
-        let option = source.newTabOptions.first { $0.id.hasPrefix("agent:") }!
+        let option = source.newTabOptions.first { $0.id == "agent" }!
         // TabsKit gets no tab back, so its placeholder never stays; the request runs here.
         let returned = await source.createTab(option)
         #expect(returned == nil)
@@ -78,7 +78,97 @@ import SwiftUI
         #expect(source.pendingTabTitle == nil)
         #expect(source.openedTab == nil)
         #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
-        #expect(source.toastText == "Can't start \(option.title.dropFirst(4).dropLast(5)) in this folder from your iPhone yet.")
+        #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone yet.") == true)
+    }
+
+    /// User report 2026-10-14: GUI sessions must open model-agnostic, as the Mac's New Agent
+    /// Chat (its default agent), never one "New Claude Chat" per harness; another agent or
+    /// model is one step away (New Agent Chat With…).
+    @Test func agentChatsAreOneModelAgnosticEntry() {
+        let (_, source) = make()
+        let titles = source.newTabOptions.map(\.title)
+        #expect(titles == ["New Agent Chat", "New Agent Chat With…", "New Terminal", "New Browser Tab"])
+        #expect(!titles.contains { $0.contains("Claude") || $0.contains("Codex") })
+        #expect(WorkspaceTabsSource.kind(of: source.newTabOptions[0]) == .agentChat)
+    }
+
+    @Test func newAgentChatWithOpensTheChooser() async throws {
+        let (_, source) = make()
+        let count = source.tabs.count
+        _ = await source.createTab(try #require(source.newTabOptions.first { $0.title == "New Agent Chat With…" }))
+        #expect(source.choosingAgent)
+        #expect(source.pendingTabTitle == nil)
+        #expect(source.tabs.count == count)
+        let catalog = try? await source.agentCatalog()
+        #expect(catalog?.defaultChoice?.id == "claude")
+        #expect(catalog?.harness("codex")?.unavailableReason == AgentCatalog.refusedReason)
+        // Start Chat with another model: one chat, its harness and model in the request.
+        let start = AgentChatStart(harness: "claude", model: "sonnet")
+        #expect(WorkspaceTabsSource.kind(of: WorkspaceTabsSource.option(.agent(start))) == .agent(start))
+        source.startAgentChat(start)
+        #expect(!source.choosingAgent)
+        #expect(source.pendingTabTitle == "New Agent Chat")
+        for _ in 0..<200 where source.openedTab == nil { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.tabs.count == count + 1)
+    }
+
+    /// User report 2026-10-14: no browser tabs from the phone, with no word why (an older
+    /// Mac that does not stream them). The entry stays, and a tap says why.
+    @Test func aKindTheMacCantOpenStaysWithItsReason() async throws {
+        let older = MockWorkspaceCreationBackend(latency: .zero)
+        older.kinds = [.agentChat, .terminal]
+        older.unavailable = [(.browser, "Update cmux on your Mac to open browser tabs from your phone.")]
+        let (_, source) = make(backend: older)
+        let browser = try #require(source.newTabOptions.first { $0.title == "New Browser Tab" })
+        #expect(browser.id.hasPrefix("unavailable:"))
+        let count = source.tabs.count
+        _ = await source.createTab(browser)
+        #expect(source.pendingTabTitle == nil)
+        #expect(source.tabs.count == count)
+        #expect(source.toastText?.hasPrefix("Update cmux on ") == true)
+        #expect(source.toastText?.contains("your Mac") == false)
+        // Agents not connected yet: the entry stays, the chooser does not.
+        older.kinds = [.terminal]
+        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected yet. Try again in a moment.")]
+        #expect(source.newTabOptions.map(\.title) == ["New Terminal", "New Agent Chat"])
+    }
+
+    /// Parity with the Mac's Rename Tab…, Duplicate Tab and tab drag (verify/parity-mac.md).
+    @Test func renameDuplicateAndMoveTabs() async {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let terminal = source.tabs[1]
+        #expect(source.cardMenu(for: terminal).flatMap { $0 }.map(\.title) == ["Rename Tab…", "Duplicate Tab", "Close Tab"])
+        #expect(source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Rename Tab…" })
+        #expect(!source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Duplicate Tab" })
+        source.startRename(terminal.id)
+        #expect(source.renamingTab?.id == terminal.id)
+        await source.rename(terminal.id, to: "build")
+        #expect(source.renamingTab == nil)
+        #expect(store.workspace(id: "ws-cmux")?.tabs[1].title == "build")
+        backend.failNext = "no such surface"
+        await source.rename(terminal.id, to: "other")
+        #expect(store.workspace(id: "ws-cmux")?.tabs[1].title == "build")
+        #expect(source.toastText == "Couldn't rename build.")
+
+        let count = source.tabs.count
+        await source.duplicate(terminal.id)
+        #expect(source.tabs.count == count + 1)
+        #expect(source.activeTabID == source.tabs.last?.id)
+        #expect(source.pendingTabTitle == nil)
+
+        #expect(source.supportsReordering)
+        let order = source.tabs.map(\.id)
+        source.moveTab(order[0], to: 2)
+        #expect(source.tabs.map(\.id) == [order[1], order[2], order[0]] + order.dropFirst(3))
+        // The Mac's answer to the first move arrives before the next one is tried.
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(source.tabs.map(\.id) == [order[1], order[2], order[0]] + order.dropFirst(3))
+        backend.failNext = "pane is gone"
+        source.moveTab(order[1], to: 1)
+        for _ in 0..<100 where source.tabs.first?.id != order[1] { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.tabs.first?.id == order[1])
+        #expect(source.toastText?.hasPrefix("Couldn't move") == true)
     }
 
     @Test func aConfirmedNewTabOpensOnceTheMacListsIt() async {

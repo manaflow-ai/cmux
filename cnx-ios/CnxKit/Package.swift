@@ -106,6 +106,7 @@ let package = Package(
             "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat", "CnxArtifacts", "CnxFeed", "CnxChief", "CnxTerminal",
             "CnxBrowserStream",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
         ]),
         .target(
             name: "CnxTerminal",
@@ -129,7 +130,7 @@ let package = Package(
         .testTarget(name: "CnxBrowserStreamTests", dependencies: ["CnxBrowserStream", "CnxTransport"]),
         .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel", "CnxAgentChat"]),
         .testTarget(name: "CnxLiveTests", dependencies: [
-            "CnxLive", "CnxTransport", "CnxModel", "CnxAgentChat", "CnxFeed", "CnxTerminal",
+            "CnxLive", "CnxTransport", "CnxModel", "CnxAgentChat", "CnxFeed", "CnxTerminal", "CnxDesign",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .testTarget(name: "CnxShellTests", dependencies: ["CnxShell"]),

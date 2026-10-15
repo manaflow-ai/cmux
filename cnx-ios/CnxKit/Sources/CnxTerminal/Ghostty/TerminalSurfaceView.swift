@@ -135,6 +135,7 @@ final class TerminalSurfaceView: UIView {
         let size = CnxPreferences.terminalFontSize()
         guard let surface, size != fontSize else { return }
         fontSize = size
+        viewportEpoch += 1
         let action = "set_font_size:\(size)"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
         ghostty_surface_refresh(surface)
@@ -148,12 +149,18 @@ final class TerminalSurfaceView: UIView {
 
     private var lastPixelSize: (UInt32, UInt32) = (0, 0)
 
+    /// Bumped by everything here that can move Ghostty's viewport (a scroll
+    /// binding, a resize, a font size): a frame after a bump may show
+    /// another viewport, so its placement is read from its pixels again.
+    private(set) var viewportEpoch = 0
+
     private func syncSize() {
         guard let surface, let window else { return }
         let scale = window.screen.scale
         let size = (UInt32(bounds.width * scale), UInt32(bounds.height * scale))
         guard size.0 > 0, size.1 > 0, size != lastPixelSize else { return }
         lastPixelSize = size
+        viewportEpoch += 1
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, size.0, size.1)
         if let pinnedRow { scrollViewport(pinnedRow) }
@@ -356,6 +363,7 @@ final class TerminalSurfaceView: UIView {
     /// reports its scrollbar (used after leaving the alternate screen).
     func scrollToActiveArea() {
         guard let surface else { return }
+        viewportEpoch += 1
         let action = "scroll_to_bottom"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
         ghostty_surface_refresh(surface)
@@ -363,6 +371,7 @@ final class TerminalSurfaceView: UIView {
 
     private func scrollViewport(_ row: Int) {
         guard let surface else { return }
+        viewportEpoch += 1
         let action = "scroll_to_row:\(max(0, row))"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
     }

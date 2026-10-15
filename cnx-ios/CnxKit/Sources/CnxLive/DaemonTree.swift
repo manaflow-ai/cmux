@@ -11,7 +11,13 @@ public struct DaemonTree: Sendable {
         public var host: String?
     }
 
+    /// The workspaces the phone lists (Workspaces rows, search, counts).
     public var workspaces: [Workspace]
+    /// The Mac's home workspace (`kind` "home"), never listed: the Mac shows it
+    /// as its sidebar's Home item, not a workspace row. Its tabs stay in the
+    /// tree (surfaces, agent bindings, markers) so an agent working there still
+    /// reaches the Feed (`places`).
+    public var homeWorkspaces: [Workspace] = []
     /// Agent tabs by app tab id.
     public var agentTabs: [String: AgentBinding]
     /// The daemon surface id behind each app tab id (`s<surface>`).
@@ -21,7 +27,14 @@ public struct DaemonTree: Sendable {
     /// The pane a new tab of each workspace goes to: its active screen's
     /// active pane, else its first pane.
     public var panes: [String: Int] = [:]
+    /// Each tab's pane and position in it (`move-tab`, a duplicate next to it).
+    public var tabPlaces: [String: TabPlace] = [:]
     public var revision: Int?
+
+    public struct TabPlace: Hashable, Sendable {
+        public var pane: Int
+        public var index: Int
+    }
     /// Each tab's retained notification marker (`Tab.notification`), by daemon surface.
     public var notificationMarkers: [Int: NotificationMarker] = [:]
 
@@ -30,6 +43,9 @@ public struct DaemonTree: Sendable {
         public var notification: Int
         public var unread: Bool
     }
+
+    /// The workspace kind of the Mac's home workspace (`workspace-kind-v1`).
+    static let homeKind = "home"
 
     /// The app tab id for a daemon surface.
     public static func tabID(surface: Int) -> String { "s\(surface)" }
@@ -54,10 +70,18 @@ public struct DaemonTree: Sendable {
         var surfaces: [String: Int] = [:]
         var directories: [String: String] = [:]
         var panes: [String: Int] = [:]
+        var places: [String: TabPlace] = [:]
         var markers: [Int: NotificationMarker] = [:]
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
+        var home: [Workspace] = []
         for case let ws as [String: Any] in data["workspaces"] as? [Any] ?? [] {
+            // The Mac's home workspace (`kind` "home", `workspace-kind-v1`) is what
+            // its sidebar's Home item shows, not a workspace row (`SidebarMapping`
+            // filters it the same way). The phone has its own Home tab, so it is
+            // never a Workspaces row (`homeWorkspaces`). Matched by kind, never by
+            // name: a renamed home stays out, a workspace named "Home" stays in.
+            let isHome = ws["kind"] as? String == Self.homeKind
             let key = (ws["key"] as? String) ?? (ws["id"] as? Int).map { "w\($0)" } ?? UUID().uuidString
             var tabs: [WorkspaceTab] = []
             var activeTab: [String: Any]?
@@ -79,6 +103,7 @@ public struct DaemonTree: Sendable {
                         }
                         let id = Self.tabID(surface: surface)
                         surfaces[id] = surface
+                        if let paneID = pane["id"] as? Int { places[id] = TabPlace(pane: paneID, index: index) }
                         if let marker = tab["notification"] as? [String: Any], let notification = marker["notification"] as? Int {
                             markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)
                         }
@@ -105,7 +130,7 @@ public struct DaemonTree: Sendable {
             let activeTabID = (activeTab?["surface"] as? Int).map(Self.tabID(surface:)).flatMap { id in
                 tabs.contains { $0.id == id } ? id : nil
             }
-            result.append(Workspace(
+            let workspace = Workspace(
                 id: key,
                 macID: macID,
                 title: title,
@@ -121,13 +146,16 @@ public struct DaemonTree: Sendable {
                 hasActivityTime: activityAt != nil,
                 focusOrder: focusOrder,
                 activeTabID: activeTabID
-            ))
+            )
+            if isHome { home.append(workspace) } else { result.append(workspace) }
         }
         workspaces = result
+        homeWorkspaces = home
         self.agentTabs = agentTabs
         self.surfaces = surfaces
         self.directories = directories
         self.panes = panes
+        self.tabPlaces = places
         notificationMarkers = markers
     }
 

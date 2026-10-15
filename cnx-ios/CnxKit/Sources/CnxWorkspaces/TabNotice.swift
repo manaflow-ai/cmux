@@ -11,6 +11,10 @@ public struct TabNotice: Equatable, Sendable {
         case open(optionTitle: String)
         /// Closing the tab named `title`.
         case close(title: String)
+        /// Renaming the tab named `title`.
+        case rename(title: String)
+        /// Moving the tab named `title`.
+        case move(title: String)
     }
 
     /// The one line the toast shows.
@@ -38,36 +42,41 @@ public struct TabNotice: Equatable, Sendable {
         return .other
     }
 
-    /// "Claude" from "New Claude Chat"; "a terminal" style names for the other kinds.
-    static func subject(ofOption title: String) -> (agent: String?, thing: String) {
+    /// "an agent chat" for any agent entry ("New Agent Chat", "New Claude Chat");
+    /// "a terminal" style names for the other kinds.
+    static func subject(ofOption title: String) -> (isAgent: Bool, thing: String) {
         var name = title
         if name.hasPrefix("New ") { name.removeFirst(4) }
-        if name.hasSuffix(" Chat") {
-            let agent = String(name.dropLast(5))
-            return (agent, "a \(agent) chat")
-        }
-        return (nil, "a \(name.lowercased())")
+        if name.hasSuffix("…") { name.removeLast() }
+        if name.hasSuffix(" Chat") || name.hasPrefix("Agent Chat") { return (true, "an agent chat") }
+        return (false, "a \(name.lowercased())")
     }
 
     static func text(action: Action, macName: String, reason: String) -> String {
         let cause = cause(of: reason)
         switch action {
         case .open(let optionTitle):
-            let (agent, thing) = subject(ofOption: optionTitle)
+            let (isAgent, thing) = subject(ofOption: optionTitle)
             switch cause {
             case .folderNotAllowed:
-                if let agent { return "Can't start \(agent) in this folder from your iPhone yet." }
+                // An older Mac, a folder acpmux has not been told of yet, or a symlink out.
+                if isAgent { return "\(macName) doesn't allow agent chats in this folder from your iPhone yet." }
                 return "Can't open \(thing) in this folder from your iPhone yet."
             case .offline: return "Connect to \(macName) first."
             case .gone: return "This workspace is no longer on \(macName)."
             case .notAllowed: return "\(macName) didn't allow \(thing) from your iPhone."
             case .other: return "Couldn't open \(thing) on \(macName)."
             }
-        case .close(let title):
+        case .close(let title), .rename(let title), .move(let title):
+            let verb = switch action {
+            case .rename: "rename"
+            case .move: "move"
+            default: "close"
+            }
             switch cause {
             case .offline: return "Connect to \(macName) first."
             case .gone: return "This workspace is no longer on \(macName)."
-            default: return "Couldn't close \(title)."
+            default: return "Couldn't \(verb) \(title)."
             }
         }
     }

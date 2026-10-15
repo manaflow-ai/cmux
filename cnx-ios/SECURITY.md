@@ -321,6 +321,76 @@ read when the person reads them on the phone). Rule 2 answers:
 - Rule 6: `allows_the_terminal_feed` (policy) covers these exact lines and
   refuses the activity stream, the session journal and replies into a terminal.
 
+## `acpmux`: agent chats in the person's workspaces (`feat-cnx-ios-agentcwd`, in `feat-cnx-ios-parity`)
+
+Implemented on `feat-cnx-ios-parity` (2026-10-14) after the person asked that
+the phone do everything the Mac app does; the trust call is recorded for
+review in `verify/13742-recommendation.md` ("Agent chats in workspace folders")
+and stays listed under "Decisions for the person" until they confirm it. A
+phone's New Claude Chat in a workspace failed with "cwd is refused:
+a remote WebSocket connection may use only a known project or a configured
+webRoots folder". acpmux's remote guard (`acpmux/src/server/remote_guard.rs`,
+`web_roots`) lets a `Web` connection start a session only below `webRoots`
+(config.json) or a known project, which is the folder of a session acpmux
+already has. A new workspace folder is neither.
+
+The change: the Mac app also hands acpmux, on its person connection, the
+folders of the tabs its daemon lists now (`_acpmux/workspace_roots_set`, kept in
+memory only, the same connection and person proof as the phone approvers). It
+sends none while iPhone connections are off or nobody is signed in, and an
+empty list when they turn off. acpmux adds them to the Web roots under the
+existing guards: `/`, the home folder and every folder above it are dropped,
+and paths are canonicalized (symlinks, `..`) before the check. This is the
+same set of folders as `file`'s tab-folder rule (`feat-cnx-ios-fileroots`).
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | The phone could already prompt agents in known projects. This lets it start one in a folder where the person already has a tab open. The agent still runs under the Web rules: asking policy only, no MCP servers from the phone, an asking mode, each tool approval answered by the person (on the Mac, or with the phone's Face ID signature). |
+| Mutates or destroys objects the session does not own? | No new methods. Only the folder a session may start in widens, to folders the person has open in their own daemon. |
+| Reads local state the remote should not see? | An agent in that folder reads what its approved tools read there, as today in known projects. Folders with no open tab, `/` and `~` (and above) stay refused, and so does a folder that is only reachable through a symlink. The folder list itself never reaches the phone. |
+| Whose objects? | The Mac owner's own daemon session (the app's), set only by a connection that proved the app's person key; neither an agent, a page nor the phone can set it (`person_required`). |
+
+- **Tests:** acpmux `tests/workspace_roots.rs` (refused before; only the
+  person sets the list; `/` and home dropped; the folder and a folder below it
+  pass; elsewhere, a symlink out and `..` out are refused; cleared refuses
+  again). acpmux `person_allow`, `remote_guard` and the lib tests still pass.
+- **Who steers the list:** it is the folders of the tabs open now, and a phone
+  can change a tab's folder by typing `cd` in its terminal, so in practice a
+  phone can start a chat in any folder below home that it can `cd` to (never
+  home itself, `/` or above). That adds no new reach: the same phone can already
+  type any command in that terminal, and every agent tool still asks. The list is
+  held by acpmux for every Web connection with the listener token (cnx-hostd's
+  splice is the only one the app opens), not per phone.
+- **Turning it off:** the Mac app sends an empty list when iPhone connections
+  turn off or the account signs out, reconnecting once to deliver it
+  (`CnxApproverSync.rootsClearPending`); the list is memory only and goes with
+  acpmux.
+- **What stays refused:** the phone still sends no `cwd` to the daemon, no
+  command, argv, env, mode or permission policy other than `ask`; Codex and
+  opencode stay refused families (`web_modes.rs`); MCP servers stay empty. The
+  phone's own guard says why before it asks: a workspace whose folder is the
+  home folder (or above) gets "Agent chats start in a project folder" instead of
+  acpmux's refusal (`LiveWorkspaceCreationBackend.isHomeOrAbove`).
+
+## Parity with the Mac app's tab and workspace actions (`feat-cnx-ios-parity`)
+
+`verify/parity-mac.md` lists every Mac action and the phone's state. The
+actions added there use only commands already on the daemon allowlist; none
+were added to `policy.rs` or `DaemonLanePolicy.swift`:
+
+| Phone action | Line it sends | Rule 2 notes |
+| --- | --- | --- |
+| New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Mac-started Claude session stays unchanged from the phone (D13). |
+| Rename Tab… | `rename-surface {surface, name}` | The person's own tab; the name is text the daemon shows. |
+| Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. Agent chats have no duplicate. |
+| Drag to reorder tabs | `move-tab {surface, pane, index}` | Position only, within the person's workspaces. |
+| New Workspace in a recent folder | `new-workspace {name}`, then `send {surface, text: "cd '<folder>' && clear\n"}` into the new terminal | The same input the person can type into any phone terminal; no `cwd` reaches the daemon. The folder is single-quoted, and a folder with any control or format character (DEL, ^U, ESC, line separators), a backslash or `!` is never typed, since a shell's line editor acts on those inside quotes (`foldersThatCouldEditTheLineAreNeverTyped`). |
+
+Tests: CnxKit `WorkspaceTabsSourceTests` (`agentChatsAreOneModelAgnosticEntry`,
+`newAgentChatWithOpensTheChooser`, `aKindTheMacCantOpenStaysWithItsReason`,
+`renameDuplicateAndMoveTabs`), `AgentCatalogTests`, `WorkspaceFolderTests`,
+`TabNoticeTests`; hostd `policy::tests` (unchanged allowlist, `mirrors_the_swift_allowlist`).
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now
@@ -401,6 +471,12 @@ rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
 
 ## Decisions for the person
+
+- Agent chats from the phone in the person's workspaces: acpmux lets a phone
+  start a session in the folder of a tab the Mac's daemon lists
+  (`feat-cnx-ios-agentcwd`; the same folders as `file`'s tab-folder rule).
+  Implemented on `feat-cnx-ios-parity` at the person's request for full Mac
+  parity; confirm or revert in `verify/13742-recommendation.md`.
 
 - Phone pairing and Face ID signed approvals (`verify/phone-approvals.md`),
   a trust-policy change recommended on issue #13742.

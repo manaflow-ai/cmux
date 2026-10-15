@@ -280,6 +280,15 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts[tab.id]?.prepareCard()
     }
 
+    /// Off: on the rig the active page's snapshot (`drawHierarchy`) came out
+    /// black over the terminal rows (round 6), so the live page stays the
+    /// active card until the snapshot is proven (`-CnxStaticActiveCard` to try).
+    func showsStaticCard(for tab: WorkspaceTab) -> Bool {
+        guard CommandLine.arguments.contains("-CnxStaticActiveCard"),
+              let model = hosts[tab.id]?.model, model.pageStarted else { return false }
+        return model.snapshot != nil
+    }
+
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {
         let model = host(for: tab, in: workspace).model
         // The keyboard toggle and ^C live on the key bar, and Back leaves
