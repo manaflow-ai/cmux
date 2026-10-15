@@ -10,8 +10,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var root: JSONValue
     /// `appearance.density`, when present and valid.
     public var density: String?
-    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
     public var uiScale: Double = UIScaleSetting().fallback
+    public var interfaceScale: Double = InterfaceScaleSetting().fallback
     /// `appearance.metrics.<name>` in points.
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
@@ -337,9 +338,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (fontSize, fontSizeDiagnostic) = TerminalFontSetting().parseSize(root)
         snapshot.terminalFontSize = fontSize
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
-
         snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
-
+        snapshot.interfaceScale = InterfaceScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {
                 if let density = members["density"] {
