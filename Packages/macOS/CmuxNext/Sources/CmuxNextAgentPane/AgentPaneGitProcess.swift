@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import Darwin
 import Foundation
 
 /// One `git` run for the Changes view's writes (cx-tcwj): `/usr/bin/git` with a plain environment,
@@ -115,6 +116,11 @@ nonisolated enum AgentPaneGitProcess {
             output.fileHandleForReading.readabilityHandler = nil
             return Outcome(status: nil, text: error.localizedDescription)
         }
+        let processID = process.processIdentifier
+        // Process has no pre-exec hook; move the leader immediately after launch so every
+        // hook or filter it starts inherits a group we can terminate as one unit.
+        _ = Darwin.setpgid(processID, processID)
+        let processGroupID = Darwin.getpgid(processID) == processID ? processID : nil
         if let input {
             // Off this thread, so a git that never reads still meets the deadline; a git that exits
             // first (a hook refused) makes this a failed write, not SIGPIPE.
@@ -127,9 +133,18 @@ nonisolated enum AgentPaneGitProcess {
         let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
         // concurrency-allow: runSync runs only inside output's detached task, bounded by the deadline.
         guard exited.wait(timeout: .now() + seconds) == .success else {
-            process.terminate()
+            if let processGroupID {
+                _ = Darwin.kill(-processGroupID, SIGTERM)
+            } else {
+                process.terminate()
+            }
             // concurrency-allow: runSync runs only inside output's detached task; a short grace for SIGTERM.
             _ = exited.wait(timeout: .now() + 2)
+            if let processGroupID {
+                _ = Darwin.kill(-processGroupID, SIGKILL)
+            } else if process.isRunning {
+                process.terminate()
+            }
             output.fileHandleForReading.readabilityHandler = nil
             return Outcome(status: nil, text: timedOutMessage)
         }

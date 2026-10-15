@@ -44,14 +44,16 @@ enum AgentPaneCapture {
         return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString()]
     }
 
-    /// Runs the pick; false when `screencapture` could not start.
-    nonisolated static func capture(window: Bool, to file: URL) async -> Bool {
+    /// Runs the pick; false when screencapture could not start or exits unsuccessfully.
+    nonisolated static func capture(window: Bool, to file: URL, executable: String = tool) async -> Bool {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
+        process.executableURL = URL(fileURLWithPath: executable)
         // -x: no shutter sound; -o: no window shadow.
         process.arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
         return await withCheckedContinuation { done in
-            process.terminationHandler = { _ in done.resume(returning: true) }
+            process.terminationHandler = { process in
+                done.resume(returning: process.terminationStatus == 0)
+            }
             do { try process.run() } catch { done.resume(returning: false) }
         }
     }

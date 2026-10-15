@@ -82,7 +82,13 @@ public struct SSHProcessRunner {
         let status: Int32
         do {
             status = try await withTaskCancellationHandler {
-                try await withDeadline(deadline, label: label) { await exit.awaitValue() }
+                try await withDeadline(deadline, label: label) {
+                    await withTaskCancellationHandler {
+                        await exit.awaitValue()
+                    } onCancel: {
+                        process.terminate()
+                    }
+                }
             } onCancel: {
                 process.terminate()
             }
