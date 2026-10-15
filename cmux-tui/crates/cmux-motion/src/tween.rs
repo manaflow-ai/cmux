@@ -4,8 +4,12 @@
 //! current value, with no velocity carried over; setting the target it
 //! already has does not restart it. Pure and synchronous like the springs.
 
+use crate::fade::cubic_bezier;
 use crate::spring::MAX_FRAME;
-use crate::{MotionPolicy, MotionTween};
+use crate::{
+    EASE_IN_EASE_OUT_CONTROL_POINTS, EASE_OUT_CONTROL_POINTS, MotionPolicy, MotionTween,
+    SpringParameters, SpringValue,
+};
 
 /// Chrome's `gfx::Tween::EASE_OUT` (ui/gfx/animation/tween.cc): 1-(1-t)^2,
 /// the same curve as `cubic-bezier(1/3, 2/3, 2/3, 1)`. `t` is clamped to
@@ -19,16 +23,21 @@ pub fn ease_out_quad(t: f32) -> f32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum TweenCurve {
-    /// `ease_out_quad` (Chrome `EASE_OUT`).
-    EaseOutQuad,
+    /// `ease_out_quad` (Chrome `EASE_OUT`). Its id (0) never moves.
+    EaseOutQuad = 0,
+    /// Core Animation's `easeOut` (`EASE_OUT_CONTROL_POINTS`), every timed
+    /// fade's curve.
+    EaseOut = 1,
+    /// Core Animation's `easeInEaseOut` (`EASE_IN_EASE_OUT_CONTROL_POINTS`).
+    EaseInOut = 2,
+    /// Even speed.
+    Linear = 3,
 }
 
 impl TweenCurve {
     /// The progress at time fraction `t` (clamped to 0..=1).
     pub fn progress(self, t: f32) -> f32 {
-        match self {
-            Self::EaseOutQuad => ease_out_quad(t),
-        }
+        self.progress_f64(f64::from(t)) as f32
     }
 
     /// `progress` in f64 (the C ABI and f64 hosts).
@@ -36,8 +45,56 @@ impl TweenCurve {
         let t = t.clamp(0., 1.);
         match self {
             Self::EaseOutQuad => 1. - (1. - t) * (1. - t),
+            Self::EaseOut => {
+                let [x1, y1, x2, y2] = EASE_OUT_CONTROL_POINTS;
+                cubic_bezier(t, x1, y1, x2, y2)
+            }
+            Self::EaseInOut => {
+                let [x1, y1, x2, y2] = EASE_IN_EASE_OUT_CONTROL_POINTS;
+                cubic_bezier(t, x1, y1, x2, y2)
+            }
+            Self::Linear => t,
         }
     }
+}
+
+/// A CSS `cubic-bezier(x1, y1, x2, y2)` timing curve at time fraction `t`
+/// (clamped to 0..=1); `x1` and `x2` are clamped to 0..=1, `y1` and `y2` may
+/// leave it (overshoot). The color transition's custom curve.
+pub fn cubic_bezier_progress(t: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    cubic_bezier(t.clamp(0., 1.), x1.clamp(0., 1.), y1, x2.clamp(0., 1.), y2)
+}
+
+/// A spring from rest toward 1 at `time` seconds, with no overshoot: the
+/// value is held at its running maximum (clamped to 0..=1), so it never
+/// decreases. The color transition's spring curve: a color never passes its
+/// target or dips back toward its source.
+pub fn spring_progress_monotone(time: f64, spring: SpringParameters) -> f64 {
+    let mut reached: f64 = 0.;
+    let time = time.max(0.);
+    // Sampled at 1/240 s up to `time`: the running maximum of the closed form.
+    let step = 1. / 240.;
+    let mut t = 0.;
+    while t < time {
+        t = (t + step).min(time);
+        let (x, _) = SpringValue::solve(-1., 0., t, spring);
+        reached = reached.max((1. + x).clamp(0., 1.));
+    }
+    reached
+}
+
+/// Seconds until a spring from rest first comes within 0.5% of its target
+/// (where `spring_progress_monotone` holds a color); at most 5 s.
+pub fn spring_arrival(spring: SpringParameters) -> f64 {
+    let step = 1. / 240.;
+    let mut t = 0.;
+    while t < 5. {
+        t += step;
+        if 1. + SpringValue::solve(-1., 0., t, spring).0 >= 0.995 {
+            return t;
+        }
+    }
+    5.
 }
 
 /// A tween token's tuning: seconds and curve.
