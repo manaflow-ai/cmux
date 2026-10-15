@@ -51,7 +51,10 @@ final class HomeKeyState {
         let views = panes.allObjects.compactMap(\.demo)
         let key = NSApp.isActive ? NSApp.keyWindow : nil
         // A shown Home only: a workspace or tab that is not selected keeps its hidden Home in the window.
-        let inactive = !(key.map { window in views.contains { $0.window === window && !$0.isHiddenOrHasHiddenAncestor } } ?? false)
+        let hostsHome = key.map { (window: NSWindow) -> Bool in
+            views.contains { (view: MessagesWindowView) in view.window === window && !view.isHiddenOrHasHiddenAncestor }
+        } ?? false
+        let inactive = !hostsHome
         guard inactive != Fixture.inactive else { return }
         // setInactive sets the state, drops the shared row bitmaps and redraws its own view; the other views
         // redraw the same way (their rows otherwise keep the old palette until something else redraws them).
