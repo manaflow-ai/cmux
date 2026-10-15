@@ -103,6 +103,22 @@ public nonisolated struct SpringValue: Hashable, Sendable {
         _ = stepFFI(dt, parameters: parameters, epsilon: 0)
     }
 
+    /// Displacement from the target and velocity `time` seconds after a state, for `parameters`
+    /// (mass 1), from cmux-motion's closed form (`cmux_motion_step` with no settle). The FFI caps one
+    /// step at 0.1 s, so a longer time is solved in exact 0.1 s pieces (the solution composes).
+    public static func solve(displacement x0: Double, velocity v0: Double, time t: Double,
+                             parameters: SpringParameters) -> (displacement: Double, velocity: Double) {
+        var state = CmuxMotionState(value: x0, velocity: v0, target: 0)
+        let spring = CmuxMotionSpring(response: parameters.response, damping_fraction: parameters.dampingFraction)
+        var left = t.isFinite ? max(t, 0) : 0
+        while left > 0 {
+            let dt = min(left, 0.1)
+            _ = cmux_motion_step(&state, dt, spring, 0)
+            left -= dt
+        }
+        return (state.value, state.velocity)
+    }
+
     /// One `cmux_motion_step` call on this value: steps, and snaps once
     /// within `epsilon` and slower than 8 x `epsilon` per second.
     private mutating func stepFFI(_ dt: Double, parameters: SpringParameters, epsilon: CGFloat) -> Bool {
