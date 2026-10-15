@@ -35,8 +35,8 @@ final class SSHService {
     @ObservationIgnored var savedHosts: (connection: ObjectIdentifier, store: SavedHostsStore)?
     /// Machines with an install (and its handoffs) running from this app: one at a time (cx-3r9mt).
     @ObservationIgnored private var installing: Set<String> = []
-    /// Automatic updates tried in this app run (``RemoteUpdateCheck/Ledger``).
-    @ObservationIgnored private var autoUpdated = RemoteUpdateCheck.Ledger()
+    /// Automatic updates tried in this app run (``RemoteAutoUpdateLedger``).
+    @ObservationIgnored private var autoUpdated = RemoteAutoUpdateLedger()
 
     init(machines: MachineRegistry, bundleID: String?) {
         self.machines = machines
@@ -326,7 +326,7 @@ final class SSHService {
               let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
         let tried = session.machineID + "|" + commit
         guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),
-              let checked = await RemoteUpdateCheck.ask(binary: binary, host: session.host, environment: await Self.environment())
+              let checked = await session.host.updateCheck(binary: binary, environment: await Self.environment())
         else { return }
         let (probe, answer) = checked
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")

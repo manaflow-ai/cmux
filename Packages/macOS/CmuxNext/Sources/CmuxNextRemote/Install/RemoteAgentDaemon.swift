@@ -57,29 +57,43 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
     }
 }
 
-/// `_acpmux/person_holds` over the machine's `cmux-tui acp stdio` (cx-0q7o): the answer only a
-/// daemon run that holds the app's person key can give for `nonce`.
-public enum RemotePersonHolds {
-    public struct Reply: Sendable {
-        public let proof: String?
-        public let instance: String?
-    }
+/// A daemon run's reply to `_acpmux/person_holds` (cx-0q7o): the answer only a run that holds the
+/// app's person key can give for the nonce.
+public struct RemotePersonHoldsReply: Sendable {
+    public let proof: String?
+    public let instance: String?
+}
 
-    /// The daemon's reply; nil when the ssh call gave none (a dropped call: cx-hd3rw asks again),
-    /// with the call's last error line.
-    public static func ask(_ host: SSHHost, nonce: String, environment: [String: String]) async -> (reply: Reply?, error: String) {
+extension SSHHost {
+    /// `_acpmux/person_holds` for `nonce` over the machine's `cmux-tui acp stdio`; a nil reply when
+    /// the ssh call gave none (a dropped call: cx-hd3rw asks again), with the call's last error line.
+    public func personHolds(nonce: String, environment: [String: String]) async -> (reply: RemotePersonHoldsReply?, error: String) {
         let frames = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"# + "\n"
             + #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/person_holds","params":{"nonce":""# + nonce + #""}}"# + "\n"
-        let held = try? await SSHProcessRunner.run(SSHCommandLine().command(host, "\(host.remoteBinary) acp stdio"),
+        let held = try? await SSHProcessRunner.run(SSHCommandLine().command(self, "\(remoteBinary) acp stdio"),
                                                    input: .data(Data(frames.utf8)), environment: environment,
-                                                   deadline: .seconds(30), label: "acpmux person_holds \(host.destination)")
+                                                   deadline: .seconds(30), label: "acpmux person_holds \(destination)")
         let answer = held?.stdout.split(separator: "\n").lazy
             .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
             .first { ($0["id"] as? Int) == 2 }
         let error = held.map { $0.stderr.split(separator: "\n").last.map(String.init) ?? "" } ?? "ssh failed"
         guard let answer else { return (nil, error) }
         let result = answer["result"] as? [String: Any]
-        return (Reply(proof: result?["proof"] as? String, instance: result?["instance"] as? String), error)
+        return (RemotePersonHoldsReply(proof: result?["proof"] as? String, instance: result?["instance"] as? String), error)
+    }
+
+    /// cx-3r9mt: the connect-time update check. The machine's build facts (`remote-probe --json
+    /// --build-facts`; an older cmux-tui ignores the flag and answers its plain probe, which the
+    /// rule counts as older) go to the app's bundled `cmux-tui remote update-need`.
+    public func updateCheck(binary: URL, environment: [String: String]) async -> (probe: RemoteProbe, need: RemoteUpdateNeed)? {
+        guard let facts = try? await SSHProcessRunner.run(
+            SSHCommandLine().command(self, "\(remoteBinary) remote-probe --json --build-facts </dev/null"),
+            environment: environment, deadline: .seconds(20), label: "remote-probe \(destination)"),
+            facts.status == 0,
+            let line = facts.stdout.split(separator: "\n").last(where: { $0.hasPrefix("{") }),
+            let probe = try? RemoteProbe.decode(String(line)),
+            let need = await probe.updateNeed(asking: binary) else { return nil }
+        return (probe, need)
     }
 }
 
@@ -104,33 +118,17 @@ public actor RemoteApprovalPreparations {
     }
 }
 
-/// cx-3r9mt: the connect-time update check. The machine's build facts (`remote-probe --json
-/// --build-facts`; an older cmux-tui ignores the flag and answers its plain probe, which the rule
-/// counts as older) go to the app's bundled `cmux-tui remote update-need`.
-public enum RemoteUpdateCheck {
-    public static func ask(binary: URL, host: SSHHost, environment: [String: String]) async -> (probe: RemoteProbe, answer: RemoteUpdateNeed.Answer)? {
-        guard let facts = try? await SSHProcessRunner.run(
-            SSHCommandLine().command(host, "\(host.remoteBinary) remote-probe --json --build-facts </dev/null"),
-            environment: environment, deadline: .seconds(20), label: "remote-probe \(host.destination)"),
-            facts.status == 0,
-            let line = facts.stdout.split(separator: "\n").last(where: { $0.hasPrefix("{") }),
-            let probe = try? RemoteProbe.decode(String(line)),
-            let answer = await RemoteUpdateNeed.ask(binary: binary, probe: probe) else { return nil }
-        return (probe, answer)
+/// `machine|bundled commit` pairs whose automatic update ran in this app run (cx-3r9mt): done for
+/// good after a success, a skip or an offer, else not tried again before `retry(_:after:)` (a
+/// build not published yet, a busy machine), so a failure is not retried on every reconnect.
+public struct RemoteAutoUpdateLedger: Sendable {
+    private var entries: [String: ContinuousClock.Instant?] = [:]
+    public init() {}
+    public func mayTry(_ key: String, now: ContinuousClock.Instant = .now) -> Bool {
+        guard let entry = entries[key] else { return true }
+        guard let retry = entry else { return false }
+        return now >= retry
     }
-
-    /// `machine|bundled commit` pairs whose automatic update ran in this app run: done for good
-    /// after a success, a skip or an offer, else not tried again before `retryAfter` (a build not
-    /// published yet, a busy machine), so a failure is not retried on every reconnect.
-    public struct Ledger: Sendable {
-        private var entries: [String: ContinuousClock.Instant?] = [:]
-        public init() {}
-        public func mayTry(_ key: String, now: ContinuousClock.Instant = .now) -> Bool {
-            guard let entry = entries[key] else { return true }
-            guard let retry = entry else { return false }
-            return now >= retry
-        }
-        public mutating func done(_ key: String) { entries[key] = .some(nil) }
-        public mutating func retry(_ key: String, after delay: Duration) { entries[key] = .some(ContinuousClock.now.advanced(by: delay)) }
-    }
+    public mutating func done(_ key: String) { entries[key] = .some(nil) }
+    public mutating func retry(_ key: String, after delay: Duration) { entries[key] = .some(ContinuousClock.now.advanced(by: delay)) }
 }
