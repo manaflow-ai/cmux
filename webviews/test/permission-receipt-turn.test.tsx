@@ -89,7 +89,7 @@ test("an answered permission shows while its turn runs, and leaves the chat once
   const panel = () => host.querySelector(".acpmux-permission-panel")?.textContent ?? null;
 
   await show(listed([edit("pending", null)]), true);
-  expect(panel()).toContain("Allow once");
+  expect(panel()).toContain("Always");
 
   // Answered, the turn still running: the receipt says what was chosen.
   await show(listed([edit("resolved", "allow_once")]), true);
