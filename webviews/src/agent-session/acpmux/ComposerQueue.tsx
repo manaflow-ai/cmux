@@ -11,8 +11,10 @@
 //
 // A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
 // "N more queued" row, which opens the whole list in place and closes it back ("Show less"). The
-// fold is a button (aria-expanded) on the queue's last line, so ↑ from the prompt reaches it first.
-// It stays open for its chat until closed (not across reloads); prompts sent now always show.
+// fold is a button (aria-expanded) under the list, outside its scrolling, so ↑ from the prompt
+// reaches it first and no row runs under it. Opened, the list keeps about its folded height and
+// scrolls whole rows (composerStates.css), so the chat above moves one row at most. It stays open
+// for its chat until closed (not across reloads); prompts sent now always show.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
@@ -89,6 +91,7 @@ export function ComposerQueue({
   };
   // The row that takes focus once it draws: the next one after a row leaves, when it was folded.
   const focusNext = useRef<string>(undefined);
+  const foldButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
@@ -136,7 +139,10 @@ export function ComposerQueue({
   const visible = folded ? shown.slice(0, steering + FOLD_SHOWS) : shown;
 
   // The rows, then the fold, in the order ↑ and ↓ walk them.
-  const rows = () => [...(list.current?.querySelectorAll<HTMLElement>(".acpmux-queued, .acpmux-queue-fold") ?? [])];
+  const rows = () => [
+    ...(list.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? []),
+    ...(foldButton.current ? [foldButton.current] : []),
+  ];
   const focusRow = (index: number) => {
     const all = rows();
     if (index >= all.length) onLeave?.();
@@ -346,55 +352,59 @@ export function ComposerQueue({
     </>
   );
   return (
-    <ol
-      ref={list}
-      className="acpmux-composer-queue"
-      data-unfolded={foldable && !folded ? "" : undefined}
-      aria-label={`${t("composer.queue")} (${shown.length})`}
-    >
-      {paused && (
-        <li className="acpmux-queue-paused">
-          <span>{t("composer.queuePaused")}</span>
-          {onChange && (
-            <button
-              type="button"
-              className="acpmux-queue-resume"
-              onClick={() => void onChange(queue[0].id, { op: "resume" })}
-            >
-              {t("composer.queueResume")}
-            </button>
-          )}
-        </li>
-      )}
-      {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
-      {visible.flatMap((entry, index) => [
-        // "Queued" heads the prompts that wait for the turn, under any sent now.
-        index === steering && (
-          <li key="queued" className="acpmux-queue-header" aria-hidden="true">
-            <span className="acpmux-queued-kind">{t("composer.queued")}</span>
-            <span>{t("composer.queueAfterTurn")}</span>
+    <>
+      <ol
+        ref={list}
+        className="acpmux-composer-queue"
+        data-unfolded={foldable && !folded ? "" : undefined}
+        aria-label={`${t("composer.queue")} (${shown.length})`}
+      >
+        {paused && (
+          <li className="acpmux-queue-paused">
+            <span>{t("composer.queuePaused")}</span>
+            {onChange && (
+              <button
+                type="button"
+                className="acpmux-queue-resume"
+                onClick={() => void onChange(queue[0].id, { op: "resume" })}
+              >
+                {t("composer.queueResume")}
+              </button>
+            )}
           </li>
-        ),
-        // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
-        <li
-          className="acpmux-queued"
-          key={entry.id}
-          data-prompt-id={entry.id}
-          aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Meta+Enter Delete"
-          {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
-        >
-          {editing === entry.id ? (
-            cells(entry, index)
-          ) : (
-            <ContextMenu className="acpmux-queued-menu" items={menu(entry, index)}>
-              {cells(entry, index)}
-            </ContextMenu>
-          )}
-        </li>,
-      ])}
+        )}
+        {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
+        {visible.flatMap((entry, index) => [
+          // "Queued" heads the prompts that wait for the turn, under any sent now.
+          index === steering && (
+            <li key="queued" className="acpmux-queue-header" aria-hidden="true">
+              <span className="acpmux-queued-kind">{t("composer.queued")}</span>
+              <span>{t("composer.queueAfterTurn")}</span>
+            </li>
+          ),
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
+          <li
+            className="acpmux-queued"
+            key={entry.id}
+            data-prompt-id={entry.id}
+            aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Meta+Enter Delete"
+            {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
+          >
+            {editing === entry.id ? (
+              cells(entry, index)
+            ) : (
+              <ContextMenu className="acpmux-queued-menu" items={menu(entry, index)}>
+                {cells(entry, index)}
+              </ContextMenu>
+            )}
+          </li>,
+        ])}
+      </ol>
+      {/* The fold sits under the list, outside its scrolling, so no row ever runs under it. */}
       {foldable && (
-        <li key="fold" className="acpmux-queue-more">
+        <div className="acpmux-queue-foldbar">
           <button
+            ref={foldButton}
             type="button"
             className="acpmux-queue-fold"
             aria-expanded={!folded}
@@ -403,9 +413,9 @@ export function ComposerQueue({
           >
             {folded ? t("composer.queueMore", { n: shown.length - visible.length }) : t("composer.queueLess")}
           </button>
-        </li>
+        </div>
       )}
-    </ol>
+    </>
   );
 }
 

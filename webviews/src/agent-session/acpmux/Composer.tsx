@@ -795,9 +795,9 @@ export function Composer({
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
       // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
       const chat = form.current?.closest(".acpmux-main") ?? form.current;
-      // A long queue's fold ("N more queued") is its last line, so ↑ reaches it first.
+      // A long queue's fold ("N more queued") sits under its rows, so ↑ reaches it first.
       const rows = chat?.querySelectorAll<HTMLElement>(
-        ".acpmux-composer-queue .acpmux-queued, .acpmux-composer-queue .acpmux-queue-fold",
+        ".acpmux-composer-queue .acpmux-queued, .acpmux-queue-foldbar .acpmux-queue-fold",
       );
       const last = rows?.[rows.length - 1];
       if (last) {

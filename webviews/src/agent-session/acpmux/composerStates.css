@@ -293,33 +293,41 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--agent-accent);
 }
 
-/* A long queue's fold (ComposerQueue.tsx): one quiet line under the rows it shows, its text at the
-   prompts' edge, "N more queued" or "Show less". It opens and closes at once: no motion. Opened,
-   the list takes the rows' whole height (the bottom stack's transcript gives way first), so no
-   row is cut; in a pane too short for them the rows scroll under the fold, which stays pinned at
-   the list's bottom edge, and a focused row scrolls clear of it (scroll-padding). The capture of
-   90721dc showed the opened list still capped at 132px, a row cut through and Show less hidden. */
+/* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
+   its text at the prompts' edge: "N more queued" or "Show less". It opens and closes at once: no
+   motion. Opened, the list stays about its folded height (a pinned "Queued" header over three whole
+   rows) and scrolls a row at a time, so opening moves the chat above by one row at most. The
+   captures of 90721dc and 935dada showed a cut row, a fold over an opened row, and a 156 px jump. */
 .acpmux-composer-queue[data-unfolded] {
-  --acpmux-queue-max: none;
-  scroll-padding-bottom: 30px;
+  --acpmux-queue-max: calc(var(--acpmux-queue-header) + 3 * 26px);
+  --acpmux-queue-header: 22px;
+  padding: 0;
+  scroll-snap-type: y mandatory;
+  scroll-padding-top: var(--acpmux-queue-header);
 }
-.acpmux-queue-more {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: subgrid;
-  min-width: 0;
+.acpmux-composer-queue[data-unfolded] > .acpmux-queue-header {
   position: sticky;
-  bottom: -4px;
+  top: 0;
   z-index: var(--layer-sticky);
-  /* Over the list's bottom padding, so it covers what scrolls under it. */
-  margin-bottom: -4px;
-  padding: 1px 8px 5px 12px;
+  height: var(--acpmux-queue-header);
   box-sizing: border-box;
   background: var(--acpmux-composer-tray);
 }
+.acpmux-composer-queue[data-unfolded] > .acpmux-queued {
+  scroll-snap-align: start;
+}
+/* The fold's line continues the list's tray and side edges, down to the strip. */
+.acpmux-queue-foldbar {
+  display: flex;
+  min-width: 0;
+  padding: 0 8px 2px 34px;
+  box-sizing: border-box;
+  background: var(--acpmux-composer-tray);
+  box-shadow:
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge);
+}
 .acpmux-queue-fold {
-  grid-column: 2 / -1;
-  justify-self: start;
   height: 24px;
   margin-left: -6px;
   padding: 0 6px;
