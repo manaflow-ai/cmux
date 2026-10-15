@@ -1968,7 +1968,8 @@ class TerminalController {
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
              "browser.addinitscript", "browser.addscript", "browser.addstyle",
-             "browser.geolocation.set", "browser.offline.set":
+             "browser.geolocation.set", "browser.offline.set",
+             "browser.input_mouse", "browser.input_keyboard":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
@@ -3645,10 +3646,6 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserScreencastStart(params: params))
         case "browser.screencast.stop":
             return v2Result(id: id, self.v2BrowserScreencastStop(params: params))
-        case "browser.input_mouse":
-            return v2Result(id: id, self.v2BrowserInputMouse(params: params))
-        case "browser.input_keyboard":
-            return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
 
@@ -10707,6 +10704,8 @@ class TerminalController {
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
         case "browser.geolocation.set": return v2BrowserGeolocationSet(params: params)
         case "browser.offline.set": return v2BrowserOfflineSet(params: params)
+        case "browser.input_mouse": return v2BrowserInputMouse(params: params)
+        case "browser.input_keyboard": return v2BrowserInputKeyboard(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -12170,14 +12169,6 @@ class TerminalController {
 
     private func v2BrowserScreencastStop(params _: [String: Any]) -> V2CallResult {
         v2BrowserNotSupported("browser.screencast.stop", details: "WKWebView does not expose CDP screencast streaming")
-    }
-
-    private func v2BrowserInputMouse(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.input_mouse", details: "Raw CDP mouse injection is unavailable; use browser.click/hover/scroll")
-    }
-
-    private func v2BrowserInputKeyboard(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.input_keyboard", details: "Raw CDP keyboard injection is unavailable; use browser.press/keydown/keyup")
     }
 
     private func v2BrowserInputTouch(params _: [String: Any]) -> V2CallResult {

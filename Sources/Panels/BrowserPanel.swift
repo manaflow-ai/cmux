@@ -2170,6 +2170,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// `browser.offline.set`; follows the tab across web view replacements
     /// the same way automation init scripts do.
     let browserEmulation = BrowserWebKitEmulationController()
+    /// Where `browser.input_mouse` left the pointer in this panel.
+    let browserRawInputPointer = BrowserRawInputPointerState()
     var webViewDidRequestClose: (() -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]
