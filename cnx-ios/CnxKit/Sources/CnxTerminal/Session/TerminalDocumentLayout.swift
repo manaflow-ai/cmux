@@ -72,12 +72,14 @@ public struct TerminalDocumentLayout: Equatable, Sendable {
         max(-topInset, contentHeight + bottomInset - viewportHeight)
     }
 
-    /// Space between the document's last row and the composer card's top.
-    public static let composerGap: CGFloat = 8
+    /// Space between the document's last row and the composer card's top:
+    /// none. The last row rests on the card (user report 2026-10-14: with
+    /// 8 pt the bottom read as pinned to the row above the composer).
+    public static let composerGap: CGFloat = 0
 
     /// The scroll view's bottom inset for a page `pageHeight` tall whose
     /// composer card starts at `composerTop` (page coordinates): at the
-    /// bottom offset, the last row's bottom edge is `composerGap` above the card.
+    /// bottom offset, the last row's bottom edge is the card's top.
     public static func bottomInset(pageHeight: CGFloat, composerTop: CGFloat) -> CGFloat {
         max(0, pageHeight - composerTop) + composerGap
     }

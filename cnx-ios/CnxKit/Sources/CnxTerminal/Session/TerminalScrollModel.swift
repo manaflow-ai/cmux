@@ -66,7 +66,10 @@ public struct TerminalScrollModel: Equatable, Sendable {
 
     /// The finger lifted with no deceleration, or a deceleration ended: rest
     /// here. Within `followSlackRows` of the bottom, follow.
+    /// Only a gesture settles: after Jump to bottom (or typing) mid-gesture,
+    /// the end of the deceleration or the lift it interrupted changes nothing.
     public mutating func settled(offsetY: CGFloat, bottomOffsetY: CGFloat, layout: TerminalDocumentLayout?, rowHeight: CGFloat) {
+        guard isInteracting else { return }
         guard let layout, rowHeight > 0 else { state = .following; return }
         let slack = (touchedBottom ? Self.touchedBottomSlackRows : Self.followSlackRows) * rowHeight
         touchedBottom = false
