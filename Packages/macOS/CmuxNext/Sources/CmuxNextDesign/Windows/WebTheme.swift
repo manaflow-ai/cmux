@@ -105,15 +105,21 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
+        let colors = ColorTransition.current
+        transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
     }
 
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal}`
     /// (`terminal.fontFamily` is null when the terminal has no named face).
+    /// How the page's color variables move to new values (`appearance.colorTransition`, the same
+    /// duration, curve and blend space as native): `{duration, easing, space}`.
+    public let transition: [String: String]
+
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
-                                     "terminal": terminal.json]
+                                     "terminal": terminal.json, "transition": transition]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -136,16 +142,83 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           'body{background:transparent !important}';
         (document.head || document.documentElement).appendChild(style);
       }
+      // appearance.colorTransition: every color variable is a registered <color>, so a theme or
+      // workspace change transitions it (and everything that reads it) from the value on screen;
+      // a quick second change retargets from the blend in flight. OKLab blends need non-legacy
+      // color syntax (CSS Color 4 mixes two rgb() or hex values in sRGB). Code that reads computed
+      // colors gets a second `cmux-theme` event once the blend ends.
+      var registered = {};
+      var transitionStyle = null;
+      // rgb()/rgba() parsed without a regular expression: the literal stays free of backslashes
+      // (Swift escapes), so the gallery runs the same script (webviews/dev-server/galleryHost.ts).
+      function rgba(value) {
+        var open = value.indexOf('('), close = value.lastIndexOf(')');
+        if (value.slice(0, 3) !== 'rgb' || open < 3 || close !== value.length - 1) return null;
+        var parts = value.slice(open + 1, close).split(',').map(function (p) { return Number(p.trim()); });
+        if (parts.length < 3 || parts.length > 4 || parts.some(function (n) { return !isFinite(n); })) return null;
+        return parts;
+      }
+      var hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})?$/i;
+      function colorValue(value, space) {
+        if (space !== 'oklab') return value;
+        var c = rgba(value);
+        if (c) return 'color(srgb ' + (c[0] / 255) + ' ' + (c[1] / 255) + ' ' + (c[2] / 255) + ' / ' + (c[3] === undefined ? 1 : c[3]) + ')';
+        var m = hex.exec(value);
+        if (m) return 'color(srgb ' + (parseInt(m[1], 16) / 255) + ' ' + (parseInt(m[2], 16) / 255) + ' ' + (parseInt(m[3], 16) / 255) +
+          ' / ' + (m[4] === undefined ? 1 : parseInt(m[4], 16) / 255) + ')';
+        return value;
+      }
+      function register(name, value) {
+        if (registered[name] !== undefined) return registered[name];
+        var ok = !!(window.CSS && CSS.registerProperty && CSS.supports && value.indexOf('var(') < 0 && CSS.supports('color', value));
+        if (ok) {
+          try { CSS.registerProperty({ name: name, syntax: '<color>', inherits: true, initialValue: 'transparent' }); } catch (e) { ok = false; }
+        }
+        registered[name] = ok;
+        return ok;
+      }
+      function setTransition(transition, names) {
+        if (!transitionStyle) {
+          transitionStyle = document.createElement('style');
+          transitionStyle.id = 'cmux-theme-transition';
+          (document.head || document.documentElement).appendChild(transitionStyle);
+        }
+        var duration = (transition && transition.duration) || '0ms';
+        transitionStyle.textContent = names.length && duration !== '0ms'
+          ? 'html{transition-property:' + names.join(',') + ';transition-duration:' + duration +
+            ';transition-timing-function:' + ((transition && transition.easing) || 'ease-out') + '}'
+          : '';
+      }
+      function settled(payload) {
+        var root = document.documentElement;
+        var running = root.getAnimations ? root.getAnimations().filter(function (a) { return a.transitionProperty; }) : [];
+        if (!running.length) return;
+        Promise.allSettled(running.map(function (a) { return a.finished; })).then(function () {
+          if (window.cmuxTheme.current === payload) window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
+        });
+      }
       window.cmuxTheme = {
         current: null,
         apply: function (payload) {
           var root = document.documentElement;
           ensureStyle();
-          for (var name in payload.variables) root.style.setProperty(name, payload.variables[name]);
+          var first = window.cmuxTheme.current === null;
+          var space = payload.transition && payload.transition.space;
+          var names = [];
+          for (var key in payload.variables) if (register(key, payload.variables[key])) names.push(key);
+          // The first theme of a page shows at once (no fade in from transparent): the values
+          // land with no transition, a style read commits them, then the transition turns on.
+          if (first) setTransition(null, names);
+          for (var name in payload.variables) {
+            root.style.setProperty(name, registered[name] ? colorValue(payload.variables[name], space) : payload.variables[name]);
+          }
+          if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
+          setTransition(payload.transition, names);
           root.style.colorScheme = payload.colorScheme;
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
+          if (!first) settled(payload);
         }
       };
       ensureStyle();
