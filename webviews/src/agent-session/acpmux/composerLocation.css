@@ -73,6 +73,9 @@
 }
 .acpmux-location-button {
   --ui-ghost-end-bearing: 4px;
+  /* The composer's text is on the one type scale (regular or emphasis), not the shared ghost
+     button's medium label weight. */
+  font-weight: var(--weight-regular);
 }
 .acpmux-location-readonly {
   gap: 4px;
@@ -197,7 +200,7 @@
 .acpmux-access-item .acpmux-access-item-icon { grid-column: 2; }
 .acpmux-access-item .acpmux-menu-text { grid-column: 3; min-width: 0; }
 .acpmux-access-item .ui-menu-shortcut { grid-column: 4; margin-inline-start: 0; padding-inline-start: 8px; }
-.acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); font-weight: 500; }
+.acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); }
 .acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 .acpmux-permission-status { display: inline-flex; flex: none; align-items: center; }
