@@ -22,6 +22,22 @@ public struct TerminalHeldFrame: Sendable {
         return Double(nonBlankRows) >= max(1, Double(rows) * Self.minimumShare)
     }
 
+    /// A present while a frame is held (qa11 wt-read2-a): let it go only
+    /// once the replay drew (`replayDrawn`), a reader's rows are restored
+    /// (`markPending` false) and the frame just placed (`cover`) covers the
+    /// rows the page shows (`visibleTop..<visibleBottom` within
+    /// `documentRows`). Released on the first present after the restore, the
+    /// page showed Ghostty's frame of the end placed at the end while the
+    /// page stood at the reader's rows: one black frame. A TUI's screen has
+    /// no scroll: drawn is enough.
+    static func releasesOnPresent(isAlternate: Bool, replayDrawn: Bool, markPending: Bool, cover: TerminalFrameCover,
+                                  visibleTop: Int, visibleBottom: Int, documentRows: Range<Int>) -> Bool {
+        guard replayDrawn, !markPending else { return false }
+        if isAlternate { return true }
+        return TerminalBlankWatch.covers(presentedTop: cover.presentedTop, surfaceRows: cover.surfaceRows, visibleTop: visibleTop,
+                                         visibleBottom: visibleBottom, documentRows: documentRows)
+    }
+
     /// Rows with text in Ghostty's plain text of a screen (one line per row;
     /// soft-wrapped rows joined count once, which only errs toward holding).
     public static func nonBlankRows(in text: String, limit: Int) -> Int {
