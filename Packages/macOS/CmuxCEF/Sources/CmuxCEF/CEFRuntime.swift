@@ -221,14 +221,14 @@ public final class CEFRuntime {
         case shim(CEFShimLibrary.LoadError)
         case framework(String)
         /// NSApp does not conform to CefAppProtocol.
-        case application
+        case application(String)
         case initialize
 
         var description: String {
             switch self {
             case .shim(let error): "shim: \(error)"
             case .framework(let message): message
-            case .application: "NSApp does not conform to CefAppProtocol"
+            case .application(let detail): "NSApp does not conform to CefAppProtocol (\(detail))"
             case .initialize: "CefInitialize failed"
             }
         }
@@ -258,7 +258,9 @@ public final class CEFRuntime {
         let shim = library.shim
         let layout = library.layout
         applicationSupport.install(application: NSApplication.shared)
-        guard shim.prepareApplication() == 1 else { throw .application }
+        guard shim.prepareApplication() == 1 else {
+            throw .application(applicationSupport.diagnosis(application: NSApplication.shared))
+        }
         self.shim = shim
 
         let pump = CEFMessagePump(
