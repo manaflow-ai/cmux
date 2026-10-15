@@ -536,7 +536,7 @@ interface CmuxGlobal {
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
     tab: {
       /** `browser.tab.emulate` (mutation, scope `browser:write`) */
-      emulate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; device?: string; custom?: Cmux.JsonValue; orientation?: "vertical" | "horizontal" | "vertical-spanned" | "horizontal-spanned" | "portrait" | "landscape" | "unfolded-portrait" | "unfolded-landscape"; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>> & {
+      emulate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; device?: string; custom?: Cmux.JsonValue; orientation?: "vertical" | "horizontal" | "vertical-spanned" | "horizontal-spanned" | "portrait" | "landscape" | "unfolded-portrait" | "unfolded-landscape"; fit?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>> & {
         /** `browser.tab.emulate.clear` (mutation, scope `browser:write`) */
         clear: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
       }
@@ -590,6 +590,8 @@ interface CmuxGlobal {
     /** `chief.list` (read, scope `chief:read`): The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
     list: CmuxOp<{ include_archived?: boolean }, { chiefs: Array<Cmux.HomeChief>; tombstones: Array<{ id: Cmux.ChiefId; owner_user: string; archived_at: Cmux.Timestamp }> }>
     profile: {
+      /** `chief.profile.adopt` (mutation, scope `chief:write`) */
+      adopt: CmuxOp<{ machine?: string; session?: string; participant_id: string; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string }, Cmux.MutationResult<Cmux.ChiefRecord>>
       avatar: {
         /** `chief.profile.avatar.get` (read, scope `chief:read`) */
         get: CmuxOp<{ machine?: string; session?: string; chief: string }, Cmux.ChiefAvatarPage>

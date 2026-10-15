@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+pub mod agent_launch;
 pub mod agent_message_prompt;
 pub mod agent_view;
 mod apps;
@@ -179,9 +180,9 @@ pub use workspace_registry::{
     JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
-    SessionJournalPage, SessionJournalRecord, UnsupportedWorkspaceRegistrySchema,
-    WorkspaceMutation, WorkspaceRegistry,
+    RegistryCommit, RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined,
+    RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
+    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

@@ -337,8 +337,19 @@ pub(crate) fn dispatch(
         }
         Op::BrowserTabEmulate | Op::BrowserTabEmulateClear => {
             use crate::state::browser_devices::EmulationChange;
+            let fit = string(fields, "fit");
             let change = if operation == Op::BrowserTabEmulateClear {
                 EmulationChange::Clear
+            } else if let Some(fit) = fit {
+                let other = ["device", "custom", "orientation"]
+                    .iter()
+                    .any(|key| fields.get(*key).is_some_and(|value| !value.is_null()));
+                if other {
+                    return Err(state_error(anyhow::anyhow!(
+                        "bad request: give fit alone, without device, custom or orientation"
+                    )));
+                }
+                EmulationChange::Fit(fit)
             } else {
                 EmulationChange::Set {
                     device: string(fields, "device"),

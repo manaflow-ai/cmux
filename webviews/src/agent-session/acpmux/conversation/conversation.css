@@ -36,6 +36,9 @@
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: system-ui;
   --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
+     Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
+  --font-mono: var(--cv-mono);
 }
 
 /* ---------- User bubble ---------- */
@@ -73,7 +76,7 @@
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
   background: var(--cv-bubble);
-  box-shadow: inset 0 0 0 0.5px var(--acpmux-composer-edge, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
@@ -654,8 +657,8 @@
   color: var(--cv-text);
 }
 
-/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. The
-   katex stylesheet ships beside these rules (build-agent-pane-web.sh). */
+/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. KaTeX's
+   stylesheet loads with KaTeX, after these rules; each rule here has two classes, so it wins. */
 .cv-math .katex {
   white-space: nowrap;
 }
@@ -1709,7 +1712,7 @@ pre.cv-math-source {
   border-radius: 9px;
   overflow: hidden;
   background: var(--agent-page-bg);
-  box-shadow: inset 0 0 0 0.5px var(--agent-border-strong, var(--agent-border));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong, var(--agent-border));
 }
 .acpmux-render-card-head {
   display: flex;
@@ -1849,7 +1852,7 @@ pre.cv-math-source {
   gap: 2px;
   height: 28px;
   padding: 0 3px 0 9px;
-  border: 0.5px solid var(--agent-border);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 8px;
   background: var(--acpmux-base, var(--agent-page-bg));
   /* Its border is its one rim (it takes the accent on focus), so the shadow brings no hairline. */
@@ -1947,13 +1950,17 @@ pre.cv-math-source {
   -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
   backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
   box-shadow:
-    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent)),
     var(--elevation-2);
   color: var(--agent-text);
   cursor: default;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-50%, 6px, 0);
+}
+/* appearance.borders none clears the rim in place, as it clears the composer's and the popups'. */
+:root[data-borders="none"] .acpmux-jump-latest {
+  --acpmux-jump-latest-rim: transparent;
 }
 .acpmux-jump-latest[data-shown] {
   opacity: 1;

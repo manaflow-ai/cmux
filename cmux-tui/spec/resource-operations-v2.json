@@ -14935,6 +14935,16 @@
             },
             "description": "The device's mode orientation; absent is its first. portrait, landscape, unfolded-portrait and unfolded-landscape name vertical, horizontal, vertical-spanned and horizontal-spanned."
           },
+          "fit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 3,
+              "max_length": 16
+            },
+            "description": "Fit a desktop layout instead of a device: an aspect ratio W:H such as 16:9 (whole numbers of 1 to 64, at most 4:1 either way), or a fixed layout width in CSS px such as 1280 (640 to 3840). Give it alone."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -14946,8 +14956,9 @@
         },
         "extra": false,
         "constraints": [
-          "A browser tab only. device or custom (not both); with neither, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
-          "An unknown title, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
+          "A browser tab only. device or custom (not both), or fit alone; with none of them, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
+          "fit W:H keeps a fit on the tab instead of a device and shows extra.emulation {mode: \"fit\", fit {value, aspect, aspect_width, aspect_height, min_width 1024, max_width 1920}, device_scale_factor 0, mobile false, touch false, user_agent \"\", chromium_calls}. The engine lays the page out at layout width = clamp(view height x W / H, min_width, max_width) CSS px, scale = view width / layout width, layout height = view height / scale, so the page fills the whole view (no bars) and shows a desktop layout; a view at least layout width wide shows the page as is. fit N (a bare number, 640 to 3840) is a fixed layout width: fit {value \"N\", aspect 16:9, min_width N, max_width N}, so the same formula gives layout width N at any view height. fit.value is the fit as given (\"16:9\" or \"1280\"). It recomputes on every view resize without a reload. chromium_calls carry 0 for width and height (the engine fills them and scale) and reset the user agent and touch.",
+          "An unknown title, a fit that is not W:H or a width of 640 to 3840, fit with device, custom or orientation, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
         ]
       },
       "result": {
@@ -15342,6 +15353,159 @@
         "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, invalid_speed, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
         "An absent field is unchanged. The change applies from the Chief's next turn; a running turn finishes on its engine. The value is the engine report after the write. The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model, speed, compactor_speed}, choice, last_turn, recent}.",
         "Setting the same values again changes nothing, so a retry is safe; replayed is always false."
+      ]
+    },
+    "chief.profile.adopt": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 7,
+              "max_length": 70
+            },
+            "description": "An agent participant of the owner's local conversations (agent_ then 1 to 64 characters) that is not a Chief record and not a deleted Chief; never agent_mux and never a person."
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            },
+            "description": "1 to 100 characters, one line; default: the participant's display name."
+          },
+          "role": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "personality": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 4000
+            }
+          },
+          "instructions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32000
+            },
+            "description": "System prompt additions."
+          },
+          "tools": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces; owner only. A new Chief without it gets spawn, tell, workspaces."
+          },
+          "harnesses": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Owner only; empty: every harness."
+          },
+          "self_edit": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from avatar, display_name, instructions, personality, role; owner only. A new Chief without it gets avatar."
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "effort": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only: a trusted local Unix caller acting as the person (a registered Unix client with no link peer record whose conversation principal is user_local). A page WebSocket, a paired or remote device and a bound agent (a Chief) are refused with origin.forbidden; no page route allows it.",
+        "The participant must be an agent participant (kind agent) of a local conversation that is not a Chief record: a live record is already_chief, a deleted Chief (its tombstone, and its memory while it is kept) is deleted_chief, agent_mux is default_chief, an id whose brain directory (its last 8 characters, lowercased) another Chief, live or deleted, already has is brain_home_taken, a participant with a bound connection (its current agent session) is participant_bound with the hint to stop that session first, anything else is not_an_agent_participant (operation.failed details.reason). At most 64 live Chiefs: too_many_chiefs. In the same write the daemon revokes every credential issued for the participant before the adopt; after it, only the Chief brain's credential binds (with a brain supervisor), or on a daemon without one a credential the person mints from a local terminal (conversation-agent-token) after the adopt.",
+        "The record gets create's defaults (tools spawn, tell, workspaces; self_edit avatar; no engine) and only the fields given; from the participant it takes only its id and, without display_name, its display name. Its conversations, history and credentials stay as they are.",
+        "The idempotency key is per caller, as for chief.profile.create: the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict. The committed write reaches the Chief brain supervisor and publishes chief-profile-changed as a create does."
       ]
     },
     "chief.profile.avatar.get": {
@@ -30399,8 +30563,7 @@
                 "personal"
               ]
             },
-            "default": "session",
-            "description": "personal-mixed-order-v1. session: the session's workspace order. personal: the personal sidebar order (loose workspaces, and each group's members at the group's place), then this session's workspaces without a personal row in session order."
+            "description": "personal-mixed-order-v1. session: the session's workspace order. personal: the sidebar order. Absent: the sidebar order with the sidebar document (sidebar-doc-v1), else the session order. With the document the sidebar order is the document's order of this machine's workspaces (Pinned first, group members in place, unplaced ones where workspaces.newPlacement puts a new one); without it, the personal order (loose workspaces, and each group's members at the group's place), then this session's workspaces without a personal row in session order."
           }
         },
         "extra": false

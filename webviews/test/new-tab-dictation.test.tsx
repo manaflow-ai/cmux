@@ -117,7 +117,7 @@ test("the New Tab composer has the mic beside Send, and dictated words land in i
   await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
   await act(async () => deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false }));
   await act(async () => deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false }));
-  expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the upload test");
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the upload test");
 });
 
 test("right-click Hide Dictation Button hides the mic in every composer until Settings shows it", async () => {
@@ -148,7 +148,7 @@ test("updates that arrive before a render still land once each (review: the fiel
     deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false });
     deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false });
   });
-  expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the upload test");
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the upload test");
 });
 
 test("a session whose New Tab field goes away ends, and never writes into the chat composer", async () => {
@@ -211,7 +211,7 @@ test("a session whose New Tab field goes away ends, and never writes into the ch
   await act(async () => root!.render(<Pane />));
   await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
   await act(async () => deliverDictation({ state: "listening", text: "fix the", level: 0.4, cancelled: false }));
-  expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the");
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the");
   await act(async () => leave());
   await act(async () => deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false }));
   await act(async () => deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false }));

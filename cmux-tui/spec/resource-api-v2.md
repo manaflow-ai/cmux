@@ -438,8 +438,13 @@ and new workspaces' personal rows are followed into the document
 mutation changes are written back to the personal rows and groups (a
 workspace in Pinned or a custom section is a loose row at its document
 position, a group in Pinned is `pinned`), and
-`workspace.list {order: personal}` is the document's order of this
-machine's workspaces.
+`workspace.list` (no `order`, or `order: personal`) is the document's order of this machine's workspaces: sections in display
+order (Pinned before the machine sections), each group's members in place
+after the group, and a live workspace the document does not place yet where
+`workspaces.newPlacement` puts a new one. Only the array order changes (the
+`index` field stays the session index); `order: session` keeps the session
+order. The private `list-workspaces` tree keeps the session order, because
+its `workspace-added` / `workspace-moved` deltas carry session indexes.
 
 The palette usage history is one document per user (`palette-usage-v1`): the
 palette rows the user ran (a decayed use count per row key, half-life three
@@ -1006,7 +1011,7 @@ operations after the server socket is bound.
 | Class | Operations |
 | --- | --- |
 | read | `agent.list`, `agent.message.list`, `browser.devices.list`, `browser.get`, `browser.list`, `chief.engine.get`, `chief.profile.avatar.get`, `chief.profile.get`, `chief.profile.list`, `client.get`, `client.list`, `closed.list`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `credential.mint`, `credential.verify`, `frontend_projection.get`, `git.branches`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.list`, `git.files.search`, `git.status`, `history.entries.list`, `history.visit.summaries`, `keybindings.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `palette_usage.get`, `pane.get`, `pane.list`, `pane.neighbor.get`, `participant.avatar.get`, `project.list`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `settings.get`, `settings.list`, `settings.schema`, `settings.snapshot`, `sidebar.get`, `sidebar_layout.get`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.agent_start.get`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
-| mutation | `agent.message.mark`, `agent.message.release`, `agent.message.send`, `agent.message.unsend`, `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.devices.add_custom`, `browser.devices.remove_custom`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `chief.engine.set`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.update`, `chief.stop`, `closed.delete`, `closed.reopen`, `column.update`, `conversation.draft`, `conversation.send`, `conversation.typing`, `credential.rotate`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.push`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `history.backups.purge`, `history.clear`, `history.entries.remove`, `history.restore`, `history.site.remove`, `history.trail.record`, `history.visit.import`, `history.visit.record`, `history.visit.remove`, `history.visit.title`, `keybindings.remove`, `keybindings.reset`, `keybindings.set`, `layout.bulk`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `palette_usage.forget`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `participant.avatar.set`, `project.add`, `project.observe`, `project.remove`, `project.source.update`, `project.sync`, `project.update`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `settings.reset`, `settings.reset_all`, `settings.set`, `sidebar.adopt`, `sidebar.apply`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.reset`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_app`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.open_url`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
+| mutation | `agent.message.mark`, `agent.message.release`, `agent.message.send`, `agent.message.unsend`, `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.devices.add_custom`, `browser.devices.remove_custom`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `chief.engine.set`, `chief.profile.adopt`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.update`, `chief.stop`, `closed.delete`, `closed.reopen`, `column.update`, `conversation.draft`, `conversation.send`, `conversation.typing`, `credential.rotate`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.push`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `history.backups.purge`, `history.clear`, `history.entries.remove`, `history.restore`, `history.site.remove`, `history.trail.record`, `history.visit.import`, `history.visit.record`, `history.visit.remove`, `history.visit.title`, `keybindings.remove`, `keybindings.reset`, `keybindings.set`, `layout.bulk`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `palette_usage.forget`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `participant.avatar.set`, `project.add`, `project.observe`, `project.remove`, `project.source.update`, `project.sync`, `project.update`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `settings.reset`, `settings.reset_all`, `settings.set`, `sidebar.adopt`, `sidebar.apply`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.reset`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_app`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.open_url`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | stream_open | `browser.attach`, `conversation.events`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
@@ -1259,6 +1264,29 @@ directory. A Chief's id is its conversation participant id: the default
 Chief is `agent_mux` and exists from the first read; a new Chief is `agent_`
 and 26 Crockford base32 characters. A deleted id is never reused.
 
+`chief.profile.adopt` (capability `chief-profile-adopt-v1`) makes an existing
+agent participant of the owner's conversations a Chief record under its own
+id, so its conversations, history and credentials stay its own. Only the
+owner calls it, from a trusted local Unix connection: a page (WebSocket or
+the host's page relay), a paired or remote device and a bound agent get
+`origin.forbidden`, and no page route lists it. The record gets
+`chief.profile.create`'s defaults and only the fields given; from the
+participant it takes its id and, without `display_name`, its display name.
+`agent_mux` is `default_chief`, a live record `already_chief`, a deleted
+Chief `deleted_chief` (an adopt never revives a deleted Chief or its kept
+memory), an id whose brain directory (its last 8 characters, lowercased)
+another live or deleted Chief already has `brain_home_taken`, and a person
+or an unknown id `not_an_agent_participant`. A participant with a bound
+connection is `participant_bound` ("stop its current agent session first"):
+two processes never speak as one participant. In the same write every
+credential issued for the participant is revoked; afterwards only the
+supervisor-started brain's credential binds, or, on a daemon with no brain
+supervisor, one the person mints with `conversation-agent-token` from a local
+terminal (never a page, a paired or remote device or an agent)
+(`operation.failed` `details.reason`). It is idempotent per key like
+`chief.profile.create`, reaches the brain supervisor as a create does and
+publishes `chief-changed` with change `created`.
+
 The callers are the owner (the rule of Chief control above) and the Chiefs: a
 Unix connection bound with `conversation-bind` to a live record's id. With
 `chief-profile-ws-v1` the person's page is a caller too: an authenticated
@@ -1278,10 +1306,24 @@ gesture; no request field or claim the page makes up stands in for it. The
 operation ledger records a page's write as `user_local via page:<page>` (`user_local
 via websocket` with no page id), so a page write is told apart from a terminal's.
 Every other connection is refused with `origin.forbidden`. A Chief reads every
-record and changes only its own fields that its `self_edit` lists; tools,
-harnesses, engine and `self_edit` are the owner's only, as are create and
-delete. Any other Chief request is `operation.failed` reason
-`chief_self_edit_denied` with `extra.fields`, before anything is written.
+record and changes only its own fields that its `self_edit` lists; its own
+tools, harnesses, engine and `self_edit` are the owner's only. Any other
+change of itself is `operation.failed` reason `chief_self_edit_denied` with
+`extra.fields`, before anything is written.
+
+A Chief whose `tools` hold `chiefs` (on by default for a new Chief; a record
+made before that default whose tools were still the old default set gets it
+once, recorded in the ledger as `daemon via migration`) may also create
+Chiefs and change other Chiefs' profile, grant and picture, never beyond its
+own grant: the new or changed record's `tools` and `self_edit` are subsets of
+the Chief's, its `harnesses` are any when the Chief's are empty (every
+harness) and otherwise a non-empty subset, and each engine field the Chief has
+set (harness, model, effort) is the same. An edit also needs the target's
+current grant within the Chief's (`target_exceeds_caller`). A create fills the
+grant fields it omits from the Chief's own grant. Refusals, before anything is
+written: `chief_manage_denied` (no `chiefs`), `grant_exceeds_caller` (with
+`extra.fields`), `target_exceeds_caller`, `chief_default_grant` (a grant field
+of the default Chief), `chief_delete_denied` (no Chief deletes a Chief) and `too_many_chiefs`. The ledger records such a write as `<agent id> via chief`.
 An avatar is PNG, JPEG, GIF or WebP, at most 1 MiB, stored once by SHA-256.
 The policy tests are in `crates/cmux-tui/tests/cli/chief_registry.rs`.
 

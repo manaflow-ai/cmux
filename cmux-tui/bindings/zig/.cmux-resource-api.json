@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "5feff2edfff2674555def909dd09c7a9fd51c20267db48bd2d3bc768982fda5c",
+  "catalog_sha256": "18204696d63a7785573f25697767226a9e78e3fd0bfc47cc04a72d0ae7cf20d0",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -89,6 +89,9 @@
       "class": "read"
     },
     "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.profile.adopt": {
       "class": "mutation"
     },
     "chief.profile.avatar.get": {

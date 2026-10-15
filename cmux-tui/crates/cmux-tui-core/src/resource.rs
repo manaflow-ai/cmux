@@ -134,6 +134,8 @@ pub enum ResourceOperation {
     ChiefProfileGet,
     #[serde(rename = "chief.profile.create")]
     ChiefProfileCreate,
+    #[serde(rename = "chief.profile.adopt")]
+    ChiefProfileAdopt,
     #[serde(rename = "chief.profile.update")]
     ChiefProfileUpdate,
     #[serde(rename = "chief.profile.delete")]

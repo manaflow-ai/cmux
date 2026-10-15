@@ -12,18 +12,30 @@ public nonisolated struct SettingChoiceActions: Sendable {
     public init() {}
 
     /// Binds one action per value: a refused save is reported and changes
-    /// nothing; otherwise `apply` sets the value at once.
+    /// nothing; otherwise `apply` sets the value at once. With `current`,
+    /// each action also previews its value (`ActionRegistry.bindPreview`):
+    /// the palette's highlighted row applies it without a write, and
+    /// leaving the row applies `current()` as it was before the preview.
     @MainActor public static func bind<Value: Sendable>(
         _ values: [Value], into registry: ActionRegistry, id: (Value) -> String, path: [String],
-        fileValue: @escaping (Value) -> JSONValue?, save: @escaping Save, apply: @escaping @MainActor (Value) -> Void
+        fileValue: @escaping (Value) -> JSONValue?, save: @escaping Save,
+        current: (@MainActor () -> Value)? = nil, apply: @escaping @MainActor (Value) -> Void
     ) {
         for value in values {
-            registry.bind(ActionID(rawValue: id(value)), invoke: { [weak registry] _ in
+            let actionID = ActionID(rawValue: id(value))
+            registry.bind(actionID, invoke: { [weak registry] _ in
                 if let refusal = save(path, fileValue(value)) {
+                    registry?.endPreview()
                     registry?.refuse(refusal)
                     return
                 }
                 apply(value)
+            })
+            guard let current else { continue }
+            registry.bindPreview(actionID, ActionPreview(group: path.joined(separator: ".")) {
+                let before = current()
+                apply(value)
+                return { apply(before) }
             })
         }
     }

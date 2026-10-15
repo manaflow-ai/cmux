@@ -296,6 +296,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefProfileList
         | ResourceOperation::ChiefProfileGet
         | ResourceOperation::ChiefProfileCreate
+        | ResourceOperation::ChiefProfileAdopt
         | ResourceOperation::ChiefProfileUpdate
         | ResourceOperation::ChiefProfileDelete
         | ResourceOperation::ChiefProfileAvatarSet
