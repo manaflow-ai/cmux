@@ -37,7 +37,7 @@ pub(crate) fn new_host_terminal(
     let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
     // A TERM libghostty refuses (over 128 bytes) leaves XTGETTCAP "TN"
     // unanswered, as Ghostty does for a name it does not know.
-    let _ = term.set_terminfo_name(&launch.term);
+    let _ = term.set_terminfo_name(launch.child_term());
     Ok(term)
 }
 
