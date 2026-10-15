@@ -145,7 +145,10 @@ public final class TerminalModel {
             guard let self else { return }
             frameSavePending = false
             lastFrameSave = CACurrentMediaTime()
-            if let image = controller?.snapshot(hidingCursor: true) { frameSaver?(image) }
+            // Taken here, rendered off the main thread (V8 claim 7).
+            guard let capture = controller?.captureForSaving() else { return }
+            let image = await Task.detached(priority: .utility) { capture.render() }.value
+            if let image { frameSaver?(image) }
         }
     }
 
