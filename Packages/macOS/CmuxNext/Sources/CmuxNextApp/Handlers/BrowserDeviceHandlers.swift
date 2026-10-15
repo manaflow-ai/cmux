@@ -28,12 +28,17 @@ enum BrowserDeviceHandlers {
             _ = try context.page(invocation)
             guard let (_, pane) = context.daemonTab(invocation) else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
             let daemon = context.services.daemon(for: pane)
-            guard daemon.supports(DaemonCapabilities.shared.browserDevices) else {
-                throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.browserDevices))
+            guard daemon.supports(DaemonCapabilities.shared.browserFit) else {
+                throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.browserFit))
             }
             toggleFit(invocation, context)
         })
         ActionTargetTitles.setState("browserFitDesktop", in: registry) { invocation in context.daemonTab(invocation).map { fitting($0.tab) } }
+        // The focused pane's selected tab, looked up without a refusal (the palette builds rows with it).
+        ActionTargetTitles.setPaletteState("browserFitDesktop", in: registry) {
+            guard let pane = context.services.windows.active?.focusedPane, let id = pane.stripModel.selectedID, let tab = pane.tab(id) else { return false }
+            return fitting(tab)
+        }
         registry.bind("browserDevice", run: { invocation in
             let entry = try context.page(invocation)
             guard let (tab, pane) = context.daemonTab(invocation), let resource = tab.resourceID else {
@@ -53,12 +58,13 @@ enum BrowserDeviceHandlers {
             if device != nil || orientation != nil { return choose(device?.lowercased() == "none" ? nil : device ?? "", orientation) }
             let (chrome, current) = (entry.chrome, tab.emulation.flatMap { try? JSONEncoder().encode($0) })
             let fitting = BrowserDeviceMenu.isFit(record: current)
+            let canFit = daemon.supports(DaemonCapabilities.shared.browserFit)
             Task { @MainActor in
                 do {
                     let list = try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
                     let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
                                                  current: BrowserDeviceMenu.current(record: current), isFitting: fitting,
-                                                 toggleFit: { toggleFit(invocation, context) }, choose: choose).menu()
+                                                 toggleFit: canFit ? { toggleFit(invocation, context) } : nil, choose: choose).menu()
                     presentedMenu = menu
                     chrome.toolbarButtons.present(menu, from: .overflow)
                 } catch {

@@ -89,8 +89,14 @@ final class WebKitPageContainer: NSView {
     private func placeEmulatedPage() {
         guard let page else { return }
         guard let placement = emulatedPlacement(), subviews.count == 1 else {
-            // No emulation, or the inspector owns the web view's frame.
-            guard isScaledForEmulation else { return }
+            // No emulation, a fit in a pane at least as wide as its layout, or
+            // the inspector owns the web view's frame.
+            guard isScaledForEmulation else {
+                // A fit that shows the page as is: `resizeSubviews` skipped
+                // autoresizing, so the page follows the container here.
+                if emulation != nil, subviews.count == 1, page.frame != bounds { page.frame = bounds }
+                return
+            }
             isScaledForEmulation = false
             setBoundsSize(frame.size)
             setBoundsOrigin(.zero)

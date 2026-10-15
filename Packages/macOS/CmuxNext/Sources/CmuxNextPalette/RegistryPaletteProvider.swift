@@ -80,8 +80,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 // A disabled row says why (Chromium without a CEF runtime).
                 subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID),
                 accessory: entry.isBound || override != nil ? nil : unbound,
-                // A toggle that is on for the focused object shows a check (Fit as 16:9 Desktop).
-                symbol: registry.action(for: actionID)?.targetState?(ActionInvocation()) == true ? "checkmark.circle.fill" : descriptor.symbol,
+                // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
+                symbol: registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
                 keycaps: registry.shortcutKeycaps(for: actionID),
                 section: section(descriptor.category),
                 keywords: descriptor.keywords,

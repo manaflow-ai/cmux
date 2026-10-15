@@ -23,6 +23,8 @@ use serde_json::{Map, Value, json};
 
 /// `browser.devices.*`, `browser.tab.emulate*` and `extra.emulation`.
 pub const CAPABILITY: &str = "browser-devices-v1";
+/// `fit` on `browser.tab.emulate` and the `mode: "fit"` record (cx-va1wd).
+pub const FIT_CAPABILITY: &str = "browser-fit-v1";
 /// The resource kind of the custom device list on `session.events`.
 pub(crate) const RESOURCE: &str = "browser_device";
 /// The id of the one custom device list.

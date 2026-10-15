@@ -77,6 +77,10 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
         identity["capabilities"].as_array().unwrap().iter().any(|v| v == "browser-devices-v1"),
         "{identity}"
     );
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|v| v == "browser-fit-v1"),
+        "{identity}"
+    );
 
     // The list: Chrome's devices verbatim and in Chrome's order, then newer ones.
     let list = ok(&server, &["browser", "devices", "list"]);
