@@ -45,6 +45,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
     }
     #[cfg(unix)]
+    if mux.serves_agent_update() {
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+    }
+    #[cfg(unix)]
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
     }

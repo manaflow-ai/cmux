@@ -506,42 +506,6 @@
           "aliases": []
         },
         {
-          "id": "home.switchView",
-          "title": {
-            "en": "Switch Home View",
-            "ar": "تبديل عرض الصفحة الرئيسية",
-            "bs": "Promijeni prikaz početne",
-            "da": "Skift visning af Hjem",
-            "de": "Home-Ansicht wechseln",
-            "es": "Cambiar vista de Inicio",
-            "fr": "Changer la vue de l’accueil",
-            "it": "Cambia vista di Home",
-            "ja": "ホームの表示を切り替え",
-            "km": "ប្តូរទិដ្ឋភាពទំព័រដើម",
-            "ko": "홈 보기 전환",
-            "no": "Bytt visning av Hjem",
-            "pl": "Przełącz widok strony głównej",
-            "pt-BR": "Alternar visualização do Início",
-            "ru": "Переключить вид главной",
-            "th": "สลับมุมมองหน้าแรก",
-            "tr": "Ana Sayfa Görünümünü Değiştir",
-            "uk": "Перемкнути вид головної",
-            "vi": "Chuyển chế độ xem Trang chủ",
-            "zh-CN": "切换主页视图",
-            "zh-TW": "切換首頁檢視"
-          },
-          "shortcut": {
-            "key": "h",
-            "modifiers": [
-              "ctrl",
-              "opt",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",

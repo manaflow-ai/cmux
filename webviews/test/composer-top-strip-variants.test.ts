@@ -135,4 +135,59 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
             expect(Math.abs(drawn.inkFromCard - drawn.contentEdge)).toBeLessThanOrEqual(1);
           }
         });
+
+  /**
+   * Runs in the page: every box that paints in the plain strip's gap above the card. The strip and
+   * the queue, their pseudo-elements and the card's ::before each count when they draw a border, a
+   * shadow or a fill and reach into the gap (from just above the top strip's bottom to the card's
+   * top edge), so the card's own rim never does.
+   */
+  function strayInGap(card: string) {
+    const box = document.querySelector(card)!;
+    const cardTop = box.getBoundingClientRect().top;
+    const tops = [...document.querySelectorAll(".acpmux-composer-queue, .acpmux-composer-strip")];
+    const gapTop = Math.max(...tops.map((top) => top.getBoundingClientRect().bottom)) - 3;
+    const paints = (style: CSSStyleDeclaration) =>
+      style.boxShadow !== "none" ||
+      style.backgroundColor !== "rgba(0, 0, 0, 0)" ||
+      style.backgroundImage !== "none" ||
+      ["top", "right", "bottom", "left"].some(
+        (side) =>
+          parseFloat(style.getPropertyValue(`border-${side}-width`)) > 0 &&
+          style.getPropertyValue(`border-${side}-style`) !== "none",
+      );
+    const found: string[] = [];
+    for (const element of [...tops, box])
+      for (const pseudo of [null, "::before", "::after"] as const) {
+        if (element === box && pseudo !== "::before") continue;
+        const style = getComputedStyle(element, pseudo);
+        if (pseudo && style.content === "none") continue;
+        if (!paints(style)) continue;
+        const rect = element.getBoundingClientRect();
+        // An ::after that hangs below its host (top: 100%) spans its own height under it.
+        const below = pseudo === "::after" && style.top !== "auto";
+        const from = below ? rect.bottom : rect.top;
+        const to = below ? rect.bottom + (parseFloat(style.height) || 0) : rect.bottom;
+        if (to > gapTop + 0.01 && from < cardTop - 0.01)
+          found.push(`${element.className}${pseudo ?? ""}: ${style.boxShadow} / ${style.backgroundColor}`);
+      }
+    return found;
+  }
+
+  // plain draws nothing but its text: no side hairline or foot left over from the default tab stands
+  // in the gap above the card's top corners (light themes showed it; cg-design-judge 2026-10-15).
+  for (const surface of surfaces)
+    for (const theme of ["Catppuccin Latte", "Apple System Colors Light", "Catppuccin Mocha"])
+      test(`${surface.name}, plain, ${theme}: nothing drawn in the gap above the card`, async () => {
+        const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+        await page.goto(`${stageURL(surface.entry, surface.variant)}&theme=${encodeURIComponent(theme)}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.evaluate(async () => {
+          document.documentElement.setAttribute("data-top-strip", "plain");
+          await document.fonts.ready;
+        });
+        const stray = await page.evaluate(strayInGap, surface.card);
+        await page.close();
+        expect(stray).toEqual([]);
+      });
 });

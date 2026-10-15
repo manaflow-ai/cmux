@@ -97193,6 +97193,270 @@
         }
       }
     },
+    "settings.home.channelsEnabled": {
+      "comment": "Settings > Appearance > Sidebar: toggle that shows the Channels entry after Home.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Channels"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "القنوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanali"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanäle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャンネル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឆានែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanały"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Каналы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ช่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanallar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Канали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kênh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "频道"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頻道"
+          }
+        }
+      }
+    },
+    "settings.home.channelsEnabled.help": {
+      "comment": "Help of the Channels setting (home.channelsEnabled).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار القنوات أسفل الصفحة الرئيسية في الشريط الجانبي. يمكنك أيضًا تشغيلها أو إيقافها من لوحة الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži kanale ispod početne na bočnoj traci. Možete ih uključiti ili isključiti i iz palete naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis kanaler under Hjem i sidepanelet. Du kan også slå dem til eller fra i kommandopaletten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanäle unter Start in der Seitenleiste anzeigen. Du kannst sie auch in der Befehlspalette ein- oder ausschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar Canales debajo de Inicio en la barra lateral. También puedes activarlos o desactivarlos desde la paleta de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les canaux sous Accueil dans la barre latérale. Vous pouvez aussi les activer ou les désactiver depuis la palette de commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra Canali sotto Home nella barra laterale. Puoi anche attivarli o disattivarli dalla palette dei comandi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーのホームの下にチャンネルを表示します。コマンドパレットからオン・オフを切り替えることもできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញឆានែលនៅក្រោមទំព័រដើមក្នុងរបារចំហៀង។ អ្នកក៏អាចបើក ឬបិទវាពីផ្ទាំងពាក្យបញ្ជាផងដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바에서 홈 아래에 채널을 표시합니다. 명령 팔레트에서 켜거나 끌 수도 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis kanaler under Hjem i sidepanelet. Du kan også slå dem på eller av fra kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj kanały pod stroną Start na pasku bocznym. Możesz je też włączyć lub wyłączyć w palecie poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar Canais abaixo do Início na barra lateral. Você também pode ativá-los ou desativá-los na paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать каналы под главной на боковой панели. Их также можно включить или отключить в палитре команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงช่องใต้หน้าแรกในแถบด้านข้าง คุณยังเปิดหรือปิดได้จากชุดคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğunda Kanallar'ı Ana Sayfa'nın altında göster. Komut paletinden de açıp kapatabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати канали під головною на бічній панелі. Їх також можна увімкнути або вимкнути в палітрі команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị Kênh bên dưới Trang chủ trong thanh bên. Bạn cũng có thể bật hoặc tắt từ bảng lệnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在边栏中的主页下方显示频道。你也可以在命令面板中打开或关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在側邊欄的首頁下方顯示頻道。你也可以在指令面板中開啟或關閉。"
+          }
+        }
+      }
+    },
     "settings.browser.omnibar.backgroundOpacity": {
     "extractionState": "manual",
     "localizations": {
