@@ -616,3 +616,84 @@ def flow_answered_on_mac_in_chat():
         return out
     finally:
         pq.rec_stop()
+
+
+def flow_chief():
+    """Home > Chief: the conversation loads, a message gets the Mac Chief's reply; Chief
+    settings show the Mac's engine."""
+    s, m, j = pq.ctx()
+    out = {}
+    pq.rec_start("chief")
+    try:
+        j.back_to_list()
+        j.tab("Home")
+        s.tap_q(ident="home.chief")
+        _, took = wait_for(lambda: not s.find(ident="conversation.initialLoading") and s.find(ident="conversation.transcript"),
+                           "the Chief conversation", 30)
+        out["loaded_s"] = round(took, 1)
+        field = s.wait(ident="conversation.composer.text", timeout=5)
+        check(field, f"no Chief composer: {[e.label for e in s.find(kind='Button')][:15]}")
+        s.tap_el(field)
+        time.sleep(0.6)
+        pq.type_text("Reply with exactly CHIEFPONG and nothing else")
+        time.sleep(0.5)
+        send = s.wait(ident="conversation.composer.send", timeout=4) or s.wait(label="Send", kind="Button", timeout=2) \
+            or s.wait(contains="Send", kind="Button", timeout=2)
+        check(send, f"no Send: {[e.label for e in s.find(kind='Button')][:20]}")
+        s.tap_el(send)
+        hit, took = wait_for(lambda: [e for e in s.find(contains="CHIEFPONG") if "Reply with" not in (e.label or "")],
+                             "the Chief's reply", 180, 2)
+        out["reply_s"] = round(took, 1)
+        pq.shot("chief-reply")
+        st = s.find(ident="chief.settings")
+        if st:
+            s.tap_el(st[0]); time.sleep(2)
+            pq.shot("chief-settings")
+            out["settings"] = [e.label for e in s.find() if e.label and e.ident and e.ident.startswith("chief.settings")][:12]
+            d = s.find(ident="chief.settings.done")
+            if d:
+                s.tap_el(d[0]); time.sleep(1)
+        eng = m.cmux("chief", "engine", check=False, timeout=30)
+        out["mac_engine"] = (eng.stdout or eng.stderr).strip()[:300]
+        return out
+    finally:
+        pq.rec_stop()
+
+
+def flow_codex_agent_mode(sid):
+    """A Codex chat the Mac started (its default Agent mode, which doesn't ask): a phone's
+    prompt to it (Feed > Reply) is refused by cnx-hostd, and the session gets no new turn."""
+    s, m, j = pq.ctx()
+    out = {}
+    turns_before = (session(sid) or {}).get("turnCount")
+    pq.rec_start("codex-agent-mode")
+    try:
+        j.back_to_list()
+        j.tab("Feed")
+        time.sleep(3)
+        card = wait_for(lambda: [e for e in s.find(contains="MACPONG")], "the Mac's Codex reply in the Feed", 30)[0][0]
+        pq.shot("codex-feed")
+        replies = [e for e in s.find(label="Reply") if e.center[1] > card.center[1]]
+        check(replies, "no Reply under the Codex card")
+        s.tap_el(sorted(replies, key=lambda e: e.center[1])[0])
+        time.sleep(1.5)
+        f = s.wait(kind="TextView", timeout=5) or s.wait(kind="TextField", timeout=3) or s.wait(kind="TextArea", timeout=3)
+        check(f, f"no reply field: {[e.label for e in s.find(kind='Button')][:15]}")
+        s.tap_el(f)
+        time.sleep(0.5)
+        pq.type_text("Reply with exactly PHONEPONG")
+        time.sleep(0.5)
+        send = s.wait(label="Send reply", kind="Button", timeout=5) or s.wait(label="Send", kind="Button", timeout=2)
+        check(send, f"no Send: {[e.label for e in s.find(kind='Button')][:15]}")
+        s.tap_el(send)
+        hit, took = wait_for(lambda: s.find(contains="mode that doesn't ask") or s.find(contains="doesn’t ask")
+                             or s.find(contains="PHONEPONG", kind="StaticText"), "the refusal", 60)
+        pq.shot("codex-refused")
+        out["phone"] = [e.label for e in hit][:3]
+        time.sleep(5)
+        x = session(sid) or {}
+        out["mac"] = {"mode": x.get("currentModeId"), "turns_before": turns_before, "turns_after": x.get("turnCount"),
+                      "lastPrompt": x.get("lastPrompt")}
+        return out
+    finally:
+        pq.rec_stop()
