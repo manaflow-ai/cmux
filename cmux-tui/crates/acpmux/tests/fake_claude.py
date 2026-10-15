@@ -32,7 +32,9 @@ control request is appended to that file, one per line. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
 token usage, and `total_cost_usd` as the process's running total (0.25 more
-per cost-probe turn, from 0 at each start).
+per cost-probe turn, from 0 at each start). "cost-restore X" first restores
+the running total X, as a resumed Claude Code does; "cost-zero" reports a
+zeroed total, as a crashed one's last result can.
 """
 import json
 import os
@@ -420,6 +422,13 @@ for line in sys.stdin:
         if said.strip() in ("usage-probe", "compact-probe"):
             result["modelUsage"] = {"claude-haiku": {"inputTokens": 50, "contextWindow": 100000},
                                     "fake": {"inputTokens": 1200, "contextWindow": 200000}}
+        # "cost-restore X": a process that restored its running total X first.
+        if said.strip().startswith("cost-restore "):
+            COST = float(said.split()[1])
+            said = "cost-probe"
+        if said.strip() == "cost-zero":
+            result["total_cost_usd"] = 0.0
+            result["usage"] = {"input_tokens": 100, "output_tokens": 20}
         if said.strip() == "cost-probe":
             COST += 0.25
             result["total_cost_usd"] = COST

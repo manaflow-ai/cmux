@@ -60,18 +60,24 @@ async fn turn_usage_records_each_claude_turn_and_the_session_totals() {
     assert_eq!(saved(&hub, &id)["totals"], two, "{}", saved(&hub, &id));
     assert_eq!(info["totals"], two, "{info}");
 
-    // A new Claude process whose running total started over: its turn is not a negative cost.
+    // A new Claude process whose running total started over (0.25, below 0.5): that turn's
+    // share is unknown, so it records no cost rather than a guess; the next one is measured.
     let session = hub.resolve(&id).unwrap();
     hub.detach_child(&session).await;
     say(&mut c, &id, "cost-probe").await;
-    assert_eq!(spend(&turn_results(&hub, &id)[2]), one, "{:?}", turn_results(&hub, &id));
+    say(&mut c, &id, "cost-probe").await;
+    let turns = turn_results(&hub, &id);
+    let tokens_only = json!({"inputTokens": 100, "outputTokens": 20,
+                             "cacheReadTokens": 300, "cacheWriteTokens": 40});
+    assert_eq!(spend(&turns[2]), tokens_only, "{turns:?}");
+    assert_eq!(spend(&turns[3]), one, "{turns:?}");
 
     // A turn that reports tokens but no cost adds its tokens and no cost.
     say(&mut c, &id, "hello").await;
-    let last = turn_results(&hub, &id)[3].clone();
+    let last = turn_results(&hub, &id)[4].clone();
     assert_eq!(spend(&last), json!({"inputTokens": 1, "outputTokens": 1}), "{last}");
-    let totals = json!({"costUsd": 0.75, "inputTokens": 301, "outputTokens": 61,
-                        "cacheReadTokens": 900, "cacheWriteTokens": 120});
+    let totals = json!({"costUsd": 0.75, "inputTokens": 401, "outputTokens": 81,
+                        "cacheReadTokens": 1200, "cacheWriteTokens": 160});
     assert_eq!(saved(&hub, &id)["totals"], totals, "{}", saved(&hub, &id));
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(info["totals"], totals, "{info}");
@@ -93,6 +99,64 @@ async fn turn_usage_of_a_fork_starts_its_own_totals() {
     let fid = f["sessionId"].as_str().unwrap().to_owned();
     assert!(saved(&hub, &fid).get("totals").is_none(), "{}", saved(&hub, &fid));
     assert_eq!(saved(&hub, &id)["totals"]["costUsd"], 0.25, "{}", saved(&hub, &id));
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn turn_usage_counts_a_restored_total_once_and_ignores_a_zeroed_one() {
+    let root = std::env::temp_dir().join(format!("acpmux-turn-usage-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    say(&mut c, &id, "cost-probe").await;
+    say(&mut c, &id, "cost-probe").await;
+
+    // A resumed Claude Code restores its running total (0.5) and adds this turn's 0.25.
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    say(&mut c, &id, "cost-restore 0.5").await;
+    // A zeroed total (a crashed process's last result) is no restart: the next turn is
+    // measured from 0.75, not from 0.
+    say(&mut c, &id, "cost-zero").await;
+    say(&mut c, &id, "cost-probe").await;
+    let costs: Vec<Value> = turn_results(&hub, &id).iter().map(|t| t["costUsd"].clone()).collect();
+    assert_eq!(costs, [json!(0.25), json!(0.25), json!(0.25), Value::Null, json!(0.25)]);
+    assert_eq!(saved(&hub, &id)["totals"]["costUsd"], 1.0, "{}", saved(&hub, &id));
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn turn_usage_of_a_fork_through_an_earlier_turn_does_not_count_its_history() {
+    let root = std::env::temp_dir().join(format!("acpmux-turn-usage-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    say(&mut c, &id, "cost-probe").await;
+    say(&mut c, &id, "cost-probe").await;
+    let first = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == "turn_result")
+        .map(|e| e.seq)
+        .unwrap();
+
+    let f = c.request(FORK_OP, json!({"sessionId": id, "throughSeq": first})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    // The fork's Claude Code restores the total as of the cut (0.25), not the parent's 0.5:
+    // the fork cannot tell that history from this turn, so it records no cost for it.
+    say(&mut c, &fid, "cost-restore 0.25").await;
+    say(&mut c, &fid, "cost-probe").await;
+    let costs: Vec<Value> = turn_results(&hub, &fid).iter().map(|t| t["costUsd"].clone()).collect();
+    // The copied first turn, then the fork's own two.
+    assert_eq!(costs, [json!(0.25), Value::Null, json!(0.25)]);
+    assert_eq!(saved(&hub, &fid)["totals"]["costUsd"], 0.25, "{}", saved(&hub, &fid));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
