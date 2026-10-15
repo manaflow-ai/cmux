@@ -411,6 +411,7 @@ export async function revokeFounderPurchaseAccess(
   const withFreshUser = input.withFreshUser ?? defaultWithFreshUser(app);
   const now = input.now ?? (() => new Date());
   const store = input.founderPurchases ?? makeFounderPurchaseStore();
+  const billing = input.stripeBillingStatus ?? stripeBillingStatusForUser;
 
   let revokedFounderPurchaseIds: string[];
   try {
@@ -423,27 +424,28 @@ export async function revokeFounderPurchaseAccess(
         at: now().toISOString(),
       });
       if (ids.length > 0) await input.onFounderPurchasesRevoked?.(ids);
+      // Reconcile `cmuxPlan` under this same lease, so no concurrent
+      // metadata writer can slip in and leave the mirror stale. It also runs
+      // when nothing was revoked, so retrying a revoke that failed after its
+      // rows committed still clears the mirror. Revoking changed only
+      // database rows, so the user loaded under this lease is current.
+      await lease.refresh();
+      await resolveProPlanStatus(user, {
+        stripeBillingStatus: billing,
+        withFreshMetadataUser: async (userId, operation) => {
+          if (userId !== user.id) throw new AccountMetadataUserUnavailableError(userId);
+          return await operation(user, lease);
+        },
+      });
       return ids;
     });
   } catch (error) {
     throw adminMutationError(error, input.targetUserId);
   }
-  // Outside the lease: the resolver takes its own lease to drop `cmuxPlan`
-  // now that the Founder row no longer grants Pro. It also runs when nothing
-  // was revoked, so retrying a revoke that failed after its rows committed
-  // still clears the stale mirror.
-  const billing = input.stripeBillingStatus ?? stripeBillingStatusForUser;
-  const fresh = await app.getUser(input.targetUserId);
-  if (!fresh) return { revokedFounderPurchaseIds, user: null };
-  await resolveProPlanStatus(fresh, {
-    stripeBillingStatus: billing,
-    withFreshMetadataUser: (userId, operation) =>
-      withFreshUser(userId, (user, lease) => operation(user, lease)),
-  });
-  const reloaded = (await app.getUser(input.targetUserId)) ?? fresh;
+  const reloaded = await app.getUser(input.targetUserId);
   return {
     revokedFounderPurchaseIds,
-    user: adminUserRow(reloaded, await billing(reloaded.id)),
+    user: reloaded ? adminUserRow(reloaded, await billing(reloaded.id)) : null,
   };
 }
 
