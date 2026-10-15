@@ -132,6 +132,28 @@ struct CloudSecretsServiceTests {
         #expect(!recorder.commands.contains { $0.contains("sk-openai") })
     }
 
+    @Test func anExplicitSyncRunsEvenWhenNothingChanged() async throws {
+        let recorder = RecordingTransport()
+        recorder.failDelivery = CloudEnvDelivery.DeliveryError.receiverFailed("offline")
+        let service = makeService(recorder)
+        try await service.set([CloudSecretInput(name: "XAI_API_KEY", value: "xai-value")], scope: .all, source: .manual, sync: false)
+        _ = await service.sync(machineID: "m1")
+        recorder.failDelivery = nil
+
+        // The same value again, with `--sync`: the stale machine still gets it.
+        let unchanged = try await service.set([CloudSecretInput(name: "XAI_API_KEY", value: "xai-value")], scope: .all, source: .manual, sync: true)
+        #expect(unchanged.changes.map(\.kind) == [.unchanged])
+        #expect(unchanged.synced.map(\.machineID) == ["m1"])
+        #expect(recorder.deliveries.count == 1)
+
+        // Removing a name the scope does not hold, with `--sync`, still syncs.
+        try await service.set([CloudSecretInput(name: "XAI_API_KEY", value: "xai-next")], scope: .all, source: .manual, sync: false)
+        let nothing = try await service.remove(names: ["NOT_STORED"], scope: .all, sync: true)
+        #expect(nothing.changes.isEmpty)
+        #expect(nothing.synced.map(\.machineID) == ["m1"])
+        #expect(recorder.deliveries.count == 2)
+    }
+
     @Test func aGitHubTokenConfiguresTheCredentialHelperWithoutTheValue() async throws {
         let recorder = RecordingTransport()
         let service = makeService(recorder)
@@ -474,6 +496,11 @@ struct CloudSecretsServiceTests {
         #expect(try CloudSecretsSocketParams.scope(["scope": "project:https://github.com/Owner/Repo.git"], method: "m") == .project("github.com/owner/repo"))
         #expect(try CloudSecretsSocketParams.scope(["scope": "project", "project_remote_url": "git@github.com:Owner/Repo.git"], method: "m") == .project("github.com/owner/repo"))
         #expect(try CloudSecretsSocketParams.scope(["scope": "project", "project_dir_name": "scratch"], method: "m") == .project("local/scratch"))
+        // A bare key is normalized like a remote: case, slashes and `.git`.
+        #expect(try CloudSecretsSocketParams.scope(["scope": "project:GitHub.com/Owner/Repo.git/"], method: "m") == .project("github.com/owner/repo"))
+        #expect(try CloudSecretsSocketParams.scope(["scope": "project", "project": "/github.com/owner/repo/"], method: "m") == .project("github.com/owner/repo"))
+        // A local key keeps its directory name as given.
+        #expect(try CloudSecretsSocketParams.scope(["scope": "project:local/Scratch/"], method: "m") == .project("local/Scratch"))
         #expect(throws: CloudSecretsSocketFailure.self) { try CloudSecretsSocketParams.scope(["scope": "project"], method: "m") }
         #expect(throws: CloudSecretsSocketFailure.self) { try CloudSecretsSocketParams.scope(["scope": "galaxy"], method: "m") }
     }
@@ -487,6 +514,7 @@ struct CloudSecretsServiceTests {
             ["entries": [["key": "PATH", "value": "x"]]],
             ["entries": [["key": "CMUX_SOCKET", "value": "x"]]],
             ["entries": [["key": "MULTI", "value": "line-one-secret\nline-two"]]],
+            ["entries": [["key": "line-one-secret-pasted-as-a-name", "value": "x"]]],
         ]
         for params in cases {
             do {

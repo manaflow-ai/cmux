@@ -87,6 +87,38 @@ import Testing
     }
 
     @Test
+    func vaultHoldsAtMostAboutOneMegabyteOfValues() async throws {
+        let storage = InMemoryCloudSecretVaultStorage()
+        let vault = CloudSecretVault(storage: storage)
+        let big = String(repeating: "v", count: CloudSecretInput.maxValueBytes)
+        let most = (0..<31).map { CloudSecretInput(name: "BIG_\($0)", value: big) }
+        try await vault.set(most, scope: .all, source: .manual)
+        let saved = try storage.load()
+        await #expect(throws: CloudSecretValidationError.self) {
+            try await vault.set((31..<34).map { CloudSecretInput(name: "BIG_\($0)", value: big) }, scope: .machine("m1"), source: .manual)
+        }
+        #expect(try storage.load() == saved)
+        #expect(try await vault.records().count == 31)
+        // Replacing a value with a smaller one is always allowed.
+        let changes = try await vault.set([CloudSecretInput(name: "BIG_0", value: "small")], scope: .all, source: .manual)
+        #expect(changes.map(\.kind) == [.updated])
+    }
+
+    @Test
+    func anInvalidNameIsNeverShown() {
+        // A token pasted into the name position must not be echoed back.
+        let pasted = "sk-live-pasted-token-0123456789"
+        let validation = CloudSecretValidationError.invalidName(pasted).errorDescription ?? ""
+        #expect(!validation.isEmpty)
+        #expect(!validation.contains(pasted))
+        #expect(!validation.contains("sk-live"))
+        let dotenv = CloudSecretDotenvError(line: 2, reason: .invalidName(pasted)).errorDescription ?? ""
+        #expect(!dotenv.contains(pasted))
+        #expect(!dotenv.contains("sk-live"))
+        #expect(dotenv.contains("2"))
+    }
+
+    @Test
     func errorDescriptionsNameTheVariable() {
         #expect(CloudSecretValidationError.reservedName("PATH").errorDescription?.contains("PATH") == true)
         #expect(CloudSecretValidationError.multilineValue("TOKEN").errorDescription?.contains("TOKEN") == true)

@@ -25,6 +25,7 @@ import Testing
         EQUALS=a=b=c
         EMPTY=
         ESCAPED="a\\"b"
+        SINGLE_BACKSLASH='a\\'
         """
         #expect(try pairs(text) == [
             "ANTHROPIC_API_KEY=sk-ant-1",
@@ -38,13 +39,21 @@ import Testing
             "HASH=abc#def",
             "EQUALS=a=b=c",
             "EMPTY=",
-            "ESCAPED=a\\\"b"
+            // An escaped quote inside double quotes is the quote; single quotes
+            // have no escapes, so a backslash before the closing one is literal.
+            "ESCAPED=a\"b",
+            "SINGLE_BACKSLASH=a\\"
         ])
     }
 
     @Test
-    func quotesWithTextAfterThemStayLiteral() throws {
-        #expect(try pairs(#"A="a"b"#) == [#"A="a"b"#])
+    func textAfterAClosingQuoteSkipsTheLine() {
+        // Neither the quoted part nor the whole raw text is what the user meant.
+        #expect(throws: CloudSecretDotenvError.self) { try CloudSecretDotenv.parse(#"A="a" junk"#) }
+        let result = CloudSecretDotenv.parseLenient("A=\"a\" junk\nB='b'c\nC=\"c\" # comment\n")
+        #expect(result.inputs.map { "\($0.name)=\($0.value)" } == ["C=c"])
+        #expect(result.skipped.map(\.line) == [1, 2])
+        #expect(result.skipped.map(\.name) == ["A", "B"])
     }
 
     @Test
