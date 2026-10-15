@@ -6,7 +6,9 @@ public enum BrowserAutomationPageError: Error, Equatable, Sendable {
     /// engine's exception text (for example `ReferenceError: x is not defined`).
     case javaScript(String)
     /// The page has no live engine page (closed, crashed, or never created).
-    case pageUnavailable
+    /// The reason is the engine's when the engine itself cannot run (for
+    /// example its runtime failed to start), nil when only this page is gone.
+    case pageUnavailable(BrowserEngineUnavailableReason?)
     /// The engine does not implement the named operation.
     case unsupported(String)
     /// The engine answered with something that could not be decoded.
@@ -19,12 +21,15 @@ public enum BrowserAutomationPageError: Error, Equatable, Sendable {
         switch self {
         case .javaScript(let message):
             return message
-        case .pageUnavailable:
-            return String(
+        case .pageUnavailable(let reason):
+            let sentence = String(
                 localized: "browser.automation.error.pageUnavailable",
                 defaultValue: "The browser page is not available",
                 bundle: .module
             )
+            // The reason code is a protocol term, kept verbatim so a script
+            // reading only the message still sees why.
+            return reason.map { "\(sentence) (\($0.code))" } ?? sentence
         case .unsupported(let operation):
             // The operation is a protocol term (for example "trusted key
             // input"), kept verbatim after the localized sentence.

@@ -17,6 +17,9 @@ private final class ScriptedChromiumPage: BrowserPage {
     private(set) var evaluations: [(script: String, world: BrowserPageScriptWorld)] = []
     private var replies: [String: String] = [:]
     var evaluationValue: Any? = ["__cmux_t": "value", "__cmux_v": 2] as [String: Any]
+    /// When set, every script and DevTools call fails with it (a page whose
+    /// runtime never started).
+    var failure: BrowserEngineError?
 
     func reply(_ method: String, _ json: String) { replies[method] = json }
     func devToolsMethods() -> [String] { devToolsCalls.map(\.method) }
@@ -41,6 +44,7 @@ private final class ScriptedChromiumPage: BrowserPage {
     func stop() {}
 
     func evaluateJavaScript(_ script: String, in world: BrowserPageScriptWorld) async throws -> Any? {
+        if let failure { throw failure }
         evaluations.append((script, world))
         return evaluationValue
     }
@@ -50,6 +54,7 @@ private final class ScriptedChromiumPage: BrowserPage {
         arguments: [String: any Sendable],
         in world: BrowserPageScriptWorld
     ) async throws -> Any? {
+        if let failure { throw failure }
         evaluations.append((body, world))
         return evaluationValue
     }
@@ -60,6 +65,7 @@ private final class ScriptedChromiumPage: BrowserPage {
     func closeDevTools() {}
 
     func sendDevToolsProtocolMessage(method: String, params: Data?) async throws -> Data {
+        if let failure { throw failure }
         let decoded = params.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
         devToolsCalls.append((method, decoded))
         return Data((replies[method] ?? "{}").utf8)
@@ -174,6 +180,26 @@ struct BrowserChromiumAutomationTests {
         #expect(refusedKey["code"] as? String == "agent_refused")
         #expect(page.devToolsCalls.count == callsBefore)
         #expect(page.evaluations.count == evaluationsBefore)
+
+        // A page whose engine cannot run answers one error on every verb,
+        // carrying the engine's reason.
+        panel.applyEnginePageState(BrowserPageState(url: URL(string: "https://example.com/")))
+        page.failure = .unavailable(.chromium, .startFailed("runtime did not start"))
+        for (method, extra) in [
+            ("browser.eval", ["script": "1"]),
+            ("browser.wait", ["selector": "body", "timeout_ms": 500]),
+            ("browser.get.text", ["selector": "body"]),
+            ("browser.screenshot", [:]),
+            ("browser.cookies.get", [:]),
+            ("browser.press", ["key": "Enter"]),
+        ] as [(String, [String: Any])] {
+            var params: [String: Any] = ["surface_id": surfaceID]
+            params.merge(extra) { _, new in new }
+            let failed = try errorPayload(await call(method: method, params: params))
+            #expect(failed["code"] as? String == "engine_unavailable", "\(method): \(failed)")
+            let data = failed["data"] as? [String: Any]
+            #expect(data?["reason"] as? String == "startFailed", "\(method): \(failed)")
+        }
     }
 
     /// Sends one request through the full socket dispatcher off the main

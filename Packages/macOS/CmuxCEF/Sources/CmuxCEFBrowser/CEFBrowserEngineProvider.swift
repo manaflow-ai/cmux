@@ -20,6 +20,8 @@ import Foundation
 public final class CEFBrowserEngineProvider: BrowserEngineProviding {
     private let runtime: CEFRuntime
     private let devToolsLayoutStore: BrowserDevToolsLayoutStore
+    /// Shared by this provider's pages for Memory Saver's process accounting.
+    private let rendererProcesses: CEFRendererProcessResolver
     private let extensions: CEFExtensionStores?
 
     /// Creates the provider.
@@ -32,6 +34,7 @@ public final class CEFBrowserEngineProvider: BrowserEngineProviding {
     ) {
         self.runtime = runtime
         self.devToolsLayoutStore = devToolsLayoutStore
+        rendererProcesses = CEFRendererProcessResolver()
         self.extensions = extensions
     }
 
@@ -74,11 +77,13 @@ public final class CEFBrowserEngineProvider: BrowserEngineProviding {
                 restoreState: restore
             )
         )
-        return CEFBrowserPage(
+        let page = CEFBrowserPage(
             browser: browser,
             shim: { [runtime] in runtime.shim },
             devToolsLayoutStore: devToolsLayoutStore,
             extensions: extensions
         )
+        page.rendererProcesses = rendererProcesses
+        return page
     }
 }
