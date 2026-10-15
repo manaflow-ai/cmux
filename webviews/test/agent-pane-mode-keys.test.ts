@@ -187,7 +187,7 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
       page.locator(".acpmux-access-trigger [data-shield]").evaluate((node) => node.getAttribute("data-shield"));
     // The chat starts in Claude's default mode: it asks first, so the shield carries a check.
     expect(await trigger()).toBe("check");
-    expect(await page.locator(".acpmux-access-trigger [data-shield] svg").count()).toBe(1);
+    expect(await page.locator(".acpmux-access-trigger [data-shield]").count()).toBe(1);
     await page.locator(".acpmux-access-trigger").click();
     const menu = page.locator(".acpmux-access-menu");
     await menu.waitFor();
@@ -215,6 +215,22 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
       undefined,
       { timeout: 5_000 },
     );
+    // The shield draws like the lock it replaced: in the trigger's own ink (the warning ink here)
+    // and at its own size, never styled as the trailing chevron.
+    const look = await page.locator(".acpmux-access-trigger").evaluate((button) => {
+      // The drawn glyph: the svg that carries data-shield, or the one inside it.
+      const marked = button.querySelector("[data-shield]")!;
+      const shield = marked.matches("svg") ? marked : marked.querySelector("svg")!;
+      const chevron = button.lastElementChild!;
+      return {
+        shieldColor: getComputedStyle(shield).color,
+        buttonColor: getComputedStyle(button).color,
+        shieldWidth: shield.getBoundingClientRect().width,
+        chevronWidth: chevron.getBoundingClientRect().width,
+      };
+    });
+    expect(look.shieldColor).toBe(look.buttonColor);
+    expect(look.shieldWidth).toBeGreaterThan(look.chevronWidth);
     await page.close();
   });
 });
