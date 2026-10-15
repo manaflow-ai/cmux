@@ -1,4 +1,5 @@
 public import CoreGraphics
+import AppKit
 public import Foundation
 
 /// The curved main pane (cx-rkgu, Leo 2026-10-10): the workspace content
@@ -47,12 +48,33 @@ extension Metrics {
         let tunable = ChromeTunables.mainPaneCurved
         return tunable.override ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
+    /// Floating panes (`appearance.chromeStyle` floating): every pane is its
+    /// own card, tab strip included, left unshaded on the shaded chrome
+    /// (`MainPaneChromeShadeView`); the main pane itself draws no card.
+    public static var floatingPanes: Bool { mainPaneCurved && DesignSettings.shared.chromeStyle.floatingPanes }
+    /// Floating panes draw no focus ring (no outline anywhere; the other
+    /// panes' dim marks focus), unless the system asks for more contrast.
+    public static var floatingPanesHideFocusRing: Bool {
+        floatingPanes && !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    }
     /// Inset of the main pane from the sidebar, titlebar and window edges;
-    /// 0 when the pane is edge to edge, or the flush opt-in, where the pane
-    /// meets the window edge and one outline shows there.
-    public static var mainPaneGutter: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneGutter.value) : 0 }
-    /// Corner radius of the main pane; 0 when it is edge to edge.
-    public static var mainPaneCornerRadius: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneCornerRadius.value) : 0 }
+    /// 0 when the pane is edge to edge, or the flush opt-in (a Debug
+    /// Settings gutter of 0), where the pane meets the window edge and one
+    /// outline shows there. Floating panes: the pane padding
+    /// (unless Debug Settings set the gutter), so the gap at the edges and
+    /// beside the sidebar (gutter plus padding) equals the gap between two
+    /// panes (twice the padding; the layout leaves no divider gap then).
+    public static var mainPaneGutter: CGFloat {
+        guard mainPaneCurved else { return 0 }
+        if floatingPanes, ChromeTunables.mainPaneGutter.override == nil { return panePadding }
+        return scale(ChromeTunables.mainPaneGutter.value)
+    }
+    /// Corner radius of the main pane; 0 when it is edge to edge or its
+    /// panes float (each pane rounds its own card).
+    public static var mainPaneCornerRadius: CGFloat {
+        guard mainPaneCurved, !floatingPanes || ChromeTunables.mainPaneCornerRadius.override != nil else { return 0 }
+        return scale(ChromeTunables.mainPaneCornerRadius.value)
+    }
     /// Corner radius of the main pane in a window whose own corners have
     /// `windowCornerRadius`: concentric with them (the window radius less
     /// the gutter). Without a gutter the pane's corners at the window's are
@@ -64,7 +86,7 @@ extension Metrics {
     /// Settings override wins; with a gutter in fullscreen it is
     /// `mainPaneCornerRadius`.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
-        guard mainPaneCurved, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
+        guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
         return windowCornerRadius > 0 ? max(0, windowCornerRadius - gutter) : mainPaneCornerRadius
