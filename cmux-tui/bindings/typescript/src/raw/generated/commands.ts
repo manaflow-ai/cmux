@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27. */
 
 
 import type * as T from "./types.js";
@@ -47,6 +47,17 @@ export interface AddTabsToTabGroupRequest extends CmuxRequestBase {
   "transaction"?: (string) | null;
 }
 export type AddTabsToTabGroupResult = T.TabGroupOutcome;
+
+/** Protocol v12; authority: control. */
+export interface AnswerFrontendBrowserTabCloseRequest extends CmuxRequestBase {
+  cmd: "answer-frontend-browser-tab-close";
+  /** closing: the close started; the tab stays until report-frontend-browser-tab-removed. cancelled: the page vetoed the close (beforeunload). */
+  "outcome": "closing" | "cancelled";
+  "request_id": string;
+}
+export type AnswerFrontendBrowserTabCloseResult = {
+  "accepted": boolean;
+};
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -244,6 +255,22 @@ export interface ClearWindowTitleRequest extends CmuxRequestBase {
   cmd: "clear-window-title";
 }
 export type ClearWindowTitleResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface ClientAttentionRequest extends CmuxRequestBase {
+  cmd: "client-attention";
+  /** Only the records of this client id. */
+  "client_id"?: (string) | null;
+  /** Also answer pane_attention for this pane. */
+  "pane"?: (T.Id) | null;
+}
+export type ClientAttentionResult = {
+  /** Some connected client has its app active. */
+  "app_active": boolean;
+  "clients": Array<T.ClientAttentionRecord>;
+  /** Present when pane was given. */
+  "pane_attention"?: T.ClientAttentionPane;
+};
 
 /** Protocol v12; authority: control. */
 export interface ClientFocusRequest extends CmuxRequestBase {
@@ -1163,6 +1190,16 @@ export interface ForgetSessionRequest extends CmuxRequestBase {
 export type ForgetSessionResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
+export interface FrontendBrowserTabCloseSubscribeRequest extends CmuxRequestBase {
+  cmd: "frontend-browser-tab-close-subscribe";
+  /** The install id the app puts on new-frontend-browser-tab {owner}; 1-128 characters of A-Z a-z 0-9 _ -. */
+  "owner": string;
+}
+export type FrontendBrowserTabCloseSubscribeResult = {
+  "close_requests_ready": boolean;
+};
+
+/** Protocol v12; authority: control. */
 export interface GetBlobRequest extends CmuxRequestBase {
   cmd: "get-blob";
   "blob": string;
@@ -2019,6 +2056,26 @@ export interface ReportAgentRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface ReportClientAttentionRequest extends CmuxRequestBase {
+  cmd: "report-client-attention";
+  /** The client app is the active app; null or absent means the value of key_window. */
+  "app_active"?: (boolean) | null;
+  "client_id": string;
+  /** A window of this client is the key window of the OS. */
+  "key_window": boolean;
+  /** Milliseconds since the last key or pointer input in this client; null when unknown. */
+  "last_input_ms_ago"?: (bigint) | null;
+  /** The focused pane of the client's key window, if any. */
+  "pane"?: (T.Id) | null;
+  /** The focused tab index within pane; needs pane. */
+  "tab"?: (bigint) | null;
+}
+export type ReportClientAttentionResult = {
+  /** The report came less than 250 ms after this connection's previous one; it is stored anyway (latest wins). */
+  "coalesced": boolean;
+};
+
+/** Protocol v12; authority: control. */
 export interface ReportFocusRequest extends CmuxRequestBase {
   cmd: "report-focus";
   "client_id": string;
@@ -2026,6 +2083,35 @@ export interface ReportFocusRequest extends CmuxRequestBase {
   "tab"?: (bigint) | null;
 }
 export type ReportFocusResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface ReportFrontendBrowserTabRemovedRequest extends CmuxRequestBase {
+  cmd: "report-frontend-browser-tab-removed";
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  /** closed: the user or a request closed it; page_closed: the page closed itself; extension: an extension removed it. */
+  "reason": "closed" | "page_closed" | "extension";
+  /** The close request this removal answers, if any. */
+  "request_id"?: (string) | null;
+  "surface": T.Id;
+}
+export type ReportFrontendBrowserTabRemovedResult = {
+  "removed": boolean;
+  "replayed": boolean;
+};
+
+/** Protocol v12; authority: control. */
+export interface RequestFrontendBrowserTabCloseRequest extends CmuxRequestBase {
+  cmd: "request-frontend-browser-tab-close";
+  "reason"?: (T.CloseReason) | null;
+  "surface": T.Id;
+}
+export type RequestFrontendBrowserTabCloseResult = {
+  /** True when the owner app was asked; false when the tab has no owner or the owner has no live subscribed connection, and nothing changed. */
+  "delegated": boolean;
+  /** Null when not delegated. A second request for the same tab joins the open one. */
+  "request_id": (string) | null;
+};
 
 /** Protocol v10; authority: frontend. */
 export interface ResizeAttachedViewRequest extends CmuxRequestBase {
@@ -2731,6 +2817,7 @@ export type CmuxRequest =
   | AckTabNotificationsRequest
   | AddScreensToScreenGroupRequest
   | AddTabsToTabGroupRequest
+  | AnswerFrontendBrowserTabCloseRequest
   | ApplyLayoutRequest
   | AttachSurfaceRequest
   | BindConversationTabSessionRequest
@@ -2751,6 +2838,7 @@ export type CmuxRequest =
   | ChiefInspectRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
+  | ClientAttentionRequest
   | ClientFocusRequest
   | ClosePaneRequest
   | CloseProviderManagedWorkspaceRequest
@@ -2833,6 +2921,7 @@ export type CmuxRequest =
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
+  | FrontendBrowserTabCloseSubscribeRequest
   | GetBlobRequest
   | GetBrowserProviderRequest
   | GetCellPixelsRequest
@@ -2921,7 +3010,10 @@ export type CmuxRequest =
   | ReopenSavedScreenGroupRequest
   | ReopenSavedTabGroupRequest
   | ReportAgentRequest
+  | ReportClientAttentionRequest
   | ReportFocusRequest
+  | ReportFrontendBrowserTabRemovedRequest
+  | RequestFrontendBrowserTabCloseRequest
   | ResizeAttachedViewRequest
   | ResizeSurfaceRequest
   | ResolveTerminalRequest
@@ -3022,6 +3114,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "tab-groups-v1";
+    stream: null;
+  };
+  "answer-frontend-browser-tab-close": {
+    request: AnswerFrontendBrowserTabCloseRequest;
+    result: AnswerFrontendBrowserTabCloseResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-tab-close-request-v1";
     stream: null;
   };
   "apply-layout": {
@@ -3182,6 +3282,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "client-attention": {
+    request: ClientAttentionRequest;
+    result: ClientAttentionResult;
+    authority: "control";
+    since: 12;
+    capability: "client-attention-v1";
     stream: null;
   };
   "client-focus": {
@@ -3838,6 +3946,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "profiles-v1";
+    stream: null;
+  };
+  "frontend-browser-tab-close-subscribe": {
+    request: FrontendBrowserTabCloseSubscribeRequest;
+    result: FrontendBrowserTabCloseSubscribeResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-tab-close-request-v1";
     stream: null;
   };
   "get-blob": {
@@ -4544,12 +4660,36 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "report-client-attention": {
+    request: ReportClientAttentionRequest;
+    result: ReportClientAttentionResult;
+    authority: "control";
+    since: 12;
+    capability: "client-attention-v1";
+    stream: null;
+  };
   "report-focus": {
     request: ReportFocusRequest;
     result: ReportFocusResult;
     authority: "control";
     since: 12;
     capability: "client-focus-v1";
+    stream: null;
+  };
+  "report-frontend-browser-tab-removed": {
+    request: ReportFrontendBrowserTabRemovedRequest;
+    result: ReportFrontendBrowserTabRemovedResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-tab-close-request-v1";
+    stream: null;
+  };
+  "request-frontend-browser-tab-close": {
+    request: RequestFrontendBrowserTabCloseRequest;
+    result: RequestFrontendBrowserTabCloseResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-tab-close-request-v1";
     stream: null;
   };
   "resize-attached-view": {

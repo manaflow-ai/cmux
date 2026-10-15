@@ -151,6 +151,7 @@ mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
 mod browser_profiles;
+mod client_attention;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_attachments;
@@ -167,6 +168,7 @@ mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
 mod feed_local;
+mod frontend_browser_close;
 mod frontend_browser_history;
 mod history_search;
 mod home;
@@ -2091,6 +2093,20 @@ enum Command {
     ClientFocus {
         client_id: String,
     },
+    /// Report this client's attention: key window, active app, focused pane
+    /// and tab, and its last input (`client-attention-v1`).
+    ReportClientAttention(client_attention::ReportParams),
+    /// The latest attention report of every client (`client-attention-v1`).
+    ClientAttention(client_attention::ReadParams),
+    /// Answer close requests for the frontend browser tabs of one owner
+    /// (`frontend-tab-close-request-v1`).
+    FrontendBrowserTabCloseSubscribe(frontend_browser_close::SubscribeParams),
+    /// Ask the owner app to close a frontend browser tab; it may veto.
+    RequestFrontendBrowserTabClose(frontend_browser_close::RequestParams),
+    /// The owner's answer to one close request: closing or cancelled.
+    AnswerFrontendBrowserTabClose(frontend_browser_close::AnswerParams),
+    /// The owner removed a frontend browser tab; the daemon deletes it.
+    ReportFrontendBrowserTabRemoved(frontend_browser_close::RemovedParams),
     /// Stream mux events on this connection.
     Subscribe {
         #[serde(default)]
@@ -3810,6 +3826,20 @@ fn handle_command_with_cancellation(
             cmd_server::report_focus(mux, client_id, pane, tab)
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
+        Command::ReportClientAttention(params) => client_attention::report(mux, client, params),
+        Command::ClientAttention(params) => client_attention::read(mux, params),
+        Command::FrontendBrowserTabCloseSubscribe(params) => {
+            frontend_browser_close::subscribe(mux, client, params, writer)
+        }
+        Command::RequestFrontendBrowserTabClose(params) => {
+            frontend_browser_close::request(mux, client, params, writer)
+        }
+        Command::AnswerFrontendBrowserTabClose(params) => {
+            frontend_browser_close::answer(mux, client, params)
+        }
+        Command::ReportFrontendBrowserTabRemoved(params) => {
+            frontend_browser_close::report_removed(mux, client, params)
+        }
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),

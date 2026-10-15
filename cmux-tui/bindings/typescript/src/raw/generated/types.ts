@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -169,6 +169,31 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ClientAttentionPane = {
+  /** Some client that focuses the pane has its app active. */
+  "app_active": boolean;
+  /** The newest input in a client that focuses the pane; null when unknown. */
+  "last_input_ms_ago": (bigint) | null;
+  "pane": Id;
+  /** Some client shows the pane as the focused pane of its key window while its app is active. */
+  "viewed": boolean;
+};
+
+export type ClientAttentionRecord = {
+  "app_active": boolean;
+  "client_id": string;
+  /** The daemon's id of the reporting connection. */
+  "connection": bigint;
+  "key_window": boolean;
+  /** Counted at read time from the report; null when unknown. */
+  "last_input_ms_ago": (bigint) | null;
+  /** Null when the client reported none or the pane closed since. */
+  "pane": (Id) | null;
+  "reported_ms_ago": bigint;
+  /** Null when the client reported none or the pane closed since. */
+  "tab": (bigint) | null;
 };
 
 export type ClientInfo = {

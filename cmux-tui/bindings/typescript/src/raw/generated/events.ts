@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27. */
 
 
 import type * as T from "./types.js";
@@ -249,6 +249,21 @@ export type FrameEvent = { event: "frame" } & {
   "seq": bigint;
   "surface": T.Id;
   "width": number;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type FrontendBrowserTabCloseRequestedEvent = { event: "frontend-browser-tab-close-requested" } & {
+  "reason": (T.CloseReason) | null;
+  "request_id": string;
+  "surface": T.Id;
+  "tab_resource_id": (string) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type FrontendBrowserTabCloseSettledEvent = { event: "frontend-browser-tab-close-settled" } & {
+  "outcome": "removed" | "cancelled" | "owner_gone";
+  "request_id": string;
+  "surface": T.Id;
 };
 
 /** Protocol v7; emission: emitted; streams: subscribe. */
@@ -699,6 +714,8 @@ export type KnownCmuxEvent =
   | DetachedEvent
   | EmptyEvent
   | FrameEvent
+  | FrontendBrowserTabCloseRequestedEvent
+  | FrontendBrowserTabCloseSettledEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent

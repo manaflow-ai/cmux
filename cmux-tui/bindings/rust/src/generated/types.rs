@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36.
+// cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -304,6 +304,35 @@ pub struct CellPixelSurface {
     pub height_px: u16,
     pub surface: Id,
     pub width_px: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientAttentionPane {
+    /// Some client that focuses the pane has its app active.
+    pub app_active: bool,
+    /// The newest input in a client that focuses the pane; null when unknown.
+    pub last_input_ms_ago: Nullable<u64>,
+    pub pane: Id,
+    /// Some client shows the pane as the focused pane of its key window while its app is active.
+    pub viewed: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientAttentionRecord {
+    pub app_active: bool,
+    pub client_id: String,
+    /// The daemon's id of the reporting connection.
+    pub connection: u64,
+    pub key_window: bool,
+    /// Counted at read time from the report; null when unknown.
+    pub last_input_ms_ago: Nullable<u64>,
+    /// Null when the client reported none or the pane closed since.
+    pub pane: Nullable<Id>,
+    pub reported_ms_ago: u64,
+    /// Null when the client reported none or the pane closed since.
+    pub tab: Nullable<u64>,
 }
 
 #[rustfmt::skip]

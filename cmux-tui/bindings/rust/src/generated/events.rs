@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36.
+// cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -342,6 +342,34 @@ pub struct FrameEvent {
     pub seq: u64,
     pub surface: T::Id,
     pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrontendBrowserTabCloseRequestedEvent {
+    pub reason: Nullable<T::CloseReason>,
+    pub request_id: String,
+    pub surface: T::Id,
+    pub tab_resource_id: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FrontendBrowserTabCloseSettledEventOutcome {
+    #[serde(rename = "removed")]
+    Removed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "owner_gone")]
+    OwnerGone,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrontendBrowserTabCloseSettledEvent {
+    pub outcome: FrontendBrowserTabCloseSettledEventOutcome,
+    pub request_id: String,
+    pub surface: T::Id,
 }
 
 #[rustfmt::skip]
@@ -940,6 +968,8 @@ pub enum Event {
     Detached(DetachedEvent),
     Empty(EmptyEvent),
     Frame(FrameEvent),
+    FrontendBrowserTabCloseRequested(FrontendBrowserTabCloseRequestedEvent),
+    FrontendBrowserTabCloseSettled(FrontendBrowserTabCloseSettledEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
     HistoryChanged(HistoryChangedEvent),
@@ -1028,6 +1058,8 @@ impl Event {
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
             Self::Frame(_) => Some("frame"),
+            Self::FrontendBrowserTabCloseRequested(_) => Some("frontend-browser-tab-close-requested"),
+            Self::FrontendBrowserTabCloseSettled(_) => Some("frontend-browser-tab-close-settled"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::HistoryChanged(_) => Some("history-changed"),
@@ -1115,6 +1147,8 @@ impl Event {
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
+            Self::FrontendBrowserTabCloseRequested(_) => Some(&FRONTEND_BROWSER_TAB_CLOSE_REQUESTED_EVENT_METADATA),
+            Self::FrontendBrowserTabCloseSettled(_) => Some(&FRONTEND_BROWSER_TAB_CLOSE_SETTLED_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
@@ -1416,6 +1450,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("frame") => match serde_json::from_value::<FrameEvent>(raw.clone()) {
             Ok(event) => Event::Frame(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("frontend-browser-tab-close-requested") => match serde_json::from_value::<FrontendBrowserTabCloseRequestedEvent>(raw.clone()) {
+            Ok(event) => Event::FrontendBrowserTabCloseRequested(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("frontend-browser-tab-close-settled") => match serde_json::from_value::<FrontendBrowserTabCloseSettledEvent>(raw.clone()) {
+            Ok(event) => Event::FrontendBrowserTabCloseSettled(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

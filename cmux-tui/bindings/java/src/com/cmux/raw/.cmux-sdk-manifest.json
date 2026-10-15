@@ -71,6 +71,21 @@
       "size": 938
     },
     {
+      "path": "AnswerFrontendBrowserTabCloseRequest.java",
+      "sha256": "304a59b1917cb1fb696f10dcccdda81d80d76e692cfdf429083413ab1a672fc8",
+      "size": 3276
+    },
+    {
+      "path": "AnswerFrontendBrowserTabCloseRequestOutcome.java",
+      "sha256": "1cdd030f323e19e53999411808615af8e8f785e2b4307f88fd45c67ea10573de",
+      "size": 1047
+    },
+    {
+      "path": "AnswerFrontendBrowserTabCloseResult.java",
+      "sha256": "f40b737c5c334939833b11a5be2af4fca33727ec607ca00ac308119319209b02",
+      "size": 2116
+    },
+    {
       "path": "AppliedPane.java",
       "sha256": "a6713fb889bfe7e3d33e48ab7e5b3c41010a003c60bac0228adaab6e9790cb7f",
       "size": 2522
@@ -339,6 +354,26 @@
       "path": "ClientAttachedEventTransport.java",
       "sha256": "38048973dac04e49e36ee72009ae186f7783215aa5b41b93703f192dbc6cc974",
       "size": 952
+    },
+    {
+      "path": "ClientAttentionPane.java",
+      "sha256": "01e77d8a25e356dde83cb56ffb847c3eaf2b307c1e31f9120d830b59bbdfdc70",
+      "size": 4402
+    },
+    {
+      "path": "ClientAttentionRecord.java",
+      "sha256": "a1c4bd3d1c9e8d54bb83bae9a37944210503c6875743742ef38cc1ebdf062bc9",
+      "size": 7475
+    },
+    {
+      "path": "ClientAttentionRequest.java",
+      "sha256": "a189ef38c91c3f127b4d3d03bea43a10cedba3e67a515b193f98e04af2214f6c",
+      "size": 2747
+    },
+    {
+      "path": "ClientAttentionResult.java",
+      "sha256": "857a52a028231a88acece8e4b0f56391520578c4b88285ae8f5e302995de34cd",
+      "size": 3714
     },
     {
       "path": "ClientChangedEvent.java",
@@ -642,8 +677,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "5906d93bc2b54f4f2810f7a8116b539617643ea756024c3a8c10046ff22b588a",
-      "size": 73295
+      "sha256": "4bbde015f81e85bde849178203011a9e4a590f40f0a048f3d66b5492383378ef",
+      "size": 75105
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1162,8 +1197,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "ec9e4ec36b4369b7796c393a8e6e393d7ccef627c3805b7db67ec5f95e3c4cac",
-      "size": 16829
+      "sha256": "cd5b727d509c59d77b9fb49e741f30af7ad43175f1772539531ed1ab655a6769",
+      "size": 17415
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1231,6 +1266,31 @@
       "size": 4641
     },
     {
+      "path": "FrontendBrowserTabCloseRequestedEvent.java",
+      "sha256": "f0b3d81900fa3800a5f1c896129ab5672dffd0f0bef17233c1763f2a72ba17f5",
+      "size": 4860
+    },
+    {
+      "path": "FrontendBrowserTabCloseSettledEvent.java",
+      "sha256": "4d10fe5330eb834573967ac71938053ca737b56659bba1007e3f1ded3ade8af2",
+      "size": 4139
+    },
+    {
+      "path": "FrontendBrowserTabCloseSettledEventOutcome.java",
+      "sha256": "d09efd5acaa3db328b6bb961904dfc5c0b3c534e7321f68f6666fd073e088d51",
+      "size": 1072
+    },
+    {
+      "path": "FrontendBrowserTabCloseSubscribeRequest.java",
+      "sha256": "72bd623681c7da4b3fde2309fdc38c90f209dec1535ae70b2c340a822a1e1ba8",
+      "size": 2317
+    },
+    {
+      "path": "FrontendBrowserTabCloseSubscribeResult.java",
+      "sha256": "88f385b223f8092e860b1bda006bc169016892280767cabe8f650a30f65ad7b7",
+      "size": 2371
+    },
+    {
       "path": "FrontendFocusTarget.java",
       "sha256": "a3b3f06559645e967dfac2160207be7b61b36d48f5d63028c54c825d934bdaf7",
       "size": 1033
@@ -1267,8 +1327,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "118e1e7ceeafd131afcb6290c0af97b26414052df9d23e832860df6d89de0961",
-      "size": 63923
+      "sha256": "189b80fa761994a45b2d4d3cccbf1299908eb65602b44f461412e4e05d45f373",
+      "size": 65776
     },
     {
       "path": "GetBlobRequest.java",
@@ -1952,8 +2012,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4a729502dd87bc83b0cdd5c70d137602169a8f8adb512e7e1b6192a3205b3ffa",
-      "size": 6943
+      "sha256": "0c476ae33d43be928b9ac4a7d32b749a602590a584a19eeca04de62af5cc98ca",
+      "size": 7167
     },
     {
       "path": "ProtocolEvent.java",
@@ -2166,9 +2226,44 @@
       "size": 4005
     },
     {
+      "path": "ReportClientAttentionRequest.java",
+      "sha256": "42ced27dd6ad421e1f49634af013e7126290befb438299d579d672485393eac2",
+      "size": 5964
+    },
+    {
+      "path": "ReportClientAttentionResult.java",
+      "sha256": "c1f0301f7810afba0d6d1fed29a780050c0ebd7f8aa3e9b0b112f9770358ab0c",
+      "size": 2183
+    },
+    {
       "path": "ReportFocusRequest.java",
       "sha256": "348a7e6b6f9ef6d95e74e3006a2069daee4b6fa5751cc666700214733d7d5257",
       "size": 3263
+    },
+    {
+      "path": "ReportFrontendBrowserTabRemovedRequest.java",
+      "sha256": "98e8ed58571184a715597df55c09b8d50aac65c85fc83ec7af4a155b492af905",
+      "size": 5359
+    },
+    {
+      "path": "ReportFrontendBrowserTabRemovedRequestReason.java",
+      "sha256": "e4ce1b64a318881453b398431caf646a7873748ff664dc81442556701eb38999",
+      "size": 1082
+    },
+    {
+      "path": "ReportFrontendBrowserTabRemovedResult.java",
+      "sha256": "af1bb185794f787394a699a5282136b504212d784b9bda54e308b76546b3db2a",
+      "size": 2827
+    },
+    {
+      "path": "RequestFrontendBrowserTabCloseRequest.java",
+      "sha256": "026660c7ff2f6eb125eb8fbc3216a7705a04d388a188b72e444c48307756a3e7",
+      "size": 2860
+    },
+    {
+      "path": "RequestFrontendBrowserTabCloseResult.java",
+      "sha256": "4af3635ba8b28d0bc174f67a0ac38b0f293492e4bc76bd1067150994c965a7b9",
+      "size": 3152
     },
     {
       "path": "ResizeAttachedViewRequest.java",
@@ -3212,7 +3307,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36",
+  "ir_sha256": "0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
