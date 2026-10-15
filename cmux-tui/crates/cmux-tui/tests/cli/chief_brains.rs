@@ -651,12 +651,46 @@ fn chief_engine_and_stop_act_on_the_named_chief_only() {
     assert_eq!(unknown["error"]["details"]["reason"], "not_found", "{unknown}");
     assert_eq!(counts(), [3, 2, 1]);
 
-    // A live Chief whose brain does not run now (no socket): unavailable,
-    // and the request does not fall back to another Chief's brain.
+    // A live Chief whose brain serves no socket: a read is unavailable and
+    // does not fall back to another Chief's brain.
     fs::remove_file(ops_home.join("optchat/tools.sock")).unwrap();
     let idle = v2(&mut home, "chief.engine.get", json!({"chief": ops}));
     assert_eq!(idle["ok"], false, "{idle}");
     assert_eq!(idle["error"]["details"]["reason"], "unavailable", "{idle}");
+    assert_eq!(counts(), [3, 2, 1]);
+
+    // A Chief whose brain stopped (its first start exits 0, as after an idle
+    // stop): reads and stop do not start it; engine.set starts it on demand
+    // and reaches it once it serves its socket.
+    fs::write(chief_home.join("exit-first"), "").unwrap();
+    let night = make_chief(server, "Night", "Night watch");
+    let night_home = brain_dir(&chief_home, &night);
+    let first: i32 = wait_file(&night_home.join("pid.1")).parse().unwrap();
+    fs::remove_file(chief_home.join("exit-first")).unwrap();
+    wait_gone(first, "the first Night brain");
+    let read = v2(&mut home, "chief.engine.get", json!({"chief": night}));
+    assert_eq!(read["error"]["details"]["reason"], "unavailable", "{read}");
+    let stop = v2_keyed(&mut home, "chief.stop", "night-stop-1", json!({"chief": night}));
+    assert_eq!(stop["error"]["details"]["reason"], "unavailable", "{stop}");
+    assert!(!night_home.join("pid.2").exists(), "a read or stop started the brain");
+    let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "night-set",
+                       "operation": "chief.engine.set", "idempotency_key": "night-set-1",
+                       "params": {"machine": "current", "session": "current",
+                                  "chief": night, "model": "m2"}});
+    writeln!(home.writer, "{frame}").unwrap();
+    wait_file(&night_home.join("pid.2"));
+    let night_lines = fake_tools_socket(&night_home.join("optchat/tools.sock"), "night");
+    let set = loop {
+        let line = home.line();
+        if line["id"] == "night-set" && line["type"] == "response" {
+            break line;
+        }
+    };
+    assert_eq!(set["ok"], true, "{set}");
+    assert_eq!(
+        night_lines.lock().unwrap().clone(),
+        vec![json!({"tool": "engine", "action": "set", "model": "m2"})]
+    );
     assert_eq!(counts(), [3, 2, 1]);
 
     let daemon = i32::try_from(owned.child.id()).unwrap();
