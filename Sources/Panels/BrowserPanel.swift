@@ -2143,6 +2143,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Whether a Chromium page's DevTools are open (the toolbar button shows its pressed fill).
     @Published var isEngineDevToolsOpen = false
     var enginePageEventsTask: Task<Void, Never>?
+    /// Identity of the latest load handed to the non-WebKit page, so browser
+    /// automation can wait for that load to commit (`automationNavigationCoordinator`).
+    var activeEngineNavigationToken: AnyObject?
     /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
     /// child-window (Chromium) page; does nothing for a WebKit page.
     let pageOverlays = BrowserPageOverlayCoordinator()
@@ -5091,6 +5094,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func refreshBackgroundAppearance() {
+        applyEnginePagePlaceholderColor()
         applyConfiguredWebViewBackground()
         backgroundAppearanceRevision &+= 1
     }
@@ -6803,7 +6807,7 @@ extension BrowserPanel {
     func goBack(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoBack else { return }
-        if let enginePage { enginePage.goBack(); return }
+        if let enginePage { goEngineHistory(enginePage, offset: -1, dialogOwner: dialogOwner); return }
         cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6844,7 +6848,7 @@ extension BrowserPanel {
     func goForward(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoForward else { return }
-        if let enginePage { enginePage.goForward(); return }
+        if let enginePage { goEngineHistory(enginePage, offset: 1, dialogOwner: dialogOwner); return }
         cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
