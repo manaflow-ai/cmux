@@ -192,6 +192,17 @@ struct MacScreenToolbar: View {
         .themedHelp(L.t("macScreen.toolbar.qualityHelp", "Quality and stats"))
         .accessibilityIdentifier("macScreen.quality")
         Menu {
+            if let shortcuts = model.systemShortcuts {
+                // The setting (macScreen.systemShortcuts): every Mac Screen tab follows it.
+                Toggle(L.t("macScreen.keys.systemShortcuts", "Send System Shortcuts to This Mac"),
+                       isOn: Binding(get: { shortcuts.enabled }, set: { shortcuts.setEnabled($0) }))
+                if shortcuts.needsAccessibility {
+                    Button(L.t("macScreen.keys.allowAccessibility", "Allow Accessibility for System Shortcuts…")) {
+                        shortcuts.requestAccessibility()
+                    }
+                }
+                Divider()
+            }
             ForEach(MacScreenShortcut.all) { shortcut in
                 Button(shortcut.title) { actions.sendKeys(shortcut) }
             }

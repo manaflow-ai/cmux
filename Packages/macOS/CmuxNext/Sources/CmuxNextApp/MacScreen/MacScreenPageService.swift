@@ -109,8 +109,20 @@ extension AppServices {
         return pages
     }
 
+    /// Keyboard > Mac Screen > Send System Shortcuts to the Remote Mac drives the
+    /// system shortcut tap; the toolbar's menu item writes the same setting.
     /// DEV builds: Settings > Development > Relay Only drives every Mac Screen session.
     func followMacScreenSettings(_ settings: SettingsController) {
+        let shortcuts = macScreenPages.systemShortcuts
+        shortcuts.setEnabled = { [weak settings] on in
+            // task-owner: one settings write per menu or switch change
+            Task { try? await settings?.set(.bool(on), at: MacScreenSettings.systemShortcutsPath) }
+        }
+        Task { [weak shortcuts] in
+            for await on in ObservationStream({ settings.snapshot.macScreen.systemShortcuts }) {
+                shortcuts?.enabled = on
+            }
+        }
         #if DEBUG
         Task { [weak self] in
             for await relayOnly in ObservationStream({ settings.snapshot.macScreenDebug.relayOnly }) {

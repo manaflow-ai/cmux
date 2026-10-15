@@ -21,6 +21,7 @@ public struct MacScreenHomeView: View {
     let store: MacScreenStore
     let host: MacScreenShareHost
     let actions: MacScreenHomeActions
+    let systemShortcuts: MacScreenSystemShortcuts?
     @State private var linkText = ""
     @State private var addError: MacScreenStore.AddError?
     @State private var renaming: SavedMac?
@@ -31,10 +32,12 @@ public struct MacScreenHomeView: View {
     @State private var copied = false
     @Environment(\.macScreenColors) private var colors
 
-    public init(store: MacScreenStore, host: MacScreenShareHost, actions: MacScreenHomeActions) {
+    public init(store: MacScreenStore, host: MacScreenShareHost, actions: MacScreenHomeActions,
+                systemShortcuts: MacScreenSystemShortcuts? = nil) {
         self.store = store
         self.host = host
         self.actions = actions
+        self.systemShortcuts = systemShortcuts
     }
 
     public var body: some View {
@@ -43,6 +46,7 @@ public struct MacScreenHomeView: View {
                 header
                 macsSection
                 connectSection
+                if let systemShortcuts { keyboardSection(systemShortcuts) }
                 shareSection
             }
             .frame(maxWidth: 620, alignment: .leading)
@@ -54,7 +58,10 @@ public struct MacScreenHomeView: View {
         .foregroundStyle(colors.primary)
         .tint(colors.focus)
         .background(colors.page)
-        .onAppear { host.refreshPermissions() }
+        .onAppear {
+            host.refreshPermissions()
+            systemShortcuts?.refreshAccessibility()
+        }
         .confirmationDialog(String(format: L.t("macScreen.home.forgetTitle", "Forget %@?"), forgetting?.name ?? ""),
                             isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })) {
             Button(L.t("macScreen.home.forget", "Forget This Mac"), role: .destructive) {
@@ -213,6 +220,36 @@ public struct MacScreenHomeView: View {
         }
     }
 
+    // MARK: Keyboard
+
+    /// Send System Shortcuts to the Remote Mac, and the Accessibility it needs.
+    private func keyboardSection(_ shortcuts: MacScreenSystemShortcuts) -> some View {
+        section(L.t("macScreen.home.keyboardTitle", "Keyboard")) {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(isOn: Binding(get: { shortcuts.enabled }, set: { shortcuts.setEnabled($0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.t("macScreen.home.systemShortcuts", "Send system shortcuts to the remote Mac"))
+                        Text(L.t("macScreen.home.systemShortcutsDetail", "While a Mac’s screen has the keyboard, ⌘Tab, ⌘Space, Mission Control, Spaces, screenshots and ⌘Q, ⌘W, ⌘H, ⌘M go to that Mac. ⌃⌥⎋ still releases the keyboard."))
+                            .font(MacScreenType.caption).foregroundStyle(colors.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(colors.focus)
+                .accessibilityIdentifier("macScreen.home.systemShortcuts")
+                if shortcuts.needsAccessibility {
+                    divider
+                    permissionRow(L.t("macScreen.home.accessibility", "Accessibility"),
+                                  detail: L.t("macScreen.home.systemShortcutsAccessibility", "Lets cmux take system shortcuts before macOS does, to send them to the other Mac."),
+                                  granted: false, action: L.t("macScreen.home.allowAccessibility", "Allow Accessibility")) {
+                        shortcuts.requestAccessibility()
+                    }
+                    .accessibilityIdentifier("macScreen.home.systemShortcutsAccessibility")
+                }
+            }
+            .padding(14)
+        }
+    }
+
     // MARK: Share This Mac
 
     private var shareSection: some View {
@@ -245,7 +282,8 @@ public struct MacScreenHomeView: View {
         }
     }
 
-    private func permissionRow(_ title: String, detail: String, granted: Bool, open: @escaping () -> Void) -> some View {
+    private func permissionRow(_ title: String, detail: String, granted: Bool, action: String? = nil,
+                               open: @escaping () -> Void) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                 .foregroundStyle(granted ? colors.success : colors.attention)
@@ -257,7 +295,7 @@ public struct MacScreenHomeView: View {
             if granted {
                 Text(L.t("macScreen.home.granted", "Allowed")).font(MacScreenType.caption).foregroundStyle(colors.secondary)
             } else {
-                Button(L.t("macScreen.home.openSettings", "Open System Settings"), action: open)
+                Button(action ?? L.t("macScreen.home.openSettings", "Open System Settings"), action: open)
                     .buttonStyle(MacScreenButtonStyle(compact: true))
             }
         }

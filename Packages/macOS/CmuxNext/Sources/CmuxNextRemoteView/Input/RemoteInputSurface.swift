@@ -71,6 +71,13 @@ public final class RemoteInputSurface {
     /// Gives the keyboard back to the viewer.
     public func releaseKeyboard() { capture.releaseKeyboard() }
 
+    /// A key from the system shortcut tap: true when it was sent (the tap
+    /// consumes it), false to let it go on to macOS.
+    public func takeSystemKey(_ key: RemoteTapKey) -> Bool { capture.controller.takeSystemKey(key) }
+
+    /// The window the surface is in.
+    public var window: NSWindow? { capture.window }
+
     /// The surface has the keyboard now: first responder, in control mode, not released.
     public var hasKeyboard: Bool {
         wantsControl && !isReleased && capture.window?.firstResponder === capture

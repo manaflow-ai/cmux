@@ -25,6 +25,8 @@ public struct MacScreenTabEvents {
 public final class MacScreenPages {
     public let store: MacScreenStore
     public let host: MacScreenShareHost
+    /// Send System Shortcuts to the Remote Mac: the app's one system shortcut tap.
+    public let systemShortcuts: MacScreenSystemShortcuts
     public var events = MacScreenTabEvents()
     /// The app's shortcut matcher: true keeps a key down in cmux.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
@@ -50,6 +52,8 @@ public final class MacScreenPages {
     public init(store: MacScreenStore) {
         self.store = store
         host = MacScreenShareHost(store: store)
+        systemShortcuts = MacScreenSystemShortcuts(host: host)
+        systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }
         store.onRenamed = { [weak self] id, name in
             guard let self else { return }
             for tab in tabs.values where tab.record.macID == id {
@@ -70,6 +74,7 @@ public final class MacScreenPages {
 
     /// At launch: Share This Mac resumes when the person left it on.
     public func activate() {
+        systemShortcuts.start()
         Task { [weak self] in
             await self?.store.load()
             self?.host.activate()
@@ -136,6 +141,7 @@ public final class MacScreenPages {
         tabs.removeValue(forKey: key)?.clear()
         records[key] = nil
         confirmed[key] = nil
+        systemShortcuts.update()
     }
 
     /// The tab `key` (debug and tests).
@@ -173,7 +179,7 @@ public final class MacScreenPages {
         actions.open = { [weak self] mac in self?.show(MacScreenRecord(macID: mac), in: key, byPerson: true) }
         actions.openInNewTab = { [weak self] mac in self?.events.openInNewTab(MacScreenRecord(macID: mac), key) }
         // In the tab's theme scope: Settings > Appearance changes show at once.
-        let home = MacScreenHostingView(MacScreenHomeView(store: store, host: host, actions: actions))
+        let home = MacScreenHostingView(MacScreenHomeView(store: store, host: host, actions: actions, systemShortcuts: systemShortcuts))
         // The page fills the tab; its content never sizes the tab's layout.
         home.sizingOptions = []
         return home
@@ -196,6 +202,8 @@ public final class MacScreenPages {
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.show(MacScreenRecord(macID: nil), in: key, byPerson: true) }
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
+        pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
+        pane.model.systemShortcuts = systemShortcuts
         return pane
     }
 }

@@ -10,7 +10,9 @@ import CmuxScreenKit
 /// only through files readable by this user (mode 0600), never in params,
 /// results or logs.
 /// - `state` (default): the saved Macs (names only), Share This Mac, and one
-///   row per tab: URL, gate, phase, path, stats, picture size, displays.
+///   row per tab: URL, gate, phase, path, stats, picture size, displays;
+///   `system_shortcuts` (the setting), `system_shortcuts_tap` (the tap is
+///   installed) and `accessibility` (this Mac trusts cmux for Accessibility).
 /// - `pair` {link_file}: saves the Mac whose link is in `link_file` and opens it.
 /// - `open` {url?, pane?}: opens the record at `url` (default the home page) in a new Mac Screen tab.
 /// - `connect` {tab?}: presses Connect on tabs that ask first (stands in for the person).
@@ -74,10 +76,15 @@ extension MacScreenPages {
             for mac in matches { store.forget(mac.id) }
             return ["forgotten": .number(Double(matches.count))]
         case "state":
+            systemShortcuts.refreshAccessibility()
             return [
                 "macs": .array(store.macs.map { .string($0.name) }),
                 "share": hostState,
                 "relay_only": .bool(relayOnly),
+                // Send System Shortcuts to the Remote Mac: the setting, the tap, and this Mac's Accessibility.
+                "system_shortcuts": .bool(systemShortcuts.enabled),
+                "system_shortcuts_tap": .bool(systemShortcuts.tapInstalled),
+                "accessibility": .bool(systemShortcuts.accessibilityGranted),
                 "tabs": .array(tabs.map(Self.row)),
             ]
         default:

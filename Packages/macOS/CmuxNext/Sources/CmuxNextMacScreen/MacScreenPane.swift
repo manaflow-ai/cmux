@@ -29,6 +29,8 @@ public final class MacScreenPaneModel {
     public internal(set) var capturesKeyboard = false
     /// DEV builds: the stream uses the TURN relay only (checks the relay path).
     public internal(set) var relayOnly = false
+    /// Send System Shortcuts to the Remote Mac (the toolbar's Send Keys menu).
+    public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
 
     init(session: ScreenSession?, name: String, gate: Gate) {
         self.session = session
@@ -50,6 +52,9 @@ public struct MacScreenPaneHandlers {
     public var preferencesChanged: (ScreenPreferences) -> Void = { _ in }
     /// cmux shortcut matcher: true keeps the chord in this app.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
+    /// Whether this screen holds the keyboard may have changed (focus, the
+    /// release chord, the session's phase): the system shortcut tap follows.
+    public var keyboardChanged: () -> Void = {}
 
     public init() {}
 }
@@ -119,6 +124,7 @@ public final class MacScreenPane {
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
             model.capturesKeyboard = focused && model.gate == .open
+            handlers.keyboardChanged()
         }
         let actions = view.chrome.actions
         actions.connect = { [weak self] in self?.reconnect() }
@@ -167,6 +173,7 @@ public final class MacScreenPane {
                     model.hasFrame = false
                 }
                 view.needsLayout = true
+                handlers.keyboardChanged()
                 observePhase(session)
             }
         }
@@ -206,6 +213,7 @@ public final class MacScreenPane {
         hideTimer.cancel()
         visible = false
         session?.close()
+        handlers.keyboardChanged()
     }
 
     #if DEBUG
@@ -246,6 +254,7 @@ public final class MacScreenPane {
         model.gate = .missing
         view.input.releaseKeyboard()
         view.syncInputGate()
+        handlers.keyboardChanged()
     }
 
     public func focus() {

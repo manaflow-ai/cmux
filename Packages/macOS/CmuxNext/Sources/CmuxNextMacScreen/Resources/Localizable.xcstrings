@@ -2359,6 +2359,137 @@
         }
       }
     },
+    "macScreen.home.allowAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح بتسهيلات الاستخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli pristupačnost"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillad tilgængelighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedienungshilfen erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Accessibility"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir accesibilidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser l’accessibilité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti accessibilità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アクセシビリティを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតភាពងាយស្រួល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "손쉬운 사용 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillat tilgjengelighet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwól na dostępność"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir acessibilidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить универсальный доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตการช่วยการเข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erişilebilirliğe izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити доступність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép Trợ năng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许辅助功能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許輔助使用"
+          }
+        }
+      }
+    },
     "macScreen.home.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -4058,6 +4189,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "隱藏"
+          }
+        }
+      }
+    },
+    "macScreen.home.keyboardTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لوحة المفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tastatura"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tastatur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tastatur"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clavier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tastiera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キーボード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្ដារចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키보드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tastatur"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klawiatura"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавиатура"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แป้นพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klavye"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавіатура"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bàn phím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "键盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "鍵盤"
           }
         }
       }
@@ -8647,6 +8909,399 @@
         }
       }
     },
+    "macScreen.home.systemShortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إرسال اختصارات النظام إلى الـMac البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šalji sistemske prečice na udaljeni Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send systemgenveje til den eksterne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemkurzbefehle an den entfernten Mac senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send system shortcuts to the remote Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar atajos del sistema al Mac remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyer les raccourcis système au Mac distant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invia le abbreviazioni di sistema al Mac remoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システムショートカットをリモートのMacに送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ញើផ្លូវកាត់ប្រព័ន្ធទៅ Mac ពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템 단축키를 원격 Mac으로 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send systemsnarveier til den eksterne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysyłaj skróty systemowe do zdalnego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar atalhos do sistema para o Mac remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправлять системные сочетания клавиш на удалённый Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งปุ่มลัดของระบบไปยัง Mac ระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem kısayollarını uzak Mac’e gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надсилати системні сполучення клавіш на віддалений Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi phím tắt hệ thống đến máy Mac từ xa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将系统快捷键发送到远程 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將系統快速鍵傳送到遠端 Mac"
+          }
+        }
+      }
+    },
+    "macScreen.home.systemShortcutsAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لـcmux التقاط اختصارات النظام قبل macOS لإرسالها إلى الـMac الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava cmuxu da preuzme sistemske prečice prije macOS-a i pošalje ih na drugi Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader cmux tage systemgenveje før macOS for at sende dem til den anden Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaubt cmux, Systemkurzbefehle vor macOS abzufangen und an den anderen Mac zu senden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets cmux take system shortcuts before macOS does, to send them to the other Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que cmux tome los atajos del sistema antes que macOS para enviarlos al otro Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à cmux de prendre les raccourcis système avant macOS pour les envoyer à l’autre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente a cmux di intercettare le abbreviazioni di sistema prima di macOS per inviarle all’altro Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxがmacOSより先にシステムショートカットを受け取り、もう一方のMacに送信できるようにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ cmux យកផ្លូវកាត់ប្រព័ន្ធមុន macOS ដើម្បីផ្ញើវាទៅ Mac ផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 macOS보다 먼저 시스템 단축키를 받아 다른 Mac으로 보낼 수 있게 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar cmux ta systemsnarveier før macOS for å sende dem til den andre Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala cmux przejmować skróty systemowe przed macOS, aby wysłać je do drugiego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que o cmux capture atalhos do sistema antes do macOS para enviá-los ao outro Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет cmux перехватывать системные сочетания раньше macOS и отправлять их на другой Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ cmux รับปุ่มลัดของระบบก่อน macOS เพื่อส่งไปยัง Mac อีกเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux’un sistem kısayollarını macOS’tan önce alıp diğer Mac’e göndermesini sağlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дає cmux змогу перехоплювати системні сполучення раніше за macOS і надсилати їх на інший Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép cmux nhận phím tắt hệ thống trước macOS để gửi đến máy Mac kia."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 cmux 在 macOS 之前接收系统快捷键，并将其发送到另一台 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 cmux 在 macOS 之前接收系統快速鍵，並將其傳送到另一台 Mac。"
+          }
+        }
+      }
+    },
+    "macScreen.home.systemShortcutsDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما تكون لوحة المفاتيح لشاشة Mac، تنتقل ⌘Tab و⌘مسافة وMission Control والمساحات ولقطات الشاشة و⌘Q و⌘W و⌘H و⌘M إلى ذلك الـMac. لا يزال ⌃⌥⎋ يحرر لوحة المفاتيح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dok ekran Maca ima tastaturu, ⌘Tab, ⌘Razmak, Mission Control, Spaces, snimci ekrana i ⌘Q, ⌘W, ⌘H, ⌘M idu na taj Mac. ⌃⌥⎋ i dalje oslobađa tastaturu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en Macs skærm har tastaturet, går ⌘Tab, ⌘Mellemrum, Mission Control, Spaces, skærmbilleder og ⌘Q, ⌘W, ⌘H, ⌘M til den Mac. ⌃⌥⎋ frigiver stadig tastaturet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solange der Bildschirm eines Macs die Tastatur hat, gehen ⌘Tab, ⌘Leertaste, Mission Control, Spaces, Bildschirmfotos und ⌘Q, ⌘W, ⌘H, ⌘M an diesen Mac. ⌃⌥⎋ gibt die Tastatur weiterhin frei."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While a Mac’s screen has the keyboard, ⌘Tab, ⌘Space, Mission Control, Spaces, screenshots and ⌘Q, ⌘W, ⌘H, ⌘M go to that Mac. ⌃⌥⎋ still releases the keyboard."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mientras la pantalla de un Mac tiene el teclado, ⌘Tab, ⌘Espacio, Mission Control, Spaces, las capturas de pantalla y ⌘Q, ⌘W, ⌘H, ⌘M van a ese Mac. ⌃⌥⎋ sigue liberando el teclado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tant que l’écran d’un Mac a le clavier, ⌘Tab, ⌘Espace, Mission Control, Spaces, les captures d’écran et ⌘Q, ⌘W, ⌘H, ⌘M vont à ce Mac. ⌃⌥⎋ libère toujours le clavier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mentre lo schermo di un Mac ha la tastiera, ⌘Tab, ⌘Spazio, Mission Control, Spaces, le istantanee dello schermo e ⌘Q, ⌘W, ⌘H, ⌘M vanno a quel Mac. ⌃⌥⎋ rilascia comunque la tastiera."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macの画面がキーボードを使用している間、⌘Tab、⌘スペース、Mission Control、操作スペース、スクリーンショット、⌘Q、⌘W、⌘H、⌘MはそのMacに送られます。⌃⌥⎋でキーボードを解放できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលអេក្រង់ Mac មានក្ដារចុច ⌘Tab, ⌘ដកឃ្លា, Mission Control, Spaces, រូបថតអេក្រង់ និង ⌘Q, ⌘W, ⌘H, ⌘M ទៅ Mac នោះ។ ⌃⌥⎋ នៅតែដោះលែងក្ដារចុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac 화면이 키보드를 사용하는 동안 ⌘Tab, ⌘스페이스, Mission Control, Spaces, 스크린샷과 ⌘Q, ⌘W, ⌘H, ⌘M이 해당 Mac으로 갑니다. ⌃⌥⎋로 여전히 키보드를 해제할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en Macs skjerm har tastaturet, går ⌘Tab, ⌘Mellomrom, Mission Control, Spaces, skjermbilder og ⌘Q, ⌘W, ⌘H, ⌘M til den Macen. ⌃⌥⎋ frigjør fortsatt tastaturet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy ekran Maca ma klawiaturę, ⌘Tab, ⌘Spacja, Mission Control, Spaces, zrzuty ekranu oraz ⌘Q, ⌘W, ⌘H, ⌘M trafiają do tego Maca. ⌃⌥⎋ nadal zwalnia klawiaturę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enquanto a tela de um Mac tem o teclado, ⌘Tab, ⌘Espaço, Mission Control, Spaces, capturas de tela e ⌘Q, ⌘W, ⌘H, ⌘M vão para esse Mac. ⌃⌥⎋ ainda libera o teclado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока экран Mac владеет клавиатурой, ⌘Tab, ⌘Пробел, Mission Control, Spaces, снимки экрана и ⌘Q, ⌘W, ⌘H, ⌘M уходят на этот Mac. ⌃⌥⎋ по-прежнему освобождает клавиатуру."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขณะที่หน้าจอ Mac ใช้แป้นพิมพ์อยู่ ⌘Tab, ⌘แป้นเว้นวรรค, Mission Control, Spaces, ภาพหน้าจอ และ ⌘Q, ⌘W, ⌘H, ⌘M จะไปที่ Mac เครื่องนั้น ⌃⌥⎋ ยังคงปล่อยแป้นพิมพ์ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir Mac’in ekranı klavyeye sahipken ⌘Tab, ⌘Boşluk, Mission Control, Spaces, ekran görüntüleri ve ⌘Q, ⌘W, ⌘H, ⌘M o Mac’e gider. ⌃⌥⎋ klavyeyi yine bırakır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки екран Mac має клавіатуру, ⌘Tab, ⌘Пробіл, Mission Control, Spaces, знімки екрана та ⌘Q, ⌘W, ⌘H, ⌘M ідуть на цей Mac. ⌃⌥⎋ і далі звільняє клавіатуру."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi màn hình của một máy Mac đang giữ bàn phím, ⌘Tab, ⌘Phím cách, Mission Control, Spaces, ảnh chụp màn hình và ⌘Q, ⌘W, ⌘H, ⌘M sẽ đến máy Mac đó. ⌃⌥⎋ vẫn giải phóng bàn phím."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当某台 Mac 的屏幕占用键盘时，⌘Tab、⌘空格、调度中心、空间、截屏以及 ⌘Q、⌘W、⌘H、⌘M 会发送到那台 Mac。⌃⌥⎋ 仍可释放键盘。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "當某台 Mac 的螢幕佔用鍵盤時，⌘Tab、⌘空白鍵、指揮中心、空間、截圖以及 ⌘Q、⌘W、⌘H、⌘M 會傳送到那台 Mac。⌃⌥⎋ 仍可釋放鍵盤。"
+          }
+        }
+      }
+    },
     "macScreen.home.title": {
       "extractionState": "manual",
       "localizations": {
@@ -9167,6 +9822,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "這台 Mac 正被控制"
+          }
+        }
+      }
+    },
+    "macScreen.keys.allowAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح بتسهيلات الاستخدام لاختصارات النظام…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli pristupačnost za sistemske prečice…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillad tilgængelighed for systemgenveje…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedienungshilfen für Systemkurzbefehle erlauben …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Accessibility for System Shortcuts…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir accesibilidad para los atajos del sistema…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser l’accessibilité pour les raccourcis système…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti l’accessibilità per le abbreviazioni di sistema…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システムショートカットにアクセシビリティを許可…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតភាពងាយស្រួលសម្រាប់ផ្លូវកាត់ប្រព័ន្ធ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템 단축키에 손쉬운 사용 허용…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillat tilgjengelighet for systemsnarveier …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwól na dostępność dla skrótów systemowych…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir acessibilidade para atalhos do sistema…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить универсальный доступ для системных сочетаний…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตการช่วยการเข้าถึงสำหรับปุ่มลัดของระบบ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem kısayolları için Erişilebilirliğe izin ver…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити доступність для системних сполучень…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép Trợ năng cho phím tắt hệ thống…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "为系统快捷键允许辅助功能…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "為系統快速鍵允許輔助使用…"
           }
         }
       }
@@ -10346,6 +11132,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "切換 App (⌘Tab)"
+          }
+        }
+      }
+    },
+    "macScreen.keys.systemShortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إرسال اختصارات النظام إلى هذا الـMac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šalji sistemske prečice na ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send systemgenveje til denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Systemkurzbefehle an diesen Mac senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send System Shortcuts to This Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar atajos del sistema a este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyer les raccourcis système à ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invia le abbreviazioni di sistema a questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "システムショートカットをこのMacに送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ញើផ្លូវកាត់ប្រព័ន្ធទៅ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시스템 단축키를 이 Mac으로 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send systemsnarveier til denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysyłaj skróty systemowe do tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar atalhos do sistema para este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправлять системные сочетания клавиш на этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งปุ่มลัดของระบบไปยัง Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sistem kısayollarını bu Mac’e gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надсилати системні сполучення клавіш на цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi phím tắt hệ thống đến máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将系统快捷键发送到这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將系統快速鍵傳送到這台 Mac"
           }
         }
       }

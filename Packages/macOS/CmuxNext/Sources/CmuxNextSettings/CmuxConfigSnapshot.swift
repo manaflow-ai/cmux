@@ -170,6 +170,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var updates = UpdatesSettings()
     /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
     public var computerUse = ComputerUseSettings()
+    /// `macScreen.*`: Mac Screen tabs (system shortcuts to the remote Mac).
+    public var macScreen = MacScreenSettings()
     /// `macScreen.debug.*`: the Development section's Mac Screen switches (DEV builds read them).
     public var macScreenDebug = MacScreenDebugSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
@@ -309,6 +311,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreenDebug = MacScreenDebugSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
