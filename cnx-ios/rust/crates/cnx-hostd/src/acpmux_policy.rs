@@ -42,17 +42,73 @@ pub fn refusal(message: &str) -> Option<String> {
     )
 }
 
-/// Whether one request keeps its agent asking: a mode set names a phone mode.
+/// Config options a phone may set to any value: they choose a model or how hard
+/// it thinks (acpmux `FREE_CONFIG_IDS`). `mode` is held to `PHONE_MODES`; any other
+/// option (one that could carry an approval or sandbox setting) is refused.
+pub const FREE_CONFIG_IDS: &[&str] = &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
+
+/// Whether one request keeps its agent asking: a mode set names a phone mode, a
+/// config set names a free option or the mode.
 fn asks(request: &Value) -> bool {
     let params = request.get("params");
     let field = |k: &str| params.and_then(|p| p.get(k));
     match request.get("method").and_then(Value::as_str) {
         Some("session/set_mode") => mode_ok(field("modeId")),
-        Some("session/set_config_option") if field("configId").and_then(Value::as_str) == Some("mode") => {
-            mode_ok(field("value"))
-        }
+        Some("session/set_config_option") => match field("configId").and_then(Value::as_str) {
+            Some("mode") => mode_ok(field("value")),
+            Some(id) => FREE_CONFIG_IDS.contains(&id),
+            None => false,
+        },
         _ => true,
     }
+}
+
+/// Methods that make an existing session act for the phone (or copy it): the
+/// session's CURRENT mode must ask too. acpmux lets an authenticated remote
+/// connection drive a Codex bridge session in any mode, so a session the Mac
+/// started in `agent` or `agent-full-access` would run a phone's prompt without
+/// asking. Answering a pending permission is not here: that is the asking.
+pub const SESSION_CONTROL_METHODS: &[&str] = &[
+    "session/prompt",
+    "session/fork",
+    "session/load",
+    "session/resume",
+    "_acpmux/queue_edit",
+    "_acpmux/handoff_prepare",
+    "_acpmux/handoff_start",
+];
+
+/// The session a control request acts on (`sessionId`), for the mode check.
+pub fn controlled_session(message: &str) -> Option<(Value, String)> {
+    let value: Value = serde_json::from_str(message).ok()?;
+    let method = value.get("method").and_then(Value::as_str)?;
+    if !SESSION_CONTROL_METHODS.contains(&method) {
+        return None;
+    }
+    let session = value.pointer("/params/sessionId").and_then(Value::as_str)?.to_owned();
+    Some((value.get("id").cloned().unwrap_or(Value::Null), session))
+}
+
+/// The refusal for a control request on a session whose current mode (acpmux
+/// `_acpmux/info` `currentModeId`) does not ask; None when it asks or is unknown
+/// (acpmux's own guard decides then).
+pub fn mode_refusal(id: &Value, current_mode: Option<&str>) -> Option<String> {
+    let mode = current_mode?;
+    if PHONE_MODES.contains(&mode) {
+        return None;
+    }
+    Some(
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": -32602,
+                "message": format!("This chat runs in a mode that doesn't ask before each change ({mode}). Switch it to a mode that asks on the Mac to use it from your iPhone."),
+                "data": {"reason": "phone.mode_not_asking", "mode": mode},
+            },
+        })
+        .to_string(),
+    )
 }
 
 fn mode_ok(mode: Option<&Value>) -> bool {
@@ -105,6 +161,43 @@ mod tests {
         let missing =
             json!({"jsonrpc": "2.0", "id": 2, "method": "session/set_mode", "params": {"sessionId": "s"}});
         assert!(refusal(&missing.to_string()).is_some());
+    }
+
+    #[test]
+    fn other_config_options_are_refused() {
+        let set = |id: &str| {
+            json!({"jsonrpc": "2.0", "id": 1, "method": "session/set_config_option",
+                   "params": {"sessionId": "s", "configId": id, "value": "x"}})
+            .to_string()
+        };
+        for id in ["approval_policy", "sandbox", "approvalPolicy", "fast-mode"] {
+            assert!(refusal(&set(id)).is_some(), "{id}");
+        }
+        let no_id = json!({"jsonrpc": "2.0", "id": 1, "method": "session/set_config_option", "params": {"sessionId": "s", "value": "x"}});
+        assert!(refusal(&no_id.to_string()).is_some());
+    }
+
+    /// A Mac-started Codex chat in `agent` (no asking) is not driven from a phone.
+    #[test]
+    fn control_of_a_session_needs_its_current_mode_to_ask() {
+        let prompt = json!({"jsonrpc": "2.0", "id": 9, "method": "session/prompt", "params": {"sessionId": "s1", "prompt": []}});
+        let (id, session) = controlled_session(&prompt.to_string()).unwrap();
+        assert_eq!((id.clone(), session.as_str()), (json!(9), "s1"));
+        let answer: Value = serde_json::from_str(&mode_refusal(&id, Some("agent")).unwrap()).unwrap();
+        assert_eq!(answer["id"], 9);
+        assert_eq!(answer["error"]["data"]["reason"], "phone.mode_not_asking");
+        assert!(mode_refusal(&id, Some("agent-full-access")).is_some());
+        assert!(mode_refusal(&id, Some("bypassPermissions")).is_some());
+        assert_eq!(mode_refusal(&id, Some("ask")), None);
+        assert_eq!(mode_refusal(&id, Some("default")), None);
+        assert_eq!(mode_refusal(&id, None), None);
+        // Answering a pending permission is the asking itself.
+        let answer = json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/permission_respond", "params": {"sessionId": "s1"}});
+        assert!(controlled_session(&answer.to_string()).is_none());
+        for m in ["session/fork", "session/load", "session/resume", "_acpmux/handoff_prepare"] {
+            let r = json!({"jsonrpc": "2.0", "id": 3, "method": m, "params": {"sessionId": "s1"}});
+            assert!(controlled_session(&r.to_string()).is_some(), "{m}");
+        }
     }
 
     #[test]

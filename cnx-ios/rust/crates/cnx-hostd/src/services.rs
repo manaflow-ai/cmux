@@ -475,6 +475,8 @@ async fn acpmux(
     };
     let (mut ws_sink, mut ws_source) = socket.split();
     let mut message = MessageAssembler::default();
+    // A second connection of hostd's own, for `_acpmux/info` (the mode check).
+    let mut side: Option<AcpmuxSocket> = None;
     loop {
         tokio::select! {
             event = receiver.recv() => match event {
@@ -482,7 +484,17 @@ async fn acpmux(
                     let Some(text) = message.push(&bytes)? else { continue };
                     // An agent a phone drives stays in a mode that asks
                     // (`acpmux_policy`): a refused mode set is answered here.
-                    if let Some(answer) = crate::acpmux_policy::refusal(&text) {
+                    let refused = match crate::acpmux_policy::refusal(&text) {
+                        Some(answer) => Some(answer),
+                        None => match crate::acpmux_policy::controlled_session(&text) {
+                            Some((id, session)) => {
+                                let mode = current_mode(&config.acpmux, &mut side, &session).await;
+                                crate::acpmux_policy::mode_refusal(&id, mode.as_deref())
+                            }
+                            None => None,
+                        },
+                    };
+                    if let Some(answer) = refused {
                         if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
                             break;
                         }
@@ -512,6 +524,44 @@ async fn acpmux(
     }
     let _ = ws_sink.close().await;
     Ok(())
+}
+
+/// A session's current mode (`_acpmux/info` `currentModeId`) over hostd's own
+/// side connection, opened on first use; None when acpmux does not say in 5 s
+/// (acpmux's own remote guard then decides alone).
+async fn current_mode(
+    target: &AcpmuxTarget,
+    side: &mut Option<AcpmuxSocket>,
+    session: &str,
+) -> Option<String> {
+    let ask = async {
+        if side.is_none() {
+            *side = Some(connect_acpmux(target).await.ok()?);
+        }
+        let socket = side.as_mut()?;
+        let request = serde_json::json!({"jsonrpc": "2.0", "id": "cnx-mode", "method": "_acpmux/info", "params": {"sessionId": session}});
+        socket.send(Message::Text(request.to_string().into())).await.ok()?;
+        while let Some(Ok(frame)) = socket.next().await {
+            let Message::Text(text) = frame else { continue };
+            let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
+            if reply.get("id") != Some(&serde_json::json!("cnx-mode")) {
+                continue;
+            }
+            let result = reply.get("result")?;
+            return result
+                .get("currentModeId")
+                .or_else(|| result.pointer("/modes/currentModeId"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+        }
+        None
+    };
+    let mode = tokio::time::timeout(std::time::Duration::from_secs(5), ask).await.ok().flatten();
+    if mode.is_none() {
+        // A broken or slow side connection is opened again next time.
+        *side = None;
+    }
+    mode
 }
 
 /// The largest acpmux message a phone may send (a prompt with images).
