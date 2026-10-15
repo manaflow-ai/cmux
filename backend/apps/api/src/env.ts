@@ -59,6 +59,10 @@ export interface Env {
   readonly HANDS_MAC_ENABLED?: string
   /** Base URL of the published acpmux files the hand installer downloads (default https://files.cmux.com/cmux-tui). */
   readonly HAND_RELEASE_BASE?: string
+  /** Freestyle snapshot for Chief sandboxes with a hand (hand-sandbox.ts); unset: no sandbox creation. */
+  readonly HAND_SANDBOX_SNAPSHOT?: string
+  /** The cmux-tui v2 tree key whose published acpmux the installer installs (wins over HAND_RELEASE_COMMIT). */
+  readonly HAND_RELEASE_TREE?: string
   /** The cmux-tui commit whose acpmux the installer installs (its manifest.json lists the SHA-256 of each file). */
   readonly HAND_RELEASE_COMMIT?: string
   /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
@@ -142,7 +146,7 @@ export interface Env {
   readonly CHIEF_CREDITS_TOPUP_USD?: string
   /** Optional payment-service product id for the top-up line (else an inline "cmux Cloud credits" line). */
   readonly CHIEF_CREDITS_PRODUCT?: string
-  /** "mysql": the team meters mirror credits to the billing database through PS_MYSQL (credits-mirror.ts). Off otherwise. */
+  /** "mysql": the team meters mirror credits to the billing database through PS_MYSQL (credits-mirror.ts); on by default on development; "off" stops it. */
   readonly CREDITS_MIRROR?: string
   /** Dogfood grant (credits-admin.ts): comma list of team_ or user_ ids, the USD per entry, and the round (raise to grant again). */
   readonly CHIEF_CREDITS_DOGFOOD?: string
