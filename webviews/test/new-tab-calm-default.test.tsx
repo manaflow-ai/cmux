@@ -109,8 +109,8 @@ test("the default New Tab shows the composer and five recent chats, nothing else
       text: "",
       title: "Send (Return)",
     });
-    const field = host.querySelector<HTMLInputElement>(".nt-field")!;
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
     await act(async () => {
       setValue.call(field, "fix the flaky upload test");
       field.dispatchEvent(new window.Event("input", { bubbles: true }));

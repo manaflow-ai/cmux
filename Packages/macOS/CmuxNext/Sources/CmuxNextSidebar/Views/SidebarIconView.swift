@@ -96,7 +96,7 @@ final class SidebarIconView: NSView {
             } else {
                 nil
             }
-            if let tint { imageView.contentTintColor = tint }
+            if let tint { imageView.setTint(tint) }
             switch icon {
             case let .swatch(color)?:
                 swatch.isHidden = false

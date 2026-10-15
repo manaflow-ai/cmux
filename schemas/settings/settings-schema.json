@@ -325,7 +325,9 @@
               "sidebar.cards.tips",
               "sidebar.side",
               "sidebar.spacesPosition",
-              "sidebar.spacesVisibility"
+              "sidebar.spacesVisibility",
+              "sidebar.hoverCards.enabled",
+              "sidebar.hoverCards.delay"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -670,6 +672,16 @@
             "title" : {
               "key" : "settings.group.bookmarks",
               "text" : "Bookmarks"
+            }
+          },
+          {
+            "key" : "settings.group.extensions",
+            "rows" : [
+              "browser.builtInAdBlocker"
+            ],
+            "title" : {
+              "key" : "settings.group.extensions",
+              "text" : "Extensions"
             }
           },
           {
@@ -14995,6 +15007,113 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.enabled.help",
+        "text" : "A card with details opens when the pointer rests on a workspace or a tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.enabled",
+      "keywords" : [
+        "hover",
+        "card",
+        "preview",
+        "tooltip",
+        "workspace",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.enabled",
+        "text" : "Show Hover Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        5000,
+        2500
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1300,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.delay.help",
+        "text" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.delay",
+      "keywords" : [
+        "hover",
+        "card",
+        "delay",
+        "wait",
+        "milliseconds"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "delay"
+      ],
+      "range" : {
+        "max" : 5000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 100,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -5000,
+        10000,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.delay",
+        "text" : "Hover Card Delay"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.workspaceRows",
         "text" : "Workspace Rows"
       },
@@ -19067,6 +19186,54 @@
       "title" : {
         "key" : "settings.browser.showBookmarksBar",
         "text" : "Show Bookmarks Bar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.extensions",
+        "text" : "Extensions"
+      },
+      "help" : {
+        "key" : "settings.browser.builtInAdBlocker.help",
+        "text" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.builtInAdBlocker",
+      "keywords" : [
+        "ublock",
+        "ad blocker",
+        "adblock",
+        "extensions",
+        "trackers"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "builtInAdBlocker"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.builtInAdBlocker",
+        "text" : "Built-in uBlock Origin"
       },
       "validation" : "portable"
     },
@@ -23772,7 +23939,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bcd28b55ae95c1dc208eb2f6284da7af98930017e4294732258c1ba9f5563b5a",
+  "schema_hash" : "21c6125a0405ff65d091d63750d336906eab192dcf3fc0fa90bc9cd55b527239",
   "sections" : [
     {
       "id" : "general",
