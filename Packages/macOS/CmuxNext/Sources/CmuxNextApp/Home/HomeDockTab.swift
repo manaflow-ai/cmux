@@ -5,12 +5,13 @@ import CmuxNextSettings
 import CmuxNextHome
 
 extension InternalPageID {
-    /// The docked Home's tab (`HomeDock.page`): the switch and the Messages or Channels view.
+    /// The docked Home's tab (`HomeDock.page`): the Messages or Channels view.
     static let homeDock = InternalPageID(rawValue: HomeDock.page)
 }
 
 /// The docked Home's tab provider (cx-ebm.59.5): one `HomeDockView` per store tab. The view a new
-/// tab opens with is the Messages view (Lawrence 2026-10-14: the iMessage Chief by default).
+/// tab opens with is the Messages view (Lawrence 2026-10-14: the iMessage Chief by default); the
+/// sidebar marks its Home or Channels entry by the shown view (`HomeService.dockMode`, cx-frn2y).
 @MainActor
 final class HomeDockTab: InternalPageProvider {
     private weak var services: AppServices?
@@ -33,6 +34,7 @@ final class HomeDockTab: InternalPageProvider {
         guard let services else { return NSView() }
         let view = HomeDockView(services: services, mode: .messages)
         view.channelsSelection = { await Self.askSelection($0) }
+        HomeDock.followChannelsSetting(view) { [weak services] in services?.home.dockMode = $0 }
         views[key] = view
         for tab in pending.keys where services.pages.storeKey(of: tab) == key {
             let work = pending.removeValue(forKey: tab) ?? []
@@ -42,7 +44,10 @@ final class HomeDockTab: InternalPageProvider {
         return view
     }
 
-    func tabClosed(_ key: String) { views.removeValue(forKey: key)?.close() }
+    func tabClosed(_ key: String) {
+        views.removeValue(forKey: key)?.close()
+        services?.home.dockMode = .messages // no dock view shows Channels now
+    }
 
     /// Runs `body` on store tab `tabID`'s view now, or once the tab first shows.
     func whenShown(_ tabID: String, services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {
@@ -73,9 +78,10 @@ final class HomeDockTab: InternalPageProvider {
 }
 
 /// `cmux.host.home.switchView {view: "messages" | "channels", conversation?, message?}` of the
-/// docked Home's Channels page (COORD.md contract): the dock shows `view`, with the given
-/// selection, else the current one handed over. Answers `{view}`. Bound to one dock view, so a
-/// Channels page outside the dock (a plain tab, a browser) has no such verb (unknown_op).
+/// docked Home's Channels page (COORD.md contract): the dock shows `view` (the sidebar's Home or
+/// Channels entry; channels only while Channels is enabled), with the given selection, else the
+/// current one handed over. Answers `{view}`. Bound to one dock view, so a Channels page outside the
+/// dock (a plain tab, a browser) has no such verb (unknown_op).
 @MainActor
 final class HomeSwitchPageRoute: PageProvider {
     nonisolated static let prefix = "cmux.host.home."
@@ -89,6 +95,7 @@ final class HomeSwitchPageRoute: PageProvider {
         guard let view = fields["view"]?.stringValue.flatMap(HomeDockView.Mode.init(rawValue:)) else {
             throw PageError(code: "cmux.home.invalid_view", message: "view must be messages or channels", retryable: false)
         }
+        guard view.isEnabled else { throw PageError(code: "cmux.home.channels_off", message: HomeDockMode.channelsOffMessage, retryable: false) }
         let conversation = fields["conversation"]?.stringValue
         let message = fields["message"]?.stringValue
         if let conversation, !HomeDockSelection.isLinkID(conversation) || !(message.map(HomeDockSelection.isLinkID) ?? true) {

@@ -10,15 +10,21 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
     /// Every chat, newest first. O(n): only for readers that need the whole
     /// list (the palette's chats page, the projects relay off the main actor);
     /// per-change readers use `count`, `chat(id:)` and `newest(_:)`.
-    public var chats: [AcpmuxChat] { orderedKeys.compactMap { values[$0] } }
+    public var chats: [AcpmuxChat] { orderedKeys.compactMap { values[$0] }.filter { $0.parent == nil } }
 
     public var count: Int { orderedKeys.count }
 
     /// One chat by key, O(1).
     public func chat(id: String) -> AcpmuxChat? { values[id] }
 
-    /// The newest `limit` chats, O(limit).
-    public func newest(_ limit: Int) -> [AcpmuxChat] { orderedKeys.prefix(max(0, limit)).compactMap { values[$0] } }
+    /// The newest `limit` chats, a child chat (`parent`) left out: O(limit + children passed).
+    public func newest(_ limit: Int) -> [AcpmuxChat] {
+        var shown: [AcpmuxChat] = []
+        for key in orderedKeys where shown.count < limit {
+            if let chat = values[key], chat.parent == nil { shown.append(chat) }
+        }
+        return shown
+    }
 
     /// Replaces the mirror from a page response. acpmux sends the page sorted, newest first:
     /// its order is kept after one O(n) check (an older daemon's page is sorted here).
@@ -40,7 +46,7 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
     public enum Change: Sendable, Equatable {
         case removed(key: String)
         /// The live session's attention or latest reply changed: same place in the list.
-        case activity(key: String, attention: String?, preview: String?)
+        case activity(key: String, attention: String?, preview: String?, parent: String?)
         case upserted(key: String, chat: AcpmuxChat)
     }
 
@@ -49,7 +55,9 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
         guard let key = params["key"] as? String, !key.isEmpty else { return nil }
         switch params["kind"] as? String {
         case "removed": return .removed(key: key)
-        case "activity": return .activity(key: key, attention: params["attention"] as? String, preview: params["preview"] as? String)
+        case "activity":
+            return .activity(key: key, attention: params["attention"] as? String, preview: params["preview"] as? String,
+                             parent: (params["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         default:
             guard let chat = (params["chat"] as? [String: Any]).flatMap(AcpmuxChat.init(json:)) else { return nil }
             return .upserted(key: key, chat: chat)
@@ -69,9 +77,10 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
                 removeKey(of: old)
                 values[key] = nil
             }
-        case .activity(let key, let attention, let preview):
+        case .activity(let key, let attention, let preview, let parent):
             values[key]?.attention = attention
             values[key]?.preview = preview
+            values[key]?.parent = parent
         case .upserted(let key, let chat):
             if let old = values[key] { removeKey(of: old) }
             values[key] = chat

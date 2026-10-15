@@ -289,6 +289,10 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// One cheap completion through the user's own harness login, for
+    /// naming chats and workspaces (hq#1957, `crate::complete`): no chat
+    /// session, tools, MCP, hooks or session file. The unix socket only.
+    pub const MUX_COMPLETE: &str = "_acpmux/complete";
     /// Update Everything (cx-1mbnu; `hub/health_view.rs`): run now the
     /// no-sudo updater of the named outdated harnesses. The unix socket only.
     pub const MUX_HARNESS_UPDATE: &str = "_acpmux/harness/update";
@@ -326,8 +330,10 @@ pub mod method {
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
     pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
     /// The background-process registry (`hub/processes.rs`): list a chat's
-    /// (or every chat's) background processes, and stop one.
+    /// (or every chat's) background processes, read one's output, and stop
+    /// one.
     pub const MUX_PROCESS_LIST: &str = "_acpmux/process/list";
+    pub const MUX_PROCESS_TAIL: &str = "_acpmux/process/tail";
     pub const MUX_PROCESS_KILL: &str = "_acpmux/process/kill";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";

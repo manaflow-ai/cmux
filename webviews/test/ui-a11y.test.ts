@@ -16,6 +16,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import markdownStrings from "../src/pages/markdown/generated/strings.json";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -73,7 +74,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
   }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** What has focus as a screen reader hears it: the element, or the row its activedescendant names. */

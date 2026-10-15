@@ -51,6 +51,10 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
         }
     }
+    /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
+    /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
+    /// next theme payload.
+    public var colorTransition = ColorTransition()
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
@@ -62,6 +66,8 @@ public final class DesignSettings {
     /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
     /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
     public var classicHome = false
+    /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
+    public var homeChannelsEnabled = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,

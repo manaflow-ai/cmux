@@ -99,7 +99,7 @@ final class NewTabSparePool {
         services.agentTabs.takeSpare = { [weak self] in
             guard let self, let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
             let start = ContinuousClock.now
-            let spare = self.take(for: window, size: self.slot.peek?.frame.size ?? .zero)
+            let spare = self.take(for: window, size: nil)
             self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
             return spare?.view
         }
@@ -163,8 +163,16 @@ final class NewTabSparePool {
     private var targetPaneSize: NSSize? {
         guard let target, let pane = services.windows.controllers.first(where: { $0.window === target })?.content?.focusedPane
         else { return nil }
-        let size = pane.view.contentHost.bounds.size
+        let size = Self.newTabContentSize(in: pane)
         return size.width > 0 && size.height > 0 ? size : nil
+    }
+
+    /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
+    /// header band holds the bar now (the band goes with the browser).
+    static func newTabContentSize(in pane: PaneController) -> NSSize {
+        let scale = pane.view.window?.backingScaleFactor ?? 2
+        let strip = pane.hidesTabBar || pane.isAppPane ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
+        return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
     }
 
     /// Sizes the parking view and the spare in it to the target pane now, laid out, so the
@@ -174,6 +182,7 @@ final class NewTabSparePool {
         let size = targetPaneSize ?? content.bounds.size
         guard parking.frame != NewTabSpareParking.frame(in: content.bounds, size: size) else { return }
         BenchSpans.measure("pool.fit") { parking.fit(to: size) }
+        snapshotParked()
     }
 
     /// A pane of `window` changed size, or its focus moved: the parked spare follows the
@@ -188,9 +197,9 @@ final class NewTabSparePool {
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).
     /// The caller adopts it at once; the next spare follows when input is quiet.
-    /// `refit` is true when the spare waited at another size than `size`, the pane's
-    /// (a pane resized or focused less than ``fitSettle`` ago): its adoption resizes it.
-    func take(for window: NSWindow?, size: NSSize) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
+    /// `refit` is true when the spare waited at another size than `size`, the one it shows at
+    /// (nil: not known yet, Cmd-N): its adoption resizes it.
+    func take(for window: NSWindow?, size: NSSize?) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }
@@ -202,7 +211,22 @@ final class NewTabSparePool {
             warmedOnce = true
             view.model.whenPainted { Task { @MainActor [weak self] in self?.warmNow() } }
         }
-        return (view, window !== target, view.frame.size != size)
+        opening = (ObjectIdentifier(view), size)
+        return (view, window !== target, size.map { view.frame.size != $0 } ?? false)
+    }
+
+    /// The spare taken last and the size its opening shows it at, when known.
+    private var opening: (view: ObjectIdentifier, size: NSSize?)?
+    func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
+
+    /// The parked spare's own frame at its size: its adoption's cover (`AgentTabContent.coverMove`),
+    /// not the last New Tab page shown, drawn at another size or moment (4 px off, 2026-10-15).
+    private func snapshotParked() {
+        guard let view = slot.peek, view.superview === parking else { return }
+        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+        view.model.whenPainted { [weak self, weak view] in
+            if let view, view.superview === self?.parking { view.redraw.rememberFrame(of: view, appearance: appearance) }
+        }
     }
 
     /// A closed new tab page that never became a chat or a terminal: reset to
@@ -293,7 +317,7 @@ final class NewTabSparePool {
             view.frame = parking.bounds
             view.autoresizingMask = [.width, .height]
             BenchSpans.measure("pool.park") { parking.addSubview(view) }
-            return
+            return snapshotParked()
         }
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
         guard slot.shouldWarm, let content = target?.contentView else { return }
@@ -306,6 +330,7 @@ final class NewTabSparePool {
         view.autoresizingMask = [.width, .height]
         parking.addSubview(view)
         slot.parked(view)
+        snapshotParked()
     }
 
     private func watchMemoryPressure() {
