@@ -191,6 +191,15 @@ fn this_exe() -> Option<PathBuf> {
     std::env::current_exe().ok()
 }
 
+/// A test build that stands for another one (`CMUX_NEXT_CHIEF_BUILD_ID`, a
+/// DEBUG override) adopts only under test roots (`CMUX_NEXT_CHIEF_ROOT` and
+/// `CMUX_NEXT_ACPMUX_ROOT`), never the person's real homes.
+fn overrides_complete() -> bool {
+    let set = |key: &str| std::env::var_os(key).is_some_and(|v| !v.is_empty());
+    !set("CMUX_NEXT_CHIEF_BUILD_ID")
+        || (set("CMUX_NEXT_CHIEF_ROOT") && set("CMUX_NEXT_ACPMUX_ROOT"))
+}
+
 /// The CLI's acpmux adoption (`cmux acp …` in NEXT, `acp::build_home`):
 /// only for NEXT, only when the CLI uses the build's home (no explicit
 /// `ACPMUX_HOME`), never in a process an adoption started.
@@ -201,16 +210,18 @@ pub(crate) fn acpmux_for_cli(build: &BuildIdentity, home: &Path) {
     {
         return;
     }
-    let _ = acpmux::adopt(home, this_exe().as_deref(), "cmux acp");
+    // The CLI never stops a daemon the app may use now: it defers instead.
+    let _ = acpmux::adopt(home, None, "cmux acp");
 }
 
 /// The CLI's Chief adoption (`cmux chief …` in NEXT): `root` is the
 /// resolved home of a non-isolated launch.
 pub(crate) fn chief_for_cli(root: &Path) {
-    if std::env::var_os(CHILD_ENV).is_some() {
+    if std::env::var_os(CHILD_ENV).is_some() || !overrides_complete() {
         return;
     }
-    let _ = chief::adopt(root, this_exe().as_deref(), "cmux chief");
+    // The CLI never stops a Chief the app may use now: it defers instead.
+    let _ = chief::adopt(root, None, "cmux chief");
 }
 
 /// `cmux __adopt-build-homes`: the app's adoption at launch, before it
@@ -236,6 +247,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let identity = crate::app_identity::AppIdentity::detect(env, exe.as_deref());
     let own = identity.as_ref().and_then(|i| i.bundle_id.clone());
     let debug = own.as_deref().is_some_and(crate::app_identity::is_debug_bundle);
+    if !overrides_complete() {
+        println!("{}", serde_json::json!({"acpmux": "not-next", "chief": "not-next"}));
+        return 0;
+    }
     let build = match env("CMUX_NEXT_CHIEF_BUILD_ID").filter(|_| debug) {
         Some(id) => BuildIdentity::new(Some(&id), None),
         None => identity.map(|i| i.build()).unwrap_or_else(|| BuildIdentity::new(None, None)),

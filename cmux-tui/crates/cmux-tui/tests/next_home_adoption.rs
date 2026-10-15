@@ -176,6 +176,11 @@ fn old_chief(home: &Path) -> PathBuf {
     fs::create_dir_all(shared.join("state")).unwrap();
     fs::write(shared.join("state/host.lock"), "1\n").unwrap();
     fs::write(shared.join("agent-token"), "nightly-agent-token").unwrap();
+    fs::write(
+        shared.join("optchat/inspector.json"),
+        r#"{"port": 1, "token": "nightly-inspector"}"#,
+    )
+    .unwrap();
     shared
 }
 
@@ -343,6 +348,7 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
     }
     for runtime in [
         "agent-token",
+        "optchat/inspector.json",
         "state",
         "acpmux/daemon.pid",
         "acpmux/hosts",
@@ -469,4 +475,27 @@ fn a_running_pre_update_daemon_is_stopped_before_the_adoption() {
         wrong.push("the old home was not adopted".into());
     }
     assert!(wrong.is_empty(), "{}\n{}", wrong.join("\n"), text(&launch));
+}
+
+/// `cmux acp` of NEXT never stops a daemon the app may use: with the
+/// pre-update daemon running, the CLI defers and changes nothing.
+#[test]
+fn the_cli_never_stops_a_running_daemon_to_adopt() {
+    let home = temp_home("cli-running");
+    let old = old_acpmux(&home);
+    let _guard = StopDaemon(home.clone(), old.clone());
+    let started = acp_in(&home, &old, &["daemon", "start", "--json"]);
+    let status: Value = serde_json::from_slice(&started.stdout).unwrap_or(Value::Null);
+    let pid = status["pid"].as_u64().unwrap_or(0) as i32;
+    assert!(pid > 0, "the pre-update daemon did not start\n{}", text(&started));
+    let config = cli_as(NEXT, Some("cmux-next"), &home, &["acp", "config", "--json"]);
+    // SAFETY: kill with signal 0 only checks that the process exists.
+    let running = unsafe { libc::kill(pid, 0) } == 0;
+    let untouched = fs::symlink_metadata(&old).is_ok_and(|m| m.file_type().is_dir());
+    let recorded = home.join(".acpmux/builds").join(NEXT).join("adopted.json").exists();
+    assert!(
+        running && untouched && !recorded,
+        "the CLI stopped or moved a running home\n{}",
+        text(&config)
+    );
 }

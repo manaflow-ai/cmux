@@ -38,11 +38,14 @@ nonisolated enum BuildHomeAdoption {
         await adopt(cli: cli, environment: variables)
     }
 
-    /// cmux NEXT only; a DEBUG build may stand for NEXT through `CMUX_NEXT_CHIEF_BUILD_ID`.
+    /// cmux NEXT only; a DEBUG build may stand for NEXT through `CMUX_NEXT_CHIEF_BUILD_ID`,
+    /// and then only under test roots (`CMUX_NEXT_CHIEF_ROOT`, `CMUX_NEXT_ACPMUX_ROOT`), never
+    /// the person's real homes (the CLI checks the same).
     static func applies(bundleID: String?, environment: [String: String]) -> Bool {
         #if DEBUG
         if let override = environment["CMUX_NEXT_CHIEF_BUILD_ID"], !override.isEmpty {
-            return override == nextBundleID
+            let roots = ["CMUX_NEXT_CHIEF_ROOT", "CMUX_NEXT_ACPMUX_ROOT"].allSatisfy { environment[$0]?.isEmpty == false }
+            return override == nextBundleID && roots
         }
         #endif
         return bundleID == nextBundleID
@@ -54,7 +57,18 @@ nonisolated enum BuildHomeAdoption {
         process.executableURL = cli
         process.arguments = ["__adopt-build-homes"]
         process.environment = environment
-        let output = Pipe()
+        // A file, not a pipe: the CLI never blocks on a full pipe, whatever it prints.
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-adopt-build-homes-\(getpid()).log")
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
+              let output = try? FileHandle(forWritingTo: outputURL) else {
+            logger.error("adoption skipped: no output file")
+            return
+        }
+        defer {
+            try? output.close()
+            try? FileManager.default.removeItem(at: outputURL)
+        }
         process.standardOutput = output
         process.standardError = output
         let started = ContinuousClock.now
@@ -68,8 +82,7 @@ nonisolated enum BuildHomeAdoption {
             }
         }
         guard let status else { return }
-        // concurrency-allow: the CLI has exited, so the read ends at its few lines.
-        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let text = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
         for line in text.split(separator: "\n") {
             logger.info("\(line, privacy: .public)")
         }

@@ -18,7 +18,14 @@
 //! Never while a daemon of either home runs: a running one is stopped
 //! through its own socket with `daemon shutdown --keep-agents` (only that
 //! NEXT daemon); if it does not stop, the adoption waits for a later launch.
-//! Both homes' daemon locks (and router locks) are held through the moves.
+//! Both homes' daemon locks are held through the moves. The local router
+//! may outlive its daemon while kept agents hold its owner FIFO; it is not
+//! waited for: its folder moves with the home and the old path is a link.
+//! The CLI (`exe` None) never stops a daemon: it defers to the app.
+//! A crash between the two renames leaves `.post-update-<key>-<UTC>`; the
+//! next adoption merges every such folder it finds. A NEXT home with no old
+//! home to adopt gets a record too (`mode: none`), so an old path that
+//! appears later never replaces a home in use.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -26,7 +33,7 @@ use std::time::Duration;
 
 use super::{LEGACY_TAG, Outcome, RECORD, Steps};
 
-/// How long a stopped daemon (and its router) may take to let go of its lock.
+/// How long a stopped daemon may take to let go of its lock.
 const STOP_WAIT: Duration = Duration::from_secs(45);
 
 /// Adopts NEXT's old acpmux home into `home` (`<root>/builds/<key>`) once.
@@ -38,6 +45,12 @@ pub(crate) fn adopt(home: &Path, exe: Option<&Path>, by: &str) -> Outcome {
     let Some(root) = home.parent().and_then(Path::parent) else { return Outcome::Nothing };
     let legacy = root.join("tags").join(LEGACY_TAG);
     if !is_real_dir(&legacy) {
+        // A NEXT home with nothing to adopt is final: record it once.
+        if is_real_dir(home) && std::fs::symlink_metadata(&legacy).is_err() {
+            let (_, at) = super::now_stamps();
+            let record = serde_json::json!({"from": null, "at": at, "by": by, "mode": "none"});
+            let _ = super::write_record(&home.join(RECORD), &record);
+        }
         return Outcome::Nothing;
     }
     let mut steps = Steps::new("acpmux");
@@ -120,6 +133,28 @@ fn adopt_locked(
         record["renamed_sessions"] = serde_json::json!(merged.1);
         record["post_update_kept"] = serde_json::json!(kept);
     }
+    // Asides a crash left between the two renames of an earlier run.
+    let leftovers: Vec<PathBuf> = std::fs::read_dir(&builds)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with(&format!(".post-update-{key}-")))
+        })
+        .collect();
+    for aside in leftovers {
+        steps.step(format!("an earlier run left {}: merging it", aside.display()));
+        merge_sessions(&aside, home, steps);
+        let kept = home.join(format!(
+            "adopted-{}",
+            aside.file_name().unwrap_or_default().to_string_lossy().trim_start_matches('.')
+        ));
+        if std::fs::rename(&aside, &kept).is_ok() {
+            steps.step(format!("kept the rest of it in {}", kept.display()));
+        }
+    }
     // The old path names the one home from now on.
     let link = Path::new("..").join("builds").join(&key);
     match std::os::unix::fs::symlink(&link, legacy) {
@@ -140,13 +175,14 @@ fn is_real_dir(path: &Path) -> bool {
 }
 
 /// Stops the daemon of `home` if one runs (through its own socket, agents
-/// kept) and holds its daemon and router locks.
+/// kept) and holds its daemon lock. Without `exe` (the CLI) a running
+/// daemon defers the adoption.
 fn quiesce(home: &Path, exe: Option<&Path>, steps: &mut Steps) -> Result<Vec<File>, String> {
     let daemon_lock = home.join("daemon.lock");
     if super::held(&daemon_lock) {
         let Some(exe) = exe else {
             return Err(format!(
-                "an acpmux daemon runs in {} and no cmux binary can stop it",
+                "an acpmux daemon runs in {}; only the app stops it (at its next launch)",
                 home.display()
             ));
         };
@@ -169,23 +205,11 @@ fn quiesce(home: &Path, exe: Option<&Path>, steps: &mut Steps) -> Result<Vec<Fil
         }
         steps.step(format!("the acpmux daemon in {} stopped", home.display()));
     }
-    let mut held = Vec::new();
-    let router_lock = home.join("router/router.lock");
-    let mut wanted = vec![daemon_lock];
-    if router_lock.exists() {
-        if !super::wait_free(&router_lock, STOP_WAIT) {
-            return Err(format!("the acpmux router in {} still runs", home.display()));
-        }
-        wanted.push(router_lock);
+    match super::try_lock(&daemon_lock) {
+        Ok(Some(file)) => Ok(vec![file]),
+        Ok(None) => Err(format!("{} was taken while adopting", daemon_lock.display())),
+        Err(error) => Err(format!("{}: {error}", daemon_lock.display())),
     }
-    for lock in wanted {
-        match super::try_lock(&lock) {
-            Ok(Some(file)) => held.push(file),
-            Ok(None) => return Err(format!("{} was taken while adopting", lock.display())),
-            Err(error) => return Err(format!("{}: {error}", lock.display())),
-        }
-    }
-    Ok(held)
 }
 
 /// Moves each session of `aside` (and its agent host records) into `home`.

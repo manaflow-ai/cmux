@@ -55,6 +55,13 @@ pub(crate) fn adopt(target: &Path, exe: Option<&Path>, by: &str) -> Outcome {
     let Some(base) = target.parent() else { return Outcome::Nothing };
     let source = base.join(&account);
     if !has_state(&source) {
+        // NEXT's home with no shared home to adopt is final: record it once, so
+        // a shared home that appears later (NIGHTLY installed) is never cloned over it.
+        if has_state(target) {
+            let (_, at) = super::now_stamps();
+            let record = serde_json::json!({"from": null, "at": at, "by": by, "mode": "none"});
+            let _ = super::write_record(&target.join(RECORD), &record);
+        }
         return Outcome::Nothing;
     }
     let mut steps = Steps::new("chief");
@@ -124,6 +131,9 @@ fn adopt_locked(
         .and_then(|()| std::fs::rename(&partial, target));
     if let Err(error) = placed {
         let _ = std::fs::remove_dir_all(&partial);
+        if let Some(aside) = &set_aside {
+            let _ = std::fs::rename(aside, target);
+        }
         return Outcome::Deferred(format!("place {}: {error}", target.display()));
     }
     steps.step(format!("cloned {} into {}", source.display(), target.display()));
@@ -144,6 +154,8 @@ fn clone_home(
         matches!(
             rel.as_slice(),
             ["state" | "agent-token" | "tui" | "adopted.json"]
+                // NIGHTLY's live memory inspector: its port and secret.
+                | ["optchat", "inspector.json"]
                 | ["acpmux", "hosts" | "run" | "router" | "daemon.pid" | "daemon.lock"]
                 | ["c", _, "state" | "a" | "agent-token"]
         )
@@ -152,7 +164,7 @@ fn clone_home(
     let mut skipped = cloned.skipped;
     let mut raw = cloned.raw;
     let (from_session, to_session) = (session_name(source), session_name(target));
-    if let Some(session_dir) = find_session_dir(&source.join("tui"), &from_session) {
+    if let Some(session_dir) = find_session_dir(&source.join("tui"), &from_session)? {
         let tui = partial.join("tui");
         std::fs::create_dir_all(&tui)?;
         let to = tui.join(storage_component(&to_session));
@@ -176,20 +188,29 @@ fn clone_home(
 }
 
 /// The session folder of `session` in a `tui/` state root, else its only
-/// Chief session folder.
-fn find_session_dir(tui: &Path, session: &str) -> Option<PathBuf> {
+/// Chief session folder; None without one. More than one candidate is an
+/// error (the adoption waits): never guess which holds the conversations.
+fn find_session_dir(tui: &Path, session: &str) -> std::io::Result<Option<PathBuf>> {
     let exact = tui.join(storage_component(session));
     if exact.is_dir() {
-        return Some(exact);
+        return Ok(Some(exact));
     }
-    let found: Vec<PathBuf> = std::fs::read_dir(tui)
-        .ok()?
+    let Ok(entries) = std::fs::read_dir(tui) else { return Ok(None) };
+    let found: Vec<PathBuf> = entries
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with("cmux-chief-"))
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .map(|e| e.path())
         .collect();
-    (found.len() == 1).then(|| found[0].clone())
+    match found.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        _ => Err(std::io::Error::other(format!(
+            "{} Chief session folders in {} and none is {session}'s",
+            found.len(),
+            tui.display()
+        ))),
+    }
 }
 
 fn rewrite_tree(dir: &Path, top: &Path, from: &str, to: &str, out: &mut Vec<String>) {
@@ -199,6 +220,19 @@ fn rewrite_tree(dir: &Path, top: &Path, from: &str, to: &str, out: &mut Vec<Stri
         let Ok(kind) = entry.file_type() else { continue };
         if kind.is_dir() {
             rewrite_tree(&path, top, from, to, out);
+            continue;
+        }
+        // A link into the shared home points into NEXT's clone instead.
+        if kind.is_symlink() {
+            let link = std::fs::read_link(&path).map(|t| t.to_string_lossy().into_owned());
+            if let Ok(link) = link
+                && let Some(rest) = link.strip_prefix(from)
+                && (rest.is_empty() || rest.starts_with('/'))
+                && std::fs::remove_file(&path).is_ok()
+                && std::os::unix::fs::symlink(format!("{to}{rest}"), &path).is_ok()
+            {
+                out.push(path.strip_prefix(top).unwrap_or(&path).to_string_lossy().into_owned());
+            }
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -216,7 +250,7 @@ fn stop_own_chief(home: &Path, exe: Option<&Path>, steps: &mut Steps) -> Result<
         return Ok(());
     }
     let Some(exe) = exe else {
-        return Err("NEXT's Chief runs and no cmux binary can stop it".into());
+        return Err("NEXT's Chief runs; only the app stops it (at its next launch)".into());
     };
     steps.step(format!("NEXT's post-update Chief runs in {}: stopping it", home.display()));
     let _ = std::process::Command::new(exe)
