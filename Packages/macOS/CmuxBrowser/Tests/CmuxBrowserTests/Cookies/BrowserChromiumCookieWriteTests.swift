@@ -9,11 +9,13 @@ struct BrowserChromiumCookieWriteTests {
     }
 
     @Test func domainCookieKeepsItsDomainAndExpiry() throws {
-        let expires = Date(timeIntervalSince1970: 2_000_000_000)
-        let write = try #require(BrowserChromiumCookieWrite(cookie: cookie([
+        // Foundation caps long expiries, so compare with the cookie's own date.
+        let source = try cookie([
             .name: "sid", .value: "secret", .domain: ".example.com", .path: "/app",
-            .secure: "TRUE", .expires: expires,
-        ])))
+            .secure: "TRUE", .expires: Date().addingTimeInterval(86_400),
+        ])
+        let expires = try #require(source.expiresDate)
+        let write = try #require(BrowserChromiumCookieWrite(cookie: source))
         #expect(write.url.absoluteString == "https://example.com/app")
         #expect(write.domain == ".example.com")
         #expect(write.secure)

@@ -400,6 +400,18 @@ final class BrowserProfileStore: ObservableObject {
         repository.builtInDefaultProfileID
     }
 
+    /// Registers another engine's per-profile store (the Chromium engine's),
+    /// so clearing, deleting and importing into a profile reach it too.
+    func addEngineStore(_ store: any BrowserProfileEngineStoreManaging) {
+        repository.addEngineStore(store)
+    }
+
+    /// Writes imported cookies into every other engine's store of a profile.
+    @discardableResult
+    func importCookiesIntoEngineStores(_ cookies: [HTTPCookie], profileID: UUID) async -> [String: Int] {
+        await repository.importCookiesIntoEngineStores(cookies, profileID: profileID)
+    }
+
     var effectiveLastUsedProfileID: UUID {
         repository.effectiveLastUsedProfileID
     }
@@ -10664,6 +10676,9 @@ enum BrowserDataImporter {
                 await Task.yield()
             }
         }
+        // The same profile's Chromium store, when the Chromium engine is
+        // available; a no-op otherwise. The reported count stays WebKit's.
+        _ = await BrowserProfileStore.shared.importCookiesIntoEngineStores(cookies, profileID: destinationProfileID)
         return importedCount
     }
 

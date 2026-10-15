@@ -234,6 +234,18 @@ public final class BrowserProfileRepository {
         engineStores.append(store)
     }
 
+    /// Writes imported cookies into every other engine's store of a profile
+    /// (the importer writes the WebKit store itself).
+    /// - Returns: Cookies stored, by engine name; empty without another engine.
+    public func importCookiesIntoEngineStores(_ cookies: [HTTPCookie], profileID: UUID) async -> [String: Int] {
+        guard !cookies.isEmpty, profileDefinition(id: profileID) != nil else { return [:] }
+        var stored: [String: Int] = [:]
+        for store in engineStores {
+            stored[store.engineName, default: 0] += await store.importCookies(cookies, intoProfileID: profileID)
+        }
+        return stored
+    }
+
     /// Records a profile as last-used and persists the selection.
     /// - Parameter id: The profile id; ignored when unknown.
     public func noteUsed(_ id: UUID) {

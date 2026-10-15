@@ -79,6 +79,11 @@ private final class FakeEngineStore: BrowserProfileEngineStoreManaging {
         return kinds
     }
     func profileWasDeleted(_ profileID: UUID) { deleted.append(profileID) }
+    private(set) var imported: [(UUID, Int)] = []
+    func importCookies(_ cookies: [HTTPCookie], intoProfileID profileID: UUID) async -> Int {
+        imported.append((profileID, cookies.count))
+        return cookies.count
+    }
 }
 
 @MainActor
@@ -260,6 +265,19 @@ struct BrowserProfileRepositoryTests {
         #expect(engine.deleted.isEmpty)
         _ = repo.deleteProfile(id: p.id)
         #expect(engine.deleted == [p.id])
+    }
+
+    @Test func importedCookiesReachEngineStoresOfKnownProfilesOnly() async throws {
+        let (repo, _) = makeRepository()
+        let p = repo.createProfile(named: "P")!
+        let cookie = try #require(HTTPCookie(properties: [.name: "a", .value: "1", .domain: ".a.example", .path: "/"]))
+        #expect(await repo.importCookiesIntoEngineStores([cookie], profileID: p.id).isEmpty)
+        let engine = FakeEngineStore()
+        repo.addEngineStore(engine)
+        #expect(await repo.importCookiesIntoEngineStores([cookie], profileID: p.id) == ["chromium": 1])
+        #expect(await repo.importCookiesIntoEngineStores([cookie], profileID: UUID()).isEmpty)
+        #expect(await repo.importCookiesIntoEngineStores([], profileID: p.id).isEmpty)
+        #expect(engine.imported.count == 1)
     }
 
     @Test func clearProfileDataUnknownReturnsNil() async {
