@@ -65,11 +65,10 @@ extension TerminalController {
             var applyTask: Task<Void, Never>?
             let outcome: Result<BrowserEmulationOverrides, BrowserEmulationError>? = v2AwaitCallback(timeout: 10) { finish in
                 applyTask = Task { @MainActor in
-                    var overrides = panel.browserEmulation.overrides
-                    change(&overrides)
                     do {
-                        try await panel.setBrowserEmulation(overrides)
-                        finish(.success(overrides))
+                        finish(.success(try await panel.updateBrowserEmulation(change)))
+                    } catch let error as BrowserEmulationError {
+                        finish(.failure(error))
                     } catch {
                         finish(.failure(.offlineRulesUnavailable))
                     }
@@ -77,6 +76,8 @@ extension TerminalController {
             }
             switch outcome {
             case nil:
+                // Cancelling before the rules compile keeps the change from
+                // landing after the client was told it timed out.
                 applyTask?.cancel()
                 return .err(
                     code: "timeout",
@@ -86,7 +87,16 @@ extension TerminalController {
                     ),
                     data: nil
                 )
-            case .failure:
+            case .failure(.superseded):
+                return .err(
+                    code: "stale_state",
+                    message: String(
+                        localized: "browser.automation.error.superseded",
+                        defaultValue: "The browser surface was already recovered. Retry the command."
+                    ),
+                    data: v2BrowserPanelFields(context)
+                )
+            case .failure(.offlineRulesUnavailable):
                 return .err(
                     code: "emulation_failed",
                     message: String(

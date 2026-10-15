@@ -44,7 +44,11 @@ struct BrowserWebKitEmulationTests {
     private func makeHarness() async throws -> Harness {
         let server = try BrowserReplTestHTTPServer { path, _, _ in
             if path.hasPrefix("/data") {
-                return (200, ["Content-Type": "text/plain", "Cache-Control": "no-store"], Data("ok".utf8))
+                return (
+                    200,
+                    ["Content-Type": "text/plain", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*"],
+                    Data("ok".utf8)
+                )
             }
             return (200, ["Content-Type": "text/html", "Cache-Control": "no-store"], Data(Self.page.utf8))
         }
@@ -99,11 +103,11 @@ struct BrowserWebKitEmulationTests {
         return object.compactMapValues { ($0 as? NSNumber)?.doubleValue }
     }
 
-    private func fetchData(in webView: WKWebView) async throws -> String {
-        let result = try await value("""
-        try { return await (await fetch('/data?' + Math.random())).text(); }
+    private func fetchData(_ harness: Harness, in webView: WKWebView) async throws -> String {
+        let result = try await webView.callAsyncJavaScript("""
+        try { return await (await fetch(origin + '/data?' + Math.random())).text(); }
         catch (error) { return 'failed'; }
-        """, in: webView)
+        """, arguments: ["origin": harness.origin], contentWorld: .page)
         return try #require(result as? String)
     }
 
@@ -112,7 +116,7 @@ struct BrowserWebKitEmulationTests {
         defer { tearDown(harness) }
         let position = try #require(BrowserGeolocationOverride(latitude: 37.7749, longitude: -122.4194, accuracy: 12))
 
-        try await harness.controller.update(BrowserEmulationOverrides(geolocation: position), on: harness.webView)
+        try await harness.controller.update(on: { harness.webView }) { $0 = BrowserEmulationOverrides(geolocation: position) }
 
         #expect(try await currentPosition(in: harness.webView) == ["latitude": 37.7749, "longitude": -122.4194, "accuracy": 12])
         try await load(harness, path: "/next")
@@ -124,19 +128,23 @@ struct BrowserWebKitEmulationTests {
         defer { tearDown(harness) }
         let first = try #require(BrowserGeolocationOverride(latitude: 1, longitude: 2))
         let second = try #require(BrowserGeolocationOverride(latitude: 3, longitude: 4))
-        try await harness.controller.update(BrowserEmulationOverrides(geolocation: first), on: harness.webView)
+        try await harness.controller.update(on: { harness.webView }) { $0 = BrowserEmulationOverrides(geolocation: first) }
         _ = try await value("""
         window.seen = [];
+        let resolveFirst;
+        window.seenOnce = new Promise((resolve) => { resolveFirst = resolve; });
         window.seenTwice = new Promise((resolve) => {
           window.watchID = navigator.geolocation.watchPosition((p) => {
             seen.push([p.coords.latitude, p.coords.longitude]);
+            if (seen.length === 1) resolveFirst();
             if (seen.length === 2) resolve(seen);
           });
         });
         return true;
         """, in: harness.webView)
 
-        try await harness.controller.update(BrowserEmulationOverrides(geolocation: second), on: harness.webView)
+        _ = try await value("await window.seenOnce; return true;", in: harness.webView)
+        try await harness.controller.update(on: { harness.webView }) { $0 = BrowserEmulationOverrides(geolocation: second) }
 
         let seen = try #require(try await value("return await window.seenTwice;", in: harness.webView) as? [[NSNumber]])
         #expect(seen.map { $0.map(\.doubleValue) } == [[1, 2], [3, 4]])
@@ -145,17 +153,17 @@ struct BrowserWebKitEmulationTests {
     @Test func offlineBlocksNetworkLoadsAndReportsTheChange() async throws {
         let harness = try await makeHarness()
         defer { tearDown(harness) }
-        #expect(try await fetchData(in: harness.webView) == "ok")
+        #expect(try await fetchData(harness, in: harness.webView) == "ok")
 
-        try await harness.controller.update(BrowserEmulationOverrides(offline: true), on: harness.webView)
+        try await harness.controller.update(on: { harness.webView }) { $0 = BrowserEmulationOverrides(offline: true) }
 
         #expect(try await value("return navigator.onLine;", in: harness.webView) as? Bool == false)
-        #expect(try await fetchData(in: harness.webView) == "failed")
+        #expect(try await fetchData(harness, in: harness.webView) == "failed")
 
-        try await harness.controller.update(BrowserEmulationOverrides(offline: false), on: harness.webView)
+        try await harness.controller.update(on: { harness.webView }) { $0 = BrowserEmulationOverrides(offline: false) }
 
         #expect(try await value("return navigator.onLine;", in: harness.webView) as? Bool == true)
-        #expect(try await fetchData(in: harness.webView) == "ok")
+        #expect(try await fetchData(harness, in: harness.webView) == "ok")
         #expect(try await value("return networkEvents;", in: harness.webView) as? [String] == ["offline", "online"])
     }
 
@@ -163,10 +171,7 @@ struct BrowserWebKitEmulationTests {
         let harness = try await makeHarness()
         defer { tearDown(harness) }
         let position = try #require(BrowserGeolocationOverride(latitude: -33.86, longitude: 151.21))
-        try await harness.controller.update(
-            BrowserEmulationOverrides(geolocation: position, offline: true),
-            on: harness.webView
-        )
+        try await harness.controller.update(on: { harness.webView }) { $0 = BrowserEmulationOverrides(geolocation: position, offline: true) }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let replacement = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
@@ -174,25 +179,22 @@ struct BrowserWebKitEmulationTests {
         replacement.navigationDelegate = loads
 
         harness.controller.install(on: replacement)
-        // Offline blocks the http load itself, so the replacement's document
-        // comes from a local string with the same origin.
+        // Offline blocks http loads, so the replacement's document comes
+        // from a local string; its fetch still goes to the server.
         let finished = loads.nextFinish()
-        replacement.loadHTMLString(Self.page, baseURL: URL(string: harness.origin + "/"))
+        replacement.loadHTMLString(Self.page, baseURL: nil)
         try await finished.value
 
         #expect(try await currentPosition(in: replacement)["latitude"] == -33.86)
         #expect(try await value("return navigator.onLine;", in: replacement) as? Bool == false)
-        #expect(try await fetchData(in: replacement) == "failed")
+        #expect(try await fetchData(harness, in: replacement) == "failed")
     }
 
     @Test func resetKeepsReplacementsFreeOfOverrides() async throws {
         let harness = try await makeHarness()
         defer { tearDown(harness) }
         let position = try #require(BrowserGeolocationOverride(latitude: 10, longitude: 20))
-        try await harness.controller.update(
-            BrowserEmulationOverrides(geolocation: position, offline: true),
-            on: harness.webView
-        )
+        try await harness.controller.update(on: { harness.webView }) { $0 = BrowserEmulationOverrides(geolocation: position, offline: true) }
 
         harness.controller.reset()
         let configuration = WKWebViewConfiguration()
@@ -209,7 +211,56 @@ struct BrowserWebKitEmulationTests {
             "return Symbol.for('\(BrowserEmulationOverrides.pageScriptStateKey)') in globalThis;",
             in: replacement
         ) as? Bool == false)
-        #expect(try await fetchData(in: replacement) == "ok")
+        #expect(try await fetchData(harness, in: replacement) == "ok")
+    }
+
+    @Test func overlappingUpdatesBothLand() async throws {
+        let harness = try await makeHarness()
+        defer { tearDown(harness) }
+        let position = try #require(BrowserGeolocationOverride(latitude: 5, longitude: 6))
+
+        // The offline update suspends to compile its rules; the geolocation
+        // update runs meanwhile on the same main actor.
+        async let offline = harness.controller.update(on: { harness.webView }) { $0.offline = true }
+        async let geolocation = harness.controller.update(on: { harness.webView }) { $0.geolocation = position }
+        _ = try await (offline, geolocation)
+
+        #expect(harness.controller.overrides == BrowserEmulationOverrides(geolocation: position, offline: true))
+        #expect(try await value("return navigator.onLine;", in: harness.webView) as? Bool == false)
+        #expect(try await currentPosition(in: harness.webView)["latitude"] == 5)
+    }
+
+    @Test func aResetDuringTheCompileWinsOverTheUpdate() async throws {
+        let harness = try await makeHarness()
+        defer { tearDown(harness) }
+
+        let update = Task { @MainActor in
+            try await harness.controller.update(on: { harness.webView }) { $0.offline = true }
+        }
+        // Let the update run up to its compile suspension (main-actor FIFO).
+        await Task.yield()
+        harness.controller.reset()
+
+        await #expect(throws: BrowserEmulationError.superseded) { _ = try await update.value }
+        #expect(harness.controller.overrides.isDefault)
+        #expect(try await fetchData(harness, in: harness.webView) == "ok")
+    }
+
+    @Test func repeatedUpdatesKeepOneEmulationScript() async throws {
+        let harness = try await makeHarness()
+        defer { tearDown(harness) }
+        let controller = harness.webView.configuration.userContentController
+        controller.addUserScript(WKUserScript(source: "window.panelScript = 1", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+
+        for latitude in stride(from: 1.0, through: 5.0, by: 1.0) {
+            let position = try #require(BrowserGeolocationOverride(latitude: latitude, longitude: 0))
+            try await harness.controller.update(on: { harness.webView }) { $0.geolocation = position }
+        }
+
+        #expect(controller.userScripts.count == 2)
+        #expect(controller.userScripts.first?.source == "window.panelScript = 1")
+        try await load(harness, path: "/again")
+        #expect(try await currentPosition(in: harness.webView)["latitude"] == 5)
     }
 
     @Test func defaultOverridesLeaveTheNativeAPIsInPlace() async throws {
@@ -217,11 +268,11 @@ struct BrowserWebKitEmulationTests {
         defer { tearDown(harness) }
         let nativeOnLine = try await value("return navigator.onLine;", in: harness.webView) as? Bool
 
-        try await harness.controller.update(BrowserEmulationOverrides(), on: harness.webView)
+        try await harness.controller.update(on: { harness.webView }) { $0 = BrowserEmulationOverrides() }
 
         // The wrappers are installed but defer to WebKit while nothing is set.
         #expect(try await value("return navigator.onLine;", in: harness.webView) as? Bool == nativeOnLine)
-        #expect(try await fetchData(in: harness.webView) == "ok")
+        #expect(try await fetchData(harness, in: harness.webView) == "ok")
     }
 }
 
