@@ -19,6 +19,8 @@ public final class AgentPaneLoadingView: NSView {
     static let markDelay: Duration = .milliseconds(800)
     private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
     private var revealWaiters: [() -> Void] = []
+    /// While it fades out over the page, clicks and scrolls go to the page.
+    private var leaving = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -34,6 +36,8 @@ public final class AgentPaneLoadingView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override public var isFlipped: Bool { true }
+
+    override public func hitTest(_ point: NSPoint) -> NSView? { leaving ? nil : super.hitTest(point) }
 
     override public func layout() {
         super.layout()
@@ -73,6 +77,7 @@ public final class AgentPaneLoadingView: NSView {
     /// never gets here: it draws no loading state again, so switching back to it is instant.
     func leave(over page: NSView, fades: Bool) {
         hideMark()
+        leaving = true
         let overImage = isHidden
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -86,6 +91,7 @@ public final class AgentPaneLoadingView: NSView {
 
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
+        leaving = false
         removeFromSuperview()
         alphaValue = 1
         let waiters = revealWaiters
