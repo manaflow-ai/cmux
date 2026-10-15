@@ -28,6 +28,9 @@ struct Fake {
     lose_app_transport: bool,
     /// Owner state that changes while a call waits (`agents_wait`).
     live: RefCell<Live>,
+    /// This daemon operation answers `selector.not_found` after the delay,
+    /// as a wait on a terminal that closes.
+    fail_after: Option<(&'static str, Duration)>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -109,6 +112,16 @@ impl Backend for Fake {
                 kind: FailureKind::InProgress,
                 error: json!({"code": "transport.failed", "message": "read timed out"}),
                 idempotency_key: key,
+            });
+        }
+        if let Some((operation, delay)) = self.fail_after
+            && request["operation"] == operation
+        {
+            std::thread::sleep(delay);
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "selector.not_found", "message": "the terminal closed"}),
+                idempotency_key: None,
             });
         }
         if request["operation"] != "session.snapshot"

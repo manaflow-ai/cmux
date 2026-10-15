@@ -200,6 +200,57 @@ fn agents_wait_text_waits_on_the_daemon_for_the_tab_terminal() {
 }
 
 #[test]
+fn agents_wait_text_reports_a_terminal_that_closes_mid_wait() {
+    let gone =
+        json!({"workspaces": [{"id": WORKSPACE}], "tabs": [], "terminals": [], "agents": []});
+    let fake = Fake {
+        fail_after: Some(("terminal.wait", Duration::from_millis(400))),
+        ..Fake::live(Some(daemon("working")), None)
+            .then(Duration::from_millis(200), Change::Daemon(gone))
+    };
+    let mut server = Server::new(fake, None);
+    let result = call(
+        &mut server,
+        "agents_wait",
+        json!({"until": "text", "target": TERMINAL, "text": "done", "timeout_seconds": 10}),
+    );
+    assert_eq!(result["isError"], false, "as idle reports it: {result}");
+    let receipt = &result["structuredContent"];
+    assert_eq!(receipt["matched"], true, "{receipt}");
+    assert_eq!(receipt["match"]["state"], "closed", "{receipt}");
+    assert_eq!(receipt["match"]["terminal"], TERMINAL);
+}
+
+#[test]
+fn agents_wait_refuses_an_invalid_regex_and_an_unknown_dialog_agent_before_waiting() {
+    for text in ["(", "[a-", "a{2,1}"] {
+        let mut server = Server::new(Fake::live(Some(daemon("working")), None), None);
+        let result = call(
+            &mut server,
+            "agents_wait",
+            json!({"until": "text", "target": TERMINAL, "text": text, "regex": true}),
+        );
+        assert_eq!(result["isError"], true, "{text}: {result}");
+        assert_eq!(result["structuredContent"]["state"], "not_run", "{text}");
+        assert!(server.backend.sent.borrow().is_empty(), "{text} reached an owner");
+    }
+    // A dialog wait for an agent no owner knows fails as idle and text do;
+    // it does not wait out its timeout.
+    let started = Instant::now();
+    let mut server = Server::new(Fake::live(Some(daemon("working")), None), None);
+    let result = call(
+        &mut server,
+        "agents_wait",
+        json!({"until": "dialog", "target": "term_fedcba9876543210fedcba9876543210",
+               "timeout_seconds": 5}),
+    );
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"]["state"], "not_run");
+    assert_eq!(result["structuredContent"]["error"]["code"], "selector.not_found", "{result}");
+    assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+}
+
+#[test]
 fn agents_wait_refuses_bad_arguments_before_reaching_an_owner() {
     for arguments in [
         json!({}),
