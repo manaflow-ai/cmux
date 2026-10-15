@@ -62,6 +62,18 @@ public struct TerminalFontScale {
         view.bridge.takeUnretainedValue().onFontScaleChange = handler
     }
 
+    /// Gives `fresh`, a surface swapped in for this one (a reconnect replay), this view's font
+    /// scale, its changed flag and its observer (cx-1bauj): the zoom outlives the swap, and later
+    /// changes still reach the owner. The observer is moved after the scale applies, so carrying
+    /// the zoom over reports no change.
+    func carry(to fresh: TerminalSurfaceView) {
+        let old = view.bridge.takeUnretainedValue(), new = fresh.bridge.takeUnretainedValue()
+        if let scale = old.fontScale { TerminalFontScale(fresh).apply(scale) }
+        new.fontScale = old.fontScale
+        new.fontScaleChanged = old.fontScaleChanged
+        new.onFontScaleChange = old.onFontScaleChange
+    }
+
     /// Installs the font size callback on the view's current surface.
     func installCallback() {
         guard let surface = view.surface else { return }
