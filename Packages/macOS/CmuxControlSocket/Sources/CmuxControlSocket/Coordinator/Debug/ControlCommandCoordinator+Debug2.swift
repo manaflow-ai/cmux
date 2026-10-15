@@ -63,6 +63,13 @@ extension ControlCommandCoordinator {
             ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
     }
 
+    /// `debug.browser.context_menu` — right-clicks a Chromium page at `x`,`y` with trusted
+    /// input and records the menu instead of showing it; without `x` it returns the last one.
+    func debugBrowserContextMenu(_ params: [String: JSONValue]) -> ControlCallResult {
+        debugContext?.controlDebugBrowserContextMenu(params: params)
+            ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
+    }
+
     // MARK: - debug.right_sidebar.focus / debug.sidebar.visible
 
     /// `debug.right_sidebar.focus` — reveal and focus the right sidebar.

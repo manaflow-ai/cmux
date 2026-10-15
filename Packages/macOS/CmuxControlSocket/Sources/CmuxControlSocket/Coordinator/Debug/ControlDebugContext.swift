@@ -293,6 +293,13 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The full call result.
     func controlDebugBrowserDevTools(params: [String: JSONValue]) -> ControlCallResult
 
+    /// Runs `debug.browser.context_menu`: right-clicks a Chromium page at `x`,`y` and records
+    /// its composed context menu instead of showing it, or returns the last recorded one.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The full call result.
+    func controlDebugBrowserContextMenu(params: [String: JSONValue]) -> ControlCallResult
+
     /// Reveals and focuses the right sidebar for `debug.right_sidebar.focus`.
     ///
     /// - Parameters:
