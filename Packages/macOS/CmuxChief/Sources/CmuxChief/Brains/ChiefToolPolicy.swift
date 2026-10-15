@@ -18,9 +18,11 @@ import Foundation
 ///   allowed simple commands:
 ///   - `cmux` read-only commands only (``cmuxReadOnlyCommands``: `tree`,
 ///     `list-*`, `read-screen`, `vm ls`, …), and none of their words may
-///     name a destructive verb or flag (``cmuxWordAsks(_:)``). Every other
-///     `cmux` command (sending text or keys, creating, closing, `vm exec`,
-///     `browser eval`, `chief …` writes, `config set`) asks.
+///     name a destructive verb or flag (``cmuxWordAsks(_:)``); plus
+///     `cmux workspace create` with only naming and placement flags (no
+///     `--command`, `--layout` or `--focus true`). Every other `cmux` command
+///     (sending text or keys, closing, `vm new`, `vm exec`, `browser eval`,
+///     `chief dispatch|send|approve|memory add`, `config set`) asks.
 ///   - Read-only tools: `ls`, `pwd`, `cat`, `head`, `tail`, `wc`, `which`,
 ///     `date`, `jq`, `grep`, `cut`, `tr`, `column`; `rg` without `--pre`;
 ///     `sort` with only listed ordering flags; `uniq` with at most one file;
@@ -186,8 +188,36 @@ enum ChiefToolPolicy {
 
     /// A read-only `cmux` command (``cmuxReadOnlyCommands``) with no word that asks.
     private static func autoAllowsCmux(_ args: [String]) -> Bool {
+        if args.starts(with: ["workspace", "create"]) { return autoAllowsWorkspaceCreate(Array(args.dropFirst(2))) }
         guard let command = cmuxReadOnlyCommands.first(where: { args.starts(with: $0) }) else { return false }
         return !args.dropFirst(command.count).contains(where: cmuxWordAsks)
+    }
+
+    /// `cmux workspace create` that only names, describes and places a workspace in the
+    /// background: no `--command` or `--layout` (they run commands), no `--focus true`.
+    private static func autoAllowsWorkspaceCreate(_ args: [String]) -> Bool {
+        let valueFlags: Set<String> = [
+            "--name", "--description", "--cwd", "--window", "--group", "--group-placement", "--group-reference", "--id-format",
+        ]
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            if arg == "--json" || arg == "--no-focus" { continue }
+            if arg == "--focus" {
+                guard index < args.count, args[index] == "false" else { return false }
+                index += 1
+                continue
+            }
+            if arg == "--focus=false" { continue }
+            let key = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
+            guard valueFlags.contains(key) else { return false }
+            if !arg.contains("=") {
+                guard index < args.count else { return false }
+                index += 1
+            }
+        }
+        return true
     }
 
     /// `sort` with only ordering flags: GNU sort takes any unambiguous
