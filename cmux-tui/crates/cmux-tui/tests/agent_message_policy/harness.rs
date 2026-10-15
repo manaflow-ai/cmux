@@ -53,6 +53,9 @@ struct FakeAcpmux {
     /// Sessions whose prompts wait, unanswered, until their gate opens.
     gates: Mutex<std::collections::HashSet<String>>,
     gate_opened: Condvar,
+    /// Session id -> how many more prompts it refuses as moving
+    /// (`transfer.moving`).
+    moving: Mutex<HashMap<String, u32>>,
 }
 
 pub struct Daemon {
@@ -238,6 +241,12 @@ impl Daemon {
         self.fake.gates.lock().unwrap().insert(session.to_owned());
     }
 
+    /// `session` refuses its next `count` prompts as moving to another
+    /// machine (`transfer.moving`).
+    pub fn moving(&self, session: &str, count: u32) {
+        self.fake.moving.lock().unwrap().insert(session.to_owned(), count);
+    }
+
     /// The prompts waiting at `session`'s gate go on.
     pub fn open_gate(&self, session: &str) {
         self.fake.gates.lock().unwrap().remove(session);
@@ -370,9 +379,9 @@ impl Daemon {
             .unwrap()
     }
 
-    /// `cmux --json <args>` started against this daemon and its acpmux; the
-    /// caller waits for it.
-    pub fn cli_started(&self, args: &[&str]) -> Child {
+    /// `cmux --json <args>` started against this daemon and its acpmux, as
+    /// `credential`'s holder; the caller waits for it.
+    pub fn cli_started(&self, args: &[&str], credential: &str) -> Child {
         Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .arg("--json")
             .arg("--socket")
@@ -380,9 +389,9 @@ impl Daemon {
             .args(args)
             .env("LC_ALL", "C")
             .env("ACPMUX_SOCKET", self.dir.join("acpmux.sock"))
-            .env_remove("CMUX_TUI_SOCKET")
+            .env("CMUX_TUI_SOCKET", &self.socket)
+            .env("CMUX_LAUNCH_CREDENTIAL", credential)
             .env_remove("CMUX_TUI_TERMINAL_ID")
-            .env_remove("CMUX_LAUNCH_CREDENTIAL")
             .env_remove("ACPMUX_SESSION_ID")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -565,6 +574,21 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
                     gates = fake.gate_opened.wait(gates).unwrap();
                 }
                 drop(gates);
+                let mut moving = fake.moving.lock().unwrap();
+                let left = moving.get_mut(session).filter(|left| **left > 0);
+                let refuse = left.map(|left| *left -= 1).is_some();
+                drop(moving);
+                if refuse {
+                    let reply = error(
+                        -32000,
+                        "transfer.moving: the session is moving",
+                        json!("transfer.moving"),
+                    );
+                    if writeln!(writer, "{reply}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 let accepted = json!({"jsonrpc": "2.0", "method": "_acpmux/prompt_accepted",
                     "params": {"sessionId": session,
                         "promptId": params["_meta"]["acpmux"]["promptId"]}});

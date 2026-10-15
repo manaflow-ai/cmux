@@ -197,16 +197,24 @@ mod agent_message_pump {
 
     #[test]
     fn a_cli_send_racing_an_unsend_is_handed_over_once_and_withdrawn() {
-        let (daemon, _) = two_agents("unsend-race");
+        let (daemon, a) = two_agents("unsend-race");
         daemon.gate("b");
         daemon.withdraw_answers("b", "retracted");
-        let cli = daemon.cli_started(&["agent", "message", "acp:b", "racing"]);
+        let mut cli = daemon.cli_started(&["agent", "message", "acp:b", "racing"], &a);
         // The first hand-over waits at the gate: the message is acpmux's now.
         let deadline = Instant::now() + Duration::from_secs(20);
         let message = loop {
             let found = daemon.prompts().first().map(|p| p["_meta"]["acpmux"]["promptId"].clone());
             if let Some(Value::String(found)) = found {
                 break found;
+            }
+            if cli.try_wait().unwrap().is_some() {
+                let output = cli.wait_with_output().unwrap();
+                panic!(
+                    "the CLI ended before acpmux had the message: {}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
             assert!(Instant::now() < deadline, "nothing reached acpmux");
             std::thread::sleep(Duration::from_millis(20));
@@ -259,11 +267,12 @@ mod agent_message_pump {
     fn a_retried_unsend_replays_without_asking_acpmux_again() {
         let (daemon, a) = two_agents("unsend-replay");
         let message = id(&delivered_to_b(&daemon, &a, "once"));
-        daemon.withdraw_answers("b", "retracted");
+        // Too late: the delivery stays delivered, so acpmux would be asked again.
+        daemon.withdraw_answers("b", "too_late");
         let params = json!({"message_id": message});
         let first =
             daemon.mutate_keyed("agent.message.unsend", params.clone(), Some(&a), "k-replay");
-        assert_eq!(outcome(&first, "acp:b"), "retracted");
+        assert_eq!(outcome(&first, "acp:b"), "too_late");
         let again = daemon.mutate_keyed("agent.message.unsend", params, Some(&a), "k-replay");
         assert_eq!(again["result"]["value"], first["result"]["value"], "{again}");
         assert_eq!(daemon.withdrawals().len(), 1, "a replay asked acpmux again");
@@ -329,13 +338,14 @@ mod agent_message_pump {
     }
 
     #[test]
-    fn the_pump_retries_a_session_acpmux_starts_later() {
-        let (daemon, a, (_, alpha)) = two_agents_in("pump-retry");
-        let message = id(&daemon.sent(Some(&a), to("acp:late", "when you start")));
-        std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(prompts_of(&daemon, &message), 0, "a prompt to a session acpmux does not run");
+    fn the_pump_retries_a_session_acpmux_is_moving() {
+        let (daemon, a) = two_agents("pump-retry");
+        daemon.moving("b", 1);
+        let message = id(&daemon.sent(Some(&a), to("acp:b", "once you have moved")));
         // Nothing else happens: no send, no release, no acpmux reconnect.
-        daemon.place_session("late", &alpha);
-        daemon.wait_for(&message, "the retried delivery", |m| state(m, "acp:late") == "delivered");
+        let delivered =
+            daemon.wait_for(&message, "the retried delivery", |m| state(m, "acp:b") != "queued");
+        assert_eq!(state(&delivered, "acp:b"), "delivered", "{delivered}");
+        assert_eq!(prompts_of(&daemon, &message), 2, "one refused, one taken");
     }
 }
