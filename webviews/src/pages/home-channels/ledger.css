@@ -1153,7 +1153,8 @@
   }
 }
 .lg-run-title {
-  margin: -4px 0 4px var(--lg-run-lead);
+  margin: -4px 0 4px;
+  margin-inline-start: var(--lg-run-lead);
   font-size: var(--text-detail);
   color: var(--page-text-2);
   overflow: hidden;
@@ -1168,16 +1169,23 @@
   border-inline-start: 1px solid var(--lg-line);
 }
 .lg-run-more {
-  margin: 6px 0 0 16px;
+  margin: 6px 0 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
 }
 .lg-run-error {
   margin: 0;
-  padding: 4px 0 0 var(--lg-run-lead);
+  padding: 6px 8px;
+  border-top: 1px solid var(--lg-line);
   font-size: var(--text-detail);
   color: var(--hc-danger);
   white-space: pre-wrap;
+}
+/* In the card (no frame): the error in the label's column, no line above it. */
+.lg-run > .lg-run-error {
+  padding: 4px 0 0;
+  padding-inline-start: var(--lg-run-lead);
+  border-top: 0;
 }
 .lg-run-status {
   display: inline-flex;
@@ -1247,7 +1255,8 @@
     order: 2;
     flex-basis: 100%;
     overflow: hidden;
-    padding: 0 0 6px var(--lg-run-lead);
+    padding: 0 0 6px;
+    padding-inline-start: var(--lg-run-lead);
   }
   .lg-run-metas > .lg-run-meta:first-child::before {
     content: none;
