@@ -32,7 +32,7 @@ def main():
     time.sleep(1); j.hide_keyboard(); time.sleep(3)
     video = tq.rec_start(tag)
     vt0 = tq.load()["rec"]["t0"]
-    flings, snaps = [], []
+    flings, snaps, taps = [], [], []
     for i in range(n):
         s.swipe(200, 300, 200, 650, duration=0.1)
         tf = time.time() - vt0
@@ -42,6 +42,7 @@ def main():
         if not jb:
             snaps.append(round(tf, 2))
             continue
+        taps.append(round(time.time() - vt0, 2))
         s.tap_el(jb)
         time.sleep(0.9)
     tq.rec_stop()
@@ -53,13 +54,13 @@ def main():
     b = json.load(open(bj))
     import v8v_prunes
     pr = v8v_prunes.prunes(os.path.join(v8.V6, f"{tag}.log"))
-    res = {"tag": tag, "flings": len(flings), "fling_times_v": flings, "no_jump_button_after_fling": snaps,
+    res = {"tag": tag, "flings": len(flings), "fling_times_v": flings, "jump_taps_v": taps, "no_jump_button_after_fling": snaps,
            "fling_reached_bottom_lines": re.findall(r"[0-9:.]{12} [^\n]*a fling reached the bottom[^\n]*", lg),
            "prunes": len(pr) + len(re.findall(r"history pruned", lg)), "history_pruned_while_reading": len(re.findall(r"history pruned", lg)),
            "video_black_runs": [(r["start"], r["dur_ms"]) for r in b["black_runs"]], "video_black_over_1_frame": b["black_runs_over_17ms"],
            "load": v8.loads()}
     json.dump(res, open(os.path.join(v8.V6, f"{tag}-result.json"), "w"), indent=1)
-    ev("fling", **{k: v for k, v in res.items() if k != "fling_times_v"})
+    ev("fling", **{k: v for k, v in res.items() if k not in ("fling_times_v", "jump_taps_v")})
 
 
 if __name__ == "__main__":
