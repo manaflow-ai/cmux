@@ -167,7 +167,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL("queued", scheme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
     await page.locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea").first().click();
     await page.keyboard.type("Also cover the 503 path");
     await page.locator(".acpmux-steer").waitFor();

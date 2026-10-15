@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
@@ -54,6 +54,18 @@ export function EffortPicker({
       ? ultracode.title
       : (selectedVisible?.name ?? t("picker.reasoning"));
   const fast = speed !== undefined && speed.current === speed.on;
+  // Where focus goes when the menu closes: its own chip, or, while the composer row folds effort
+  // into the model chip and keeps this one out of sight, the model chip that opened it.
+  const root = useRef<HTMLSpanElement>(null);
+  const back = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const own = root.current?.querySelector<HTMLElement>(".acpmux-picker-button") ?? null;
+    back.current =
+      own && getComputedStyle(own).visibility !== "hidden"
+        ? own
+        : (root.current?.parentElement?.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button") ?? own);
+  }, [open]);
   // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
   // Base UI initially focuses the popup while it measures its anchor. Move focus to the selected
@@ -86,13 +98,13 @@ export function EffortPicker({
     </MenuRadioItem>
   );
   return (
-    <span className="acpmux-picker acpmux-effort">
+    <span ref={root} className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
           <span>{fast ? `${level} ${t("picker.chipFast")}` : level}</span>
           {chevron}
         </MenuButton>
-        <MenuPopup side="top" align="start" className="acpmux-effort-menu">
+        <MenuPopup side="top" align="start" className="acpmux-effort-menu" finalFocus={back}>
           {visibleEfforts.length > 0 && (
             <MenuGroup label={t("picker.reasoning")}>
               <MenuRadioGroup
