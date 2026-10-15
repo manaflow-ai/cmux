@@ -251,6 +251,9 @@ pub(crate) fn harness_command(
         // A terminal's launch credential names that one terminal; no agent
         // acts as the terminal that started acpmux, not even through a preset.
         .env_remove(crate::config::LAUNCH_CREDENTIAL_ENV)
+        // Nor as the Chief whose host started acpmux (config::CHIEF_CREDENTIAL_ENV).
+        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[0])
+        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[1])
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
