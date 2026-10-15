@@ -18,7 +18,7 @@ import {
 } from "./omnibar";
 import { homePath, listed, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
-import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { parseNewTabTemplate, parseStyleSwitch, type NewTabTemplate, type StyleSwitchLook } from "./newtab/templates";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -79,6 +79,8 @@ export type NewTabHost = {
   layout: "a" | "b";
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
+  /// The style switch's look (Settings > Labs `labs.newTabStyle`); unset is the default look.
+  styleSwitch?: StyleSwitchLook;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
@@ -108,6 +110,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const omnibar = omnibarContext(object.omnibar);
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
+  const styleSwitch = parseStyleSwitch(object.styleSwitch);
   return {
     hotkeys,
     initialKind,
@@ -125,6 +128,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
+    ...(styleSwitch ? { styleSwitch } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),

@@ -907,6 +907,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.newTabStyle",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -22151,6 +22152,95 @@
     },
     {
       "accepts" : [
+        "round",
+        "hint",
+        "dots",
+        "strip",
+        "names"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleRound",
+            "text" : "Round Dots"
+          },
+          "value" : "round"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleHint",
+            "text" : "Dots That Name a Pick"
+          },
+          "value" : "hint"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleDots",
+            "text" : "Chip Dots"
+          },
+          "value" : "dots"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleStrip",
+            "text" : "Layout Sketches"
+          },
+          "value" : "strip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabStyleNames",
+            "text" : "Style Names"
+          },
+          "value" : "names"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "round",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.newTabStyle.help",
+        "text" : "How the New Tab page shows its styles."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.newTabStyle",
+      "keywords" : [
+        "labs",
+        "new tab",
+        "style",
+        "template",
+        "dots",
+        "switch"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "newTabStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.newTabStyle",
+        "text" : "New Tab Style Switch"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -23552,7 +23642,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9ff5d40a2ccf65edc5d7a6882883672ab897ec6b9a4de0e4f34156e20931da60",
+  "schema_hash" : "1d28450e03c1f3a7a73a16ac974887e4d412f1224de216e921352d8994f2ce3b",
   "sections" : [
     {
       "id" : "general",
