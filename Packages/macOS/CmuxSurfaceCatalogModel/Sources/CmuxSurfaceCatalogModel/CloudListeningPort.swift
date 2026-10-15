@@ -3,7 +3,9 @@ import Foundation
 /// Why a listener inside a Cloud machine is, or is not, the person's own service.
 ///
 /// `cmux vm ports` and the Ports tab both classify listeners through
-/// ``CloudListeningPortClassifier``, so a port hidden in one is hidden in the other.
+/// ``CloudListeningPortKind/classify(port:addresses:processes:displayPortsOwned:)``
+/// (through ``CloudListeningPort/inventory(socketListing:displayPortsOwned:)``),
+/// so a port hidden in one is hidden in the other.
 public enum CloudListeningPortKind: String, Equatable, Sendable, CaseIterable {
     /// A service the person (or their agent) started: a dev server, an API, a database.
     case app
@@ -56,7 +58,7 @@ public struct CloudListeningPort: Equatable, Sendable {
 /// system ports. Port numbers decide only for listeners that are never web
 /// previews; everything else is decided by the owning process, and a listener
 /// whose owner is unknown is shown rather than hidden.
-public enum CloudListeningPortClassifier {
+extension CloudListeningPortKind {
     /// Ports that are system-owned whatever process the inventory reports.
     /// 22 (SSH), 1337 (cmux-tui daemon), 8080 (image-internal listener), 53 (DNS).
     public static let systemPorts: [Int: CloudListeningPortKind] = {
@@ -98,7 +100,7 @@ public enum CloudListeningPortClassifier {
         displayPortsOwned: Bool? = nil
     ) -> CloudListeningPortKind {
         if let kind = systemPorts[port] { return kind }
-        let ownerKinds = processes.map(processKind)
+        let ownerKinds = processes.map(CloudListeningPortKind.init(processName:))
         if !ownerKinds.isEmpty, ownerKinds.allSatisfy(\.isSystem), let first = ownerKinds.first {
             return first
         }
@@ -115,13 +117,29 @@ public enum CloudListeningPortClassifier {
     }
 
     /// The kind a single process name implies.
-    public static func processKind(_ name: String) -> CloudListeningPortKind {
-        if let kind = systemProcesses[name] { return kind }
-        // cmux-tui, cmuxd, cmuxd-remote and helpers all start with `cmux`.
-        if name.lowercased().hasPrefix("cmux") { return .cmux }
-        return .app
+    public init(processName name: String) {
+        if let kind = Self.systemProcesses[name] {
+            self = kind
+        } else if name.lowercased().hasPrefix("cmux") {
+            // cmux-tui, cmuxd, cmuxd-remote and helpers all start with `cmux`.
+            self = .cmux
+        } else {
+            self = .app
+        }
     }
 
+    /// 127/8 addresses other than 127.0.0.1 are system stubs (systemd-resolved
+    /// on 127.0.0.53/54), not services a preview could reach.
+    static func isLoopbackAlias(_ raw: String) -> Bool {
+        let bracketless = raw.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        let address = bracketless.split(separator: "%", maxSplits: 1).first.map(String.init) ?? bracketless
+        let v4 = address.hasPrefix("::ffff:") ? String(address.dropFirst("::ffff:".count)) : address
+        return v4.hasPrefix("127.") && v4 != "127.0.0.1"
+    }
+}
+
+/// Reading a machine's socket listing into classified ports.
+extension CloudListeningPort {
     /// Parses an `ss -ltnp` / `netstat -ltnp` listing into classified ports.
     /// Returns `nil` when the listing holds diagnostics but no socket rows: the
     /// inventory itself failed, which is different from nothing listening.
@@ -146,7 +164,7 @@ public enum CloudListeningPortClassifier {
                 addresses: portAddresses,
                 processes: portProcesses,
                 pids: (pids[port] ?? []).sorted(),
-                kind: classify(port: port, addresses: portAddresses, processes: portProcesses, displayPortsOwned: displayPortsOwned)
+                kind: CloudListeningPortKind.classify(port: port, addresses: portAddresses, processes: portProcesses, displayPortsOwned: displayPortsOwned)
             )
         }
     }
@@ -196,15 +214,6 @@ public enum CloudListeningPortClassifier {
             return name.isEmpty ? [] : [(name, pid)]
         }
         return []
-    }
-
-    /// 127/8 addresses other than 127.0.0.1 are system stubs (systemd-resolved
-    /// on 127.0.0.53/54), not services a preview could reach.
-    static func isLoopbackAlias(_ raw: String) -> Bool {
-        let bracketless = raw.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-        let address = bracketless.split(separator: "%", maxSplits: 1).first.map(String.init) ?? bracketless
-        let v4 = address.hasPrefix("::ffff:") ? String(address.dropFirst("::ffff:".count)) : address
-        return v4.hasPrefix("127.") && v4 != "127.0.0.1"
     }
 
     private static func isSocketRow(_ fields: [Substring]) -> Bool {

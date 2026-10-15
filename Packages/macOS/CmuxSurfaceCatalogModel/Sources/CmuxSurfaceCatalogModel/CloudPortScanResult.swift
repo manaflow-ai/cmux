@@ -16,7 +16,7 @@ public struct CloudPortScanResult: Equatable, Sendable {
         // The shared classifier decides which listeners are the person's own
         // (`cmux vm ports` uses the same one). Display slots stay in the scan
         // here: the provider removes them only when the Desktop owns them.
-        guard let inventory = CloudListeningPortClassifier.inventory(socketListing: socketListing, displayPortsOwned: false) else {
+        guard let inventory = CloudListeningPort.inventory(socketListing: socketListing, displayPortsOwned: false) else {
             return nil
         }
         var reachable = Set<Int>()

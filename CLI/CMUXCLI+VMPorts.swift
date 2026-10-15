@@ -54,7 +54,7 @@ extension CMUXCLI {
             responseTimeout: 35
         )
         let stdout = (response["stdout"] as? String) ?? ""
-        let inventory = CloudListeningPortClassifier.inventory(socketListing: stdout)
+        let inventory = CloudListeningPort.inventory(socketListing: stdout)
         let privateAddress = vmPrivateAddress(vmId: vmId, client: client)
         let sharing = vmPortSharing(vmId: vmId, client: client)
         let rows = (inventory ?? []).map { listener in
@@ -207,7 +207,7 @@ extension CMUXCLI {
             return
         }
         guard (response["exit_code"] as? Int ?? 0) == 0,
-              let inventory = CloudListeningPortClassifier.inventory(socketListing: (response["stdout"] as? String) ?? "")
+              let inventory = CloudListeningPort.inventory(socketListing: (response["stdout"] as? String) ?? "")
         else { return }
         if let message = Self.vmPortNotListeningMessage(vmId: vmId, port: port, inventory: inventory) {
             throw CLIError(message: message)

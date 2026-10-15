@@ -17,7 +17,7 @@ import Testing
 
     @Test("A desktop machine's system listeners are classified apart from the dev server")
     func desktopMachine() throws {
-        let ports = try #require(CloudListeningPortClassifier.inventory(socketListing: Self.desktopMachineListing))
+        let ports = try #require(CloudListeningPort.inventory(socketListing: Self.desktopMachineListing))
         #expect(ports.map(\.port) == [22, 53, 1337, 3000, 5901, 6901, 41235])
         #expect(ports.filter { !$0.isSystem }.map(\.port) == [3000])
         let kinds = Dictionary(uniqueKeysWithValues: ports.map { ($0.port, $0.kind) })
@@ -36,31 +36,31 @@ import Testing
 
     @Test("Unknown ownership shows a listener instead of hiding it")
     func unknownOwnerIsApp() {
-        #expect(CloudListeningPortClassifier.classify(port: 8081, addresses: ["127.0.0.1"], processes: []) == .app)
-        #expect(CloudListeningPortClassifier.classify(port: 33015, addresses: ["127.0.0.1"], processes: ["containerd"]) == .container)
-        #expect(CloudListeningPortClassifier.classify(port: 33015, addresses: ["127.0.0.1"], processes: ["containerd", "node"]) == .app)
+        #expect(CloudListeningPortKind.classify(port: 8081, addresses: ["127.0.0.1"], processes: []) == .app)
+        #expect(CloudListeningPortKind.classify(port: 33015, addresses: ["127.0.0.1"], processes: ["containerd"]) == .container)
+        #expect(CloudListeningPortKind.classify(port: 33015, addresses: ["127.0.0.1"], processes: ["containerd", "node"]) == .app)
     }
 
     @Test("Fixed system ports stay hidden whatever the owner")
     func fixedSystemPorts() {
-        #expect(CloudListeningPortClassifier.classify(port: 22, addresses: ["0.0.0.0"], processes: ["node"]) == .ssh)
-        #expect(CloudListeningPortClassifier.classify(port: 1337, addresses: ["*"], processes: []) == .cmux)
-        #expect(CloudListeningPortClassifier.classify(port: 8080, addresses: ["0.0.0.0"], processes: []) == .image)
-        #expect(CloudListeningPortClassifier.classify(port: 53, addresses: ["0.0.0.0"], processes: ["dnsmasq"]) == .dns)
+        #expect(CloudListeningPortKind.classify(port: 22, addresses: ["0.0.0.0"], processes: ["node"]) == .ssh)
+        #expect(CloudListeningPortKind.classify(port: 1337, addresses: ["*"], processes: []) == .cmux)
+        #expect(CloudListeningPortKind.classify(port: 8080, addresses: ["0.0.0.0"], processes: []) == .image)
+        #expect(CloudListeningPortKind.classify(port: 53, addresses: ["0.0.0.0"], processes: ["dnsmasq"]) == .dns)
     }
 
     @Test("Display slots follow the Desktop when known, the owner when not")
     func displaySlots() {
-        #expect(CloudListeningPortClassifier.classify(port: 5901, addresses: ["0.0.0.0"], processes: [], displayPortsOwned: true) == .desktop)
-        #expect(CloudListeningPortClassifier.classify(port: 5901, addresses: ["0.0.0.0"], processes: [], displayPortsOwned: false) == .app)
-        #expect(CloudListeningPortClassifier.classify(port: 5901, addresses: ["0.0.0.0"], processes: [], displayPortsOwned: nil) == .desktop)
-        #expect(CloudListeningPortClassifier.classify(port: 5901, addresses: ["0.0.0.0"], processes: ["python3"], displayPortsOwned: nil) == .app)
-        #expect(CloudListeningPortClassifier.classify(port: 6901, addresses: ["0.0.0.0"], processes: ["websockify"], displayPortsOwned: false) == .desktop)
+        #expect(CloudListeningPortKind.classify(port: 5901, addresses: ["0.0.0.0"], processes: [], displayPortsOwned: true) == .desktop)
+        #expect(CloudListeningPortKind.classify(port: 5901, addresses: ["0.0.0.0"], processes: [], displayPortsOwned: false) == .app)
+        #expect(CloudListeningPortKind.classify(port: 5901, addresses: ["0.0.0.0"], processes: [], displayPortsOwned: nil) == .desktop)
+        #expect(CloudListeningPortKind.classify(port: 5901, addresses: ["0.0.0.0"], processes: ["python3"], displayPortsOwned: nil) == .app)
+        #expect(CloudListeningPortKind.classify(port: 6901, addresses: ["0.0.0.0"], processes: ["websockify"], displayPortsOwned: false) == .desktop)
     }
 
     @Test("netstat owners are parsed like ss owners")
     func netstatOwners() throws {
-        let ports = try #require(CloudListeningPortClassifier.inventory(socketListing: """
+        let ports = try #require(CloudListeningPort.inventory(socketListing: """
             Active Internet connections (only servers)
             Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
             tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      402/sshd
@@ -76,14 +76,14 @@ import Testing
 
     @Test("A diagnostics-only listing is a failed inventory, an empty one is not")
     func failedInventory() {
-        #expect(CloudListeningPortClassifier.inventory(socketListing: "No port inspector found") == nil)
-        #expect(CloudListeningPortClassifier.inventory(socketListing: "") == [])
+        #expect(CloudListeningPort.inventory(socketListing: "No port inspector found") == nil)
+        #expect(CloudListeningPort.inventory(socketListing: "") == [])
     }
 
     @Test("The Ports tab scan and the CLI inventory agree on which ports are the person's")
     func scanAgreesWithInventory() throws {
         let scan = try #require(CloudPortScanResult(socketListing: Self.desktopMachineListing))
-        let inventory = try #require(CloudListeningPortClassifier.inventory(socketListing: Self.desktopMachineListing, displayPortsOwned: true))
+        let inventory = try #require(CloudListeningPort.inventory(socketListing: Self.desktopMachineListing, displayPortsOwned: true))
         #expect(scan.ports == inventory.filter { !$0.isSystem }.map(\.port))
     }
 
