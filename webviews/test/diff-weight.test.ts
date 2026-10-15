@@ -116,7 +116,8 @@ describe("Muted is clearly quieter than Theme", () => {
   // read almost like Theme. Muted's own row and word tints sit a fixed margin under Theme's on
   // the diff viewer page and the agent pane's diff cards alike.
   const MARGIN = 5;
-  const ROW = '(?:--diffs-bg-addition-override|\\[data-line\\]\\[data-line-type="change-addition"\\] \\{ --diffs-line-bg)';
+  const ROW =
+    '(?:--diffs-bg-addition-override|\\[data-line\\]\\[data-line-type="change-addition"\\] \\{ --diffs-line-bg)';
   const WORD = "--diffs-bg-addition-emphasis-override";
 
   test("on the diff viewer page", async () => {
