@@ -3717,7 +3717,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil,
         engineChoice: BrowserEngineChoice? = nil,
-        engineRuntime: BrowserEngineRuntime = .shared
+        engineRuntime: BrowserEngineRuntime? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
