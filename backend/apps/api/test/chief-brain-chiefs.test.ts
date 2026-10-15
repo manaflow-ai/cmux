@@ -51,7 +51,11 @@ describe("a Cloud Chief's chiefs tool", () => {
     // The grant is on for an existing Chief (missing = on).
     expect((await brain(token, lead)).chiefs).toBe(true)
     const made = await manageChiefs(testEnv, lead, user, { action: "create", display_name: "Docs", role: "Docs writer" }, "call-1")
-    expect(made).toContain("starts on its own")
+    expect(made).toContain('"state": "started"')
+    // A deployment that forwards no wakes to brains: the tool says the new Chief will not answer.
+    const off = await manageChiefs({ ...testEnv, CHIEF_BRAIN_ENABLED: "0" }, lead, user, { action: "create", display_name: "Quiet" }, "call-off")
+    expect(off).toContain('"reason": "brains_off"')
+    expect(off).toContain("will not answer")
     await settle(user)
     const docs = (await chiefs(token)).find((c) => c.display_name === "Docs")!
     expect(docs).toBeDefined()

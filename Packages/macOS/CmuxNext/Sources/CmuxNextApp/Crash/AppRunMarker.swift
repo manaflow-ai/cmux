@@ -13,7 +13,11 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 ///   plain signal with no report);
 /// - any other signal, or one sent by a process or by raise/abort (SIGTERM,
 ///   SIGINT, SIGHUP, abort's SIGABRT): re-raise it, or it would be lost.
-private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, _ in
+///
+/// On Darwin arm64 `si_code` cannot tell them apart (XNU never reports `SI_USER`, cx-sjv65), so a
+/// signal that arrives as a system call returns (raised, or sent to a waiting thread) is re-raised.
+/// One sent to a thread running user code still reads as a fault and is lost, as before.
+private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
     if descriptor >= 0 {
@@ -24,8 +28,26 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
     }
     _ = Darwin.signal(signal, SIG_DFL)
     let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
+        || arrivedOnASystemCall(context)
     let fault = signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGFPE || signal == SIGTRAP || signal == SIGSYS
     if sentBySoftware || !fault { _ = raise(signal) }
+}
+
+/// Whether the thread was returning from `svc #0x80`: syndrome class 0x15 and that word before the pc.
+/// Sentry's re-raise arrives on the `sigreturn` to the faulting pc, which may be unmapped, so the
+/// word is read with `vm_read_overwrite` and a failed read is a fault. No context re-raises.
+nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bool {
+    #if arch(arm64)
+    guard let state = context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
+    guard state.pointee.__es.__esr >> 26 == 0x15 else { return false }
+    let pc = UInt(state.pointee.__ss.__pc)
+    guard pc >= 4 else { return false }
+    var word: UInt32 = 0, read: vm_size_t = 0
+    let result = withUnsafeMutablePointer(to: &word) { vm_read_overwrite(mach_task_self_, vm_address_t(pc - 4), 4, vm_address_t(UInt(bitPattern: $0)), &read) }
+    return result == KERN_SUCCESS && read == 4 && word == 0xD400_1001
+    #else
+    return false
+    #endif
 }
 
 /// Gives the calling thread an alternate signal stack, so a fatal-signal
