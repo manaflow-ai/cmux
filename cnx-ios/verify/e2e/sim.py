@@ -203,6 +203,10 @@ class Sim:
         """Types `text` by tapping software keyboard keys, switching layouts as needed."""
         self.dismiss_keyboard_intro()
         keys = self.keyboard()
+        if not keys:
+            # A hardware keyboard event (axe) hides the soft keyboard: type the same way.
+            sh("axe", "type", text, "--udid", self.udid, check=False)
+            return
         for ch in text:
             label = {" ": " ", "\n": "return"}.get(ch, ch)
             want = label.lower() if ch in self.SHIFTED else label
