@@ -96,10 +96,17 @@ pub(super) struct ProcessTable {
 }
 
 impl ProcessTable {
-    /// Folds in the params of one `background_task_update` record; returns
-    /// the process when it changed. A process ends once: a later end or
+    /// Folds in the params of one `background_task_update` record, and the
+    /// output file the update named (`take_output_file`); returns the
+    /// process when it changed. A process ends once: a later end or
     /// `running` is ignored.
-    fn fold(&mut self, session: &Session, params: &Value, at: u64) -> Option<usize> {
+    fn fold(
+        &mut self,
+        session: &Session,
+        params: &Value,
+        at: u64,
+        output: Option<&str>,
+    ) -> Option<usize> {
         let update = params.get("update")?;
         let text = |k: &str| update.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
         let tool = text("toolCallId")?;
@@ -148,7 +155,7 @@ impl ProcessTable {
         // The output file may be named late (Claude's notification): it is
         // kept once, and logged with the record.
         let p = &mut self.processes[i];
-        let named = match text("outputFile") {
+        let named = match output.filter(|f| !f.is_empty()) {
             Some(file) if p.output_file.is_none() => {
                 p.output_file = Some(file.to_owned());
                 p.logged = false;
@@ -238,23 +245,49 @@ impl ProcessTable {
     }
 }
 
-/// The length of an output file; a missing one is empty.
+/// Takes the output file a shell's session update names
+/// (`_meta.acpmux.outputFile`, `claude_stdio/inbound.rs`) off it, before it
+/// is logged: the update reaches every client of the chat, a remote one
+/// too, and the path is local state.
+pub(super) fn take_output_file(msg: &mut Value) -> Option<String> {
+    let meta = msg.pointer_mut("/params/_meta")?.as_object_mut()?;
+    let acpmux = meta.get_mut("acpmux")?.as_object_mut()?;
+    let file = acpmux.remove("outputFile")?;
+    if acpmux.is_empty() {
+        meta.remove("acpmux");
+    }
+    if meta.is_empty()
+        && let Some(params) = msg.get_mut("params").and_then(Value::as_object_mut)
+    {
+        params.remove("_meta");
+    }
+    file.as_str().map(str::to_owned)
+}
+
+/// The length of an output file; a missing one, or one that is not a
+/// regular file, is empty.
 fn output_len(file: &str) -> u64 {
-    std::fs::metadata(file).map(|m| m.len()).unwrap_or(0)
+    std::fs::metadata(file).ok().filter(|m| m.is_file()).map_or(0, |m| m.len())
 }
 
 /// Up to `max` bytes of `file` from `from` (`None`: its last `max`), where
-/// they start, and the file's length; a missing file is empty.
+/// they start, and the file's length. A missing file is empty, and so is
+/// anything but a regular file, which is never opened: a FIFO's open waits
+/// for a writer.
 async fn read_output(
     file: Option<&str>,
     from: Option<u64>,
     max: u64,
 ) -> std::io::Result<(Vec<u8>, u64, u64)> {
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
-    let opened = match file {
-        Some(file) => tokio::fs::File::open(file).await,
-        None => return Ok((Vec::new(), 0, 0)),
-    };
+    let Some(file) = file else { return Ok((Vec::new(), 0, 0)) };
+    match tokio::fs::metadata(file).await {
+        Ok(m) if m.is_file() => {}
+        Ok(_) => return Ok((Vec::new(), 0, 0)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), 0, 0)),
+        Err(e) => return Err(e),
+    }
+    let opened = tokio::fs::File::open(file).await;
     let mut f = match opened {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), 0, 0)),
@@ -289,7 +322,7 @@ impl Hub {
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("in", "background_task_update") => {
                     let params = e.msg.get("params").unwrap_or(&Value::Null);
-                    table.fold(session, params, e.at);
+                    table.fold(session, params, e.at, None);
                 }
                 ("mux", "process_update") => {
                     let process = e.msg.get("process").cloned().unwrap_or(Value::Null);
@@ -315,22 +348,29 @@ impl Hub {
     }
 
     /// A logged `background_task_update` (`tap.rs`), the session's own or a
-    /// subagent's: a change is logged as `process_update`.
-    pub(super) fn note_process(&self, session: &Session, rec: &EventRecord) {
+    /// subagent's, with the output file taken off it: a change is logged as
+    /// `process_update`.
+    pub(super) fn note_process(&self, session: &Session, rec: &EventRecord, output: Option<&str>) {
         let params = rec.msg.get("params").unwrap_or(&Value::Null);
         let changed = {
             let mut table = self.process_table(session);
             let i = if rec.seq > table.through {
                 table.through = rec.seq;
-                table.fold(session, params, rec.at)
+                table.fold(session, params, rec.at, output)
             } else {
                 // The first read of the log folded this record already: its
-                // change is logged here, once.
+                // change is logged here, once. The log has no output file,
+                // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
-                table
-                    .processes
-                    .iter()
-                    .position(|p| Some(p.tool_call_id.as_str()) == tool && !p.logged)
+                let i = table.processes.iter().position(|p| Some(p.tool_call_id.as_str()) == tool);
+                let p = i.map(|i| &mut table.processes[i]);
+                if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
+                    && p.output_file.is_none()
+                {
+                    p.output_file = Some(file.to_owned());
+                    p.logged = false;
+                }
+                i.filter(|&i| !table.processes[i].logged)
             };
             i.map(|i| table.log(i))
         };

@@ -755,20 +755,15 @@ fn todo_plan(input: &Value) -> Option<Value> {
     Some(json!({"sessionUpdate": "plan", "entries": entries}))
 }
 
-/// A `background_task_update` for one shell, with its `outputFile` once
-/// Claude named it (`hub/processes.rs` tails it).
+/// A `background_task_update` for one shell.
 fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
-    let mut update = json!({
+    json!({
         "sessionUpdate": "background_task_update",
         "taskId": shell.task.as_deref().unwrap_or(""),
         "toolCallId": tool,
         "command": shell.command,
         "state": state,
-    });
-    if let Some(output) = &shell.output {
-        update["outputFile"] = json!(output);
-    }
-    update
+    })
 }
 
 /// The `running` update of a shell Claude runs in the background now, once
@@ -786,7 +781,14 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     Some(shell_update(shell, update))
 }
 
-/// `update` as a session update in the shell's session.
+/// `update` as a session update in the shell's session, with its output
+/// file once Claude named it as `_meta.acpmux.outputFile`, which the hub
+/// takes off before the update is logged (`hub/processes.rs`): the path
+/// stays in the registry.
 fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
-    Message::notification(method::SESSION_UPDATE, json!({"sessionId": shell.sid, "update": update}))
+    let mut params = json!({"sessionId": shell.sid, "update": update});
+    if let Some(output) = &shell.output {
+        params["_meta"] = json!({"acpmux": {"outputFile": output}});
+    }
+    Message::notification(method::SESSION_UPDATE, params)
 }
