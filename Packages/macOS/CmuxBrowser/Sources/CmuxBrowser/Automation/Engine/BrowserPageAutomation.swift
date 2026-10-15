@@ -66,10 +66,23 @@ public struct BrowserPageAutomation {
             // Chromium captures device pixels; clip to the visible viewport
             // and scale by 1/devicePixelRatio so the PNG is its CSS size, as
             // WebKit's is.
-            let metrics = try? await evaluate(codec.viewportMetricsScript, form: .expression, world: .page)
-            let params = codec.cssScreenshotParams(viewportMetrics: metrics) ?? codec.screenshotParams
-            let json = try await devTools("Page.captureScreenshot", params)
-            return try codec.screenshotPNG(fromJSON: json)
+            let capture = { () async throws -> Data in
+                let metrics = try? await self.evaluate(self.codec.viewportMetricsScript, form: .expression, world: .page)
+                let params = self.codec.cssScreenshotParams(viewportMetrics: metrics) ?? self.codec.screenshotParams
+                let json = try await self.devTools("Page.captureScreenshot", params)
+                return try self.codec.screenshotPNG(fromJSON: json)
+            }
+            do {
+                // A hidden page draws for the capture without showing (perf test wiring).
+                if let hidden = page as? any BrowserPageHiddenCapturing {
+                    return try await hidden.withContentVisibleForCapture(capture)
+                }
+                return try await capture()
+            } catch let error as BrowserAutomationPageError {
+                throw error
+            } catch {
+                throw automationError(error)
+            }
         }
         let image: NSImage
         do {
