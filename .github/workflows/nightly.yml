@@ -3181,6 +3181,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # notarize-nightly-dmg.sh runs the bundle notice check after Apple
+      # accepts, and that check reads ghostty-next/build.zig.zon. Without the
+      # submodule, run 38669958906 skipped five accepted builds.
+      - name: Initialize cmux-next notices submodule
+        if: github.ref_name == 'nightly-next'
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -3224,7 +3232,7 @@ jobs:
             : > "$pending"
             if ! CMUX_CHANNEL="$SIGN_CHANNEL" CMUX_NOTARY_CONTINUE_STATE="$dir/$STATE_NAME" GITHUB_OUTPUT="$pending" \
                 ./scripts/ci/notarize-nightly-dmg.sh "$dir/$APP_NAME" "$dir/$DMG_NAME" "recovered/$IMMUTABLE_NAME"; then
-              echo "::notice::run $run_id: Apple did not accept submission $SUBMISSION_ID; skipping"
+              echo "::notice::run $run_id: submission $SUBMISSION_ID was not accepted, or a check after acceptance failed (see the log above); skipping"
               echo "::endgroup::"; continue
             fi
             if grep -Fxq "submission_pending=true" "$pending"; then
