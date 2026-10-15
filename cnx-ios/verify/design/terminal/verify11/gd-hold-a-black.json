@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv11/gd-hold-a.mp4",
+ "source_frames": 7452,
+ "duration": 151.35,
+ "lit_median": 0.0392,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.1225,
+ "max_gap_ms": 53.3
+}
