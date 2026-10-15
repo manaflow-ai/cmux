@@ -310,6 +310,25 @@ import Testing
         #expect(outcome == .committed)
     }
 
+    @Test func restoredChromiumPanelLoadsItsPage() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .inherited),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        var snapshot = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com/restored", profileID: nil, shouldRenderWebView: true,
+            pageZoom: 1, developerToolsVisible: false,
+            backHistoryURLStrings: nil, forwardHistoryURLStrings: nil
+        )
+        snapshot.engine = .chromium
+        panel.restoreSessionSnapshot(snapshot)
+        #expect(try #require(provider.pages.first).loadedURLs == [URL(string: "https://example.com/restored")!])
+    }
+
     @Test func closingTheChromiumPanelClosesItsPage() {
         let provider = FakeChromiumProvider()
         let panel = BrowserPanel(

@@ -4830,6 +4830,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
+        if enginePage != nil {
+            // A Chromium page has no deferred-discard restore path: load it
+            // now (it starts even while its pane is hidden).
+            currentURL = url
+            navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false, preserveRestoredSessionHistory: true)
+            return
+        }
         currentURL = url
         shouldRenderWebView = false
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: Date(), isDeferredFirstLoad: true)
