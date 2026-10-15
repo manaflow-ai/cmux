@@ -75,7 +75,7 @@ extension HomeService {
         let store = homeStore
         let auth = services.cloud.auth
         let source = HomeSidebarSource(
-            store: HomePinStore(), inbox: homeInbox,
+            store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox],
             account: { auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
