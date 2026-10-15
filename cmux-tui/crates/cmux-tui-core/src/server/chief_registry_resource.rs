@@ -502,17 +502,38 @@ fn with_store<T>(
     run(store.as_mut().expect("chief registry opened above"))
 }
 
-/// Whether `participant` is a live Chief record other than the default Chief
-/// (its credential is its brain's, or the person's on a daemon with no brain
-/// supervisor). An unreadable registry answers true: fail closed.
-pub(super) fn is_owned_chief(mux: &Mux, participant: &str) -> bool {
-    if participant == chief_registry::DEFAULT_CHIEF || !participant.starts_with("agent_") {
-        return false;
-    }
-    with_store(mux, Op::ChiefProfileGet, |store| {
-        store.get(participant).map_err(|e| internal(Op::ChiefProfileGet, &e))
+/// `conversation-agent-token`'s mint, under the registry lock (lock order:
+/// registry, then the conversation store, as `chief.profile.adopt`): for a
+/// live Chief record other than the default Chief, refused while a brain
+/// supervisor runs (its brain holds the credential) and refused unless
+/// `terminal` (the person's own terminal: no page, no paired or remote
+/// device); any other participant mints as before. An unreadable registry
+/// refuses the mint (fail closed).
+pub(super) fn mint_credential(
+    mux: &Mux,
+    participant: &str,
+    terminal: bool,
+) -> anyhow::Result<String> {
+    let operation = Op::ChiefProfileGet;
+    let minted = with_store(mux, operation, |store| {
+        let chief = participant != chief_registry::DEFAULT_CHIEF
+            && participant.starts_with("agent_")
+            && store.get(participant).map_err(|e| internal(operation, &e))?.is_some();
+        if chief && crate::chief_brains::taken().is_some() {
+            return Ok(Err(format!("{participant} is a Chief: its brain holds its credential")));
+        }
+        if chief && !terminal {
+            return Ok(Err(
+                "only the person, from a terminal on this machine, mints a Chief's credential"
+                    .to_owned(),
+            ));
+        }
+        mux.with_conversations(|conversations| conversations.mint_agent_token(participant))
+            .map(Ok)
+            .map_err(|e| internal(operation, &e))
     })
-    .map_or(true, |record| record.is_some())
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    minted.map_err(|refusal| anyhow::anyhow!(refusal))
 }
 
 /// The participant `chief.profile.adopt` names: its id, and its display name

@@ -548,7 +548,10 @@ pub(crate) fn adopt(
     }
     // Last, inside this write: the participant must have no bound connection,
     // and every credential issued for it is revoked (`claim`), so the old
-    // agent session never speaks as the Chief.
+    // agent session never speaks as the Chief. The revoke commits in the
+    // conversation store; should the insert below then fail, the agent stays
+    // without a credential and no Chief is made (fails safe: the person mints
+    // a new credential).
     if !claim()? {
         return Ok(Err(Refusal::ParticipantBound));
     }
