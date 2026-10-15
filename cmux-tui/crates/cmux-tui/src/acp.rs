@@ -318,7 +318,11 @@ pub(crate) fn build_home(home: &Path) -> Option<PathBuf> {
         |name| std::env::var(name).ok(),
         std::env::current_exe().ok().as_deref(),
     )?;
-    Some(identity.build().acpmux_home(home))
+    let build = identity.build();
+    let acpmux_home = build.acpmux_home(home);
+    // cmux NEXT adopts its pre-isolation home once (build_adopt.rs).
+    crate::build_adopt::acpmux_for_cli(&build, &acpmux_home);
+    Some(acpmux_home)
 }
 
 #[cfg(test)]

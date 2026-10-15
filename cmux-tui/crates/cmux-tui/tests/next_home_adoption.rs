@@ -28,7 +28,8 @@ fn temp_home(name: &str) -> PathBuf {
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let home = PathBuf::from("/tmp").join(format!("cmux-adopt-{name}-{}-{stamp}-{n}", std::process::id()));
+    let home =
+        PathBuf::from("/tmp").join(format!("cmux-adopt-{name}-{}-{stamp}-{n}", std::process::id()));
     fs::create_dir_all(&home).unwrap();
     home
 }
@@ -132,7 +133,9 @@ fn sqlite(path: &Path, create: &str, insert: &str) {
 }
 
 fn query(path: &Path, sql: &str) -> Option<String> {
-    let db = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    let db =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .ok()?;
     db.query_row(sql, [], |row| row.get::<_, String>(0)).ok()
 }
 
@@ -152,7 +155,11 @@ fn old_chief(home: &Path) -> PathBuf {
         "CREATE TABLE conversation(id TEXT)",
         "INSERT INTO conversation VALUES('conv-from-default')",
     );
-    sqlite(&session_dir.join("workspace-registry.sqlite3"), "CREATE TABLE meta(k TEXT)", "SELECT 1");
+    sqlite(
+        &session_dir.join("workspace-registry.sqlite3"),
+        "CREATE TABLE meta(k TEXT)",
+        "SELECT 1",
+    );
     fs::create_dir_all(shared.join("tui/terminal-hosts-0123456789abcdef")).unwrap();
     fs::write(shared.join("tui/terminal-hosts-0123456789abcdef/rec.json"), "{}").unwrap();
     fs::write(shared.join("tui/machine-id"), "nightly-machine").unwrap();
@@ -236,7 +243,11 @@ fn next_cli_adopts_its_old_acpmux_home() {
         let _ = cli_as(NEXT, Some("cmux-next"), &home, &["acp", "daemon", "shutdown"]);
         let listing = String::from_utf8_lossy(&listed.stdout);
         if !listing.contains("old-session-a") || !listing.contains("old-session-b") {
-            wrong.push(format!("the daemon does not list the old sessions\n{}\n{}", text(&started), text(&listed)));
+            wrong.push(format!(
+                "the daemon does not list the old sessions\n{}\n{}",
+                text(&started),
+                text(&listed)
+            ));
         }
         let again = cli_as(NEXT, Some("cmux-next"), &home, &["acp", "config", "--json"]);
         if read(&new.join("adopted.json")) != record || !again.status.success() {
@@ -244,7 +255,12 @@ fn next_cli_adopts_its_old_acpmux_home() {
         }
     }
     let _ = fs::remove_dir_all(&home);
-    assert!(wrong.is_empty(), "NEXT lost its acpmux home:\n{}\n{}", wrong.join("\n"), text(&config));
+    assert!(
+        wrong.is_empty(),
+        "NEXT lost its acpmux home:\n{}\n{}",
+        wrong.join("\n"),
+        text(&config)
+    );
 }
 
 /// The app's launch step on a NEXT that already ran after the update: its
@@ -275,8 +291,12 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
         .flatten()
         .flatten()
         .map(|e| {
-            let meta: Value = serde_json::from_str(&read(&e.path().join("session.json"))).unwrap_or(Value::Null);
-            (e.file_name().to_string_lossy().into_owned(), format!("{}|{}", meta["id"], meta["name"]))
+            let meta: Value =
+                serde_json::from_str(&read(&e.path().join("session.json"))).unwrap_or(Value::Null);
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                format!("{}|{}", meta["id"], meta["name"]),
+            )
         })
         .collect();
     for name in ["old-session-a", "old-session-b", "post-update-session", "post-update-clash"] {
@@ -306,7 +326,8 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
         wrong.push("NEXT's Chief person.md is not the shared one".into());
     }
     let session_dir = next_chief.join("tui").join(session_dir_name(&chief_session(&next_chief)));
-    let conversation = query(&session_dir.join("conversations.sqlite3"), "SELECT id FROM conversation");
+    let conversation =
+        query(&session_dir.join("conversations.sqlite3"), "SELECT id FROM conversation");
     if conversation.as_deref() != Some("conv-from-default") {
         wrong.push(format!("NEXT's owner session has conversations {conversation:?}"));
     }
@@ -314,7 +335,10 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
     if preset.contains(shared.to_str().unwrap()) || !preset.contains(next_chief.to_str().unwrap()) {
         wrong.push(format!("the Chief's acpmux presets still name NIGHTLY's home: {preset}"));
     }
-    if !next_chief.join("acpmux/sessions/01a10000-0000-7000-8000-0000000000c1/session.json").is_file() {
+    if !next_chief
+        .join("acpmux/sessions/01a10000-0000-7000-8000-0000000000c1/session.json")
+        .is_file()
+    {
         wrong.push("the Chief's acpmux sessions were not kept".into());
     }
     for runtime in [
@@ -332,10 +356,11 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
     if session_dir.join("workspace-registry.sqlite3").exists() {
         wrong.push("NIGHTLY's workspace registry was copied".into());
     }
-    let aside = fs::read_dir(home.join(".cmux/chief/.backups")).into_iter().flatten().flatten().any(|e| {
-        e.file_name().to_string_lossy().starts_with(&format!("{NEXT}-post-update-"))
-            && read(&e.path().join("optchat/person.md")) == "post-update-chief\n"
-    });
+    let aside =
+        fs::read_dir(home.join(".cmux/chief/.backups")).into_iter().flatten().flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with(&format!("{NEXT}-post-update-"))
+                && read(&e.path().join("optchat/person.md")) == "post-update-chief\n"
+        });
     if !aside {
         wrong.push("NEXT's post-update Chief home was not kept aside".into());
     }
@@ -349,7 +374,8 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
     if wrong.is_empty() {
         let again = cli_as(NEXT, Some("cmux-next"), &home, &["__adopt-build-homes"]);
         let outcome: Value = serde_json::from_slice(&again.stdout).unwrap_or(Value::Null);
-        let unchanged = (read(&new.join("adopted.json")), read(&next_chief.join("adopted.json"))) == records;
+        let unchanged =
+            (read(&new.join("adopted.json")), read(&next_chief.join("adopted.json"))) == records;
         if outcome["acpmux"] != "done" || outcome["chief"] != "done" || !unchanged {
             wrong.push(format!("a second launch did something\n{}", text(&again)));
         }
@@ -362,7 +388,9 @@ fn next_launch_adopts_both_homes_and_keeps_post_update_state() {
 /// step or `cmux acp`.
 #[test]
 fn nightly_and_dev_builds_never_adopt() {
-    for bundle in ["com.cmuxterm.app.nightly", "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.next.adopt"] {
+    for bundle in
+        ["com.cmuxterm.app.nightly", "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.next.adopt"]
+    {
         let home = temp_home("never");
         let old = old_acpmux(&home);
         let shared = old_chief(&home);
@@ -370,19 +398,28 @@ fn nightly_and_dev_builds_never_adopt() {
         let launch = cli_as(bundle, None, &home, &["__adopt-build-homes"]);
         let acp = cli_as(bundle, None, &home, &["acp", "config", "--json"]);
         let mut wrong = Vec::new();
-        if !fs::symlink_metadata(&old).is_ok_and(|m| m.file_type().is_dir()) || snapshot(&old) != before.0 {
+        if !fs::symlink_metadata(&old).is_ok_and(|m| m.file_type().is_dir())
+            || snapshot(&old) != before.0
+        {
             wrong.push("NEXT's old acpmux home was changed".to_owned());
         }
         if snapshot(&shared) != before.1 {
             wrong.push("the shared Chief home was changed".to_owned());
         }
-        for adopted in [home.join(".acpmux/builds").join(NEXT), home.join(".cmux/chief").join(NEXT)] {
+        for adopted in [home.join(".acpmux/builds").join(NEXT), home.join(".cmux/chief").join(NEXT)]
+        {
             if fs::symlink_metadata(&adopted).is_ok() {
                 wrong.push(format!("{} was created", adopted.display()));
             }
         }
         let _ = fs::remove_dir_all(&home);
-        assert!(wrong.is_empty(), "{bundle} adopted:\n{}\n{}\n{}", wrong.join("\n"), text(&launch), text(&acp));
+        assert!(
+            wrong.is_empty(),
+            "{bundle} adopted:\n{}\n{}\n{}",
+            wrong.join("\n"),
+            text(&launch),
+            text(&acp)
+        );
     }
 }
 
