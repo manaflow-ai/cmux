@@ -3,7 +3,9 @@
 -- 1. apple_subscriptions records the current transaction's offer. A free
 --    trial of the trial product is stored with plan_id 'go' (the limited
 --    trial entitlement) when the owner has a verified trial claim, else
---    'trial_unverified', which grants nothing. Existing rows default to
+--    'trial_unverified', which grants nothing. A verified claim moves to
+--    'trial_pending' (grants nothing) until the server has checked and set
+--    the device's DeviceCheck bit; then 'go'. Existing rows default to
 --    free_trial = false, so their plan is unchanged.
 -- 2. Challenges, App Attest keys and per-account trial claims.
 -- 3. The Go capacity guard gives a trial one saved VM and 20 VM-hours.
@@ -42,8 +44,9 @@ CREATE TABLE IF NOT EXISTS "apple_trial_claims" (
 	"verified_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"started_at" timestamp with time zone,
 	"original_transaction_id" text,
+	"device_mark_attempted_at" timestamp with time zone,
 	"device_marked_at" timestamp with time zone,
-	CONSTRAINT "apple_trial_claims_status_check" CHECK ("status" in ('verified', 'started'))
+	CONSTRAINT "apple_trial_claims_status_check" CHECK ("status" in ('verified', 'started', 'device_reused'))
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "apple_trial_claims_key_idx" ON "apple_trial_claims" ("key_id");

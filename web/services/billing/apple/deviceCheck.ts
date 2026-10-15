@@ -59,8 +59,10 @@ export function deviceCheckClient(
   return {
     queryBits: async (deviceToken) => {
       const text = await post("/v1/query_two_bits", { device_token: deviceToken });
-      // A device whose bits were never set answers 200 with plain text.
-      if (!text.trim().startsWith("{")) return { bit0: false, bit1: false };
+      // A device whose bits were never set answers 200 with this plain text.
+      // Any other text is unknown: fail closed rather than read it as "never set".
+      if (/^(Failed to find bit state|Bit State Not Found)$/i.test(text.trim())) return { bit0: false, bit1: false };
+      if (!text.trim().startsWith("{")) throw new DeviceCheckError(200, `DeviceCheck query returned unexpected text: ${text.slice(0, 100)}`);
       const body = JSON.parse(text) as { bit0?: boolean; bit1?: boolean };
       return { bit0: body.bit0 === true, bit1: body.bit1 === true };
     },

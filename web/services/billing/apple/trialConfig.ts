@@ -27,7 +27,18 @@ export function isTrialConfigured(env: Env = process.env): boolean {
   return Boolean(env.DEVICECHECK_KEY_ID?.trim() && env.DEVICECHECK_PRIVATE_KEY?.trim() && appleServerApiCredentials(env));
 }
 
-/** Development App Attest keys and the DeviceCheck development host are allowed outside production only. */
+/**
+ * A verified claim must be used by a trial purchase within this time. A
+ * claim never used expires, so verifying many accounts on one iPhone and
+ * buying later cannot reserve several trials for one device.
+ */
+export const TRIAL_CLAIM_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Development App Attest keys and the DeviceCheck development host need an
+ * explicit opt-in (`APPLE_TRIAL_ALLOW_DEVELOPMENT=1`) and are never allowed
+ * in production, so a deployment without `VERCEL_ENV` fails closed.
+ */
 export function trialAllowsDevelopment(env: Env = process.env): boolean {
-  return env.VERCEL_ENV !== "production";
+  return env.APPLE_TRIAL_ALLOW_DEVELOPMENT === "1" && env.VERCEL_ENV !== "production";
 }

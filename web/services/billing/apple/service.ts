@@ -221,12 +221,13 @@ export async function recordClientAppleTransaction(
     await deps.store.recordTransaction(appleTransactionRowFrom(fresh.transaction, input.userId));
   }
   await applyEntitlements(write, deps);
-  if (deps.trialLifecycle) await applyTrialLifecycle(write, null, deps.trialLifecycle);
+  // A free-trial purchase settles its device check here, so the answer below reflects the grant.
+  const planId = deps.trialLifecycle ? await applyTrialLifecycle(write, null, deps.trialLifecycle) : written.planId;
   await captureEntitlementGranted(written, deps);
   return {
     // A free-trial period is the Pro subscription on trial limits; an
     // unverified trial grants nothing.
-    planId: written.freeTrial ? (written.planId === "go" ? "pro" : "free") : written.planId,
+    planId: written.freeTrial ? (planId === "go" ? "pro" : "free") : planId,
     status: written.status,
     expiresAt: written.expiresAt?.toISOString() ?? null,
   };

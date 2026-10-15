@@ -138,49 +138,60 @@ export function parseTrialVerifyRequest(body: unknown): TrialVerifyRequest | nul
   return { challenge, keyId, attestation, assertion, deviceCheckToken, productId: record.productId, appTransactionId };
 }
 
+/** Runs an App Attest check; any failure of hostile input (not only AppAttestError) is a failed proof. */
+function attestCheck<T>(check: () => T): { readonly ok: true; readonly value: T } | { readonly ok: false } {
+  try {
+    return { ok: true, value: check() };
+  } catch (error) {
+    console.warn("billing.trial.attest_failed", {
+      reason: error instanceof AppAttestError ? error.reason : error instanceof Error ? error.name : "unknown",
+    });
+    return { ok: false };
+  }
+}
+
 /** App Attest: an attestation binds a new key to the user; an assertion proves a known key. */
 async function proveDevice(
   userId: string,
   request: TrialVerifyRequest,
   deps: TrialDependencies,
-): Promise<{ readonly ok: true; readonly environment: string } | { readonly ok: false; readonly outcome: TrialVerifyOutcome }> {
+): Promise<{ readonly ok: true; readonly environment: string; readonly keyId: string } | { readonly ok: false; readonly outcome: TrialVerifyOutcome }> {
   const clientDataHash = trialClientDataHash(request.challenge, request.productId);
-  const keyIdBytes = Buffer.from(request.keyId, "base64");
-  try {
-    if (request.attestation) {
-      const attested = verifyAttestation({
-        attestation: Buffer.from(request.attestation, "base64"),
-        keyId: keyIdBytes,
-        clientDataHash,
-        app: TRIAL_APP,
-        allowDevelopment: trialAllowsDevelopment(deps.env),
-        now: deps.now(),
-        rootCertificatePem: deps.attestationRootPem,
-      });
-      const owner = await deps.store.bindAttestKey({
-        keyId: request.keyId, userId, publicKeySpki: attested.publicKeySpki, environment: attested.environment,
-      });
-      return owner === userId ? { ok: true, environment: attested.environment } : { ok: false, outcome: ineligible("device_key_in_use") };
-    }
-    const key = await deps.store.attestKey(request.keyId);
-    if (!key) return { ok: false, outcome: { status: 409, body: { error: "attest_key_unknown" } } };
-    if (key.userId !== userId) return { ok: false, outcome: ineligible("device_key_in_use") };
-    const signCount = verifyAssertion({
-      assertion: Buffer.from(request.assertion!, "base64"),
+  const keyIdBytes = Buffer.from(request.keyId.replaceAll("-", "+").replaceAll("_", "/"), "base64");
+  if (keyIdBytes.length !== 32) return { ok: false, outcome: ineligible("attest_failed") };
+  // One spelling per key: base64 and base64url, padded or not, are the same key.
+  const keyId = keyIdBytes.toString("base64");
+  if (request.attestation) {
+    const attested = attestCheck(() => verifyAttestation({
+      attestation: Buffer.from(request.attestation!, "base64"),
+      keyId: keyIdBytes,
       clientDataHash,
-      publicKeySpki: key.publicKeySpki,
-      previousSignCount: key.signCount,
       app: TRIAL_APP,
+      allowDevelopment: trialAllowsDevelopment(deps.env),
+      now: deps.now(),
+      rootCertificatePem: deps.attestationRootPem,
+    }));
+    if (!attested.ok) return { ok: false, outcome: ineligible("attest_failed") };
+    const owner = await deps.store.bindAttestKey({
+      keyId, userId, publicKeySpki: attested.value.publicKeySpki, environment: attested.value.environment,
     });
-    if (!await deps.store.advanceSignCount(key.keyId, signCount)) return { ok: false, outcome: ineligible("attest_failed") };
-    return { ok: true, environment: key.environment };
-  } catch (error) {
-    if (error instanceof AppAttestError) {
-      console.warn("billing.trial.attest_failed", { reason: error.reason });
-      return { ok: false, outcome: ineligible("attest_failed") };
-    }
-    throw error;
+    return owner === userId
+      ? { ok: true, environment: attested.value.environment, keyId }
+      : { ok: false, outcome: ineligible("device_key_in_use") };
   }
+  const key = await deps.store.attestKey(keyId);
+  if (!key) return { ok: false, outcome: { status: 409, body: { error: "attest_key_unknown" } } };
+  if (key.userId !== userId) return { ok: false, outcome: ineligible("device_key_in_use") };
+  const signCount = attestCheck(() => verifyAssertion({
+    assertion: Buffer.from(request.assertion!, "base64"),
+    clientDataHash,
+    publicKeySpki: key.publicKeySpki,
+    previousSignCount: key.signCount,
+    app: TRIAL_APP,
+  }));
+  if (!signCount.ok) return { ok: false, outcome: ineligible("attest_failed") };
+  if (!await deps.store.advanceSignCount(key.keyId, signCount.value)) return { ok: false, outcome: ineligible("attest_failed") };
+  return { ok: true, environment: key.environment, keyId };
 }
 
 /** `POST /api/billing/apple/trial/verify`. */
@@ -195,7 +206,7 @@ export async function verifyTrialEligibility(
   const device = await proveDevice(userId, request, deps);
   if (!device.ok) return device.outcome;
   const claim = await deps.store.claim(userId);
-  if (claim?.status === "started") return ineligible("account_already_trialed");
+  if (claim && claim.status !== "verified") return ineligible("account_already_trialed");
   if (!await deps.accountOffered(userId)) return ineligible("not_offered");
   const deviceCheck = deps.deviceCheck(device.environment);
   if (!deviceCheck) return ineligible("trial_unavailable");
@@ -208,7 +219,7 @@ export async function verifyTrialEligibility(
     return ineligible("trial_unavailable");
   }
   if (bits.bit0) return ineligible("device_already_trialed");
-  if (!await deps.store.recordVerifiedClaim(userId, request.keyId, request.deviceCheckToken)) {
+  if (!await deps.store.recordVerifiedClaim(userId, device.keyId, request.deviceCheckToken)) {
     return ineligible("account_already_trialed");
   }
   const jws = request.appTransactionId ? deps.signIntroductoryOffer(request.productId, request.appTransactionId) : null;
@@ -218,11 +229,14 @@ export async function verifyTrialEligibility(
 // Trial lifecycle, from the subscription writes in apple/service.ts.
 
 export type TrialLifecycleDependencies = {
-  readonly store: Pick<TrialStore, "markStarted" | "markDeviceMarked" | "claim">;
+  readonly store: Pick<TrialStore,
+    "claim" | "markDeviceMarkAttempted" | "markDeviceMarked" | "markDeviceReused" | "settleSubscriptionPlan" | "pendingTrialSubscriptions">;
   readonly deviceCheck: (environment: string) => DeviceCheckClient | null;
   readonly attestKeyEnvironment: (keyId: string) => Promise<string | null>;
   readonly paywallVariant: (userId: string) => Promise<string | null>;
   readonly captureEvent: (input: ServerEventInput) => Promise<void>;
+  /** Re-derives the user's plan after the trial settles to `go`. */
+  readonly applyEntitlement: (userId: string) => Promise<void>;
   readonly now: () => Date;
 };
 
@@ -234,13 +248,22 @@ export function defaultTrialLifecycleDependencies(env: Env = process.env): Trial
     attestKeyEnvironment: async (keyId) => (await store.attestKey(keyId))?.environment ?? null,
     paywallVariant: (userId) => servedPaywallVariant(userId, IOS_PAYWALL_EXPERIMENT),
     captureEvent: captureServerEvent,
+    applyEntitlement: async (userId) => {
+      const { applyPersonalPlanEntitlement } = await import("./applyEntitlement");
+      await applyPersonalPlanEntitlement(userId);
+    },
     now: () => new Date(),
   };
 }
 
 type TrialEvent = "trial_started" | "trial_converted" | "trial_cancelled";
 
-/** Which trial fact a subscription write represents, if any. */
+/**
+ * Which trial fact a subscription write represents, if any. `trial_started`
+ * comes from settleTrialDevice when the device check grants the trial; a
+ * write reports it only when it is the one that first shows `go` (a settle
+ * that marked the device but did not finish).
+ */
 export function trialTransition(
   previous: AppleSubscriptionRow | null,
   current: AppleSubscriptionRow,
@@ -259,55 +282,108 @@ export function trialTransition(
   return null;
 }
 
+async function captureTrialEvent(event: TrialEvent, current: AppleSubscriptionRow, deps: TrialLifecycleDependencies): Promise<void> {
+  const variant = await deps.paywallVariant(current.userId);
+  await deps.captureEvent({
+    event,
+    distinctId: current.userId,
+    insertId: `${event}:${current.originalTransactionId}`,
+    properties: {
+      source: "apple",
+      plan_id: event === "trial_converted" ? current.planId : "pro",
+      product_id: current.productId,
+      environment: current.environment,
+      original_transaction_id: current.originalTransactionId,
+      trial_ends_at: event === "trial_converted" ? null : current.expiresAt?.toISOString() ?? null,
+      paywall_experiment: variant ? IOS_PAYWALL_EXPERIMENT : null,
+      paywall_variant: variant,
+    },
+  });
+}
+
+export type TrialSettlement = "granted" | "device_reused" | "unverified" | "pending" | "skipped";
+
 /**
- * Records the trial's start (marks the claim started and sets the device's
- * DeviceCheck bit0), conversion and cancellation. Best effort: never fails
- * the subscription write that triggered it.
+ * Settles a `trial_pending` subscription against the device: if the
+ * iPhone's DeviceCheck bit0 is already set by another trial the trial grants
+ * nothing; otherwise bit0 is set first and only then the trial is granted
+ * (`go`). Fails closed: any DeviceCheck failure leaves it pending (no grant),
+ * and the apple-notifications cron and every later write retry it.
+ */
+export async function settleTrialDevice(
+  current: AppleSubscriptionRow,
+  deps: TrialLifecycleDependencies,
+): Promise<TrialSettlement> {
+  if (!current.freeTrial || current.planId !== "trial_pending") return "skipped";
+  const claim = await deps.store.claim(current.userId);
+  if (!claim || claim.status !== "started" || claim.originalTransactionId !== current.originalTransactionId || !claim.deviceCheckToken) {
+    await deps.store.settleSubscriptionPlan(current.originalTransactionId, "trial_unverified");
+    return "unverified";
+  }
+  const client = deps.deviceCheck(await deps.attestKeyEnvironment(claim.keyId) ?? "production");
+  if (!client) return "pending";
+  try {
+    if (!claim.deviceMarkedAt) {
+      const bits = await client.queryBits(claim.deviceCheckToken);
+      // bit0 already set and this claim never tried to set it: another trial used this iPhone.
+      if (bits.bit0 && !claim.deviceMarkAttemptedAt) {
+        await deps.store.markDeviceReused(current.userId);
+        await deps.store.settleSubscriptionPlan(current.originalTransactionId, "trial_unverified");
+        return "device_reused";
+      }
+      await deps.store.markDeviceMarkAttempted(current.userId, deps.now());
+      if (!bits.bit0) await client.updateBits(claim.deviceCheckToken, { bit0: true });
+      await deps.store.markDeviceMarked(current.userId, deps.now());
+    }
+    if (await deps.store.settleSubscriptionPlan(current.originalTransactionId, "go")) {
+      await deps.applyEntitlement(current.userId);
+      await captureTrialEvent("trial_started", { ...current, planId: "go" }, deps);
+    }
+    return "granted";
+  } catch (error) {
+    console.warn("billing.trial.device_settle_failed", {
+      originalTransactionId: current.originalTransactionId,
+      error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+    });
+    return "pending";
+  }
+}
+
+/**
+ * Settles a pending trial, then records its start (when a write is the one
+ * that shows it), conversion and cancellation. Returns the subscription's
+ * plan after settling. Best effort: never fails the write that triggered it.
  */
 export async function applyTrialLifecycle(
   write: Pick<AppleSubscriptionWrite, "previous" | "current" | "applied">,
   notification: { readonly type: string | null; readonly subtype: string | null } | null,
   deps: TrialLifecycleDependencies,
-): Promise<void> {
-  if (!write.applied) return;
-  const event = trialTransition(write.previous, write.current, notification);
-  if (!event) return;
+): Promise<string> {
   const { current } = write;
+  if (!write.applied) return current.planId;
   try {
-    if (event === "trial_started") {
-      const started = await deps.store.markStarted(current.userId, current.originalTransactionId, deps.now());
-      if (started?.deviceCheckToken) {
-        const environment = await deps.attestKeyEnvironment(started.keyId) ?? "production";
-        const client = deps.deviceCheck(environment);
-        if (client) {
-          await client.updateBits(started.deviceCheckToken, { bit0: true });
-          await deps.store.markDeviceMarked(current.userId, deps.now());
-        }
-      }
+    const settled = await settleTrialDevice(current, deps);
+    if (settled !== "skipped") {
+      return settled === "granted" ? "go" : settled === "pending" ? "trial_pending" : "trial_unverified";
     }
-    const variant = await deps.paywallVariant(current.userId);
-    await deps.captureEvent({
-      event,
-      distinctId: current.userId,
-      insertId: `${event}:${current.originalTransactionId}`,
-      properties: {
-        source: "apple",
-        plan_id: event === "trial_converted" ? current.planId : "pro",
-        product_id: current.productId,
-        environment: current.environment,
-        original_transaction_id: current.originalTransactionId,
-        trial_ends_at: event === "trial_converted" ? null : current.expiresAt?.toISOString() ?? null,
-        paywall_experiment: variant ? IOS_PAYWALL_EXPERIMENT : null,
-        paywall_variant: variant,
-      },
-    });
+    const event = trialTransition(write.previous, current, notification);
+    if (event) await captureTrialEvent(event, current, deps);
   } catch (error) {
     console.warn("billing.trial.lifecycle_failed", {
-      event,
       originalTransactionId: current.originalTransactionId,
       error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
     });
   }
+  return current.planId;
+}
+
+/** Cron: retries trials whose device check did not finish. */
+export async function settlePendingTrials(deps: TrialLifecycleDependencies, limit = 50): Promise<Record<TrialSettlement, number>> {
+  const counts: Record<TrialSettlement, number> = { granted: 0, device_reused: 0, unverified: 0, pending: 0, skipped: 0 };
+  for (const row of await deps.store.pendingTrialSubscriptions(limit)) {
+    counts[await settleTrialDevice(row, deps)] += 1;
+  }
+  return counts;
 }
 
 /** The trial the account-token offers, or why not. */

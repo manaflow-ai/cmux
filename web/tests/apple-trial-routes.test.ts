@@ -149,20 +149,49 @@ mock.module("../services/billing/apple/trialStore", () => ({
     claim: async (userId: string) => claims.get(userId) ?? null,
     recordVerifiedClaim: async (userId: string, keyId: string, deviceCheckToken: string) => {
       if (claims.get(userId)?.status === "started") return false;
-      claims.set(userId, { userId, keyId, deviceCheckToken, status: "verified", startedAt: null });
+      claims.set(userId, { ...emptyClaim, userId, keyId, deviceCheckToken, status: "verified" });
       return true;
     },
-    markStarted: async () => null,
-    markDeviceMarked: async () => undefined,
+    markDeviceMarkAttempted: async (userId: string, now: Date) => {
+      claims.set(userId, { ...claims.get(userId)!, deviceMarkAttemptedAt: now });
+    },
+    markDeviceMarked: async (userId: string, now: Date) => {
+      claims.set(userId, { ...claims.get(userId)!, deviceMarkedAt: now });
+    },
+    markDeviceReused: async (userId: string) => {
+      claims.set(userId, { ...claims.get(userId)!, status: "device_reused" });
+    },
+    settleSubscriptionPlan: async (originalTransactionId: string, planId: string) => {
+      const row = pendingTrials.find((item) => item.originalTransactionId === originalTransactionId);
+      if (!row || row.planId !== "trial_pending") return false;
+      row.planId = planId;
+      return true;
+    },
+    pendingTrialSubscriptions: async () => pendingTrials.filter((row) => row.planId === "trial_pending"),
   }),
 }));
 
-let deviceBits: { bit0: boolean; bit1: boolean } | "never_set" = "never_set";
+const emptyClaim = { startedAt: null, originalTransactionId: null, deviceMarkAttemptedAt: null, deviceMarkedAt: null };
+type PendingTrial = { originalTransactionId: string; userId: string; planId: string; freeTrial: boolean; status: string; productId: string; environment: string; expiresAt: Date | null };
+const pendingTrials: PendingTrial[] = [];
+const entitlementsApplied: string[] = [];
+mock.module("../services/billing/apple/applyEntitlement", () => ({
+  applyPersonalPlanEntitlement: async (userId: string) => {
+    entitlementsApplied.push(userId);
+  },
+}));
+mock.module("../services/billing/apple/service", () => ({
+  retryAppleNotifications: async () => ({ notifications: { failed: 0 }, lapsedFailures: 0 }),
+}));
+
+let deviceBits: { bit0: boolean; bit1: boolean } | "never_set" | "down" = "never_set";
 const deviceCheckRequests: { url: string; body: Record<string, unknown>; authorization: string }[] = [];
 globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
   const url = String(input instanceof Request ? input.url : input);
   if (!url.includes("devicecheck.apple.com")) throw new Error(`unexpected fetch ${url}`);
   deviceCheckRequests.push({ url, body: JSON.parse(String(init?.body)), authorization: String(new Headers(init?.headers).get("authorization")) });
+  if (deviceBits === "down") return new Response("unavailable", { status: 503 });
+  if (url.endsWith("/update_two_bits")) return new Response("", { status: 200 });
   return deviceBits === "never_set" ? new Response("Failed to find bit state", { status: 200 }) : Response.json(deviceBits);
 }) as typeof fetch;
 
@@ -175,10 +204,14 @@ const CONFIGURED_ENV = {
   APPLE_IAP_PRIVATE_KEY: pkcs8(iapKeys.privateKey),
   DEVICECHECK_KEY_ID: "DCKEY12345",
   DEVICECHECK_PRIVATE_KEY: pkcs8(deviceCheckKeys.privateKey),
+  // The fixtures use development App Attest keys, which need this opt-in.
+  APPLE_TRIAL_ALLOW_DEVELOPMENT: "1",
+  CRON_SECRET: "cron-secret",
 };
 
 const challengeRoute = await import("../app/api/billing/apple/trial/challenge/route");
 const verifyRoute = await import("../app/api/billing/apple/trial/verify/route");
+const cronRoute = await import("../app/api/cron/apple-notifications/route");
 
 const headers = {
   authorization: "Bearer access-token",
@@ -210,6 +243,8 @@ beforeEach(() => {
   accountOffered = true;
   deviceBits = "never_set";
   deviceCheckRequests.length = 0;
+  pendingTrials.length = 0;
+  entitlementsApplied.length = 0;
 });
 
 describe("POST /api/billing/apple/trial/verify", () => {
@@ -274,7 +309,7 @@ describe("POST /api/billing/apple/trial/verify", () => {
     let challenge = await newChallenge();
     expect((await verify({ ...attestation(ec(), challenge), challenge, assertion: null })).body.reason).toBe("device_already_trialed");
     deviceBits = "never_set";
-    claims.set("user-a", { userId: "user-a", keyId: "k", deviceCheckToken: null, status: "started", startedAt: new Date() });
+    claims.set("user-a", { ...emptyClaim, userId: "user-a", keyId: "k", deviceCheckToken: null, status: "started", startedAt: new Date() });
     challenge = await newChallenge();
     expect((await verify({ ...attestation(ec(), challenge), challenge, assertion: null })).body.reason).toBe("account_already_trialed");
     claims.clear();
@@ -298,5 +333,48 @@ describe("POST /api/billing/apple/trial/verify", () => {
       eligible: false, introductoryOfferJWS: null, reason: "trial_unavailable", legacyTrialAllowed: false,
     });
     expect((await verify({ ...attestation(ec(), challenge), challenge, assertion: null, productId: "com.cmux.app.pro.monthly" })).status).toBe(400);
+  });
+});
+
+describe("trial device settlement (apple-notifications cron)", () => {
+  async function startedTrial(userId: string, originalTransactionId: string) {
+    currentUser = { ...currentUser, id: userId };
+    const device = ec();
+    const challenge = await newChallenge();
+    const proof = attestation(device, challenge);
+    expect((await verify({ ...proof, challenge, assertion: null })).body.eligible).toBe(true);
+    // What the subscription write does in its transaction for a fresh verified claim.
+    claims.set(userId, { ...claims.get(userId)!, status: "started", startedAt: new Date(), originalTransactionId });
+    pendingTrials.push({ originalTransactionId, userId, planId: "trial_pending", freeTrial: true, status: "active", productId: PRODUCT_ID, environment: "Production", expiresAt: null });
+  }
+  const runCron = async () => {
+    const response = await cronRoute.GET(new Request("https://cmux.test/api/cron/apple-notifications", { headers: { authorization: "Bearer cron-secret" } }));
+    return (await response.json() as { trials: Record<string, number> }).trials;
+  };
+
+  test("grants the trial only after the device's bit0 is set, and refuses a reused iPhone", async () => {
+    await startedTrial("user-a", "otid-a");
+    expect(await runCron()).toMatchObject({ granted: 1 });
+    expect(pendingTrials[0]!.planId).toBe("go");
+    expect(deviceCheckRequests.map((request) => request.url.split("/").at(-1))).toEqual(["query_two_bits", "query_two_bits", "update_two_bits"]);
+    expect(entitlementsApplied).toEqual(["user-a"]);
+
+    // Another account on the same iPhone, verified before the first trial started: bit0 is set now.
+    await startedTrial("user-b", "otid-b");
+    deviceBits = { bit0: true, bit1: false };
+    expect(await runCron()).toMatchObject({ device_reused: 1 });
+    expect(pendingTrials[1]!.planId).toBe("trial_unverified");
+    expect(claims.get("user-b")?.status).toBe("device_reused");
+  });
+
+  test("fails closed and retries while DeviceCheck is down", async () => {
+    await startedTrial("user-a", "otid-a");
+    deviceBits = "down";
+    expect(await runCron()).toMatchObject({ pending: 1 });
+    expect(pendingTrials[0]!.planId).toBe("trial_pending");
+    expect(entitlementsApplied).toEqual([]);
+    deviceBits = "never_set";
+    expect(await runCron()).toMatchObject({ granted: 1 });
+    expect(pendingTrials[0]!.planId).toBe("go");
   });
 });

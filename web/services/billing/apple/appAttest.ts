@@ -34,6 +34,8 @@ export class AppAttestError extends Error {
 
 type Cbor = number | bigint | string | Buffer | boolean | null | undefined | Cbor[] | Map<Cbor, Cbor>;
 
+const MAX_CBOR_ITEMS = 16;
+
 function decodeCbor(input: Buffer): Cbor {
   let offset = 0;
   const need = (count: number) => {
@@ -70,10 +72,13 @@ function decodeCbor(input: Buffer): Cbor {
       }
       case 4: {
         const size = length(info);
+        // App Attest arrays and maps are tiny; a huge declared length is hostile input.
+        if (size > MAX_CBOR_ITEMS) throw new AppAttestError("cbor_too_many_items");
         return Array.from({ length: size }, () => item(depth + 1));
       }
       case 5: {
         const size = length(info);
+        if (size > MAX_CBOR_ITEMS) throw new AppAttestError("cbor_too_many_items");
         const map = new Map<Cbor, Cbor>();
         for (let index = 0; index < size; index += 1) map.set(item(depth + 1), item(depth + 1));
         return map;
