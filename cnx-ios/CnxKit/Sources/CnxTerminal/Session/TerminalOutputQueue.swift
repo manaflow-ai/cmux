@@ -24,6 +24,12 @@ public struct TerminalOutputQueue: Sendable {
     /// Bytes handed to Ghostty per frame. Ghostty parses on its own queue, so
     /// this bounds latency and lock hold time, not main-thread work.
     public static let frameBudget = 256 << 10
+    /// The batch for a frame. Ghostty holds its terminal lock while it parses
+    /// a batch, and the main thread takes the same lock for a viewport request
+    /// and the row reads, so a large batch stalls a drag or a fling.
+    public static func budget(interacting: Bool) -> Int {
+        frameBudget
+    }
     public static let highWater = 8 << 20
     public static let lowWater = 2 << 20
 
