@@ -43,6 +43,15 @@ public final class ConnectTimeline: @unchecked Sendable {
         log.info("timing \(attempt, privacy: .public) \(step, privacy: .public) +\(Self.ms(since), privacy: .public) (\(Self.ms(total), privacy: .public)) \(detail, privacy: .public)")
     }
 
+    /// Records a UI event every time it happens (not once per attempt), for
+    /// latencies the E2E rig maps onto its screen recording: `timing event
+    /// <step> (<ms since process start>) <detail>`. The log line's own
+    /// timestamp is the event time.
+    public func event(_ step: String, detail: String = "") {
+        let total = Date().timeIntervalSince(processStart)
+        log.info("timing event \(step, privacy: .public) (\(Self.ms(total), privacy: .public)) \(detail, privacy: .public)")
+    }
+
     /// Seconds since the process started.
     public var sinceProcessStart: TimeInterval { Date().timeIntervalSince(processStart) }
 

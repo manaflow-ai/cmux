@@ -46,6 +46,13 @@ public final class WebMarkdownRenderer {
         let content: Int
         let style: Style
         let width: Int
+        /// Heights depend on the text size: a Dynamic Type change misses every cached height.
+        let textSize: String
+    }
+
+    /// The current Dynamic Type size, part of every height key.
+    static var textSizeKey: String {
+        UIApplication.shared.preferredContentSizeCategory.rawValue
     }
 
     static var resourceDirectory: URL? {
@@ -72,11 +79,11 @@ public final class WebMarkdownRenderer {
     }
 
     public func cachedHeight(markdown: String, style: Style, width: CGFloat) -> CGFloat? {
-        heights[HeightKey(content: markdown.hashValue, style: style, width: Int(width.rounded()))]
+        heights[HeightKey(content: markdown.hashValue, style: style, width: Int(width.rounded()), textSize: Self.textSizeKey)]
     }
 
     func store(height: CGFloat, markdown: String, style: Style, width: CGFloat) {
-        let key = HeightKey(content: markdown.hashValue, style: style, width: Int(width.rounded()))
+        let key = HeightKey(content: markdown.hashValue, style: style, width: Int(width.rounded()), textSize: Self.textSizeKey)
         if heights[key] != height {
             heights[key] = height
         }
@@ -121,6 +128,15 @@ final class PooledWebView: UIView, WKNavigationDelegate {
     private var isReady = false
     private var pending: (() -> Void)?
     var onHeight: ((CGFloat) -> Void)?
+    /// Set when the host wants taps (and side-scrolling code and tables); nil keeps the
+    /// web view inert so the cell's own gestures win.
+    var onTap: (() -> Void)? {
+        didSet {
+            let interactive = onTap != nil
+            webView.isUserInteractionEnabled = interactive
+            isUserInteractionEnabled = interactive
+        }
+    }
     private(set) var renderedKey: String?
 
     init(renderer: WebMarkdownRenderer) {
@@ -172,6 +188,8 @@ final class PooledWebView: UIView, WKNavigationDelegate {
             let work = pending
             pending = nil
             work?()
+        case "tap":
+            onTap?()
         case "height":
             if let value = message["height"] as? Double {
                 onHeight?(CGFloat(value))
@@ -182,7 +200,7 @@ final class PooledWebView: UIView, WKNavigationDelegate {
     }
 
     func render(markdown: String, style: WebMarkdownRenderer.Style, completion: ((CGFloat?) -> Void)? = nil) {
-        let key = "\(style.rawValue)\u{0}\(markdown)"
+        let key = Self.key(markdown: markdown, style: style)
         renderedKey = key
         // A recycled view still shows its previous body until the new one paints: hide it until then.
         webView.alpha = 0
@@ -203,9 +221,15 @@ final class PooledWebView: UIView, WKNavigationDelegate {
 
     func reset() {
         onHeight = nil
+        onTap = nil
         renderedKey = nil
         contentHeight = 0
         if isReady { webView.evaluateJavaScript("cnxRender('', false)") }
+    }
+
+    /// What the view shows: content, style and the text size it laid out at.
+    static func key(markdown: String, style: WebMarkdownRenderer.Style) -> String {
+        "\(style.rawValue)\u{0}\(WebMarkdownRenderer.textSizeKey)\u{0}\(markdown)"
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -237,13 +261,16 @@ public struct WebMarkdownView: View {
     var collapsedHeight: CGFloat?
     var isExpanded: Bool
     var onContentHeight: ((CGFloat) -> Void)?
+    var onTap: (() -> Void)?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var measured: CGFloat?
     @State private var width: CGFloat = WebMarkdownRenderer.shared.lastWidth
 
     public init(
         markdown: String, style: WebMarkdownRenderer.Style = .body, collapsedHeight: CGFloat? = nil,
-        isExpanded: Bool = false, onContentHeight: ((CGFloat) -> Void)? = nil
+        isExpanded: Bool = false, onTap: (() -> Void)? = nil, onContentHeight: ((CGFloat) -> Void)? = nil
     ) {
+        self.onTap = onTap
         self.markdown = markdown
         self.style = style
         self.collapsedHeight = collapsedHeight
@@ -264,7 +291,7 @@ public struct WebMarkdownView: View {
     public var body: some View {
         let full = contentHeight
         let shown = (collapsedHeight.map { isExpanded ? full : min(full, $0) }) ?? full
-        WebMarkdownRepresentable(markdown: markdown, style: style, contentHeight: full) { height in
+        WebMarkdownRepresentable(markdown: markdown, style: style, contentHeight: full, textSize: dynamicTypeSize, onTap: onTap) { height in
             guard measured != height else { return }
             WebMarkdownRenderer.shared.store(height: height, markdown: markdown, style: style, width: width)
             measured = height
@@ -280,7 +307,21 @@ public struct WebMarkdownView: View {
                 if let measured { onContentHeight?(measured) }
             }
         }
-        .onChange(of: markdown) { measured = nil }
+        // Streaming text changes every tick: keep the last measured height until the new
+        // one arrives (a cached one if known) instead of an estimate, so no blank gap opens.
+        .onChange(of: markdown) {
+            if let cached = WebMarkdownRenderer.shared.cachedHeight(markdown: markdown, style: style, width: width) {
+                measured = cached
+            }
+        }
+        // A Dynamic Type change re-renders at the new size; hold the old height until the
+        // new one is known instead of falling back to an estimate.
+        .onChange(of: dynamicTypeSize) {
+            if let cached = WebMarkdownRenderer.shared.cachedHeight(markdown: markdown, style: style, width: width) {
+                measured = cached
+                onContentHeight?(cached)
+            }
+        }
         .onAppear { if let cached = WebMarkdownRenderer.shared.cachedHeight(markdown: markdown, style: style, width: width) { onContentHeight?(cached) } }
         .accessibilityElement()
         .accessibilityLabel(Text(markdown))
@@ -291,11 +332,14 @@ struct WebMarkdownRepresentable: UIViewRepresentable {
     let markdown: String
     let style: WebMarkdownRenderer.Style
     let contentHeight: CGFloat
+    var textSize: DynamicTypeSize = .large
+    var onTap: (() -> Void)?
     let onHeight: (CGFloat) -> Void
 
     func makeUIView(context: Context) -> PooledWebView {
         let view = WebMarkdownRenderer.shared.dequeue()
         view.onHeight = onHeight
+        view.onTap = onTap
         view.contentHeight = contentHeight
         view.render(markdown: markdown, style: style)
         return view
@@ -304,7 +348,8 @@ struct WebMarkdownRepresentable: UIViewRepresentable {
     func updateUIView(_ view: PooledWebView, context: Context) {
         view.onHeight = onHeight
         view.contentHeight = contentHeight
-        let key = "\(style.rawValue)\u{0}\(markdown)"
+        view.onTap = onTap
+        let key = PooledWebView.key(markdown: markdown, style: style)
         if view.renderedKey != key {
             view.render(markdown: markdown, style: style)
         }

@@ -16,7 +16,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 deviceId: endpoint.deviceID,
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
-                options: ConnectOptions(relayOnly: endpoint.relayOnly),
+                options: ConnectOptions(relayOnly: endpoint.relayOnly, noVideoLane: endpoint.browserVideoOnChannel),
                 observer: observer
             )
             return FFIMacLink(handle: handle, transport: transport, observer: observer)
@@ -32,6 +32,11 @@ public struct FFIMacLinkDialer: MacLinkDialer {
 
     public func resetWarmState() async {
         await CnxFFI.resetWarmState()
+    }
+
+    public func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        await CnxFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+            .map { ($0.name, $0.millis) }
     }
 }
 
@@ -67,6 +72,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         }
     }
 
+    var connectedPath: LinkPathKind? { handle.path().kind }
+
     var timings: [(String, Double)] {
         handle.timings().map { ($0.name, $0.millis) }
     }
@@ -80,13 +87,22 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
     }
 }
 
+extension FFIMacLink: NetworkChangeProbing {
+    func networkChangeProbe(roam: Bool, windowMillis: UInt32) async -> String {
+        await handle.debugNetworkChangeProbe(roam: roam, windowMs: windowMillis)
+    }
+}
+
 extension FFIMacLink: BrowserStreamOpening {
     func openBrowser(tab: String, url: String?, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
         var args = ["tab": tab]
         if let url { args["url"] = url }
         let json = String(decoding: try JSONSerialization.data(withJSONObject: args), as: UTF8.self)
         do {
-            return FFIBrowserStream(handle: try await handle.openBrowser(argsJson: json, observer: BrowserObserverBridge(sink: sink)))
+            return FFIBrowserStream(
+                handle: try await handle.openBrowser(argsJson: json, observer: BrowserObserverBridge(sink: sink)),
+                transport: transport
+            )
         } catch let error as CnxError {
             throw error.linkError
         }
@@ -111,8 +127,13 @@ final class BrowserObserverBridge: BrowserObserver, @unchecked Sendable {
 
 final class FFIBrowserStream: BrowserStreamConnection, @unchecked Sendable {
     private let handle: BrowserStream
+    /// The link's transport, which names the media lane's carrier.
+    private let transport: TransportKind
 
-    init(handle: BrowserStream) { self.handle = handle }
+    init(handle: BrowserStream, transport: TransportKind) {
+        self.handle = handle
+        self.transport = transport
+    }
 
     func send(message: Data) throws {
         do { try handle.sendMessage(json: String(decoding: message, as: UTF8.self)) } catch let error as CnxError { throw error.linkError }
@@ -138,6 +159,10 @@ final class FFIBrowserStream: BrowserStreamConnection, @unchecked Sendable {
         stats.framesLost = raw.framesLost
         stats.clockOffsetMicros = raw.clockOffsetUs
         stats.clockRTTMicros = raw.clockRttUs
+        stats.videoTrack = raw.videoTrack
+        stats.videoCarrier = BrowserStreamStats.carrier(videoTrack: raw.videoTrack, transport: transport)
+        stats.trackFramesDropped = raw.trackFramesDropped
+        stats.trackPacketsRecovered = raw.trackPacketsRecovered
         return stats
     }
 }

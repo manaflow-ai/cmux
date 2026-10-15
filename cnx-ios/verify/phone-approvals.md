@@ -53,9 +53,14 @@ the Keychain, and `signApproval` still runs an `LAContext`
 Release builds never take that path: without an enclave the phone has no keys,
 cannot pair with a Mac that requires pairing, and cannot approve.
 
-Sign-out asks the linked Mac to forget the phone (`auth` with
-`action: unpair`, signed by the identity key) and deletes both keys. The next
-sign-in makes new keys, and the Mac asks again.
+The keys, like the link device ids, belong to one account on the phone
+(`identity.<user id>`, `approval.<user id>`) and survive sign-out, so the same
+account signing in again is the phone its Macs approved and nobody is asked
+again (`verify/persistence.md`). Settings → Devices → "Remove This iPhone from
+My Macs" asks the linked Mac to forget the phone (`auth` with
+`action: unpair`, signed by the identity key), deletes both keys and redials;
+the next link makes new keys, and the Mac asks again. Account deletion deletes
+the keys and device ids too. Before 2026-10-14 sign-out did the removal.
 
 ### Pairing on every link (`cnx-hostd/src/pairing.rs`)
 
@@ -128,7 +133,7 @@ the expiry is at most 300 s ahead, and the nonce was not spent; then strips
 - `pair_request` shows a cmux dialog, app-wide: "Allow “<phone>” to connect to
   this Mac?". The body names the account and the approval key's fingerprint.
   Allow pairs it; Don't Allow refuses that identity key (it does not ask
-  again; a new key, after the phone signs out and in, asks again). Closing
+  again; a new key, after "Remove This iPhone from My Macs", asks again). Closing
   the dialog without an answer decides nothing.
 - One dialog per phone at a time; a repeated request while it is open is
   dropped.
@@ -141,8 +146,8 @@ the expiry is at most 300 s ahead, and the nonce was not spent; then strips
   open; a new connection after a daemon restart sends the list again.
 - Settings → Mobile can show `paired` (name, paired date, key fingerprint) and
   revoke one with `revokePhone(id:)`, which also ends its live links. Removing a phone from the account
-  (`removePhone(id:)`) also forgets it here. A phone that signs out asks to be
-  forgotten (`unpaired`).
+  (`removePhone(id:)`) also forgets it here. A phone whose person chose "Remove This
+  iPhone from My Macs" asks to be forgotten (`unpaired`); sign-out does not.
 
 ### Approving (`CnxLive/AcpmuxHub.swift`)
 
@@ -277,11 +282,13 @@ Following the relay rules in the repository's CLAUDE.md:
 - Settings → Mobile rows for paired phones (with Remove) are for the Mobile
   page's owner (`feat-cnx-ios-machost`): the service publishes `paired` and
   `revokePhone(id:)`.
-- The pairing prompt is an app-scope cmux dialog. While cmux is not the
+- On a Mac without PR https://github.com/manaflow-ai/cmux/pull/20491, the
+  pairing prompt is only an app-scope cmux dialog. While cmux is not the
   active app, macOS may refuse its activation, and the dialog shows only when
-  the person brings cmux forward. A first pairing from the phone while the
-  person works in another app therefore waits (up to 120 s per link) with no
-  visible prompt. A system notification that opens the prompt would fix it.
+  the person brings cmux forward. #20491 (`feat-cnx-ios-approvals`, f8afcd1d
+  and later) adds a system notification with Review, a Dock bounce, and
+  Settings → Mobile → Connection Requests. The phone's banner says "Look for
+  cmux on your Mac", which is true with or without #20491.
 - The dialog is excluded from screen capture (`CmuxDialogCaptureExcludedHost`),
   so the live record below has its accessibility text, not a picture.
 - (Fixed 2026-10-14.) The Feed used to mark a permission "Allowed" before
@@ -334,7 +341,7 @@ Evidence is in `verify/approvals/` (`live/`, `lock/`).
 | Deny unsigned | Pass. Deny went out while the Allow's Face ID sheet was still up, with no prompt of its own: `chose no` | `live/p2-phone-1-allow-faceid.png`, `live/acpmux-replies.txt` |
 | Require Face ID | Pass. With the setting on, cmux opened behind Face ID; a failed face and Cancel kept it locked; a match unlocked it; leaving for Settings and coming back locked it again. Off, it opened unlocked | `lock/1-…` to `lock/5-…` |
 | Refused key | Pass. A new phone key asked again; Don't Allow closed `auth` `denied`; the phone shows "cmux’s Mac mini (2) did not allow this iPhone"; the next link was refused in 11 ms with no new prompt, and the channels held behind it were refused `unpaired` | `live/mac-2-second-pair-prompt-ax.txt`, `live/p5-phone-1-denied.png`, `live/p6-phone-2-denied-banner.png`, `live/mac-hostd.log` |
-| Sign-out unpairs | Pass after a fix (below). The phone's `auth` `unpair` reached the app: "phone ccf5433a signed out; forgetting it", and acpmux dropped it as an approver | `live/mac-app-pairing.log` |
+| Sign-out unpairs (superseded 2026-10-14: sign-out keeps the pairing, and "Remove This iPhone from My Macs" sends this `unpair`; `verify/persistence.md`) | Pass after a fix (below). The phone's `auth` `unpair` reached the app: "phone ccf5433a signed out; forgetting it", and acpmux dropped it as an approver | `live/mac-app-pairing.log` |
 
 Found and fixed during the run:
 

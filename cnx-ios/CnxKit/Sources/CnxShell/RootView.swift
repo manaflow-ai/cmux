@@ -26,6 +26,9 @@ public struct ShellLaunchOptions: Sendable {
     public var setupPairDemo = false
     /// DEBUG: open Settings on this page (`SettingsRoute` case name).
     public var settingsPage: String?
+    /// A launch with no demo or forced page goes back to the workspace and
+    /// tab that were open (design/terminal P10). `-cnx-no-restore` opts out.
+    public var restoresLastLocation = true
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         func value(_ flag: String) -> String? {
@@ -41,7 +44,10 @@ public struct ShellLaunchOptions: Sendable {
         setupPairDemo = arguments.contains("-cnx-setup-pair")
         if setupPairDemo { forceSetup = true }
         settingsPage = value("-cnx-settings-page")
+        restoresLastLocation = initialTab == nil && settingsPage == nil && demo == nil && !sidebarOpen
+            && !arguments.contains("-CnxDemo") && DeveloperOptions.launchDemo == nil
         #endif
+        if arguments.contains("-cnx-no-restore") { restoresLastLocation = false }
     }
 }
 
@@ -67,6 +73,9 @@ public struct RootView: View {
     /// cleared on sign-out, where Welcome crossfades in, settled.
     @State private var welcomeCut = false
     @AppStorage("cnx.setupComplete") private var setupComplete = false
+    /// The account whose preferences are live (`AccountPreferences`); sign-out
+    /// puts them away under it.
+    @State private var accountUserID: String?
     private let options: ShellLaunchOptions
 
     public init(auth: CnxAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -86,7 +95,15 @@ public struct RootView: View {
 
     private var destination: Destination {
         guard auth.isSignedIn else { return .welcome }
-        return setupComplete && !options.forceSetup ? .shell : .setup
+        return accountSetupComplete && !options.forceSetup ? .shell : .setup
+    }
+
+    /// Setup done for the signed-in account. Right after sign-in, before its
+    /// preferences are live, it reads the account's record, so the same
+    /// account signing in again never sees setup flash in.
+    private var accountSetupComplete: Bool {
+        guard !auth.isMock, let id = auth.user?.id, accountUserID != id else { return setupComplete }
+        return AccountPreferences.standard.value("cnx.setupComplete", userID: id) as? Bool ?? false
     }
 
     public var body: some View {
@@ -137,6 +154,7 @@ public struct RootView: View {
         .cnxAppLock(enabled: settings.requireFaceID)
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
+            if !auth.isSignedIn, !auth.isMock { AccountSignOut().settleLaunchSignedOut() }
             syncTeams()
             if destination == .welcome {
                 // Welcome draws the launch mark itself on its first frame and
@@ -158,6 +176,14 @@ public struct RootView: View {
         .task(id: auth.isResolved ? auth.user?.id : nil) {
             accountChanged()
             await auth.loadTeams()
+        }
+        // The account's own preferences (setup done, its Mac per team, last
+        // tab) come back before the first frame of its session, so the same
+        // account signing in again skips setup (verify/persistence.md).
+        .onChange(of: auth.isSignedIn ? auth.user?.id : nil, initial: true) { _, id in
+            guard let id, !auth.isMock else { return }
+            AccountPreferences.standard.activate(userID: id)
+            accountUserID = id
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
@@ -222,33 +248,32 @@ public struct RootView: View {
         live.applyAccountTeams(teams, selectedID: team.id)
     }
 
-    /// Every sign-out path (setup's footer, Settings → Log out, a session the
-    /// service ended) lands here: live data stops, the account's teams, Macs,
-    /// workspaces and stored preferences go, the device ids are replaced (the
-    /// service binds them to their first user), and Welcome crossfades in,
+    /// Every sign-out path (setup's footer, Settings → Sign out, a session the
+    /// service ended) lands here: live data stops; the account's teams, Macs,
+    /// workspaces, Feed and snapshots leave the screen and the disk; its
+    /// preferences are put away under its id; and Welcome crossfades in,
     /// already settled (its intro plays once per cold launch).
+    ///
+    /// This iPhone keeps its identity for the account: device ids, Secure
+    /// Enclave keys and pinned Macs, so its Macs' approvals still hold when the
+    /// same account signs in again (verify/persistence.md). Removing it from
+    /// the Macs is its own action (Settings → Devices).
     private func signedOut() {
-        // The phone asks the linked Mac to forget it, then deletes its keys
-        // (verify/phone-approvals.md); live data stops after that try.
-        if let ending = live {
-            Task { @MainActor in
-                await ending.unpair()
-                ending.stop()
-            }
-        } else if !auth.isMock {
-            PhoneKeys().reset()
-        }
+        let ending = live
         live = nil
         setupPlan = nil
         asksNotifications = nil
-        store.resetForSignOut()
-        if !auth.isMock {
-            DeviceIdentity.reset()
-            LiveCoordinator.forgetSnapshots()
+        if auth.isMock {
+            // The next account starts on Home, not in this one's workspace.
+            LastOpenMemory.standard.save(nil)
+            setupComplete = false
+        } else {
+            AccountSignOut().signedOut(userID: accountUserID, session: ending)
+            accountUserID = nil
         }
-        setupComplete = false
+        store.resetForSignOut()
         welcomeCut = false
-        log.info("signed out: account state reset")
+        log.info("signed out: account state reset, device identity kept")
     }
 
     /// Starts live data for a signed-in account (before setup, so setup sees
@@ -270,30 +295,26 @@ public struct RootView: View {
         }
         #endif
         guard live == nil, !auth.isMock, let base = auth.apiBaseURL else { return }
-        let api = LiveAPI(baseURL: base) { [auth] in try await auth.accessToken(forceRefresh: $0) }
+        let api = LiveAPI(baseURL: base) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0) }
         let coordinator = LiveCoordinator(
             store: store,
             api: api,
-            identity: DeviceIdentity.load(),
+            identity: DeviceIdentity.load(userID: user.id),
             userID: user.id,
             deviceName: UIDevice.current.name,
             transport: settings.transport.link,
             relayOnly: DeveloperOptions.relayOnly,
             dialer: FFIMacLinkDialer(),
-            keys: PhoneKeys()
+            keys: PhoneKeys(userID: user.id)
         )
         coordinator.onFollow = { [auth] teamID in
             guard !teamID.hasPrefix("personal-") else { return }
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
-        // Before the session ends (the link closes with it): stop pushes to this phone,
-        // and ask the linked Mac to forget it (verify/phone-approvals.md).
-        auth.willSignOut = { [weak coordinator] in
-            async let push: Void = PushRegistration.shared.unregister()
-            async let unpair: Void = coordinator?.unpair() ?? ()
-            _ = await (push, unpair)
-        }
+        // Before the session ends: stop pushes to this phone. The Macs keep
+        // their approval of it (verify/persistence.md).
+        auth.willSignOut = AccountSignOut().willSignOut { await PushRegistration.shared.unregister() }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
     }
@@ -421,7 +442,32 @@ struct ShellView: View {
             guard let route else { return }
             if shell.open(route) { NotificationRouter.shared.pending = nil }
         }
+        // Design/terminal P10: remember where the user is; finish a launch
+        // restore once the workspace is listed (or its Mac says it is gone).
+        // Back to the workspace and tab that were open (P10), once, on the
+        // model SwiftUI keeps. Not from `init`: RootView re-creates this view
+        // (and a throwaway model) on every update, and a restore there wrote
+        // the shared store from each one: an endless update loop at launch.
+        // A tapped notification decides where the app opens instead.
+        .onAppear {
+            if options.restoresLastLocation, NotificationRouter.shared.pending == nil { shell.beginRestore() }
+        }
+        .onChange(of: shell.lastOpenLocation) { _, location in
+            shell.locationChanged(location)
+        }
+        .onChange(of: shell.store.activeWorkspaces) { _, _ in
+            shell.continueRestore()
+        }
+        .onChange(of: shell.store.macData) { _, _ in
+            shell.continueRestore()
+        }
+        .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
+            shell.terminalTabs.liveDataChanged()
+        }
         .onChange(of: shell.store.workspaces) { _, _ in
+            // A terminal page shown before the tree arrived (a launch
+            // restore) attaches now (design/terminal R1-0).
+            shell.terminalTabs.liveDataChanged()
             guard let route = NotificationRouter.shared.pending else { return }
             // One retry after the tree arrives; then the Feed is where it is.
             shell.open(route)
@@ -432,6 +478,8 @@ struct ShellView: View {
         }
         .onAppear {
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
+            // On the model SwiftUI keeps (init also builds throwaway ones).
+            FeedRouting.shared.openTerminal = { [weak shell] item in shell?.openTerminal(item) }
         }
         .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
             shell.attach(live: live)

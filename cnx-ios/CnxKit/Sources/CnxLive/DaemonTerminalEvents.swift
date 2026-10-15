@@ -9,8 +9,14 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     case alternateScreen(Bool)
     /// The Mac terminal's rows (`vt-state`, `resized`).
     case rows(Int)
-    /// The authoritative mirror changed size: reset the local mirror before the replay.
-    case resetMirror
+    /// The Mac terminal's columns (`vt-state`, `resized`), before its rows.
+    case columns(Int)
+    /// The authoritative mirror changed size: reset the local mirror before the
+    /// replay. `alternate` is the alternate screen state the replay ends in, so
+    /// a TUI that stays on screen across a resize is never reported as leaving
+    /// and re-entering it (that off/on flicker resized the PTY back and forth,
+    /// design/terminal R2-1).
+    case resetMirror(alternate: Bool)
     /// The daemon ended the surface.
     case detached(reason: String?)
 }
@@ -31,18 +37,23 @@ struct DaemonTerminalEventParser: Sendable {
         var out: [DaemonTerminalInbound] = []
         switch event {
         case "vt-state":
+            if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
             emit(object["data"] as? String, into: &out)
             emit(object["pending"] as? String, into: &out)
         case "output":
             emit(object["data"] as? String, into: &out)
         case "resized":
+            if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
-            // The authoritative mirror changed size: start over from the replay.
+            // The authoritative mirror changed size: start over from the replay,
+            // whose final alternate screen state goes with the reset.
             detector = AlternateScreenDetector()
-            out.append(.resetMirror)
-            emit((object["replay"] as? String) ?? (object["data"] as? String), into: &out)
-            emit(object["pending"] as? String, into: &out)
+            let chunks = [(object["replay"] as? String) ?? (object["data"] as? String), object["pending"] as? String]
+                .compactMap { $0.flatMap { Data(base64Encoded: $0) } }.filter { !$0.isEmpty }
+            for chunk in chunks { _ = detector.scan(chunk) }
+            out.append(.resetMirror(alternate: detector.isActive))
+            out.append(contentsOf: chunks.map { .output($0) })
         case "detached":
             out.append(.detached(reason: object["reason"] as? String))
         default:

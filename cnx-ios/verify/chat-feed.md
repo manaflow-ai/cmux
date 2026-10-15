@@ -77,6 +77,6 @@ Evidence is git-ignored, in `verify/evidence/2026-10-12/chat/`:
 - On the first launch, cells whose height has not been measured can show a blank gap for about 0.5 s while the web view pool warms. Later scrolling uses cached heights.
 - A long programmatic scroll to the top of the Feed can show a frame of estimated heights.
 - Feed swipe actions (Read / Mute) are not built, because the Feed is a `LazyVStack`, not a `List`. The context menu and the `...` menu offer the same actions.
-- Dictation, camera, the hardware-keyboard Return-to-send, Fork, Rename, Archive and Open terminal are placeholders.
+- Fork, Rename, Archive and Open terminal were removed (b5bfa06): the link has no calls for them. Dictation uses the keyboard's own mic; Camera shows only on devices with a camera. (Updated 2026-10-14; the design loop in `design/chat-feed/` supersedes this page.)
 - Data is mock only (`MockAgentSession`, `FeedStore.mockItems`). The real `AgentSessionSource` over the `acpmux` link service comes next.
 - Subagents, checkpoints, handoff and image viewer from the Mac ACP UI are modeled only as far as the ACP types allow. They have no UI yet.

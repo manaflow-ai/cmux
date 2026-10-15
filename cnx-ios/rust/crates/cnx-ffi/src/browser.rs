@@ -4,6 +4,14 @@
 //! This runs the shared rd viewer core (`cmux-rd-ffi`: reassembly, NACK and
 //! loss feedback, clock probes, exactly-once input) on the library runtime
 //! and hands Swift whole access units to decode with VideoToolbox.
+//!
+//! On a link with a media lane (verify/browser-video-track.md) the page's
+//! frames come from the lane instead (RTP on a WebRTC video track or inside
+//! the WireGuard tunnel; NACK, TWCC, PLI;
+//! a lost frame is skipped to the next keyframe rather than stalling the
+//! channel). The channel still carries rb control, input and the clock
+//! probes, and the viewer takes frames from either source, so a hostd that
+//! ignores `video: "track"` or hands the lane to another tab still works.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
@@ -12,6 +20,7 @@ use cmux_rd_ffi::{Carrier, InputChannel, Session};
 use cmux_rd_proto::{InputEvent, STREAM_CONTROL, flags};
 use cnx_link::ChannelEvent;
 use cnx_link::link::{ChannelReceiver, ChannelSender};
+use cnx_link::media::{ReceivedFrame, VideoFrames, VideoIn};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -52,6 +61,13 @@ pub struct BrowserStats {
     /// `host = viewer + offset`, and the best probe's round trip.
     pub clock_offset_us: Option<i64>,
     pub clock_rtt_us: Option<u32>,
+    /// The last frame came on the link's media lane (a WebRTC video track or
+    /// RTP inside the WireGuard tunnel), not the channel.
+    pub video_track: bool,
+    /// Track frames: skipped to a keyframe after an unrecoverable loss, and
+    /// packets a NACK brought back.
+    pub track_frames_dropped: u64,
+    pub track_packets_recovered: u64,
 }
 
 /// Receives a browser stream's frames and messages on a library thread.
@@ -141,11 +157,23 @@ fn closed() -> CnxError {
     CnxError::Closed { message: "the browser stream is closed".into() }
 }
 
-/// Starts the viewer loop on an open `browser` channel.
+/// This stream's share of the link's media lane.
+pub(crate) struct Track {
+    pub lane: VideoIn,
+    pub frames: VideoFrames,
+    /// The tag this stream's `open` asked hostd to put on its frames
+    /// (`cnx_link::media::tag`); frames with another tag (or none) are
+    /// another tab's.
+    pub tag: u32,
+}
+
+/// Starts the viewer loop on an open `browser` channel; `track` is the
+/// link's media lane with this stream's subscription to it.
 pub(crate) fn start(
     sender: Arc<ChannelSender>,
     receiver: ChannelReceiver,
     observer: Arc<dyn BrowserObserver>,
+    track: Option<Track>,
 ) -> Arc<BrowserStream> {
     let (commands, rx) = mpsc::unbounded_channel();
     let stats = Arc::new(Mutex::new(BrowserStats::default()));
@@ -157,6 +185,9 @@ pub(crate) fn start(
         observer,
         stats: Arc::clone(&stats),
         epoch,
+        track,
+        track_frame: 0,
+        track_synced: false,
     };
     tokio::spawn(viewer.run(sender, receiver, rx));
     Arc::new(BrowserStream { commands, stats, epoch })
@@ -169,6 +200,11 @@ struct Viewer {
     observer: Arc<dyn BrowserObserver>,
     stats: Arc<Mutex<BrowserStats>>,
     epoch: Instant,
+    track: Option<Track>,
+    /// Frame numbers of track frames (the RTP stream has none).
+    track_frame: u32,
+    /// A keyframe of this stream's own tag arrived: later frames decode.
+    track_synced: bool,
 }
 
 impl Viewer {
@@ -214,6 +250,9 @@ impl Viewer {
                     }
                     Some(Command::Keyframe) => {
                         let _ = self.session.request_keyframe(0);
+                        if let Some(track) = &self.track {
+                            track.frames.request_keyframe();
+                        }
                     }
                     Some(Command::Decoded(us)) => {
                         let _ = self.session.note_decode(0, us);
@@ -222,6 +261,16 @@ impl Viewer {
                         let _ = sender.close("eof", "closed by the app").await;
                         break ("eof".to_owned(), "closed by the app".to_owned());
                     }
+                },
+                frame = async {
+                    match self.track.as_mut() {
+                        Some(track) => track.frames.frames.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => match frame {
+                    Some(frame) => self.lane_frame(frame),
+                    // Another tab took the lane: video comes on the channel.
+                    None => self.track = None,
                 },
                 () = sleep => {}
             }
@@ -246,6 +295,66 @@ impl Viewer {
         let input = self.input.next_deadline_us().unwrap_or(u64::MAX);
         // At least every 100 ms (clock probes, stats).
         session.min(input).min(self.now() + 100_000)
+    }
+
+    /// One frame from the media lane: this stream's own (by tag), from its
+    /// first keyframe on.
+    fn lane_frame(&mut self, mut frame: ReceivedFrame) {
+        let Some(track) = &self.track else { return };
+        if cnx_link::media::tag::strip(&mut frame.access_unit) != Some(track.tag) {
+            // Another tab's (the lane is switching), or an untagged frame.
+            return;
+        }
+        if !self.track_synced {
+            if !frame.keyframe {
+                // This tab's claim started mid-stream (or its first
+                // keyframe went to the tab before): ask again.
+                track.frames.request_keyframe();
+                return;
+            }
+            self.track_synced = true;
+        }
+        self.track_frame(frame);
+    }
+
+    /// One frame from the media lane.
+    fn track_frame(&mut self, frame: ReceivedFrame) {
+        let now = self.now();
+        let clock = self.session.clock();
+        self.track_frame = self.track_frame.wrapping_add(1);
+        // The RTP timestamp is the host's capture time at 90 kHz.
+        let host_now = clock.map(|c| i128::from(now) + i128::from(c.offset_us));
+        let capture_us = match host_now {
+            Some(host_now) => cnx_link::media::capture_us_from_rtp(
+                frame.rtp_timestamp,
+                u64::try_from(host_now).unwrap_or(0),
+            ),
+            None => u64::from(frame.rtp_timestamp) * 100 / 9,
+        };
+        let age_us = host_now.map(|h| i64::try_from(h - i128::from(capture_us)).unwrap_or(i64::MAX));
+        {
+            let mut stats = self.stats.lock().unwrap_or_else(PoisonError::into_inner);
+            stats.frames += 1;
+            stats.keyframes += u64::from(frame.keyframe);
+            stats.bytes += frame.access_unit.len() as u64;
+            stats.clock_offset_us = clock.map(|c| c.offset_us);
+            stats.clock_rtt_us = clock.map(|c| c.rtt_us);
+            stats.video_track = true;
+            if let Some(track) = &self.track {
+                let lane = track.lane.stats();
+                stats.track_frames_dropped = lane.frames_dropped;
+                stats.track_packets_recovered = lane.packets_recovered;
+            }
+        }
+        self.observer.on_frame(BrowserFrame {
+            stream: 0,
+            frame: self.track_frame,
+            keyframe: frame.keyframe,
+            access_unit: frame.access_unit,
+            capture_us,
+            received_us: now,
+            age_us,
+        });
     }
 
     fn drain(&mut self, now: u64) {
@@ -289,6 +398,7 @@ impl Viewer {
                 stats.bytes += complete.body.access_unit.len() as u64;
                 stats.clock_offset_us = clock.map(|c| c.offset_us);
                 stats.clock_rtt_us = clock.map(|c| c.rtt_us);
+                stats.video_track = false;
                 if let Ok(s) = self.session.stats(stream) {
                     stats.frames_lost = s.frames_lost;
                 }

@@ -2,23 +2,27 @@
 import CnxDesign
 import CnxModel
 import SwiftUI
+import UIKit
 
 private let theme = CnxTheme.standard
 
-/// Team color and icon editor (SPEC 3.4): sheet with a glass X, centered
-/// "Team appearance", 72 pt preview, 13 swatches (6 columns, 44 pt), an icon
-/// control and a docked "Done". The icon is Automatic (the team's first
-/// letter), Custom (one character typed on the system keyboard: a letter,
-/// digit, symbol, or an emoji from the globe key's emoji keyboard) or None
-/// (color only). Changes apply through `onSave`.
+/// Team color and icon editor (SPEC 3.4): an opaque sheet with a glass X,
+/// centered "Team appearance", a 72 pt preview, the 13 color swatches
+/// (7 columns, never under the keyboard), the icon control and a docked
+/// "Done". The icon is Automatic (the team's first letter), Custom (one
+/// character: the field opens on the emoji keyboard, and the globe key still
+/// reaches letters, digits and symbols) or None (color only). Changes apply
+/// through `onSave`.
 public struct TeamAppearanceEditor: View {
     let team: Team
     let onSave: (TeamAppearance) -> Void
     @State private var appearance: TeamAppearance
     @State private var mode: GlyphMode
     @State private var customText: String
-    @FocusState private var customFocused: Bool
+    @State private var customFocused = false
+    @State private var detent: PresentationDetent
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     enum GlyphMode: String, CaseIterable, Identifiable {
         case automatic, custom, none
@@ -32,10 +36,17 @@ public struct TeamAppearanceEditor: View {
         }
     }
 
+    /// The sheet's opaque background (grouped gray in light, raised in dark)
+    /// and the icon box on it.
+    private static let sheetBackground = CnxColorToken(dark: CnxRGBA(hex: "#1C1C1E"), light: CnxRGBA(hex: "#F2F2F7"))
+    private static let boxBackground = CnxColorToken(dark: CnxRGBA(hex: "#2C2C2E"), light: CnxRGBA(hex: "#FFFFFF"))
+    private static let compactDetent = PresentationDetent.height(640)
+
     public init(team: Team, onSave: @escaping (TeamAppearance) -> Void) {
         self.team = team
         self.onSave = onSave
         _appearance = State(initialValue: team.appearance)
+        _detent = State(initialValue: Self.compactDetent)
         switch team.appearance.glyph {
         case .automatic:
             _mode = State(initialValue: .automatic)
@@ -51,48 +62,48 @@ public struct TeamAppearanceEditor: View {
 
     public var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    TeamAvatar(name: team.name, colorHex: appearance.colorHex, emoji: appearance.emoji, size: 72)
-                        .clipShape(.rect(cornerRadius: 20, style: .continuous))
-                        .padding(.top, 12)
-                        .animation(theme.motion.snap.animation, value: appearance)
-                    iconSection.padding(.top, 20)
-                    sectionHeader("Color").padding(.top, 24)
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(44), spacing: 12), count: 6), spacing: 14) {
-                        ForEach(theme.colors.teamPalette) { color in
-                            let selected = color.dark.caseInsensitiveCompare(appearance.colorHex) == .orderedSame
-                            Button {
-                                appearance.colorHex = color.dark
-                            } label: {
-                                Circle()
-                                    .fill(color.token)
-                                    .frame(width: 44, height: 44)
-                                    .padding(3)
-                                    .overlay {
-                                        Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
-                                    }
-                                    .frame(width: 50, height: 50)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(Text(color.name))
-                            .accessibilityAddTraits(selected ? .isSelected : [])
-                        }
+            VStack(spacing: 0) {
+            // Pinned above the scrolling Icon controls: the preview, the
+            // "Color" header and the grid stay whole and in view while the
+            // keyboard is up (the preview smaller then). Only Icon scrolls.
+            VStack(spacing: 0) {
+                preview
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
+                sectionHeader("Color").padding(.top, 16)
+                colorGrid.padding(.top, 8)
+            }
+            .padding(.horizontal, theme.metrics.sideMargin)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        iconSection.padding(.top, 24).padding(.bottom, 16)
                     }
-                    .padding(.top, 8)
+                    .padding(.horizontal, theme.metrics.sideMargin)
                 }
-                .padding(.horizontal, theme.metrics.sideMargin)
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: customFocused) { _, focused in
+                    guard focused else { return }
+                    withAnimation(theme.motion.smooth.animation) { proxy.scrollTo("character", anchor: .bottom) }
+                }
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollDismissesKeyboard(.interactively)
+            }
+            // Done docks only while the keyboard is down: it never sits over
+            // the grid. With the keyboard up, picking a character (or the
+            // keyboard's Done key) dismisses it and Done comes back.
             .safeAreaInset(edge: .bottom) {
-                PrimaryCapsule("Done") {
-                    onSave(appearance)
-                    dismiss()
+                if !customFocused {
+                    PrimaryCapsule("Done") {
+                        onSave(appearance)
+                        dismiss()
+                    }
+                    .padding(.horizontal, theme.metrics.sideMargin)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
                 }
-                .padding(.horizontal, theme.metrics.sideMargin)
-                .padding(.bottom, 8)
             }
+            .background(Self.sheetBackground.color.ignoresSafeArea())
             .navigationTitle("Team appearance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -101,9 +112,15 @@ public struct TeamAppearanceEditor: View {
                 }
             }
         }
-        .presentationDetents([.height(640), .large])
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [Self.compactDetent, .large], selection: $detent)
+        .presentationBackground(Self.sheetBackground.color)
         .cnxNeutralControlTint()
         .cnxSensoryFeedback(.selection, trigger: appearance)
+        .onChange(of: customFocused) { _, focused in
+            // The keyboard needs the room: the sheet grows while typing.
+            if focused { detent = .large }
+        }
+        .onAppear { if typeSize.isAccessibilitySize { detent = .large } }
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
@@ -118,25 +135,61 @@ public struct TeamAppearanceEditor: View {
         #endif
     }
 
+    // MARK: Preview and color
+
+    /// Custom with nothing picked yet previews the color alone, so it never
+    /// shows Automatic's letter as if it were chosen.
+    private var preview: some View {
+        let emoji = mode == .custom && customText.isEmpty ? "" : appearance.emoji
+        let size: CGFloat = customFocused ? 48 : 72
+        return TeamAvatar(name: team.name, colorHex: appearance.colorHex, emoji: emoji, size: size)
+            .clipShape(.rect(cornerRadius: size * 20 / 72, style: .continuous))
+            .animation(theme.motion.snap.animation, value: appearance)
+            .animation(theme.motion.smooth.animation, value: customFocused)
+    }
+
+    /// 13 swatches in 7 columns of 44 pt (7 x 44 + 6 x 6 = 344 pt).
+    private var colorGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(44), spacing: 6), count: 7), spacing: 10) {
+            ForEach(theme.colors.teamPalette) { color in
+                let selected = color.dark.caseInsensitiveCompare(appearance.colorHex) == .orderedSame
+                Button {
+                    appearance.colorHex = color.dark
+                } label: {
+                    Circle()
+                        .fill(color.token)
+                        .frame(width: 32, height: 32)
+                        .padding(3)
+                        .overlay {
+                            Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
+                        }
+                        .frame(width: 44, height: 44)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(color.name))
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+
     // MARK: Icon
 
     private var iconSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Icon")
             VStack(spacing: 0) {
-                Picker("Icon", selection: $mode) {
-                    ForEach(GlyphMode.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(12)
-                .accessibilityIdentifier("teamAppearance.iconMode")
+                modePicker
                 if mode == .custom {
                     Divider().padding(.leading, 16)
-                    customRow
+                    characterWell
+                        .padding(.vertical, 16)
+                        .frame(maxWidth: .infinity)
+                        .id("character")
                         .transition(.opacity)
                 }
             }
-            .background(theme.colors.surfaceRaised, in: .rect(cornerRadius: theme.metrics.inputRadius, style: .continuous))
+            .background(Self.boxBackground, in: .rect(cornerRadius: theme.metrics.inputRadius, style: .continuous))
             Text(footer)
                 .font(theme.type.meta)
                 .foregroundStyle(theme.colors.label2)
@@ -146,7 +199,44 @@ public struct TeamAppearanceEditor: View {
         .animation(theme.motion.snap.animation, value: mode)
         .onChange(of: mode) { _, newMode in
             applyGlyph()
-            customFocused = newMode == .custom
+            customFocused = newMode == .custom && customText.isEmpty
+        }
+    }
+
+    /// Segmented at standard sizes; at accessibility sizes, where a segmented
+    /// control keeps its small type, a checklist.
+    @ViewBuilder private var modePicker: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(spacing: 0) {
+                ForEach(GlyphMode.allCases) { option in
+                    Button {
+                        mode = option
+                    } label: {
+                        HStack {
+                            Text(option.title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                            Spacer(minLength: 8)
+                            Image(systemName: "checkmark")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(theme.colors.label)
+                                .opacity(mode == option ? 1 : 0)
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: theme.metrics.settingsRowHeight)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(mode == option ? .isSelected : [])
+                    if option != GlyphMode.allCases.last { Divider().padding(.leading, 16) }
+                }
+            }
+            .accessibilityIdentifier("teamAppearance.iconMode")
+        } else {
+            Picker("Icon", selection: $mode) {
+                ForEach(GlyphMode.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(12)
+            .accessibilityIdentifier("teamAppearance.iconMode")
         }
     }
 
@@ -158,35 +248,40 @@ public struct TeamAppearanceEditor: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var customRow: some View {
-        HStack(spacing: 12) {
-            Text("Character").font(theme.type.rowTitle)
-            Spacer()
-            TextField("Type one", text: $customText)
-                .focused($customFocused)
-                .multilineTextAlignment(.trailing)
-                .font(customText.isEmpty ? theme.type.rowTitle : .title2)
-                .keyboardType(.default)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.done)
-                .onSubmit { customFocused = false }
-                .frame(maxWidth: 160)
+    /// The character, 34 pt in a 56 pt well; empty, a dashed well with a
+    /// smiley. Tapping it opens the emoji keyboard.
+    private var characterWell: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(theme.colors.separator, style: StrokeStyle(lineWidth: 1, dash: customText.isEmpty ? [4, 3] : []))
+                .opacity(customText.isEmpty || customFocused ? 1 : 0)
+            if customText.isEmpty {
+                Image(systemName: "face.smiling")
+                    .font(.system(size: 24))
+                    .foregroundStyle(theme.colors.label3)
+                    .allowsHitTesting(false)
+            }
+            EmojiCharacterField(text: $customText, isFocused: $customFocused)
+                .accessibilityLabel(Text("Character"))
+                .accessibilityValue(Text(verbatim: customText))
                 .accessibilityIdentifier("teamAppearance.character")
-                .onChange(of: customText) { old, new in
-                    let kept = Self.keptCharacter(old: old, new: new) ?? ""
-                    if kept != new { customText = kept }
-                    applyGlyph()
-                }
         }
-        .padding(.horizontal, 16)
-        .frame(height: theme.metrics.settingsRowHeight)
+        .frame(width: 56, height: 56)
+        .contentShape(.rect)
+        .onTapGesture { customFocused = true }
+        .onChange(of: customText) { old, new in
+            let kept = Self.keptCharacter(old: old, new: new) ?? ""
+            if kept != new { customText = kept }
+            applyGlyph()
+            // One character is all it holds: picking one puts the keyboard away.
+            if !kept.isEmpty, kept != old { customFocused = false }
+        }
     }
 
     private var footer: LocalizedStringKey {
         switch mode {
         case .automatic: "Shows the first letter of \(team.name)."
-        case .custom: "Type any letter, number, symbol, or emoji."
+        case .custom: "Pick an emoji, or type a letter, number or symbol."
         case .none: "Shows the color only."
         }
     }
@@ -209,6 +304,81 @@ public struct TeamAppearanceEditor: View {
             : new.hasSuffix(old) ? String(new.dropLast(old.count))
             : new
         return TeamGlyph.character(from: added) ?? TeamGlyph.character(from: old)
+    }
+}
+
+/// A one-character field that opens on the emoji keyboard, with no
+/// predictive bar or shortcuts. The globe key still switches to letters.
+struct EmojiCharacterField: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+
+    final class Field: UITextField {
+        override var textInputMode: UITextInputMode? {
+            UITextInputMode.activeInputModes.first { $0.primaryLanguage == "emoji" } ?? super.textInputMode
+        }
+
+        // Without a context identifier iOS restores the last keyboard used here.
+        override var textInputContextIdentifier: String? { "" }
+    }
+
+    func makeUIView(context: Context) -> Field {
+        let field = Field()
+        field.delegate = context.coordinator
+        field.font = .systemFont(ofSize: 34)
+        field.textAlignment = .center
+        field.textColor = .label
+        field.tintColor = .clear
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.autocapitalizationType = .none
+        field.smartInsertDeleteType = .no
+        field.inlinePredictionType = .no
+        field.textContentType = nil
+        field.returnKeyType = .done
+        field.inputAssistantItem.leadingBarButtonGroups = []
+        field.inputAssistantItem.trailingBarButtonGroups = []
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateUIView(_ field: Field, context: Context) {
+        context.coordinator.parent = self
+        if field.text != text { field.text = text }
+        if isFocused, !field.isFirstResponder {
+            Task { @MainActor in field.becomeFirstResponder() }
+        } else if !isFocused, field.isFirstResponder {
+            Task { @MainActor in field.resignFirstResponder() }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: EmojiCharacterField
+
+        init(parent: EmojiCharacterField) {
+            self.parent = parent
+        }
+
+        @objc func changed(_ field: UITextField) {
+            parent.text = field.text ?? ""
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            if !parent.isFocused { parent.isFocused = true }
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            if parent.isFocused { parent.isFocused = false }
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            parent.isFocused = false
+            return false
+        }
     }
 }
 #endif

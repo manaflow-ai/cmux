@@ -24,7 +24,7 @@ public final class TerminalArtifactCollector: @unchecked Sendable {
         queue.async { [self] in
             let found = extractor.scan(data)
             guard !found.isEmpty else { return }
-            list += found
+            list = ArtifactExtractor.droppingFragments(list + found)
             publish(list)
         }
     }
@@ -32,7 +32,7 @@ public final class TerminalArtifactCollector: @unchecked Sendable {
     /// Rescans the screen's text against the list (see `ArtifactExtractor.reconcile`).
     public func reconcile(screenText: String, columns: Int?) {
         queue.async { [self] in
-            let merged = extractor.reconcile(list, screenText: screenText, columns: columns)
+            let merged = ArtifactExtractor.droppingFragments(extractor.reconcile(list, screenText: screenText, columns: columns))
             guard merged != list else { return }
             list = merged
             publish(list)

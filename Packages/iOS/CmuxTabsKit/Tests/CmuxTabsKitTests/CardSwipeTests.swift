@@ -8,12 +8,20 @@ import Testing
 struct CardSwipeTests {
     private let w: CGFloat = 177
 
-    @Test func slowReleasesCloseOnlyPastSeventyTwoPercent() {
+    @Test func heldReleasesCloseOnlyPastSeventyTwoPercent() {
         for offset: CGFloat in [-84, -105, -123] {
-            #expect(!CardSwipe.commits(offset: offset, velocity: -80, cardWidth: w))
+            #expect(!CardSwipe.commits(offset: offset, velocity: 0, cardWidth: w))
         }
         for offset: CGFloat in [-132, -140] {
-            #expect(CardSwipe.commits(offset: offset, velocity: -80, cardWidth: w))
+            #expect(CardSwipe.commits(offset: offset, velocity: 0, cardWidth: w))
+        }
+    }
+
+    /// tabs-parity-reaudit D3a: a slow 100 pt drag (about 100 pt/s at
+    /// release) springs back in Safari, every time.
+    @Test func slowDragSpringsBack() {
+        for v: CGFloat in [0, -50, -100, -150, -200] {
+            #expect(!CardSwipe.commits(offset: -104.6, velocity: v, cardWidth: w))
         }
     }
 
@@ -31,8 +39,8 @@ struct CardSwipeTests {
 
     @Test func leftTracksOneToOneRightIsRubberBanded() {
         #expect(CardSwipe.offset(translation: -90) == -90)
-        // Safari: a 100 pt drag to the right moved the card about 35 pt.
-        #expect(abs(CardSwipe.offset(translation: 90) - 35) < 3)
+        // Safari: a 100 pt drag to the right (from touch-down) moved the card 44 pt.
+        #expect(abs(CardSwipe.offset(translation: 100) - 44) < 1)
         #expect(CardSwipe.offset(translation: 400) < CardSwipe.rubberDimension)
     }
 }

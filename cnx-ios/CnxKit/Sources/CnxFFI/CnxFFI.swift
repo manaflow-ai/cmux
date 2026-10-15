@@ -1288,6 +1288,16 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func close() 
     
     /**
+     * Debug: measure a network change. Pings back to back for 1 s, then
+     * takes this device's network away (every WireGuard session's socket
+     * and TURN allocation go dead) and, when `roam`, roams at once; keeps
+     * pinging for `window_ms`. Returns JSON: `stall_ms` (the longest wait
+     * for a pong from the change on), `pongs`, `path` at the end, and the
+     * roam marks.
+     */
+    func debugNetworkChangeProbe(roam: Bool, windowMs: UInt32) async  -> String
+    
+    /**
      * Whether the link has its own input-lane stream now.
      */
     func hasInputLane()  -> Bool
@@ -1321,6 +1331,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * Round-trip one ping; milliseconds.
      */
     func ping() async throws  -> UInt32
+    
+    /**
+     * The latest WireGuard roam of this link (`network_changed`,
+     * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
+     * ...), in milliseconds since the network changed; empty before any.
+     */
+    func roamTimings()  -> [TimingMark]
     
     /**
      * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
@@ -1397,6 +1414,32 @@ open func close()  {try! rustCall() {
             self.uniffiCloneHandle(),$0
     )
 }
+}
+    
+    /**
+     * Debug: measure a network change. Pings back to back for 1 s, then
+     * takes this device's network away (every WireGuard session's socket
+     * and TURN allocation go dead) and, when `roam`, roams at once; keeps
+     * pinging for `window_ms`. Returns JSON: `stall_ms` (the longest wait
+     * for a pong from the change on), `pongs`, `path` at the end, and the
+     * roam marks.
+     */
+open func debugNetworkChangeProbe(roam: Bool, windowMs: UInt32)async  -> String  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_method_linkhandle_debug_network_change_probe(
+                    self.uniffiCloneHandle(),
+                    FfiConverterBool.lower(roam),FfiConverterUInt32.lower(windowMs)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cnx_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: nil
+            
+        )
 }
     
     /**
@@ -1510,6 +1553,19 @@ open func ping()async throws  -> UInt32  {
             liftFunc: FfiConverterUInt32.lift,
             errorHandler: FfiConverterTypeCnxError_lift
         )
+}
+    
+    /**
+     * The latest WireGuard roam of this link (`network_changed`,
+     * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
+     * ...), in milliseconds since the network changed; empty before any.
+     */
+open func roamTimings() -> [TimingMark]  {
+    return try!  FfiConverterSequenceTypeTimingMark.lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_roam_timings(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
     /**
@@ -1904,19 +1960,41 @@ public struct BrowserStats: Equatable, Hashable {
      */
     public var clockOffsetUs: Int64?
     public var clockRttUs: UInt32?
+    /**
+     * The last frame came on the link's media lane (a WebRTC video track or
+     * RTP inside the WireGuard tunnel), not the channel.
+     */
+    public var videoTrack: Bool
+    /**
+     * Track frames: skipped to a keyframe after an unrecoverable loss, and
+     * packets a NACK brought back.
+     */
+    public var trackFramesDropped: UInt64
+    public var trackPacketsRecovered: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(frames: UInt64, keyframes: UInt64, bytes: UInt64, framesLost: UInt64, 
         /**
          * `host = viewer + offset`, and the best probe's round trip.
-         */clockOffsetUs: Int64?, clockRttUs: UInt32?) {
+         */clockOffsetUs: Int64?, clockRttUs: UInt32?, 
+        /**
+         * The last frame came on the link's media lane (a WebRTC video track or
+         * RTP inside the WireGuard tunnel), not the channel.
+         */videoTrack: Bool, 
+        /**
+         * Track frames: skipped to a keyframe after an unrecoverable loss, and
+         * packets a NACK brought back.
+         */trackFramesDropped: UInt64, trackPacketsRecovered: UInt64) {
         self.frames = frames
         self.keyframes = keyframes
         self.bytes = bytes
         self.framesLost = framesLost
         self.clockOffsetUs = clockOffsetUs
         self.clockRttUs = clockRttUs
+        self.videoTrack = videoTrack
+        self.trackFramesDropped = trackFramesDropped
+        self.trackPacketsRecovered = trackPacketsRecovered
     }
 
     
@@ -1940,7 +2018,10 @@ public struct FfiConverterTypeBrowserStats: FfiConverterRustBuffer {
                 bytes: FfiConverterUInt64.read(from: &buf), 
                 framesLost: FfiConverterUInt64.read(from: &buf), 
                 clockOffsetUs: FfiConverterOptionInt64.read(from: &buf), 
-                clockRttUs: FfiConverterOptionUInt32.read(from: &buf)
+                clockRttUs: FfiConverterOptionUInt32.read(from: &buf), 
+                videoTrack: FfiConverterBool.read(from: &buf), 
+                trackFramesDropped: FfiConverterUInt64.read(from: &buf), 
+                trackPacketsRecovered: FfiConverterUInt64.read(from: &buf)
         )
     }
 
@@ -1951,6 +2032,9 @@ public struct FfiConverterTypeBrowserStats: FfiConverterRustBuffer {
         FfiConverterUInt64.write(value.framesLost, into: &buf)
         FfiConverterOptionInt64.write(value.clockOffsetUs, into: &buf)
         FfiConverterOptionUInt32.write(value.clockRttUs, into: &buf)
+        FfiConverterBool.write(value.videoTrack, into: &buf)
+        FfiConverterUInt64.write(value.trackFramesDropped, into: &buf)
+        FfiConverterUInt64.write(value.trackPacketsRecovered, into: &buf)
     }
 }
 
@@ -1982,6 +2066,11 @@ public struct ConnectOptions: Equatable, Hashable {
      * backend relay frames (path `Relay`).
      */
     public var relayOnly: Bool
+    /**
+     * Debug: do not offer the media lane, so browser video rides its
+     * reliable channel on either transport (the comparison baseline).
+     */
+    public var noVideoLane: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1991,8 +2080,13 @@ public struct ConnectOptions: Equatable, Hashable {
          * uses ICE transport policy `relay` with the service's TURN servers
          * (path `Turn`; no TURN server fails the dial), WireGuard uses only the
          * backend relay frames (path `Relay`).
-         */relayOnly: Bool = false) {
+         */relayOnly: Bool = false, 
+        /**
+         * Debug: do not offer the media lane, so browser video rides its
+         * reliable channel on either transport (the comparison baseline).
+         */noVideoLane: Bool = false) {
         self.relayOnly = relayOnly
+        self.noVideoLane = noVideoLane
     }
 
     
@@ -2011,12 +2105,14 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConnectOptions {
         return
             try ConnectOptions(
-                relayOnly: FfiConverterBool.read(from: &buf)
+                relayOnly: FfiConverterBool.read(from: &buf), 
+                noVideoLane: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.relayOnly, into: &buf)
+        FfiConverterBool.write(value.noVideoLane, into: &buf)
     }
 }
 
@@ -2741,6 +2837,28 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
         )
 }
 /**
+ * The device's network changed or came back (iOS `NWPathMonitor`): every
+ * WireGuard link moves onto the new network at once without a redial, and
+ * the signaling socket is checked (and replaced when dead) so relay frames
+ * flow again. Returns the steps: the first link's roam marks, then the
+ * signaling ones prefixed `signaling:`.
+ */
+public func networkChanged(baseUrl: String, token: String, teamId: String, deviceId: String)async  -> [TimingMark]  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_func_network_changed(FfiConverterString.lower(baseUrl),FfiConverterString.lower(token),FfiConverterString.lower(teamId),FfiConverterString.lower(deviceId)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cnx_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTimingMark.lift,
+            errorHandler: nil
+            
+        )
+}
+/**
  * Warm what the next `connect` to this service, team and device needs:
  * fetch the ICE servers (unless cached) and open the signaling socket
  * (or, when one is open, check that it still answers). Call at launch,
@@ -2805,6 +2923,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_func_connect_with_options() != 14347) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_func_network_changed() != 34403) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_func_prewarm() != 62590) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2826,6 +2947,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_method_linkhandle_close() != 65297) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_debug_network_change_probe() != 11320) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_has_input_lane() != 24284) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2845,6 +2969,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_ping() != 28685) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_roam_timings() != 62822) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_timings() != 18369) {

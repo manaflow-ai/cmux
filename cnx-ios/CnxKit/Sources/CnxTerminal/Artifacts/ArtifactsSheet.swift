@@ -23,31 +23,57 @@ struct ArtifactsSheet: View {
             case .links: kind == .link
             }
         }
+
+        /// The empty state's title: the generic one only for All (P3).
+        var emptyTitle: String {
+            switch self {
+            case .all: "Nothing referenced yet"
+            case .files: "No files yet"
+            case .folders: "No folders yet"
+            case .images: "No images yet"
+            case .videos: "No videos yet"
+            case .code: "No code yet"
+            case .links: "No links yet"
+            }
+        }
     }
 
     private var shown: [TerminalArtifact] {
         model.artifacts.filter { filter.includes($0.kind) }.sorted { $0.order > $1.order }
     }
 
+    private func count(_ item: Filter) -> Int {
+        model.artifacts.filter { item.includes($0.kind) }.count
+    }
+
+    /// All, then every filter with items (and the selected one, so it never
+    /// vanishes under the finger).
+    private var chipFilters: [Filter] {
+        Filter.allCases.filter { $0 == .all || $0 == filter || count($0) > 0 }
+    }
+
     var body: some View {
         NavigationStack(path: $model.artifactPath) {
-            List {
-                Section {
+            VStack(spacing: 0) {
+                // 8 pt under the Done button (R1-7, R2-7): the bar's bottom
+                // margin is 5 pt deeper than its buttons, so the chips go up by it.
+                chips
+                    .padding(.top, -5)
+                    .padding(.bottom, 4)
+                List {
                     ForEach(shown) { artifact in
                         NavigationLink(value: artifact) { ArtifactRow(artifact: artifact) }
                     }
-                } header: {
-                    chips
+                }
+                .listStyle(.plain)
+                .overlay {
+                    if shown.isEmpty {
+                        ContentUnavailableView(filter.emptyTitle, systemImage: "doc.text.magnifyingglass",
+                                               description: Text("Files, folders and links that appear in the terminal show up here."))
+                    }
                 }
             }
-            .listStyle(.plain)
-            .overlay {
-                if shown.isEmpty {
-                    ContentUnavailableView("Nothing referenced yet", systemImage: "doc.text.magnifyingglass",
-                                           description: Text("Files, folders and links that appear in the terminal show up here."))
-                }
-            }
-            .navigationTitle("Files and links")
+            .navigationTitle("Files and Links")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: TerminalArtifact.self) { artifact in
                 ArtifactPreview(artifact: artifact, source: model.artifactSource, showSource: $model.previewShowsSource)
@@ -60,30 +86,35 @@ struct ArtifactsSheet: View {
         }
     }
 
+    /// Directly under the title, edge to edge, scrolling with a 16 pt
+    /// leading inset (P2). Every chip shows its count.
     private var chips: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
-                ForEach(Filter.allCases) { item in
-                    let count = model.artifacts.filter { item.includes($0.kind) }.count
+                ForEach(chipFilters) { item in
+                    let selected = filter == item
                     Button {
                         withAnimation(.snappy) { filter = item }
                     } label: {
-                        Text(item == .all ? "All \(count)" : item.rawValue)
+                        Text("\(item.rawValue) \(count(item))")
                             .font(.subheadline.weight(.medium))
+                            .monospacedDigit()
                             .padding(.horizontal, 14)
                             .frame(height: 34)
-                            .background(Color.primary.opacity(filter == item ? 0.16 : 0.06), in: .capsule)
+                            .background(Color.primary.opacity(selected ? 0.16 : 0.06), in: .capsule)
+                            .contentShape(.capsule)
                     }
                     .buttonStyle(.plain)
-                    .disabled(count == 0)
-                    .opacity(count == 0 ? 0.4 : 1)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("artifacts.filter.\(item.rawValue.lowercased())")
                 }
             }
-            .padding(.vertical, 6)
         }
+        .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollIndicators(.hidden)
-        .textCase(nil)
         .foregroundStyle(.primary)
+        .sensoryFeedback(.selection, trigger: filter)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 #endif

@@ -21,11 +21,24 @@ import Testing
         #expect(parser.parse(Data("not json".utf8)).isEmpty)
     }
 
+    /// R2-1: a TUI still on screen after a resize is not reported leaving and
+    /// re-entering the alternate screen (that resized the PTY back and forth).
+    @Test func resizedKeepsATUIOnTheAlternateScreen() {
+        var parser = DaemonTerminalEventParser(surface: 7)
+        _ = parser.parse(line(["event": "output", "surface": 7, "data": Data("\u{1B}[?1049h".utf8).base64EncodedString()]))
+        let replay = Data("\u{1B}[?1049htop".utf8)
+        let events = parser.parse(line(["event": "resized", "surface": 7, "rows": 24, "replay": replay.base64EncodedString()]))
+        #expect(events == [.rows(24), .resetMirror(alternate: true), .output(replay)])
+        // Quitting it later is reported once.
+        #expect(parser.parse(line(["event": "output", "surface": 7, "data": Data("\u{1B}[?1049l".utf8).base64EncodedString()]))
+                == [.output(Data("\u{1B}[?1049l".utf8)), .alternateScreen(false)])
+    }
+
     @Test func resizedResetsTheMirrorAndTheDetector() {
         var parser = DaemonTerminalEventParser(surface: 7)
         _ = parser.parse(line(["event": "output", "surface": 7, "data": Data("\u{1B}[?1049h".utf8).base64EncodedString()]))
         let events = parser.parse(line(["event": "resized", "surface": 7, "rows": 30, "replay": Data("fresh".utf8).base64EncodedString()]))
-        #expect(events == [.rows(30), .resetMirror, .output(Data("fresh".utf8))])
+        #expect(events == [.rows(30), .resetMirror(alternate: false), .output(Data("fresh".utf8))])
         // The detector starts over: leaving the alternate screen is not reported twice.
         #expect(parser.parse(line(["event": "detached", "surface": 7, "reason": "closed"])) == [.detached(reason: "closed")])
     }

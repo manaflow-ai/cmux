@@ -10,10 +10,19 @@ import Testing
 final class FakeTerminalDaemon: @unchecked Sendable {
     private let lock = NSLock()
     private var commands: [[String: Any]] = []
+    /// The next N attaches answer "unknown surface" (a Mac host that just restarted).
+    var failNextAttaches = 0
+    /// `identify` advertises attach-initial-size.
+    var initialSize = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
-    func respond(_ service: String, _ line: Data) -> [Data] {
+    func respond(_ service: String, _ data: Data) -> [Data] {
+        // A batch (`DaemonClient.requests`) is several lines in one write.
+        data.split(separator: 0x0A).flatMap { respondLine(service, Data($0)) }
+    }
+
+    private func respondLine(_ service: String, _ line: Data) -> [Data] {
         guard service == "daemon", let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let id = object["id"] as? String, let cmd = object["cmd"] as? String else { return [] }
         lock.withLock { commands.append(object) }
@@ -21,7 +30,19 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             Self.line(["id": id, "ok": true, "data": data])
         }
         switch cmd {
+        case "identify" where initialSize:
+            return [reply(["capabilities": ["attach-initial-size"]])]
         case "attach-surface":
+            let fail: Bool = lock.withLock {
+                guard failNextAttaches > 0 else { return false }
+                failNextAttaches -= 1
+                return true
+            }
+            if fail {
+                // The replay a refusing daemon never sends; a stray event first, then the refusal.
+                return [Self.line(["event": "output", "surface": 7, "data": Data("stale".utf8).base64EncodedString()]),
+                        Self.line(["id": id, "ok": false, "error": "unknown surface 7"])]
+            }
             guard object["surface"] as? Int == 7 else { return [Self.line(["id": id, "ok": false, "error": "unknown surface"])] }
             return [
                 Self.line(["event": "vt-state", "surface": 7, "cols": 80, "rows": 24,
@@ -140,6 +161,19 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(events.last == .output(Data("fresh".utf8)))
     }
 
+    @Test func resizedEventKeepsATUIWithoutAnOffOnFlicker() async throws {
+        let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        session.handle(FakeTerminalDaemon.line(["event": "output", "surface": 7, "data": Data("\u{1B}[?1049h".utf8).base64EncodedString()]))
+        events.removeAll()
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 53, "rows": 24,
+                                                "replay": Data("\u{1B}[?1049htop".utf8).base64EncodedString()]))
+        #expect(!events.contains(.alternateScreen(false)))
+        #expect(!events.contains(.alternateScreen(true)))
+        #expect(session.isAlternateScreen)
+    }
+
     @Test func attachFailureIsShownInTheTerminal() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }
@@ -191,6 +225,100 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
     }
 
+    /// termqa D3: right after the Mac's host restarts, a reattach can be refused
+    /// ("unknown surface") for a moment. The screen keeps its last frame: no
+    /// mirror reset and no error line until an attach succeeds, then the
+    /// reset and the replay, in that order.
+    @Test func aRefusedReattachKeepsTheLastFrameAndRetries() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "host restarted")
+        try await waitUntil { !session.isAttached }
+
+        daemon.failNextAttaches = 2
+        let before = events.count
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        let after = Array(events[before...])
+        let outputs = after.compactMap { event -> String? in
+            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+            return nil
+        }
+        // Nothing reached the screen before the good attach: no reset, no "[unknown surface]" line, no stray output.
+        #expect(outputs.first == "\u{1B}c")
+        #expect(!outputs.contains { $0.contains("unknown surface") || $0.contains("stale") })
+        #expect(outputs.contains("hello\r\n$ "))
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == 4)
+    }
+
+    /// termqa D8: the Mac's own window sets this terminal's grid (39 rows),
+    /// so the phone's 42 is overruled. A reattach attaches at the Mac's size
+    /// and does not ask for 42 again: the PTY is not resized away and back
+    /// (each resize made Codex redraw its whole transcript over the link).
+    @Test func aReattachKeepsAnOverruledSize() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.start { _ in }
+        session.resize(columns: 53, rows: 42)
+        try await waitUntil { session.isAttached }
+        let first = try #require(daemon.recorded.first { $0["cmd"] as? String == "attach-surface" })
+        #expect(first["rows"] as? Int == 42)
+        // The Mac keeps 39 rows.
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 53, "rows": 39,
+                                                "replay": Data("x".utf8).base64EncodedString()]))
+        await channels.last?.close(code: "link_closed", reason: "background")
+        try await waitUntil { !session.isAttached }
+        let resizesBefore = daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let second = try #require(daemon.recorded.last { $0["cmd"] as? String == "attach-surface" })
+        #expect(second["cols"] as? Int == 53)
+        #expect(second["rows"] as? Int == 39)
+        session.send(Data("x".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == resizesBefore)
+        // A new phone grid asks again.
+        session.resize(columns: 53, rows: 40)
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == resizesBefore + 1 }
+    }
+
+    /// The terminal channel says it is a phone before it attaches, so the
+    /// Mac's daemon holds the grid when the phone's link drops (termqa V2-5:
+    /// no resize away and back, so Codex keeps its scrollback).
+    @Test func theTerminalChannelSaysItIsAPhoneBeforeAttaching() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(
+            surface: 7,
+            clientInfo: ["name": "Test iPhone", "kind": "ios", "device_kind": "iphone", "device_id": "d1"]
+        ) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        var attached = false
+        session.start { if $0 == .connection(.attached) { attached = true } }
+        try await waitUntil { attached }
+        let order = daemon.recorded.compactMap { $0["cmd"] as? String }
+        let info = try #require(daemon.recorded.first { $0["cmd"] as? String == "set-client-info" })
+        #expect(info["device_kind"] as? String == "iphone")
+        #expect(order.firstIndex(of: "set-client-info")! < order.firstIndex(of: "attach-surface")!)
+    }
+
     @Test func detachedEventEndsTheTerminal() async throws {
         let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
         var events: [TerminalSessionEvent] = []
@@ -199,8 +327,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(events.contains(.exited(code: 0)))
     }
 
-    private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
-        for _ in 0..<200 where !condition() {
+    private func waitUntil(attempts: Int = 200, _ condition: @MainActor () -> Bool) async throws {
+        for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(condition())

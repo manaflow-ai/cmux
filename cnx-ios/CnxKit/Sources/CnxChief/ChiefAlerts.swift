@@ -36,6 +36,19 @@ public struct ChiefPreferences: @unchecked Sendable {
         defaults.set(on, forKey: key("receipts", conversationID))
     }
 
+    /// The newest engine report read from the Mac `macID` (its model,
+    /// harness, effort and the models it offered), so Chief's settings show
+    /// the model even while that Mac's Chief can't list its models.
+    public func engineReport(macID: String) -> ChiefEngineReport? {
+        guard let data = defaults.data(forKey: "cnx.chief.mac.\(macID).engine") else { return nil }
+        return try? JSONDecoder().decode(ChiefEngineReport.self, from: data)
+    }
+
+    public func setEngineReport(_ report: ChiefEngineReport, macID: String) {
+        guard let data = try? JSONEncoder().encode(report) else { return }
+        defaults.set(data, forKey: "cnx.chief.mac.\(macID).engine")
+    }
+
     /// The list state the details page shows for `conversationID`.
     public func listState(_ conversationID: String) -> ConversationListState {
         ConversationListState(pinned: true, pinOrder: 0, muted: muted(conversationID),

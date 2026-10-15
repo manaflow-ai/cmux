@@ -82,7 +82,7 @@ public struct IconAction: View {
 }
 
 /// The glyph of an `IconAction` (also the label of a `ShareLink` or `Menu`
-/// in the same row): 16 pt in a 32 pt target at the default text size,
+/// in the same row): 16 pt in a 44 pt target at the default text size,
 /// scaled with Dynamic Type like the text around it.
 public struct IconActionLabel: View {
     let systemImage: String
@@ -97,7 +97,8 @@ public struct IconActionLabel: View {
             .font(.system(size: size, weight: .regular))
             .foregroundStyle(.secondary)
             .contentTransition(.symbolEffect(.replace))
-            .frame(width: size * 2, height: size * 2)
+            // 44 pt hit target at least (HIG); the glyph keeps its 16 pt size.
+            .frame(width: max(44, size * 2), height: max(44, size * 2))
             .contentShape(.rect)
     }
 }
@@ -135,7 +136,9 @@ public struct CnxCapsuleButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.cnxSnap, value: configuration.isPressed)
-            .contentShape(.capsule)
+            // 40 pt capsules keep a 44 pt hit target (HIG): 2 pt of invisible margin above and below.
+            .padding(.vertical, height < 44 ? (44 - height) / 2 : 0)
+            .contentShape(.rect)
     }
 
     private var foreground: Color {

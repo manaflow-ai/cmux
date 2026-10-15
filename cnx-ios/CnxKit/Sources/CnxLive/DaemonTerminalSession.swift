@@ -40,6 +40,7 @@ public final class DaemonTerminalSession: TerminalSession {
     public private(set) var lastError: String?
 
     private let open: @Sendable () async throws -> DaemonClient
+    private let clientInfo: [String: String]
     private let openInput: (@Sendable () async throws -> DaemonClient)?
     private var client: DaemonClient?
     /// The input-lane channel for `send`, once open.
@@ -84,14 +85,22 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `open` returns a client on a fresh `daemon` channel to the Mac;
     /// `openInput`, one on the link's input lane for keystrokes (nil: input
     /// shares the attach channel).
+    /// `clientInfo`: `set-client-info` for the attach channel, sent with
+    /// `identify` before each attach. With `device_kind` a phone or tablet,
+    /// the Mac's daemon keeps the grid for a while after this phone's link
+    /// drops, so a reattach finds it unchanged: the PTY is not resized away
+    /// and back, and Codex does not rebuild (and truncate) its scrollback
+    /// (termqa V2-5).
     public init(
         surface: Int,
         programName: String = "zsh",
+        clientInfo: [String: String] = [:],
         open: @escaping @Sendable () async throws -> DaemonClient,
         openInput: (@Sendable () async throws -> DaemonClient)? = nil
     ) {
         self.surface = surface
         self.programName = programName
+        self.clientInfo = clientInfo
         self.open = open
         self.openInput = openInput
     }
@@ -111,6 +120,10 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func resize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
+        // A no-op resize never reaches the Mac (each one makes it reset the
+        // mirror and replay, and an inline TUI redraw its whole transcript).
+        if attached, let last = lastSize, last.columns == columns, last.rows == rows { return }
+        log.notice("surface \(self.surface, privacy: .public): resize to \(columns, privacy: .public)x\(rows, privacy: .public)")
         lastSize = (columns, rows)
         if attached {
             enqueue(.size(columns: columns, rows: rows))
@@ -126,6 +139,9 @@ public final class DaemonTerminalSession: TerminalSession {
         inbox = nil
         outputPaused = false
         handler = nil
+        // The Mac drops this attach (a tab cooled out of the warm set, or gone).
+        if let client { Task { await client.close() } }
+        attached = false
         client = nil
         dropInputLane()
         outbox.removeAll()
@@ -158,6 +174,12 @@ public final class DaemonTerminalSession: TerminalSession {
             let inbox = DaemonTerminalInbox { [weak self] batch in
                 MainActor.assumeIsolated {
                     guard let self, self.client === client else { return }
+                    // Until the Mac confirms the attach, its events wait: the
+                    // mirror is reset only for an attach that succeeded.
+                    if self.heldEvents != nil {
+                        self.heldEvents?.append(contentsOf: batch)
+                        return
+                    }
                     for event in batch { self.apply(event) }
                 }
             }
@@ -174,21 +196,65 @@ public final class DaemonTerminalSession: TerminalSession {
                     MainActor.assumeIsolated { self?.channelEnded(client) }
                 }
             }
-            _ = try? await client.request("identify")
-            // The replay that follows rebuilds the screen and scrollback. The
-            // reset also tells the screen where the Mac's screen starts in its
-            // taller mirror (TerminalRowShift).
+            attachedWithSize = nil
+            // One write: the client info (when given) and identify.
+            let setup = await client.requests(
+                (clientInfo.isEmpty ? [] : [(cmd: "set-client-info", params: clientInfo as [String: Any])])
+                    + [(cmd: "identify", params: [:])]
+            )
+            let identify = try? setup.last?.get()
+            let initialSize = identify.map(Self.acceptsInitialSize) ?? false
+            // The mirror is not reset yet: a reattach that fails (a Mac host
+            // that just restarted answers "unknown surface" for a moment) keeps
+            // the last frame on screen under the reconnecting badge, instead
+            // of a blank screen with an error line (termqa D3). The replay's
+            // events wait in `heldEvents` until the attach is confirmed.
+            heldEvents = []
+            // With the size in the attach the Mac builds the replay at that size
+            // once; attached first and resized after, it reset the mirror and
+            // replayed the whole history a second time (user report 2026-10-14).
+            var reply: Data
+            if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
+               overruled.asked.columns == size.columns, overruled.asked.rows == size.rows {
+                // The Mac kept its own size for this request last time: attach
+                // at that size (no PTY resize), and do not ask again.
+                log.notice("surface \(self.surface, privacy: .public): reattach at the Mac's \(overruled.mac.columns, privacy: .public)x\(overruled.mac.rows, privacy: .public) (asked \(size.columns, privacy: .public)x\(size.rows, privacy: .public) was overruled)")
+                reply = try await client.request("attach-surface", params: ["surface": surface, "cols": overruled.mac.columns, "rows": overruled.mac.rows])
+                if Self.error(in: reply) != nil {
+                    reply = try await client.request("attach-surface", params: ["surface": surface])
+                } else {
+                    attachedWithSize = size
+                }
+            } else if initialSize, let size = lastSize ?? pendingSize {
+                reply = try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
+                if Self.error(in: reply) != nil {
+                    // A policy that does not pass the size: attach without it.
+                    reply = try await client.request("attach-surface", params: ["surface": surface])
+                } else {
+                    lastSize = size
+                    attachedWithSize = size
+                }
+            } else {
+                reply = try await client.request("attach-surface", params: ["surface": surface])
+            }
+            if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
+            guard self.client === client else { heldEvents = nil; return }
+            // The replay rebuilds the screen and scrollback. The reset also
+            // tells the screen where the Mac's screen starts in its taller
+            // mirror (TerminalRowShift).
+            log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
             setAlternate(false)
             handler?(.output(Data("\u{1B}c".utf8)))
-            let reply = try await client.request("attach-surface", params: ["surface": surface])
-            if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
-            guard self.client === client else { return }
+            let held = heldEvents ?? []
+            heldEvents = nil
+            for event in held { apply(event) }
+            attachRetries = 0
             attached = true
             everAttached = true
             handler?(.connection(.attached))
             lastError = nil
             pendingSize = nil
-            if let size = lastSize {
+            if let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
                 outbox.removeAll { if case .size = $0 { true } else { false } }
                 outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)
             }
@@ -196,8 +262,20 @@ public final class DaemonTerminalSession: TerminalSession {
             drainInput()
             openInputLane(for: client)
         } catch {
+            heldEvents = nil
             lastError = LinkController.reason(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
+            if everAttached, attachRetries < Self.reattachBackoff.count, handler != nil, !ended {
+                // A reattach: keep the last frame and try again (bounded backoff).
+                let delay = Self.reattachBackoff[attachRetries]
+                attachRetries += 1
+                if let client = self.client { self.client = nil; Task { await client.close() } }
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    self?.reconnect()
+                }
+                return
+            }
             emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
         }
     }
@@ -227,10 +305,25 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.output(data))
         case .alternateScreen(let on):
             setAlternate(on)
+        case .columns(let columns):
+            reportedColumns = columns
         case .rows(let rows):
             reportedRows = rows
-        case .resetMirror:
-            setAlternate(false)
+            // The Mac answered a size other than the one asked for (another
+            // view of this terminal, the Mac's own window, sets the grid): the
+            // request was overruled. A reattach then keeps the Mac's size
+            // instead of resizing its PTY to the phone's grid and back, which
+            // made an inline TUI (Codex) redraw its whole transcript twice
+            // over the link (termqa D4/D8).
+            if attached, let asked = lastSize, let columns = reportedColumns,
+               asked.columns != columns || asked.rows != rows {
+                overruled = Overruled(asked: asked, mac: (columns, rows))
+            } else if attached, let asked = lastSize, asked.columns == reportedColumns, asked.rows == rows {
+                overruled = nil
+            }
+        case .resetMirror(let alternate):
+            log.notice("surface \(self.surface, privacy: .public): mirror reset cause=resized-event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
+            setAlternate(alternate)
             handler?(.output(Data("\u{1B}c".utf8)))
         case .detached(let reason):
             ended(reason: reason)
@@ -282,6 +375,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 switch next {
                 case .size(let columns, let rows):
                     cmd = "resize-surface"
+                    log.notice("surface \(surface, privacy: .public): resize-surface sent \(columns, privacy: .public)x\(rows, privacy: .public) cause=\(self.everAttached && self.attachRetries == 0 ? "requested" : "attach", privacy: .public)")
                     reply = try await client.request(cmd, params: ["surface": surface, "cols": columns, "rows": rows])
                 }
                 if let error = Self.error(in: reply) {
@@ -409,6 +503,30 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         }
         return try result.get()
+    }
+
+    /// The Mac's columns (`vt-state`, `resized`).
+    private var reportedColumns: Int?
+    /// The phone's last size request the Mac answered with another size.
+    private struct Overruled { var asked: (columns: Int, rows: Int); var mac: (columns: Int, rows: Int) }
+    private var overruled: Overruled?
+
+    /// Events that arrived before the Mac confirmed the attach (nil: none held).
+    private var heldEvents: [DaemonTerminalInbound]?
+    /// Failed reattach attempts since the last good attach.
+    private var attachRetries = 0
+    /// Delays before retrying a failed reattach (seconds); then the error shows.
+    static let reattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
+
+    /// The size the attach already carried (no separate resize needed).
+    private var attachedWithSize: (columns: Int, rows: Int)?
+
+    /// Whether the daemon takes the viewer's size in `attach-surface`.
+    nonisolated static func acceptsInitialSize(_ identify: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
+              let data = object["data"] as? [String: Any],
+              let capabilities = data["capabilities"] as? [String] else { return false }
+        return capabilities.contains("attach-initial-size")
     }
 
     private static func error(in reply: Data) -> String? {

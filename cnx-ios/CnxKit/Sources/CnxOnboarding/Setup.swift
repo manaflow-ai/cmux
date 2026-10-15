@@ -62,12 +62,37 @@ public struct SetupFlow: View {
             Group {
                 if let first = steps.first { page(first) } else { theme.colors.bg.color.ignoresSafeArea() }
             }
-            .navigationDestination(for: Step.self) { page($0) }
+            // On every setup page, loading and failure included: who is signed
+            // in, and a way back to Welcome to start over. Inset per page: on
+            // the stack, pushed pages did not leave room for it and the footer
+            // sat over the bottom of Continue (terminal review round 4).
+            .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+            .navigationDestination(for: Step.self) { step in
+                page(step).safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+            }
         }
         .tint(theme.colors.label.color)
-        // On every setup page, loading and failure included: who is signed
-        // in, and a way back to Welcome to start over.
-        .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) {
+            switch DemoDirector.shared.command {
+            case .setupSignOut: confirmsSignOut = true
+            case .setupConfirmSignOut: confirmsSignOut = false; signOut()
+            default: break
+            }
+        }
+        #endif
+        #if DEBUG
+        // A screen demo (`-CnxDemo chat-feed`, …) on a fresh install skips setup in
+        // Personal, so its driver never waits here. The onboarding demo drives setup itself.
+        .task {
+            guard let demo = Self.launchDemoName, demo != "onboarding" else { return }
+            if steps.contains(.team) {
+                store.selectPersonalSpace()
+                personalPicked()
+            }
+            finish()
+        }
+        #endif
         .confirmationDialog("Sign out and start over?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) {
                 theme.haptics.warning()
@@ -77,6 +102,14 @@ public struct SetupFlow: View {
             Text("You can sign in again with this or another account.")
         }
     }
+
+    #if DEBUG
+    private static var launchDemoName: String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "-CnxDemo"), arguments.indices.contains(index + 1) { return arguments[index + 1] }
+        return DeveloperOptions.launchDemo
+    }
+    #endif
 
     private var accountFooter: some View {
         HStack(spacing: 6) {
@@ -96,15 +129,6 @@ public struct SetupFlow: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(theme.colors.bg.color.ignoresSafeArea())
-        #if DEBUG
-        .onChange(of: DemoDirector.shared.serial) {
-            switch DemoDirector.shared.command {
-            case .setupSignOut: confirmsSignOut = true
-            case .setupConfirmSignOut: confirmsSignOut = false; signOut()
-            default: break
-            }
-        }
-        #endif
     }
 
     @ViewBuilder private func page(_ step: Step) -> some View {
@@ -316,11 +340,18 @@ private struct TeamStep: View {
         let space = store.teams.first { $0.id.hasPrefix("personal-") }
         let presence = space?.macDots() ?? (dots: [], overflow: 0)
         return HStack(spacing: 12) {
-            Image(systemName: "person.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(theme.colors.label)
-                .frame(width: theme.metrics.teamAvatar, height: theme.metrics.teamAvatar)
-                .background(theme.colors.fillSelected, in: .rect(cornerRadius: theme.metrics.teamAvatarRadius, style: .continuous))
+            // The personal space looks the same here as in the sidebar: its
+            // own avatar once the account has it, a person until then.
+            if let space {
+                TeamAvatar(name: space.name, colorHex: space.appearance.colorHex, emoji: space.appearance.emoji,
+                           size: theme.metrics.teamAvatar)
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(theme.colors.label)
+                    .frame(width: theme.metrics.teamAvatar, height: theme.metrics.teamAvatar)
+                    .background(theme.colors.fillSelected, in: .rect(cornerRadius: theme.metrics.teamAvatarRadius, style: .continuous))
+            }
             VStack(alignment: .leading, spacing: 5) {
                 Text("Personal")
                     .font(theme.type.rowTitle)
@@ -391,6 +422,11 @@ private struct TeamStep: View {
 
     private func pickPersonal() {
         theme.haptics.selection()
+        // Picking Personal must leave Personal active: the store selects it
+        // here when it lists it (with no live coordinator, nothing else
+        // would, and the previous team stayed active), and the live
+        // coordinator adds it when it isn't listed yet.
+        store.selectPersonalSpace()
         personal()
         next()
     }

@@ -24,6 +24,16 @@ struct AgentConversation: Identifiable, Hashable {
     var id: String { tabID }
 }
 
+/// Markdown to one plain line, as a list preview: the rows, Chief's pin
+/// bubble and its VoiceOver label (F4).
+func plainPreview(_ markdown: String) -> String {
+    markdown
+        .replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
+        .replacingOccurrences(of: "[*_`#>]", with: "", options: .regularExpression)
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespaces)
+}
+
 /// Home (SPEC 3.1, 6): a Messages-style conversation list. Chief is pinned
 /// in Messages' pinned grid at the top (large avatar, preview or typing
 /// bubble above it); agent conversations follow as Messages rows (unread
@@ -127,21 +137,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// Markdown to one plain line, as a list preview.
-    static func plain(_ markdown: String) -> String {
-        markdown
-            .replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "[*_`#>]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
-    }
+    static func plain(_ markdown: String) -> String { plainPreview(markdown) }
 
     public var body: some View {
         let stamp = MessagesStamp()
         List {
-            HomeSearchField(query: $query)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
             if showsChief {
                 PinnedGrid(session: session)
                     .listRowInsets(EdgeInsets())
@@ -164,6 +164,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 NavigationLink(value: AgentChatDestination(workspaceID: conversation.workspaceID, tabID: conversation.tabID)) {
                     MessagesRow(
                         title: conversation.title,
+                        agent: conversation.title.hasSuffix("· \(conversation.name)") ? nil : conversation.name,
                         preview: conversation.preview,
                         stamp: stamp.string(for: conversation.date),
                         isUnread: unread.contains(conversation.id),
@@ -209,8 +210,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.colors.bg.color.ignoresSafeArea())
-        // No visible title (user feedback): the search field and Chief's pin
-        // sit right under the toolbar. The title still names the screen for
+        // Workspaces' search: the native drawer, revealed by a pull-down.
+        .cnxPullDownSearch(text: $query)
+        // No visible title (user feedback): Chief's pin sits right under the
+        // toolbar. The title still names the screen for
         // VoiceOver and the back menu.
         .navigationTitle("Conversations")
         .navigationBarTitleDisplayMode(.inline)
@@ -223,7 +226,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         ForEach(Filter.allCases) { Text($0.title).tag($0) }
                     }
                 } label: {
-                    Image(systemName: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                    // A Label, not a bare Image: the bar then hosts a native button whose touch
+                    // area covers the whole 44 pt glass circle (a bare Image label was 36 pt).
+                    Label("Filter", systemImage: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel("Filter")
                 // Compose opens the Chief conversation with the keyboard up
@@ -249,57 +254,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 }
 
-/// The always-visible search field under the large title. iOS 27 collapses
-/// a large title to inline when `.searchable` uses an always-shown drawer
-/// (and hides any other drawer until pulled), so a list row keeps both the
-/// large title and the field on iOS 26 and 27 alike.
-struct HomeSearchField: View {
-    @Binding var query: String
-    @FocusState private var focused: Bool
-    /// Body's line height, scaled with the text size (22 pt at Large).
-    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
-
-    /// 36 pt, or taller when the text needs it (SPEC 1.3).
-    private var height: CGFloat { max(36, lineHeight + 14) }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(theme.colors.label2.color)
-                    .accessibilityHidden(true)
-                TextField("Search", text: $query)
-                    .focused($focused)
-                    .submitLabel(.search)
-                    .autocorrectionDisabled()
-                if !query.isEmpty {
-                    Button { query = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(theme.colors.label3.color)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear")
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: height)
-            .background(theme.colors.surfaceRaised.color, in: .capsule)
-            if focused {
-                Button("Cancel") {
-                    query = ""
-                    focused = false
-                }
-                .foregroundStyle(theme.colors.label.color)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-        }
-        .animation(theme.motion.smooth.animation, value: focused)
-        .padding(.horizontal, 16)
-        .padding(.top, 2)
-        .padding(.bottom, 6)
-    }
-}
-
 /// Messages' pinned conversations: a grid of large avatars with names, a
 /// preview (or typing) bubble above an avatar with something new.
 struct PinnedGrid: View {
@@ -309,7 +263,9 @@ struct PinnedGrid: View {
         NavigationLink(value: ChiefRoute()) {
             pin
                 .frame(maxWidth: .infinity)
-                .padding(.top, 14)
+                // The bubble rides above the avatar: room for it, so it
+                // keeps clear of the bar and the search drawer at every size (F3).
+                .padding(.top, showsBubble ? 14 + bubbleClearance : 14)
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
@@ -327,6 +283,7 @@ struct PinnedGrid: View {
         .accessibilityIdentifier("home.chief")
         .animation(theme.motion.snappy.animation, value: session.isTyping)
         .animation(theme.motion.snappy.animation, value: showsPreview)
+        .animation(theme.motion.snappy.animation, value: showsBubble)
     }
 
     /// The preview bubble: something unread, or Chief waiting on the user
@@ -336,9 +293,20 @@ struct PinnedGrid: View {
         session.unreadCount > 0 || session.isWaitingOnYou
     }
 
+    private var showsBubble: Bool { session.isTyping || showsPreview }
+
+    /// Extra top room while a bubble shows, growing with the text (the
+    /// search drawer above does too). Measured round 2: 10 pt left 8 pt at Large
+    /// and 4 pt at AX5; scaled, capped at 18 pt, it leaves at least 6 pt at
+    /// every size (R2-7).
+    @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10
+    private var bubbleClearance: CGFloat { min(max(scaledClearance, 10), 18) }
+
+    private var previewText: String { plainPreview(session.preview) }
+
     private var accessibilityLabel: Text {
         if session.isTyping { return Text("Chief, typing") }
-        if showsPreview { return Text("Chief, \(session.preview)") }
+        if showsPreview { return Text("Chief, \(previewText)") }
         return Text("Chief, pinned")
     }
 
@@ -351,7 +319,7 @@ struct PinnedGrid: View {
                         .offset(x: -14, y: -18)
                         .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
                 } else if showsPreview {
-                    Text(session.preview)
+                    Text(previewText)
                         .font(.caption2)
                         // A glance, not the message: it stays a small bubble
                         // over the avatar at accessibility sizes too.
@@ -392,6 +360,9 @@ struct PinnedGrid: View {
 /// title on its own lines, then the date and chevron, then the preview.
 struct MessagesRow<Avatar: View>: View {
     let title: String
+    /// The agent, for VoiceOver (F5): the avatar mark says it to the eye
+    /// only. nil when the title already names it ("cmux · Codex").
+    var agent: String?
     let preview: String
     let stamp: String
     let isUnread: Bool
@@ -418,6 +389,20 @@ struct MessagesRow<Avatar: View>: View {
         }
         .padding(.vertical, 12)
         .contentShape(.rect)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// "Needs you, cmux, Claude, 1:46 AM, Refactor transport layer".
+    private var accessibilityText: String {
+        var parts: [String] = []
+        if isUnread { parts.append(String(localized: "Unread")) } else if needsYou { parts.append(String(localized: "Needs you")) }
+        parts.append(title)
+        if let agent { parts.append(agent) }
+        parts.append(stamp)
+        if !preview.isEmpty { parts.append(preview) }
+        if isMuted { parts.append(String(localized: "Alerts hidden")) }
+        return parts.joined(separator: ", ")
     }
 
     /// Messages keeps a gutter for the unread dot. Unread wins; then the

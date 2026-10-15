@@ -94,7 +94,9 @@ struct StreamedBrowserOverlay: View {
         #if DEBUG
         true
         #else
-        UserDefaults.standard.bool(forKey: "cnx-browser-meter")
+        // Release (Production, TestFlight): only for a measurement launch with
+        // the explicit argument, never from a stored setting (Codex QA F13).
+        ProcessInfo.processInfo.arguments.contains("-cnx-browser-meter")
         #endif
     }
 
@@ -103,7 +105,7 @@ struct StreamedBrowserOverlay: View {
             let meter = model.meter
             VStack(alignment: .leading, spacing: 1) {
                 Text("phone \(Self.clock(context.date))")
-                Text("\(meter.fps) fps · \(meter.kbps) kbps · \(meter.width)×\(meter.height)")
+                Text("\(meter.fps) fps · \(meter.kbps) kbps · \(meter.width)×\(meter.height) · \(meter.carrier)")
                 Text("latency \(meter.latencyMillis.map { String(format: "%.0f", $0) } ?? "–") ms · decode \(String(format: "%.1f", meter.decodeMillis)) ms")
             }
             .font(.system(size: 11, weight: .semibold, design: .monospaced))

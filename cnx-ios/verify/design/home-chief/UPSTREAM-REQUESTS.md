@@ -86,6 +86,14 @@ for inline code or a code block. cnx does not rewrite the message text.
    block form for fenced code. The host would supply runs without rewriting the
    text, so it could keep the markers.
 
+**Precedence with host runs:** when a message has `ConversationTextRun`s
+(bold, italic, effects from the sender's composer) and the flag is on, the
+host's runs win. Markdown is parsed only for a message with no runs, and an
+incoming message with runs renders as it does today. The two never merge:
+Chief's turns carry no runs, and a person's styled text is never re-read as
+Markdown. Under option 2 there is nothing to combine, because the host
+supplies every run itself.
+
 **Rendering (from SPEC 3.2):**
 
 - Inline code is SF Mono at the bubble's size minus 1 pt, on the bubble's own
@@ -114,7 +122,11 @@ behind the menu.
 - **Blur:** `systemUltraThinMaterial` strength, with the content dimmed to 70%.
 - **Motion:** the blur animates in with the menu's spring and out with its
   dismissal.
-- **Default:** on. This is Messages parity, so no option is needed.
+- **Default:** on. This is Messages parity, so no option is needed. This
+  deliberately changes every host, including the Messages lab host and the
+  Mac Home, which get the blur too; that is the point (both compare
+  against Messages). A host that must keep the sharp backdrop would need an
+  opt-out, and none is asking for one.
 
 ## U4. Keyboard from a scrolled-up transcript (Polish, verify first)
 
@@ -182,11 +194,13 @@ the package's Call/FaceTime/Mail details again.
 /// name pill, and the trailing button in its plain state). nil keeps the
 /// package's details.
 public var onShowDetails: (() -> Void)?
-/// The trailing button's VoiceOver label in its plain state.
+/// The trailing button's VoiceOver label in its plain state. nil keeps
+/// the package's own label for the symbol ("Call" for "video").
 public var trailingAccessibilityLabel: String?
 ```
 
-- **Default:** `nil`, which shows the package's details.
+- **Defaults:** both `nil`. `onShowDetails: nil` shows the package's
+  details; `trailingAccessibilityLabel: nil` keeps the package's label.
 - **Chief passes:** a closure that presents `ChiefSettingsView`.
 
 ## U7. Focus the composer from the host (new)
@@ -211,3 +225,40 @@ public func focusComposer()
 ```
 
 **Default:** n/a, because it is only called by a host.
+
+## U8. Host rows under the header that push the transcript down (new, round 3)
+
+**Need:** Chief shows a pinned row while it asks a question ("Chief is
+asking · Answer"), as Messages pins a business chat's request or "Report
+Junk" under its navigation bar. Messages' pinned rows push the transcript
+down; they never cover a bubble (round 2 review, R2-1).
+
+**Code today:** `ConversationViewController.updateInsets()` sets the
+transcript's top inset to `header.frame.maxY + 3.33`, and the header is
+pinned to `view.safeAreaLayoutGuide.topAnchor`. A host's
+`additionalSafeAreaInsets.top` therefore moves the header and the transcript
+together. A row placed under the header still covers the transcript.
+
+**Workaround in cnx (no package change):** the conversation gets
+`additionalSafeAreaInsets.top = bar height + 8`, and the bar sits in that
+room above the header (`ChiefConversationContainer.layoutQuestionBar`). No
+bubble is ever under it, but the bar is above the avatar instead of under
+the name pill.
+
+**Proposal:**
+
+```swift
+// ConversationViewController
+/// A host view pinned under the header, full width. The transcript's top
+/// inset grows by its height (plus 8 pt), animated with it, so no row is
+/// ever under it; nil removes it.
+public func setHeaderAccessory(_ view: UIView?, animated: Bool)
+```
+
+- **Default:** no accessory, so the layout is unchanged.
+- **Chief passes:** the question bar.
+- **When it lands, cnx removes:** the `additionalSafeAreaInsets.top` room and
+  the solid top band behind the status bar and the bar
+  (`ChiefConversationContainer.topBand`, round 3 review R3-1). The band exists
+  only because the bar sits above the header; under the header, the
+  package's own header wash covers it.

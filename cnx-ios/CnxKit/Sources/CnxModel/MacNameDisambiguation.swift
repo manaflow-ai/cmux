@@ -34,20 +34,34 @@ public struct MacNameDisambiguation: Sendable, Equatable {
     /// The Mac's tag ("3F2A") when its name collides; nil otherwise.
     public func tag(for id: String) -> String? { tags[id] }
 
-    /// "Aziz's MacBook Pro (3F2A)" for a colliding name, else the name.
+    /// The account's Macs: every team's, so a Mac carries the same tag on
+    /// every surface (Workspaces, Settings → Devices), whichever team it is in.
+    /// Both surfaces tag over exactly this set (`scope`); a Mac only the
+    /// device service lists does not change anyone's tag.
+    public init(account teams: [Team]) {
+        self.init(Self.scope(teams))
+    }
+
+    /// The Macs that decide which names need a tag: every team's Macs.
+    public static func scope(_ teams: [Team]) -> [MacDevice] {
+        teams.flatMap(\.macs)
+    }
+
+    /// "Aziz's MacBook Pro 3F2A" for a colliding name, else the name: the
+    /// text form of the name plus its tag capsule (`MacNameTag`), the one
+    /// spelling every alert, menu, subtitle and accessibility value uses.
     public func displayName(id: String, name: String) -> String {
         guard let tag = tags[id] else { return name }
-        return "\(name) (\(tag))"
+        return "\(name) \(tag)"
     }
 
     public func displayName(_ mac: MacDevice) -> String { displayName(id: mac.id, name: mac.name) }
 
-    /// "ID 3F2A" (and "Added Oct 13" when known) for a subtitle; nil for a
-    /// unique name.
-    public func detail(for id: String, addedAt: Date? = nil) -> String? {
-        guard let tag = tags[id] else { return nil }
-        guard let addedAt else { return "ID \(tag)" }
-        return "Added \(addedAt.formatted(.dateTime.month(.abbreviated).day())) · ID \(tag)"
+    /// "Added Oct 13" for a Mac whose name collides and whose added date is
+    /// known; nil otherwise (the tag itself goes next to the name).
+    public func added(for id: String, addedAt: Date?) -> String? {
+        guard tags[id] != nil, let addedAt else { return nil }
+        return "Added \(addedAt.formatted(.dateTime.month(.abbreviated).day()))"
     }
 
     /// Names that differ only by case or surrounding spaces read the same.

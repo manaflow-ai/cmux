@@ -27,11 +27,26 @@ final class DemoTabs: TabsDataSource {
         TabsKitNewTabOption(id: "note", title: "New Note", systemImage: "note.text", kind: DemoTabs.note),
     ]
 
+    /// Verification hooks (launch arguments): `-tabCount N` starts with N web
+    /// pages (0 and 50 included) instead of the default set; `-failCreate`
+    /// refuses every new tab; `-failClose` refuses every close.
+    private let failCreate = ProcessInfo.processInfo.arguments.contains("-failCreate")
+    private let failClose = ProcessInfo.processInfo.arguments.contains("-failClose")
+    private(set) var notice: String?
+
     init() {
-        for name in ["springs", "glass", "pinch", "night"] { addWebPage(URL(string: "tabskit://pages/\(name)")!) }
-        addNote("Notes are plain SwiftUI tabs.\n\nThey get the same grid, zoom, swipe and toolbar as web pages, with their own card, page menu and an accessory row above the toolbar.")
+        let args = ProcessInfo.processInfo.arguments
+        let names = ["springs", "glass", "pinch", "night"]
+        if let i = args.firstIndex(of: "-tabCount"), i + 1 < args.count, let n = Int(args[i + 1]) {
+            for k in 0..<max(0, n) { addWebPage(URL(string: "tabskit://pages/\(names[k % names.count])")!) }
+        } else {
+            for name in names { addWebPage(URL(string: "tabskit://pages/\(name)")!) }
+            addNote("Notes are plain SwiftUI tabs.\n\nThey get the same grid, zoom, swipe and toolbar as web pages, with their own card, page menu and an accessory row above the toolbar.")
+        }
         activeTabID = order.first
     }
+
+    func clearNotice() { notice = nil }
 
     // MARK: TabsDataSource
 
@@ -43,16 +58,25 @@ final class DemoTabs: TabsDataSource {
         activeTabID = id
     }
 
-    func close(_ id: String) {
-        guard let index = order.firstIndex(of: id) else { return }
+    func close(_ id: String) async -> Bool {
+        guard let index = order.firstIndex(of: id) else { return true }
+        if failClose {
+            notice = "Couldn't close \(tab(for: id)?.title ?? "the tab"): the demo refuses closes (-failClose)."
+            return false
+        }
         order.remove(at: index)
         webPages[id] = nil
         notes[id] = nil
         thumbnails[id] = nil
         if activeTabID == id { activeTabID = order.isEmpty ? nil : order[min(index, order.count - 1)] }
+        return true
     }
 
     func createTab(_ option: TabsKitNewTabOption) async -> String? {
+        if failCreate {
+            notice = "Couldn't open a new tab: the demo refuses new tabs (-failCreate)."
+            return nil
+        }
         let id = option.kind == Self.note ? addNote("") : addWebPage(DemoSite.start)
         activate(id)
         return id
@@ -69,6 +93,11 @@ final class DemoTabs: TabsDataSource {
     @ViewBuilder func card(for tab: TabsKitTab) -> some View {
         if let text = notes[tab.id] {
             NotePage(text: .constant(text), context: nil)
+        } else if let page = webPages[tab.id], page.url == nil || page.url == DemoSite.start {
+            // Drawn natively, so a new tab's start page shows from the first
+            // frame of its zoom (the web view draws nothing until it is on
+            // screen and loaded).
+            DemoStartCard()
         } else {
             TabsKitThumbnailCard(tab: tab, image: thumbnails[tab.id])
         }
@@ -108,7 +137,7 @@ final class DemoTabs: TabsDataSource {
         if notes[tab.id] != nil {
             return [[
                 TabsKitMenuItem(title: "Clear Note", systemImage: "eraser") { [weak self] in self?.notes[tab.id] = "" },
-                TabsKitMenuItem(title: "Close Note", systemImage: "xmark.square", isDestructive: true) { [weak self] in self?.close(tab.id) },
+                TabsKitMenuItem(title: "Close Note", systemImage: "xmark.square", isDestructive: true) { [weak self] in Task { _ = await self?.close(tab.id) } },
             ]]
         }
         let web = webPages[tab.id]?.webView
@@ -121,18 +150,56 @@ final class DemoTabs: TabsDataSource {
                 },
             ],
             [
-                TabsKitMenuItem(title: "Close Tab", systemImage: "xmark.square") { [weak self] in self?.close(tab.id) },
+                TabsKitMenuItem(title: "Close Tab", systemImage: "xmark.square") { [weak self] in Task { _ = await self?.close(tab.id) } },
             ],
         ]
     }
 
     // MARK: Model
 
+    /// A card's long-press menu: Copy Link and Duplicate Tab for web pages
+    /// (the kit adds Close Tab and Close Other Tabs).
+    func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] {
+        guard let url = webPages[tab.id]?.webView.url else { return [] }
+        return [[
+            TabsKitMenuItem(title: "Copy Link", systemImage: "doc.on.doc") { UIPasteboard.general.url = url },
+            TabsKitMenuItem(title: "Duplicate Tab", systemImage: "plus.square.on.square") { [weak self] in
+                guard let self, let i = self.order.firstIndex(of: tab.id) else { return }
+                let id = self.addWebPage(url)
+                self.moveTab(id, to: i + 1)
+            },
+        ]]
+    }
+
+    var supportsReordering: Bool { true }
+
+    func moveTab(_ id: String, to index: Int) {
+        guard let from = order.firstIndex(of: id) else { return }
+        order.remove(at: from)
+        order.insert(id, at: max(0, min(index, order.count)))
+    }
+
+    /// A start page loaded ahead, so a new tab shows its page from the first
+    /// frame of the zoom (a fresh web view drew nothing for about 300 ms).
+    @ObservationIgnored private var spareStart: DemoWebPage?
+
+    private func prepareSpareStart() {
+        if spareStart == nil { spareStart = DemoWebPage(url: DemoSite.start, configuration: configuration) }
+    }
+
     @discardableResult
     private func addWebPage(_ url: URL) -> String {
         let id = makeId()
-        let page = DemoWebPage(url: url, configuration: configuration)
+        let page: DemoWebPage
+        if url == DemoSite.start, let spare = spareStart {
+            page = spare
+            spareStart = nil
+        } else {
+            page = DemoWebPage(url: url, configuration: configuration)
+        }
+        defer { prepareSpareStart() }
         page.onLoaded = { [weak self] in self?.refreshThumbnail(id) }
+        if !page.isLoading { DispatchQueue.main.async { [weak self] in self?.refreshThumbnail(id) } }
         webPages[id] = page
         order.append(id)
         return id
@@ -221,5 +288,30 @@ struct NoteAccessory: View {
         .frame(height: 44)
         .glassEffect(.regular, in: .capsule)
         .padding(.horizontal, 34)
+    }
+}
+
+/// The start page as the web page draws it: Favorites and the page tiles.
+struct DemoStartCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Favorites").font(.system(size: 22, weight: .bold)).foregroundStyle(Color(white: 0.07))
+            HStack(spacing: 12) {
+                ForEach(DemoSite.pages.filter { $0.name != "start" }, id: \.name) { page in
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(red: Double((page.color >> 16) & 0xFF) / 255, green: Double((page.color >> 8) & 0xFF) / 255,
+                                    blue: Double(page.color & 0xFF) / 255))
+                        .frame(width: 72, height: 72)
+                        .overlay(alignment: .bottom) {
+                            Text(page.title).font(.system(size: 12)).foregroundStyle(.white).padding(.bottom, 6)
+                        }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 62 + 8 + 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(red: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF7 / 255))
     }
 }

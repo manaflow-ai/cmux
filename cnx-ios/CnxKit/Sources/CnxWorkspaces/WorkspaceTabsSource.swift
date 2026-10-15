@@ -5,8 +5,11 @@ import CnxBrowserStream
 import CnxDesign
 import CnxModel
 import Observation
+import OSLog
 import SwiftUI
 import UIKit
+
+private let tabsLog = Logger(subsystem: "dev.cmux.cnx", category: "tabs")
 
 /// Drives one workspace's `TabsView`: the workspace's tabs (agent chats,
 /// terminals, browsers) as TabsKit tabs, with the last tab used on this
@@ -126,7 +129,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func kitTab(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTab {
         switch tab.kind {
         case .agent:
-            let session = tab.subtitle ?? tab.title
+            // A new session takes its title from the agent, or its first prompt, after a turn.
+            let session = AgentSessionDirectory.shared.existingStore(id: tab.id)?.displayTitle ?? tab.subtitle ?? tab.title
             return TabsKitTab(
                 id: tab.id, kind: TabsKitTabKind("agent"), title: session, subtitle: "\(tab.title) · \(workspace.title)",
                 systemImage: "sparkle",
@@ -136,10 +140,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 features: [.history, .pageMenu]
             )
         case .terminal:
+            let directory = tab.subtitle ?? workspace.directory
+            // "Reattaching…" replaces the directory in the pill only after a slow reattach (P5).
+            let status = terminal.statusSubtitle(for: tab)
             return TabsKitTab(
-                id: tab.id, kind: .terminal, title: tab.title, subtitle: tab.subtitle ?? workspace.directory,
+                id: tab.id, kind: .terminal, title: tab.title, subtitle: directory,
                 systemImage: "apple.terminal",
-                address: .title(tab.title, subtitle: tab.subtitle ?? workspace.directory, monospaced: true),
+                address: .title(tab.title, subtitle: status ?? directory, monospaced: status == nil),
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu],
                 statusBarStyle: .lightContent
@@ -162,19 +169,59 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func activate(_ id: TabsKitTab.ID) {
         guard workspaceTab(id) != nil else { return }
+        // verify/e2e: the touch that switches tabs (the rig's tab_switch t0).
+        ConnectTimeline.shared.event("tab_activate", detail: id)
         selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         CnxTheme.standard.haptics.selection()
     }
 
-    /// Closes the tab on the Mac. It leaves the page at once and comes back
-    /// at its place, with a notice, if the Mac refuses.
-    public func close(_ id: TabsKitTab.ID) {
-        guard let workspace, let position = workspace.tabs.firstIndex(where: { $0.id == id }) else { return }
-        let tab = workspace.tabs[position]
+    /// Closes the tab on the Mac, then here. TabsKit keeps the card hidden
+    /// meanwhile; a refusal returns false, so the card comes back, with a
+    /// notice.
+    /// A close waiting for the person to confirm it (a program is running in
+    /// the tab, Codex QA F9). The screen shows the dialog.
+    public private(set) var pendingClose: PendingClose?
+
+    public struct PendingClose: Identifiable {
+        public let id = UUID()
+        public let title: String
+        public let message: String
+        fileprivate let resume: CheckedContinuation<Bool, Never>
+    }
+
+    /// The person answered the close dialog.
+    public func resolvePendingClose(_ close: Bool) {
+        guard let pending = pendingClose else { return }
+        pendingClose = nil
+        pending.resume.resume(returning: close)
+    }
+
+    public func close(_ id: TabsKitTab.ID) async -> Bool {
+        guard let workspace, let tab = workspace.tabs.first(where: { $0.id == id }) else { return true }
+        // A program running in the tab (Codex working): one small tap would
+        // detach it with no way back from the phone. Ask first, like closing a
+        // terminal with a running process on the Mac (Codex QA F9).
+        if let program = TabCloseGuard().runningProgram(tab) {
+            resolvePendingClose(false)
+            let confirmed = await withCheckedContinuation { continuation in
+                pendingClose = PendingClose(title: "Close \(tab.title)?",
+                                            message: "\(program) is still running on \(macName). Closing the tab stops it there.",
+                                            resume: continuation)
+            }
+            guard confirmed else { return false }
+        }
         guard let creator else {
-            notice = "Connect to \(macName) to close tabs."
-            return
+            show("Connect to \(macName) first.")
+            CnxTheme.standard.haptics.error()
+            return false
+        }
+        do {
+            try await creator.backend.closeTab(tab, in: workspace)
+        } catch {
+            show(TabNotice(action: .close(title: tab.title), macName: macName, reason: Self.message(error)))
+            CnxTheme.standard.haptics.error()
+            return false
         }
         let next = store.removeTab(id, from: workspaceID)
         surfaces[id] = nil
@@ -184,34 +231,81 @@ public final class WorkspaceTabsSource: TabsDataSource {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
-        let workspaceID = workspaceID
-        Task { [weak self] in
-            do {
-                try await creator.backend.closeTab(tab, in: workspace)
-            } catch {
-                guard let self else { return }
-                self.store.insertTab(tab, at: position, in: workspaceID)
-                if tab.kind == .browser, !self.streamed.isLive { self.browsers[tab.id] = BrowserTabModel(url: tab.url) }
-                self.notice = "Couldn't close \(tab.title) on \(self.macName): \(Self.message(error))"
-                CnxTheme.standard.haptics.error()
-            }
+        return true
+    }
+
+    /// The workspace's toast (a tab that could not be opened or closed): one short line
+    /// (`TabNotice`). `WorkspaceScreen` draws it as a `cnxDismissibleToast` above the
+    /// bottom chrome; it clears after `noticeLifetime`, on a swipe or on a tap.
+    public private(set) var toastText: String?
+    /// TabsKit's own toast is never used: it draws at the top, over the title and Back
+    /// (upstream request U6), so the kit always sees no notice.
+    public var notice: String? { nil }
+    public func clearNotice() { toastText = nil }
+
+    /// How long a toast stays (a UI timeout, not synchronization).
+    static let noticeLifetime: Duration = .seconds(4)
+
+    private func show(_ text: String) {
+        toastText = text
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.noticeLifetime)
+            if self?.toastText == text { withAnimation { self?.clearNotice() } }
         }
     }
 
-    /// Shown by TabsKit as a glass toast (a tab that could not be created).
-    public private(set) var notice: String?
-    public func clearNotice() { notice = nil }
+    #if DEBUG
+    /// `-cnx-toast-demo`: the live report's refusal as a toast that stays until dismissed
+    /// (placement and gesture captures).
+    func showDemoToast() {
+        toastText = TabNotice(action: .open(optionTitle: "New Claude Chat"), macName: macName,
+                              reason: "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder").text
+    }
+    #endif
+
+    /// The short line in the toast; the Mac's reason goes to the log only.
+    private func show(_ notice: TabNotice) {
+        tabsLog.error("tab request refused on \(self.macName, privacy: .public): \(notice.detail, privacy: .public)")
+        show(notice.text)
+    }
 
     /// Opens the tab on the Mac and activates it once the Mac lists it (so a
     /// terminal attaches at once and a chat is bound to its session). A
     /// refusal shows as a notice; nothing phone-only is ever added.
+    ///
+    /// TabsKit puts a placeholder card in the grid while `createTab` is running and
+    /// reflows the grid around it (upstream request U7). So `createTab` returns at once
+    /// with no tab, and the request runs here: the grid keeps its cards until the Mac
+    /// lists the new tab, the workspace screen shows "Opening…" meanwhile
+    /// (`pendingTabTitle`), and a refusal leaves the grid exactly as it was. Once the Mac
+    /// lists the tab it becomes active and `openedTab` asks the screen to open it.
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
+        guard pendingTabTitle == nil else { return nil }
+        pendingTabTitle = option.title
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let id = await self.requestTab(option)
+            self.pendingTabTitle = nil
+            if let id { self.openedTab = id }
+        }
+        return nil
+    }
+
+    /// The new-tab option being created on the Mac ("New Claude Chat"), or nil.
+    public private(set) var pendingTabTitle: String?
+    /// A tab the Mac just created and this phone made active: the screen leaves the
+    /// grid for it, then clears this.
+    public var openedTab: TabsKitTab.ID?
+
+    /// Asks the Mac for the tab and waits for it. Nothing is added here before the Mac
+    /// answers; a refusal shows a toast and changes nothing.
+    func requestTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
         guard let workspace else {
-            notice = "This workspace is no longer on the Mac."
+            show("This workspace is no longer on \(macName).")
             return nil
         }
         guard let creator, !creator.backend.tabKinds(on: workspace.macID).isEmpty else {
-            notice = "Connect to \(macName) to open tabs."
+            show("Connect to \(macName) first.")
             return nil
         }
         let kind = Self.kind(of: option)
@@ -219,7 +313,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         do {
             tab = try await creator.backend.createTab(kind, in: workspace)
         } catch {
-            notice = "Couldn't open \(option.title.replacingOccurrences(of: "New ", with: "a new ")) on \(macName): \(Self.message(error))"
+            show(TabNotice(action: .open(optionTitle: option.title), macName: macName, reason: Self.message(error)))
             CnxTheme.standard.haptics.error()
             return nil
         }
@@ -332,7 +426,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
-        let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in self?.close(kit.id) }
+        let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
         switch tab.kind {
         case .agent:
@@ -340,7 +434,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let surface = surface(tab.id)
             return [
                 [
-                    TabsKitMenuItem(title: "Agent edits", systemImage: "plus.forwardslash.minus",
+                    TabsKitMenuItem(title: "Agent Edits", systemImage: "plus.forwardslash.minus",
                                     isEnabled: AgentChatSurface.hasAgentEdits(store)) { surface.openAllChanges(of: store) },
                     TabsKitMenuItem(title: "Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true },
                     TabsKitMenuItem(title: "Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id },
@@ -365,7 +459,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
                                 isDestructive: action.isDestructive) { action.perform() }
             }
             let copy = TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }
-            return [own, [copy, leave], [close]].filter { !$0.isEmpty }
+            // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
+            // "All Workspaces" (Back leaves the workspace; design/terminal P1).
+            return [own, [copy], [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [

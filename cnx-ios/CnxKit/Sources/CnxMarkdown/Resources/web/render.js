@@ -76,6 +76,7 @@
     document.body.className = compact ? 'compact' : '';
     content.innerHTML = markdown ? marked.parse(markdown) : '';
     fitMath();
+    markScrollers();
     lastHeight = -1;
     var h = height();
     post();
@@ -91,7 +92,28 @@
       if (w > avail && avail > 0) { m.style.fontSize = Math.max(0.55, avail / w) * 100 + '%'; }
     }
   }
+  // Code and tables wider than the column scroll sideways; `.more` shows the trailing fade.
+  function updateMore(el) {
+    el.classList.toggle('more', el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }
+  function markScrollers() {
+    var els = content.querySelectorAll('.code pre, .table-wrap');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      updateMore(el);
+      if (!el.dataset.cnxScroll) {
+        el.dataset.cnxScroll = '1';
+        el.addEventListener('scroll', function (e) { updateMore(e.currentTarget); }, { passive: true });
+      }
+    }
+  }
   window.cnxHeight = function () { return height(); };
+  // A tap anywhere but a link opens the event (the host view forwards it).
+  document.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('a')) return;
+    try { window.webkit.messageHandlers.cnx.postMessage({ type: 'tap' }); } catch (err) {}
+  });
+  window.addEventListener('resize', function () { if (content) markScrollers(); });
   document.addEventListener('DOMContentLoaded', function () {
     content = document.getElementById('content');
     new ResizeObserver(post).observe(content);

@@ -30,6 +30,8 @@ public final class MockMacLink: MacLink, @unchecked Sendable {
 
     public func ping() async throws -> UInt32 { 12 }
 
+    public var connectedPath: LinkPathKind? { .direct }
+
     public func close() async {
         stateContinuation.yield(.disconnected(reason: "closed"))
         stateContinuation.finish()

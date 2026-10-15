@@ -133,3 +133,33 @@ they are intended. Chief will not work around them.
   reads the button's image description.
 - **Smallest additive option:** a public `onHeaderAction: (() -> Void)?`, called only
   in the action state, plus item 5's `trailingAccessibilityLabel`.
+
+## 8. A Try Again action on an incoming message that reports a failure (Chief)
+
+- **Need:** when Chief's turn fails because its model server is down, the
+  Mac's brain posts an ordinary Chief text message ending in
+  `(turn failed on claude: <error>)` and does not run that turn again by
+  itself. The phone rewrites the note to a plain sentence and offers Try
+  Again. In Messages terms the action belongs on that bubble, the way
+  Not Delivered puts Try Again under an outgoing one.
+- **Package today:** the Not Delivered footer and its Try Again exist only
+  for outgoing messages (`ConversationCells.swift` `.notDelivered`). An
+  incoming message has no footer action, and the host cannot add one.
+- **What cnx-ios does meanwhile:** the bar under the header (the one used
+  for Chief's questions) shows "Chief couldn't reach its model … Try
+  Again" while the failed message is the newest. It goes once a newer
+  message arrives (`ChiefQuestionBar`, `ChiefSession.barItem`).
+- **Smallest additive option:** an optional per-message footer action that
+  a host sets, drawn like Not Delivered under an incoming bubble:
+
+  ```swift
+  // ConversationMessage
+  public var footerAction: ConversationFooterAction?   // default nil
+  public struct ConversationFooterAction: Hashable, Sendable {
+      public var status: String     // "Not finished"
+      public var title: String      // "Try Again"
+      public var id: String         // handed back to the host
+  }
+  // ConversationViewController
+  public var onFooterAction: ((_ messageID: String, _ actionID: String) -> Void)?
+  ```

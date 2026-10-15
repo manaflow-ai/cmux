@@ -84,3 +84,30 @@ public struct MacPresenceDots: View {
     }
 }
 #endif
+
+#if os(iOS)
+/// The tag that tells same-name Macs apart ("3F2A"), drawn next to the name
+/// wherever a row shows it (Workspaces, Settings → Devices). Text elsewhere
+/// spells it "Aziz's MacBook Pro 3F2A" (`MacNameDisambiguation.displayName`).
+public struct MacNameTag: View {
+    let tag: String
+    /// 11 pt at Large, growing with Dynamic Type up to twice that: beside a
+    /// name it must never squeeze the name (at accessibility sizes rows put it
+    /// on its own line under the name).
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
+
+    public init(_ tag: String) {
+        self.tag = tag
+    }
+
+    public var body: some View {
+        Text(verbatim: tag)
+            .font(.system(size: min(size, 22), weight: .semibold, design: .monospaced))
+            .foregroundStyle(theme.colors.label2)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(theme.colors.fillSelected, in: .rect(cornerRadius: 6, style: .continuous))
+            .fixedSize()
+    }
+}
+#endif

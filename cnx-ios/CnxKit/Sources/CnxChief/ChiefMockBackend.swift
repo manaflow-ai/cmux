@@ -1,3 +1,4 @@
+import CmuxAgentQuestion
 import CmuxConversationCore
 import Foundation
 import ImageIO
@@ -17,7 +18,13 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
     public init(identity: ChiefIdentity = .standard, now: Date = Date(),
                 sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }) {
         engine = Engine(identity: identity, now: now, sleep: sleep)
+        self.sleep = sleep
+        questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
     }
+
+    let sleep: Sleep
+    /// The seeded transcript's last message asks to allow a command.
+    public let questionFeed = ChiefQuestionFeed()
 
     public func events() -> AsyncStream<ConversationBackendEvent> {
         let (stream, continuation) = AsyncStream<ConversationBackendEvent>.makeStream(bufferingPolicy: .unbounded)
@@ -206,6 +213,17 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
             return message
         }
 
+        /// A message from Chief now (the mock's answer to an answered question).
+        func post(_ text: String) {
+            let seq = headSeq + 1
+            let message = ConversationMessage(
+                id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
+                sentAt: Date(), text: text
+            )
+            store(message)
+            emit(message)
+        }
+
         func markRead(_ seq: Int) {
             let head = headSeq
             let read = min(seq, head)
@@ -215,8 +233,37 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
     }
 }
 
+/// The mock answers like the Mac: a pause where Face ID would be (mock
+/// only: nothing is signed), then the question reads as answered and Chief
+/// replies. Layout and flow only.
+extension ChiefMockBackend: ChiefQuestionSource {
+    public func recheckQuestions() async throws {}
+
+    public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer, signer: (any ChiefAnswerSigning)?,
+                       approved: @escaping @Sendable () -> Void) async throws {
+        await sleep(.milliseconds(1400))
+        approved()
+        await sleep(.milliseconds(600))
+        questionFeed.update([AgentQuestion(id: question.id, source: question.source, items: question.items,
+                                           state: .answered(answer))], seq: ChiefMockScript.questionSeq)
+        let allowed = answer.selections.values.contains { $0.optionIDs.contains("allow") }
+        await engine.post(allowed ? "Allowed. Claude is running cargo test -p cnx-link in cmux now."
+                                  : "Told Claude not to run it. It will ask before trying another way.")
+    }
+}
+
 /// Chief's seeded transcript and canned replies.
 struct ChiefMockScript {
+    /// The question part of the seeded transcript's last message (seq 8).
+    static let questionSeq = 8
+    static let question = AgentQuestion(
+        id: "msg_local_8#1",
+        source: .init(harness: .chief, session: "chief", agentName: "Claude"),
+        items: [.init(id: "allow", header: "Permission", prompt: "Allow Claude in cmux to run cargo test -p cnx-link?",
+                      options: [.init(id: "allow", label: "Allow", detail: "Runs once, in the cmux workspace"),
+                                .init(id: "deny", label: "Don't Allow")],
+                      multiSelect: false, allowsOther: false)])
+
     static func history(identity: ChiefIdentity, now: Date) -> [ConversationMessage] {
         let lines: [(me: Bool, minutesAgo: Double, text: String)] = [
             (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (14 tests pass), and the fleet build for feat-cnx-ios is green."),

@@ -42,18 +42,37 @@ public struct TerminalTabPage: View {
     public var body: some View {
         @Bindable var model = host.model
         EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
+            // Zoomed into the grid or mid-swipe, the page is a picture: its
+            // composer and key bar are not controls then (R4-3).
+            .accessibilityHidden(!isInteractive)
             .ignoresSafeArea()
             .background(Color.black)
             // Not attached yet: the honest placeholder over the empty surface.
             .overlay {
-                if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState, topInset: insets.top)
+                if case .reattaching = model.connectionState {
+                    // Reattaching: a warm surface keeps its last frame live
+                    // under no overlay; a cold tab shows its frame dimmed. The
+                    // title pill says "Reattaching…" after 400 ms (SPEC P5).
+                    if let frame = model.coldFrame {
+                        TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: frame, showsLabel: false)
+                            .ignoresSafeArea()
+                            .padding(.bottom, insets.bottom)
+                            .transition(.opacity)
+                    }
+                } else if !model.connectionState.isAttached || model.coldFrame != nil {
+                    // One view from "Connecting…" to live (R2-5): a tab back
+                    // from the warm set or a cold restore shows its last frame
+                    // at once; once attached the label goes, the frame stays
+                    // until the live rows are drawn, then goes in one frame: a cut,
+                    // never a fade over live rows at other positions (R3-4).
+                    // (Two views crossfading here flashed the title pill grey.)
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame,
+                                           showsLabel: !model.connectionState.isAttached)
                         .ignoresSafeArea()
                         .padding(.bottom, insets.bottom)
-                        .transition(.opacity)
+                        .transition(.identity)
                 }
             }
-            .animation(.easeOut(duration: 0.2), value: model.connectionState)
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the
             // controller's keyboard layout guide at 172 pt with no keyboard
@@ -70,17 +89,29 @@ public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
 
+    private var isReattaching: Bool {
+        if case .reattaching = model.connectionState { return true }
+        return false
+    }
+
     public init(model: TerminalModel, insets: EdgeInsets) {
         self.model = model
         self.insets = insets
     }
 
     public var body: some View {
+        // A picture of the page: TabsKit labels the card; nothing inside it
+        // is a control (R4-3).
+        cardContent.accessibilityHidden(true)
+    }
+
+    private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: CnxGhosttyApp.background)
-                if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState, topInset: insets.top)
+                if model.connectionState.cardShowsConnecting(sessionStarted: model.controller?.started == true) {
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot,
+                                           showsLabel: !isReattaching)
                 } else if let image = model.snapshot {
                     Image(uiImage: image)
                         .resizable()

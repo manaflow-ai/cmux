@@ -62,6 +62,7 @@ let package = Package(
         // ACP agent session model, AgentSessionSource (mock now, acpmux over the link later), chat screen.
         .target(name: "CnxAgentChat", dependencies: [
             "CnxDesign", "CnxModel", "CnxMarkdown", "CnxDiff", "CnxArtifacts", "CnxTransport",
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .target(name: "CnxFeed", dependencies: [
@@ -82,7 +83,7 @@ let package = Package(
             dependencies: ["CnxDesign", "CnxModel", "CnxAuth"],
             resources: [.process("Resources")]
         ),
-        .target(name: "CnxSettings", dependencies: ["CnxDesign", "CnxModel", "CnxAuth"]),
+        .target(name: "CnxSettings", dependencies: ["CnxDesign", "CnxModel", "CnxAuth", "CnxOnboarding"]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
         .target(name: "CnxBrowserStream", dependencies: ["CnxDesign", "CnxTransport"]),
@@ -95,6 +96,7 @@ let package = Package(
         .target(name: "CnxChief", dependencies: [
             "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
         ]),
@@ -133,6 +135,7 @@ let package = Package(
         .testTarget(name: "CnxShellTests", dependencies: ["CnxShell"]),
         .testTarget(name: "CnxChiefTests", dependencies: [
             "CnxChief", "CnxTransport", "CnxModel", "CnxAgentChat",
+            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
         ]),
     ],

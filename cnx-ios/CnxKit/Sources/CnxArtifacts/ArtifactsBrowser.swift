@@ -21,6 +21,7 @@ public enum ArtifactFilter: String, CaseIterable, Identifiable, Sendable {
 }
 
 #if os(iOS)
+import CnxDesign
 import SwiftUI
 
 /// Navigation and view state of one artifacts browser (the demo driver sets it too).
@@ -68,7 +69,6 @@ public struct ArtifactsBrowser: View {
             Group {
                 if state.grid {
                     ScrollView {
-                        chips.padding(.horizontal, 20)
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                             ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactTile(artifact: artifact, source: source) }
@@ -80,23 +80,23 @@ public struct ArtifactsBrowser: View {
                     }
                 } else {
                     List {
-                        Section {
-                            ForEach(shown) { artifact in
+                        ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactRow(artifact: artifact) }
                                     .contextMenu {
-                                        Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
+                                        Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
                                     }
                                     .swipeActions(edge: .trailing) {
-                                        Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
+                                        Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
                                             .tint(Color(uiColor: .systemGray))
                                     }
                             }
-                        } header: {
-                            chips
-                        }
                     }
                     .listStyle(.plain)
                 }
+            }
+            // One chip row above both layouts, so it sits at the same y in list and grid.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                chips.padding(.horizontal, 20).background(.bar)
             }
             .overlay {
                 if shown.isEmpty {
@@ -137,15 +137,18 @@ public struct ArtifactsBrowser: View {
                             .padding(.horizontal, 14)
                             .frame(height: 34)
                             .background(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
-                            .contentShape(.capsule)
+                            // 44 pt target around the 34 pt capsule.
+                            .frame(minHeight: 44)
+                            .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(state.filter == item ? .isSelected : [])
                 }
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, 1)
         }
         .scrollIndicators(.hidden)
+        .trailingOverflowFade(width: 24)
         .textCase(nil)
         .foregroundStyle(.primary)
         .sensoryFeedback(.selection, trigger: state.filter)
@@ -190,33 +193,69 @@ public struct ArtifactRow: View {
 struct ArtifactTile: View {
     let artifact: TerminalArtifact
     let source: any ArtifactSource
-    @State private var thumbnail: UIImage?
+    @State private var thumbnail: ArtifactThumbnail?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Color.clear
                 .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    if let thumbnail {
-                        Image(uiImage: thumbnail).resizable().scaledToFill()
-                    } else {
-                        Image(systemName: artifact.systemImage)
-                            .font(.system(size: 28))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                .overlay { preview }
                 .background(Color(uiColor: .secondarySystemBackground))
                 .clipShape(.rect(cornerRadius: 16, style: .continuous))
-            Text(artifact.name).font(.footnote).lineLimit(2)
+            // The type glyph sits in the footer, next to the name, never on the content.
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Image(systemName: artifact.systemImage)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(artifact.name).font(.footnote).lineLimit(2)
+            }
             if let detail = artifact.detail {
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .accessibilityElement(children: .combine)
         .task(id: artifact) {
-            guard artifact.kind == .image, thumbnail == nil,
-                  case .image(let data)? = try? await source.load(artifact) else { return }
-            thumbnail = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 360, height: 360))
+            guard artifact.kind != .link else { return }
+            thumbnail = await ArtifactThumbnailCache.shared.thumbnail(for: artifact, source: source)
+        }
+    }
+
+    /// The real thing when it renders (picture or excerpt); a link's domain; the type icon otherwise.
+    @ViewBuilder private var preview: some View {
+        switch thumbnail {
+        case .picture(let image)?:
+            Image(uiImage: image).resizable().scaledToFill()
+        case .excerpt(let text)?:
+            Text(text)
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(TerminalArtifact.thumbnailExcerptLines)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(10)
+                .dynamicTypeSize(.large)
+                .accessibilityHidden(true)
+        case nil:
+            if artifact.kind == .link, let host = URL(string: artifact.reference)?.host() {
+                // No page fetch for a thumbnail: the domain under a link glyph.
+                VStack(spacing: 8) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 26))
+                        .foregroundStyle(.secondary)
+                    Text(host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)
+                        .font(.footnote.weight(.semibold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .minimumScaleFactor(0.7)
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                }
+                .padding(12)
+                .accessibilityHidden(true)
+            } else {
+                Image(systemName: artifact.systemImage)
+                    .font(.system(size: 28))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

@@ -23,7 +23,9 @@ struct FeedCell: View {
     private let director = DemoDirector.shared
     #endif
 
-    static let collapsedHeight: CGFloat = 224
+    /// Show more caps the body at 8 lines of body text at the current text size.
+    @ScaledMetric(relativeTo: .body) private var collapsedHeight: CGFloat = 224
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(item: FeedItem, store: FeedStore, open: @escaping () -> Void, expanded: Binding<Bool>) {
         self.item = item
@@ -45,10 +47,17 @@ struct FeedCell: View {
                     }
                 }
             VStack(alignment: .leading, spacing: 8) {
+                // Only the header, the quote and the body open the tab; the answer card,
+                // its padding and the gaps never navigate (a mis-tap must not leave the Feed
+                // mid-answer).
                 header
+                    .contentShape(.rect)
+                    .onTapGesture(perform: open)
                 if let quote = item.quote {
                     QuoteBubble(quote: quote)
                         .padding(.bottom, -4)
+                        .contentShape(.rect)
+                        .onTapGesture(perform: open)
                 }
                 statusChip
                 bodyView
@@ -79,8 +88,6 @@ struct FeedCell: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .contentShape(.rect)
-        .onTapGesture(perform: open)
         .contextMenu { menuItems }
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
@@ -90,18 +97,31 @@ struct FeedCell: View {
     // MARK: Parts
 
     private var header: some View {
-        HStack(spacing: 4) {
-            Text(item.agentName).font(.subheadline.weight(.semibold)).lineLimit(1).layoutPriority(2)
-            Text("· \(item.workspaceTitle)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(0)
-            Text("· \(relativeTime)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1).fixedSize()
+        HStack(alignment: .top, spacing: 4) {
+            if dynamicTypeSize.isAccessibilitySize {
+                // At accessibility sizes the source wraps under the name instead of truncating.
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.agentName).font(.subheadline.weight(.semibold))
+                    Text("\(item.workspaceTitle) · \(relativeTime)").font(.subheadline).foregroundStyle(.secondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 4) {
+                    Text(item.agentName).font(.subheadline.weight(.semibold)).lineLimit(1).layoutPriority(2)
+                    Text("· \(item.workspaceTitle)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(0)
+                    Text("· \(relativeTime)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1).fixedSize()
+                }
+            }
             Spacer(minLength: 4)
             Menu { menuItems } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 15))
                     .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 24)
+                    .frame(width: 44, height: 44)
                     .contentShape(.rect)
             }
+            .padding(.vertical, -12)
+            .padding(.trailing, -10)
             .accessibilityLabel("Event actions")
         }
     }
@@ -119,18 +139,18 @@ struct FeedCell: View {
     @ViewBuilder
     private var menuItems: some View {
         Section(item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
-            Button("Open tab", systemImage: "arrow.up.right.square", action: open)
+            Button("Open Tab", systemImage: "arrow.up.right.square", action: open)
             Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.markdown }
             // Everything the trailing swipe leaves out lives here (SPEC swipe rules).
             if item.isRead {
-                Button("Mark as unread", systemImage: "envelope.badge") { store.markUnread(item.id) }
+                Button("Mark as Unread", systemImage: "envelope.badge") { store.markUnread(item.id) }
             } else {
-                Button("Mark as read", systemImage: "envelope.open") { store.markRead(item.id) }
+                Button("Mark as Read", systemImage: "envelope.open") { store.markRead(item.id) }
             }
             Button("Done", systemImage: "checkmark") {
                 withAnimation(.cnxSmooth) { store.markDone(item.id) }
             }
-            Button("Mute this workspace", systemImage: "bell.slash") {
+            Button("Mute This Workspace", systemImage: "bell.slash") {
                 withAnimation(.cnxSmooth) { _ = store.mutedWorkspaces.insert(item.workspaceID) }
             }
         }
@@ -145,6 +165,8 @@ struct FeedCell: View {
             chip(dot: nil, symbol: "questionmark.bubble", text: "Question")
         case .failed:
             chip(dot: .cnxDanger, symbol: nil, text: "Failed")
+        case .needsInput where item.resolution == nil:
+            chip(dot: .cnxWarning, symbol: nil, text: "Needs input")
         default:
             EmptyView()
         }
@@ -157,17 +179,19 @@ struct FeedCell: View {
             Text(text).font(.caption.weight(.semibold))
         }
         .padding(.horizontal, 10)
-        .frame(height: 24)
+        .padding(.vertical, 3)
+        .frame(minHeight: 24)
         .background(Color.cnxFill, in: .capsule)
     }
 
-    private var isOverflowing: Bool { (contentHeight ?? 0) > Self.collapsedHeight + 28 }
+    private var isOverflowing: Bool { (contentHeight ?? 0) > collapsedHeight + 28 }
 
     private var bodyView: some View {
         VStack(alignment: .leading, spacing: 6) {
             WebMarkdownView(
                 markdown: item.markdown, style: .body,
-                collapsedHeight: Self.collapsedHeight, isExpanded: expanded || !isOverflowing
+                collapsedHeight: collapsedHeight, isExpanded: expanded || !isOverflowing,
+                onTap: open
             ) { height in
                 contentHeight = height
             }
@@ -186,7 +210,9 @@ struct FeedCell: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
                 .buttonStyle(.plain)
-                .frame(minHeight: 28)
+                .frame(minHeight: 44)
+                .contentShape(.rect)
+                .padding(.vertical, -8)
                 .contentTransition(.opacity)
             }
         }
@@ -198,6 +224,20 @@ struct FeedCell: View {
         case .question(let question):
             QuestionCard(question: question, showsHeader: false) { answer in
                 withAnimation(.cnxSmooth) { store.answer(item.id, answer: answer) }
+            }
+        case .needsInput:
+            if let resolution = item.resolution {
+                Label(resolution, systemImage: "checkmark.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            } else {
+                // A TUI prompt: the phone cannot answer it here.
+                Button(action: open) {
+                    Label("Answer in Terminal", systemImage: "terminal")
+                }
+                .buttonStyle(CnxCapsuleButtonStyle(.primary, size: .compact))
+                .accessibilityIdentifier("feed.terminal.open")
             }
         case .permission(let request):
             if let resolution = item.resolution {
@@ -301,11 +341,14 @@ struct FeedCell: View {
 
     private var footer: some View {
         HStack(spacing: 0) {
-            footerButton("bubble.left", "Reply") {
-                withAnimation(.cnxSmooth) { replying.toggle() }
-                replyFocused = replying
+            // A terminal agent takes its input in the terminal (Open), not as a new prompt.
+            if !item.opensTerminal {
+                footerButton("bubble.left", "Reply") {
+                    withAnimation(.cnxSmooth) { replying.toggle() }
+                    replyFocused = replying
+                }
+                Spacer()
             }
-            Spacer()
             footerButton("arrow.up.right.square", "Open", action: open)
             Spacer()
             footerButton(copied ? "checkmark" : "doc.on.doc", "Copy") {
@@ -322,7 +365,9 @@ struct FeedCell: View {
                     .labelStyle(FooterLabelStyle())
             }
         }
-        .frame(height: 32)
+        // 44 pt targets; the row keeps its 32 pt rhythm.
+        .frame(height: 44)
+        .padding(.vertical, -6)
         .padding(.trailing, 8)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
     }
@@ -365,7 +410,7 @@ struct FooterLabelStyle: LabelStyle {
             configuration.title.font(.footnote)
         }
         .foregroundStyle(.secondary)
-        .frame(minHeight: 32)
+        .frame(minWidth: 44, minHeight: 44)
         .contentShape(.rect)
     }
 }
@@ -390,6 +435,7 @@ struct AgentAvatar: View {
         case "codex": "chevron.left.forwardslash.chevron.right"
         case "cursor": "cursorarrow.rays"
         case "gemini": "sparkles"
+        case "terminal": "terminal"
         default: "sparkle"
         }
     }
@@ -397,8 +443,10 @@ struct AgentAvatar: View {
 
 /// Where Feed actions that leave the Feed go (Reply sends into the tab's agent).
 @MainActor
-final class FeedRouting {
-    static let shared = FeedRouting()
+public final class FeedRouting {
+    public static let shared = FeedRouting()
     var sendPrompt: ((FeedItem, String) -> Void)?
+    /// Opens a terminal agent's tab on the Workspaces tab (set by the shell).
+    public var openTerminal: ((FeedItem) -> Void)?
 }
 #endif

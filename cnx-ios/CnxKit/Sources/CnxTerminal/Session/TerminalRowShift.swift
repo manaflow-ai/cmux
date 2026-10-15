@@ -19,6 +19,17 @@ import Foundation
 /// - `DECSTBM` (`r`) with explicit margins gains `offset`, except the full
 ///   remote screen, which stays a full-screen region so lines that scroll off
 ///   the top still reach the scrollback.
+/// - A region whose top is the remote screen's first row (`1;B`) keeps the
+///   mirror's first row as its top (`1;B+offset`). On the Mac, a line that
+///   scrolls out of a region starting at the top of the screen goes to the
+///   scrollback; that is how inline TUIs such as Codex CLI print their history
+///   above their live area (`ESC[1;Nr`, then `\r\n` per line). Shifted to
+///   `offset+1;B+offset` the region no longer started at the top of the mirror,
+///   so every such line was discarded: the phone kept only a screen's worth
+///   of the session while the Mac scrolled back to its first line (user
+///   report, 2026-10-14). With the mirror's top row as the region top, the
+///   lines move up through the rows above the Mac's screen and on into the
+///   scrollback, in the same order as on the Mac.
 ///
 /// The alternate screen (DEC modes 47, 1047, 1049) is drawn from the mirror's
 /// top and clipped to the TUI rows, so nothing is shifted there; leaving it
@@ -126,6 +137,7 @@ public struct TerminalRowShift: Sendable {
             let top = row(0)
             let bottom = params.count > 1 ? (params[1] ?? remoteRows) : remoteRows
             if top == 1, bottom >= remoteRows { return Self.csi("", final) }
+            if top == 1 { return Self.csi("1;\(bottom + offset)", final) }
             return Self.csi("\(top + offset);\(bottom + offset)", final)
         default:
             return sequence

@@ -2,6 +2,7 @@
 import CnxAuth
 import CnxDesign
 import CnxModel
+import CnxOnboarding
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -26,22 +27,30 @@ struct AccountPage: View {
     @State private var confirmsDeletion = false
     @State private var deleting = false
     @State private var deletionError: String?
+    /// The sign-in glyph grows with Dynamic Type like the other row icons.
+    @ScaledMetric(relativeTo: .body) private var signInGlyph: CGFloat = 18
 
     var body: some View {
         List {
             if let user = auth.user {
+                // The header card only: name and email once, centered, with
+                // no row background (Apple Account).
                 Section {
-                    HStack(spacing: 14) {
-                        UserInitials(user.initials, size: 56)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(user.name).font(theme.type.rowTitle.weight(.semibold))
-                            if let email = user.email { Text(email).font(theme.type.meta).foregroundStyle(theme.colors.label2) }
+                    VStack(spacing: 6) {
+                        UserInitials(user.initials, size: 64, background: UserInitials.onGrouped)
+                            .padding(.bottom, 6)
+                        UnbrokenText(user.name, style: .title2, weight: .semibold, alignment: .center)
+                            .foregroundStyle(theme.colors.label)
+                            .multilineTextAlignment(.center)
+                        if let email = user.email {
+                            EmailText(email).font(.subheadline).foregroundStyle(theme.colors.label2)
                         }
                     }
-                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .accessibilityElement(children: .combine)
                 }
-                Section("Name") { Text(user.name) }
-                Section("Email") { Text(user.email ?? "No email") }
             }
             Section {
                 switch methods {
@@ -56,11 +65,14 @@ struct AccountPage: View {
                     Text("No sign-in methods are linked.").foregroundStyle(theme.colors.label2)
                 case .loaded(let list):
                     ForEach(list) { method in
-                        HStack {
-                            Text(method.title).font(theme.type.rowTitle)
-                            Spacer(minLength: 8)
-                            if let detail = method.detail {
-                                Text(detail).font(theme.type.meta).foregroundStyle(theme.colors.label2).lineLimit(1).truncationMode(.middle)
+                        HStack(spacing: 14) {
+                            SignInMethodGlyph(method, size: min(signInGlyph, 34))
+                                .foregroundStyle(theme.colors.label)
+                                .frame(width: min(signInGlyph + 4, theme.metrics.settingsIconFrame * 2))
+                            UnbrokenText(method.title)
+                            if let detail = method.detail(accountEmail: auth.user?.email) {
+                                Spacer(minLength: 8)
+                                EmailText(detail).font(theme.type.meta).foregroundStyle(theme.colors.label2)
                             }
                         }
                         .accessibilityElement(children: .combine)
@@ -156,13 +168,16 @@ struct TeamPage: View {
     let edit: () -> Void
     let invite: () -> Void
     @State private var members: SettingsLoad<[TeamMember]> = .loading
+    /// The 28 pt avatar column every row's text starts after (it grows with
+    /// Dynamic Type as the avatars do), so all titles share one x.
+    @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
     var body: some View {
         List {
             Section {
                 Button(action: edit) {
                     HStack(spacing: 14) {
-                        TeamAvatar(name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji, size: 28)
+                        SettingsTeamAvatar(team: team, size: 28)
                         Text("Color and icon").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
                         Spacer()
                         Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.colors.label3)
@@ -194,10 +209,18 @@ struct TeamPage: View {
                     }
                 }
             }
+            // The personal space is just you: nobody to invite.
+            if !team.isPersonalSpace {
             Section {
                 Button(action: invite) {
-                    SettingsLabel("Invite to team", symbol: "person.badge.plus")
+                    HStack(spacing: 14) {
+                        SettingsIcon("person.badge.plus")
+                            .foregroundStyle(theme.colors.label)
+                            .frame(width: 28 * min(scale, 2))
+                        Text("Invite to team").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                    }
                 }
+            }
             }
         }
         .settingsPage(LocalizedStringKey(team.name))
@@ -273,69 +296,159 @@ struct ComposerPage: View {
     }
 }
 
+/// Settings → Notifications. The permission is real in every build: Chief's
+/// replies arrive as local alerts (`ChiefAlerts`) while cmux is running. Only
+/// TestFlight builds (push) also get notifications from the Macs.
 struct NotificationsPage: View {
     let settings: SettingsStore
-    @State private var status: UNAuthorizationStatus?
+    @State private var permission: NotificationPermission?
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var push: Bool { BuildCapabilities.current.push }
 
     var body: some View {
         @Bindable var settings = settings
         List {
             Section {
                 Button {
-                    if status == .notDetermined {
+                    if permission == .notDetermined {
                         Task {
                             let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-                            if granted, BuildCapabilities.current.push { UIApplication.shared.registerForRemoteNotifications() }
+                            if granted, push { UIApplication.shared.registerForRemoteNotifications() }
                             await refresh()
                         }
                     } else if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
                         openURL(url)
                     }
                 } label: {
-                    HStack {
-                        SettingsLabel("Allow notifications", symbol: "bell.badge")
-                        Spacer()
-                        Text(statusText).foregroundStyle(theme.colors.label2)
-                    }
+                    SettingsLabel("Allow notifications", symbol: "bell.badge", value: permission?.title)
+                }
+                .accessibilityIdentifier("settings.notifications.allow")
+            } footer: {
+                if !push {
+                    Text("For Chief's replies, while cmux is open or still running in the background.")
                 }
             }
-            if BuildCapabilities.current.push {
+            if push {
                 kindsSection(settings: $settings)
             } else {
                 Section {
-                } footer: {
-                    Text("This build can't receive notifications from your Macs. The TestFlight build can.")
+                    HStack(spacing: 14) {
+                        SettingsIcon("bell.slash").foregroundStyle(theme.colors.label2)
+                        UnbrokenText(String(localized: "Notifications from your Macs need the TestFlight build."))
+                            .foregroundStyle(theme.colors.label2)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("settings.notifications.macsUnavailable")
                 }
             }
         }
         .settingsPage("Notifications")
         .task { await refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refresh() } }
+        }
     }
 
     private func kindsSection(settings: Bindable<SettingsStore>) -> some View {
-        Section {
+        let off = permission == .off
+        return Section {
             Toggle(isOn: settings.notifyQuestions) { SettingsLabel("Questions and permissions", symbol: "questionmark.bubble") }
             Toggle(isOn: settings.notifyFinished) { SettingsLabel("Finished tasks", symbol: "checkmark.circle") }
             Toggle(isOn: settings.notifyErrors) { SettingsLabel("Errors", symbol: "exclamationmark.triangle") }
         } header: {
             Text("Notify me about")
         } footer: {
-            Text("Your Macs send these through the cmux service. A notification names the agent and workspace only, never what the agent wrote.")
+            if off {
+                Text("Turn on notifications in iOS Settings to choose what you get.")
+            } else {
+                Text("Your Macs send these through the cmux service. A notification names the agent and workspace only, never what the agent wrote.")
+            }
         }
-    }
-
-    private var statusText: String {
-        switch status {
-        case .authorized, .provisional, .ephemeral: "On"
-        case .denied: "Off"
-        case .notDetermined: "Not set"
-        default: ""
-        }
+        .disabled(off)
+        .opacity(off ? 0.4 : 1)
     }
 
     private func refresh() async {
-        status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        permission = await NotificationPermission.current()
+    }
+}
+
+/// Settings → Transport: how this iPhone reaches your Macs. DEBUG and Demo
+/// builds add the Relay only developer switch.
+struct TransportPage: View {
+    let settings: SettingsStore
+    /// Whether the service has a relay (nil: not known yet).
+    let relayAvailable: Bool?
+    #if DEBUG
+    @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
+    @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
+    #endif
+
+    var body: some View {
+        @Bindable var settings = settings
+        List {
+            Section {
+                ForEach(TransportKind.allCases) { kind in
+                    Button {
+                        guard settings.transport != kind else { return }
+                        settings.transport = kind
+                        theme.haptics.selection()
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                UnbrokenText(kind.title).foregroundStyle(theme.colors.label)
+                                UnbrokenText(Self.subtitle(kind), style: .footnote).foregroundStyle(theme.colors.label2)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "checkmark")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(theme.colors.label)
+                                .opacity(settings.transport == kind ? 1 : 0)
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(settings.transport == kind ? .isSelected : [])
+                    .accessibilityIdentifier("settings.transport.\(kind.rawValue)")
+                }
+            } footer: {
+                if relayAvailable == false {
+                    Text("Relay unavailable. Connections from outside your network may fail. Switching reconnects to your Macs.")
+                } else {
+                    Text("Switching reconnects to your Macs.")
+                }
+            }
+            #if DEBUG
+            Section {
+                Toggle(isOn: $relayOnly) {
+                    SettingsLabel("Relay only", symbol: "point.3.connected.trianglepath.dotted")
+                }
+                .disabled(relayAvailable == false)
+                .accessibilityIdentifier("settings.transport.relayOnly")
+                Toggle(isOn: $browserVideoOnChannel) {
+                    SettingsLabel("Browser video on channel", symbol: "film")
+                }
+                .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
+            } header: {
+                Text("Developer")
+            } footer: {
+                Text(relayAvailable == false
+                     ? "Relay unavailable."
+                     : "Relay only: always through the relay, as from a distant network: WebRTC over TURN, WireGuard over the cmux relay. Applies at once. Browser video on channel: streamed browser tabs skip the media lane (RTP on WebRTC or in the WireGuard tunnel). Applies at the next connection.")
+            }
+            #endif
+        }
+        .settingsPage("Transport")
+    }
+
+    static func subtitle(_ kind: TransportKind) -> String {
+        switch kind {
+        case .webrtc: String(localized: "Direct when possible, relay otherwise. Recommended.")
+        case .wireguard: String(localized: "Encrypted tunnel to your Mac, relay when needed.")
+        }
     }
 }
 

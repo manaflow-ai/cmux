@@ -1,4 +1,5 @@
 @testable import CmuxTabsKit
+import CoreGraphics
 import Testing
 
 struct TabZoomStateTests {
@@ -27,13 +28,50 @@ struct TabZoomStateTests {
     @Test func repeatedNewTabAndBackNeverLeavesTheGridBlocked() {
         var s = TabZoomState(overview: true)
         for i in 0..<20 {
-            s.start(from: 1, toOverview: false)  // (+)
+            s.openNewTab()  // (+)
             run(&s, seconds: Double(i % 3) * 0.1)  // sometimes interrupted early
             s.go(toOverview: true)  // tabs button
             run(&s, seconds: 1.2)
             #expect(s.phase == .overview, "iteration \(i)")
             #expect(s.gridInteractive, "iteration \(i)")
         }
+    }
+
+    private func timeTo(_ level: Double, _ s: inout TabZoomState) -> Double {
+        var t = 0.0
+        while s.progress > level, t < 1 {
+            s.step(1.0 / 600)
+            t += 1.0 / 600
+        }
+        return t * 1000
+    }
+
+    /// (+): Safari's start page grows on 0.34 / 0.97 from the first frame.
+    @Test func newTabUsesSafarisSpring() {
+        var s = TabZoomState(overview: true)
+        s.openNewTab()
+        #expect(s.phase == .animating && s.spring == .newTab)
+        #expect(s.spring.response == 0.34 && s.spring.damping == 0.97)
+        // An existing tab opens on toPage.
+        var o = TabZoomState(overview: true)
+        o.go(toOverview: false)
+        #expect(o.spring == .toPage)
+    }
+
+    /// The last tab closed: the fresh start page is at rest (0.5 pt of the
+    /// 0.84 -> 1 growth, about 64 pt) about 275 ms after it starts.
+    @Test func lastTabStartPageSettlesLikeSafari() {
+        var s = TabZoomState(overview: true)
+        s.openNewTab(spring: .afterLastClose)
+        #expect(abs(timeTo(0.5 / 64, &s) - 275) <= 1000.0 / 60)
+    }
+
+    @Test func newTabGrowsFromTheCentre() {
+        let full = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let r = NewTabZoom.plus.rect(in: full)
+        #expect(abs(r.midX - 201) < 0.01 && abs(r.midY - 437) < 0.01)
+        #expect(abs(r.width / full.width - 0.7) < 0.001)
+        #expect(NewTabZoom.lastTabClosed.scale == 0.84 && !NewTabZoom.lastTabClosed.blurs)
     }
 
     /// Safari (browser-springs-verify.md): a one-frame jump toward the new
@@ -59,12 +97,16 @@ struct TabZoomStateTests {
         #expect(abs(s.progress - (q + 10.0 / 244)) < 1e-9 && s.spring == .reversalToOverview)
     }
 
-    /// Closing starts with Safari's launch velocity toward the page.
-    @Test func closeStartsFast() {
+    /// Opening a card starts from rest, as simulator Safari: the first
+    /// 60 Hz frame covers 7–11 pt of the 225 pt card-to-page travel.
+    @Test func openStartsFromRest() {
         var s = TabZoomState(overview: true)
         s.go(toOverview: false)
-        #expect(s.velocity == -ZoomSpring.toPage.launch)
+        #expect(s.velocity == 0)
         #expect(s.spring == .toPage)
+        s.step(1.0 / 60)
+        let firstFrame = (1 - s.progress) * 225
+        #expect(firstFrame >= 6 && firstFrame <= 11, "\(firstFrame) pt")
     }
 
     @Test func repeatedTogglesDuringAnimationAlwaysSettle() {

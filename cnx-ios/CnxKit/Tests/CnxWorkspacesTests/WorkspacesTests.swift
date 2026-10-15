@@ -35,34 +35,71 @@ import SwiftUI
         return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
     }
 
-    @Test func closeTheMacRefusesPutsTheTabBack() async {
+    @Test func aCloseTheMacRefusesKeepsTheTab() async {
         let refusing = MockWorkspaceCreationBackend(latency: .zero)
         let (_, source) = make(backend: refusing)
         refusing.failNext = "tab is busy"
-        source.close("t-zsh")
-        #expect(!source.tabs.contains { $0.id == "t-zsh" })
-        for _ in 0..<200 where !source.tabs.contains(where: { $0.id == "t-zsh" }) { await Task.yield() }
+        let closed = await source.close("t-zsh")
+        #expect(!closed)
         #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
-        #expect(source.notice?.contains("tab is busy") == true)
+        // One short line; the Mac's reason goes to the log, not the toast.
+        #expect(source.toastText?.hasPrefix("Couldn't close") == true)
+        #expect(source.toastText?.contains("tab is busy") == false)
     }
 
     @Test func aRefusedNewTabAddsNothing() async {
         let refusing = MockWorkspaceCreationBackend(latency: .zero)
         let (_, source) = make(backend: refusing)
         refusing.failNext = "no pane"
-        let id = await source.createTab(source.newTabOptions.first { $0.id == "terminal" }!)
+        let id = await source.requestTab(source.newTabOptions.first { $0.id == "terminal" }!)
         #expect(id == nil)
         #expect(source.tabs.count == 3)
-        #expect(source.notice?.contains("no pane") == true)
+        #expect(source.toastText?.hasPrefix("Couldn't open a terminal on") == true)
+        #expect(source.toastText?.contains("no pane") == false)
+    }
+
+    /// User report (build 38484): + then New Claude Chat made the grid reflow around a
+    /// placeholder card, and a refusal snapped it back. Pending, then refused, the tab
+    /// list and every card label stay exactly as they were.
+    @Test func aPendingThenRefusedNewTabLeavesTheGridUntouched() async {
+        let refusing = MockWorkspaceCreationBackend(latency: .milliseconds(50))
+        let (_, source) = make(backend: refusing)
+        refusing.failNext = "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
+        let before = source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] }
+        let option = source.newTabOptions.first { $0.id.hasPrefix("agent:") }!
+        // TabsKit gets no tab back, so its placeholder never stays; the request runs here.
+        let returned = await source.createTab(option)
+        #expect(returned == nil)
+        #expect(source.pendingTabTitle == option.title)
+        #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
+        // A second + while one is pending does nothing.
+        #expect(await source.createTab(option) == nil)
+        for _ in 0..<200 where source.pendingTabTitle != nil { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.pendingTabTitle == nil)
+        #expect(source.openedTab == nil)
+        #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
+        #expect(source.toastText == "Can't start \(option.title.dropFirst(4).dropLast(5)) in this folder from your iPhone yet.")
+    }
+
+    @Test func aConfirmedNewTabOpensOnceTheMacListsIt() async {
+        let (_, source) = make(backend: MockWorkspaceCreationBackend(latency: .milliseconds(50)))
+        let count = source.tabs.count
+        _ = await source.createTab(source.newTabOptions.first { $0.id == "terminal" }!)
+        #expect(source.tabs.count == count)
+        for _ in 0..<200 where source.openedTab == nil { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.tabs.count == count + 1)
+        #expect(source.openedTab == source.tabs.last?.id)
+        #expect(source.activeTabID == source.tabs.last?.id)
     }
 
     @Test func withoutAMacNoTabsAreMade() async {
         let (_, source) = make(backend: nil)
         #expect(source.newTabOptions.isEmpty)
-        let id = await source.createTab(TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal))
+        let id = await source.requestTab(TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal))
         #expect(id == nil)
         #expect(source.tabs.count == 3)
-        source.close("t-zsh")
+        let closed = await source.close("t-zsh")
+        #expect(!closed)
         #expect(source.tabs.count == 3)
     }
 
@@ -81,10 +118,11 @@ import SwiftUI
         #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
-    @Test func closingTheActiveTabActivatesItsNeighbor() {
+    @Test func closingTheActiveTabActivatesItsNeighbor() async {
         let (store, source) = make()
         source.activate("t-zsh")
-        source.close("t-zsh")
+        let closed = await source.close("t-zsh")
+        #expect(closed)
         #expect(source.activeTabID == "t-docs")
         #expect(store.lastTabByWorkspace["ws-cmux"] == "t-docs")
         #expect(source.tabs.map(\.id) == ["t-claude", "t-docs"])
@@ -93,7 +131,7 @@ import SwiftUI
     @Test func newTabsGoLastAndBecomeActive() async {
         let (store, source) = make()
         let option = source.newTabOptions.first { $0.id == "terminal" }!
-        let id = await source.createTab(option)
+        let id = await source.requestTab(option)
         #expect(source.tabs.last?.id == id)
         #expect(source.activeTabID == id)
         #expect(store.lastTabByWorkspace["ws-cmux"] == id)
@@ -137,8 +175,8 @@ import SwiftUI
     var focused: [String] = []
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) { focused.append(tab.id) }
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {
-        [TerminalTabAction(title: "Show Keyboard", systemImage: "keyboard") { self.performed.append("keyboard") },
-         TerminalTabAction(title: "Files and Links", systemImage: "folder") { self.performed.append("files") }]
+        [TerminalTabAction(title: "Files and Links", systemImage: "folder") { self.performed.append("files") },
+         TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { self.performed.append("paste") }]
     }
 }
 
@@ -149,10 +187,10 @@ import SwiftUI
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
         let kit = try #require(source.tabs.first { $0.id == "t-zsh" })
         let groups = source.pageMenu(for: kit)
-        #expect(groups.first?.map(\.title) == ["Show Keyboard", "Files and Links"])
-        #expect(groups.dropFirst().first?.map(\.title) == ["Copy Directory", "All Workspaces"])
-        #expect(groups.last?.map(\.title) == ["Close Tab"])
-        groups.first?.last?.action()
+        #expect(groups.first?.map(\.title) == ["Files and Links", "Paste"])
+        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces".
+        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Close Tab"]])
+        groups.first?.first?.action()
         #expect(content.performed == ["files"])
     }
 
@@ -171,7 +209,7 @@ import SwiftUI
         created.pageAppeared("t-claude")
         #expect(created.surface("t-claude").composerFocused)
         // A new terminal tab raises the keyboard on its composer.
-        let id = await created.createTab(try #require(created.newTabOptions.first { $0.id == "terminal" }))
+        let id = await created.requestTab(try #require(created.newTabOptions.first { $0.id == "terminal" }))
         #expect(content.focused == [try #require(id)])
     }
 

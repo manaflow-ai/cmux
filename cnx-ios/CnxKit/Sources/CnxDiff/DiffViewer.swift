@@ -3,33 +3,10 @@ import CnxDesign
 import SwiftUI
 import UIKit
 
-/// Viewer preferences shared by the file list and file screens (SPEC 12.1 `ellipsis` menu).
-@MainActor
-@Observable
-public final class DiffViewerState {
-    public enum Layout: String, CaseIterable, Sendable { case unified = "Unified", split = "Split" }
-
-    public var changeSet: DiffChangeSet
-    public var layout: Layout = .unified
-    /// Starts from Settings → Terminal → Wrap code and diff lines; the
-    /// viewer's menu changes it for this screen.
-    public var wrapLines = CnxPreferences.wrapCode()
-    public var hideWhitespace = false
-    public var showViewed = true
-    public var viewed: Set<String> = []
-
-    public init(changeSet: DiffChangeSet) {
-        self.changeSet = changeSet
-    }
-
-    public func toggleViewed(_ file: DiffFile) {
-        if viewed.contains(file.id) { viewed.remove(file.id) } else { viewed.insert(file.id) }
-    }
-}
-
 /// SPEC 12.1: the Changes file list (GitHub mobile style).
 public struct DiffChangesScreen: View {
     @State private var state: DiffViewerState
+    @State private var listWidth: CGFloat = 400
 
     public init(changeSet: DiffChangeSet) {
         _state = State(initialValue: DiffViewerState(changeSet: changeSet))
@@ -55,6 +32,7 @@ public struct DiffChangesScreen: View {
             }
         }
         .listStyle(.plain)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { listWidth = $0 }
         .navigationTitle(state.changeSet.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -64,7 +42,7 @@ public struct DiffChangesScreen: View {
                     Text("\(state.changeSet.subtitle) · \(state.changeSet.files.count) \(state.changeSet.files.count == 1 ? "file" : "files")").font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) { DiffOptionsMenu(state: state) }
+            ToolbarItem(placement: .topBarTrailing) { DiffOptionsMenu(state: state, allowsSplit: DiffLayout.allowsSplit(width: listWidth)) }
         }
     }
 
@@ -103,6 +81,8 @@ public struct DiffCounts: View {
             Text("−\(deletions)").foregroundStyle(Color.cnxDiffDelText)
         }
         .font(.footnote.monospacedDigit().weight(.medium))
+        .lineLimit(1)
+        .fixedSize()
         .accessibilityElement()
         .accessibilityLabel(Text("\(additions) additions, \(deletions) deletions"))
     }
@@ -135,7 +115,12 @@ struct StatusBadge: View {
         Text(status.rawValue)
             .font(.caption.weight(.semibold).monospaced())
             .foregroundStyle(color)
-            .frame(width: 20, height: 20)
+            .lineLimit(1)
+            .fixedSize()
+            // Grows with its glyph at accessibility sizes instead of clipping it.
+            .padding(.horizontal, 3)
+            .padding(.vertical, 1)
+            .frame(minWidth: 20, minHeight: 20)
             .background(color.opacity(0.18), in: .rect(cornerRadius: 5))
             .accessibilityLabel(Text(label))
     }
@@ -163,8 +148,33 @@ struct DiffFileRow: View {
     let file: DiffFile
     let isViewed: Bool
     let toggleViewed: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            // Accessibility sizes: the name gets the full width (two lines), the counts and
+            // Mark viewed go under it.
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    StatusBadge(status: file.status)
+                    Text(file.fileName).font(.body).lineLimit(2).truncationMode(.middle)
+                }
+                if !file.directory.isEmpty {
+                    Text(file.directory).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                }
+                HStack(spacing: 0) {
+                    DiffCounts(additions: file.additions, deletions: file.deletions)
+                    Spacer(minLength: 8)
+                    ViewedToggle(isViewed: isViewed, action: toggleViewed)
+                }
+            }
+            .opacity(isViewed ? 0.6 : 1)
+        } else {
+            row
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: 12) {
             StatusBadge(status: file.status)
             VStack(alignment: .leading, spacing: 2) {
@@ -192,7 +202,7 @@ struct ViewedToggle: View {
                 .font(.system(size: 20))
                 .foregroundStyle(isViewed ? Color.cnxSuccess : Color.secondary)
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: 32, height: 32)
+                .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
         .buttonStyle(.borderless)
@@ -203,18 +213,28 @@ struct ViewedToggle: View {
 
 struct DiffOptionsMenu: View {
     @Bindable var state: DiffViewerState
+    /// Split is offered only where two columns fit (700 pt or more).
+    var allowsSplit: Bool
+
+    init(state: DiffViewerState, allowsSplit: Bool = false) {
+        self.state = state
+        self.allowsSplit = allowsSplit
+    }
 
     var body: some View {
         Menu {
-            Picker("Layout", selection: $state.layout) {
-                ForEach(DiffViewerState.Layout.allCases, id: \.self) { Text($0.rawValue) }
+            if allowsSplit {
+                Picker("Layout", selection: $state.layout) {
+                    ForEach(DiffViewerState.Layout.allCases, id: \.self) { Text($0.rawValue) }
+                }
+                .pickerStyle(.inline)
             }
-            .pickerStyle(.inline)
-            Toggle("Wrap lines", systemImage: "text.word.spacing", isOn: $state.wrapLines)
-            Toggle("Hide whitespace", systemImage: "space", isOn: $state.hideWhitespace)
-            Toggle("Show viewed files", systemImage: "checkmark.circle", isOn: $state.showViewed)
+            Toggle("Wrap Lines", systemImage: "text.word.spacing", isOn: $state.wrapLines)
+            Toggle("Hide Whitespace", systemImage: "space", isOn: $state.hideWhitespace)
+            Toggle("Show Viewed Files", systemImage: "checkmark.circle", isOn: $state.showViewed)
         } label: {
-            Image(systemName: "ellipsis")
+            // A Label: the bar hosts a native button that takes the whole 44 pt circle.
+            Label("Diff options", systemImage: "ellipsis")
         }
         .accessibilityLabel("Diff options")
     }

@@ -13,13 +13,22 @@ public enum DeveloperOptions {
     /// skip every direct path (WebRTC over TURN, WireGuard over the relay).
     /// Applies live: changing it redials.
     public static let relayOnlyKey = "cnx.dev.relayOnly"
+    /// `UserDefaults` key: streamed browser tabs keep their video on the
+    /// reliable `browser` channel even over WebRTC (no media lane), the
+    /// baseline of verify/browser-video-track.md. Applies at the next dial.
+    public static let browserVideoOnChannelKey = "cnx.dev.browserVideoOnChannel"
+    /// `UserDefaults` key: mock approvals wait 2 s for "Face ID" so the waiting state
+    /// can be seen and captured (`-cnx.dev.slowFaceID YES`). DEBUG mock content only.
+    public static let slowFaceIDKey = "cnx.dev.slowFaceID"
     /// `UserDefaults` key: the terminal demo's phases (`-CnxTerminalDemoPhases`).
     public static let terminalDemoPhasesKey = "CnxTerminalDemoPhases"
 
     /// Every stored developer setting. A build without the Developer page
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
-    public static let storedKeys = [mockDataKey, launchDemoKey, relayOnlyKey, terminalDemoPhasesKey]
+    public static let storedKeys = [
+        mockDataKey, launchDemoKey, relayOnlyKey, browserVideoOnChannelKey, terminalDemoPhasesKey, slowFaceIDKey,
+    ]
 
     /// Removes every stored developer setting (Production launch).
     public static func removeStoredValues(from defaults: UserDefaults = .standard) {
@@ -36,10 +45,30 @@ public enum DeveloperOptions {
         #endif
     }
 
+    /// How long a mock approval waits for "Face ID" (2 s with the developer switch).
+    /// Always zero outside DEBUG builds.
+    public static var mockFaceIDDelay: Duration {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: slowFaceIDKey) ? .seconds(2) : .zero
+        #else
+        .zero
+        #endif
+    }
+
     /// Whether relay-only links are on. Always off in Release builds.
     public static var relayOnly: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: relayOnlyKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether browser video stays on its channel (no WebRTC video track).
+    /// Always off in Release builds.
+    public static var browserVideoOnChannel: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: browserVideoOnChannelKey)
         #else
         false
         #endif
@@ -56,6 +85,15 @@ public enum DeveloperOptions {
 
     static func mockContentEnabled(mockData: Bool, environment: [String: String]) -> Bool {
         mockData || environment["CNX_MOCK_AUTH"] == "1"
+    }
+
+    /// Settings → Developer's "Mock (layout only)" switch: on whenever mock
+    /// data is in use (the stored switch or `CNX_MOCK_AUTH=1`), and `forced`
+    /// (locked on) when the launch environment sets it.
+    public static func mockSwitch(stored: Bool, environment: [String: String] = ProcessInfo.processInfo.environment)
+        -> (on: Bool, forced: Bool) {
+        let forced = environment["CNX_MOCK_AUTH"] == "1"
+        return (stored || forced, forced)
     }
 
     /// Scripted demos a developer can pick for the next launch.

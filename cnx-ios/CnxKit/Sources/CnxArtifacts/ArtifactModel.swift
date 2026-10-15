@@ -68,6 +68,22 @@ public struct TerminalArtifact: Identifiable, Hashable, Sendable {
     }
 }
 
+extension TerminalArtifact {
+    /// Lines of code or text a grid tile shows.
+    public static let thumbnailExcerptLines = 12
+
+    /// A grid tile's text excerpt: the first lines, tabs as four spaces, trailing blank
+    /// lines dropped. `nil` when there is nothing to show.
+    public static func thumbnailExcerpt(_ text: String) -> String? {
+        let lines = text.replacingOccurrences(of: "\t", with: "    ")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .prefix(thumbnailExcerptLines)
+            .map(String.init)
+        let kept = Array(lines.reversed().drop { $0.trimmingCharacters(in: .whitespaces).isEmpty }.reversed())
+        return kept.isEmpty ? nil : kept.joined(separator: "\n")
+    }
+}
+
 /// What an artifact preview shows.
 public enum ArtifactContent: Sendable {
     case text(String)
@@ -78,6 +94,19 @@ public enum ArtifactContent: Sendable {
     case directory([TerminalArtifact])
     case pdf(Data)
     case binary(description: String)
+}
+
+extension ArtifactContent {
+    /// The first line of an empty file's `binary` description.
+    public static let emptyFileLine = "Empty file"
+
+    /// A file with no bytes: nothing to preview (no Preview/Source toggle).
+    public var isEmptyFile: Bool {
+        if case .binary(let description) = self {
+            return description == Self.emptyFileLine || description.hasPrefix(Self.emptyFileLine + "\n")
+        }
+        return false
+    }
 }
 
 public typealias SessionArtifact = TerminalArtifact
@@ -219,9 +248,9 @@ public struct ArtifactExtractor: Sendable {
         for line in Self.logicalLines(in: screenText, columns: columns) where !line.isEmpty {
             whole += screen.scanLine(line)
         }
-        let onScreen = Set(whole.map(\.reference))
+        let onScreen = Set(whole.map { Self.canonical($0.reference) })
         var result = existing
-        for artifact in whole where !result.contains(where: { $0.reference == artifact.reference }) {
+        for artifact in whole where !result.contains(where: { Self.canonical($0.reference) == Self.canonical(artifact.reference) }) {
             let pieces = result.filter { piece in
                 !onScreen.contains(piece.reference)
                     && artifact.reference.contains(piece.reference)
@@ -237,13 +266,68 @@ public struct ArtifactExtractor: Sendable {
                 count += 1
                 result.append(artifact)
             }
-            seen.insert(artifact.reference)
+            seen.insert(Self.canonical(artifact.reference))
         }
-        return result.sorted { $0.order < $1.order }
+        // A piece of a wrapped reference that is already listed whole (the
+        // whole one was seen first, e.g. in the command line) goes too: the
+        // screen never shows the piece on its own (R2-7).
+        let wholes = result.map(\.reference).filter { onScreen.contains(Self.canonical($0)) }
+        result.removeAll { piece in
+            !onScreen.contains(Self.canonical(piece.reference))
+                && wholes.contains { $0 != piece.reference && $0.count > piece.reference.count && $0.contains(piece.reference) }
+        }
+        // One entry per file: `/tmp/x` and `/private/tmp/x` are the same.
+        var kept = Set<String>()
+        result = result.sorted { $0.order < $1.order }.filter { kept.insert(Self.canonical($0.reference)).inserted }
+        return result
+    }
+
+    /// Drops pieces of wrapped references anywhere in the list, scrollback
+    /// included (R3-3): a reference that another one ends with, starting in
+    /// the middle of a path component (`rivate/tmp/x` of `/private/tmp/x`,
+    /// `1910.txt` of `/tmp/e2e-091910.txt`), or a slash path without an
+    /// extension that another one starts with, ending mid-component (`/tm`).
+    /// A whole relative path (`docs/a.md` of `/repo/docs/a.md`) is kept.
+    public static func droppingFragments(_ list: [TerminalArtifact]) -> [TerminalArtifact] {
+        var wholes: [String] = []
+        for artifact in list where artifact.kind != .link {
+            wholes.append(artifact.reference)
+            let canonical = canonical(artifact.reference)
+            if canonical != artifact.reference { wholes.append(canonical) } else if ["/tmp/", "/var/", "/etc/"].contains(where: { artifact.reference.hasPrefix($0) }) {
+                wholes.append("/private" + artifact.reference)
+            }
+        }
+        func isFragment(_ piece: TerminalArtifact) -> Bool {
+            guard piece.kind != .link else { return false }
+            let r = piece.reference
+            for w in wholes where w.count > r.count && canonical(w) != canonical(r) {
+                // An absolute path is only ever a piece of another absolute one.
+                if r.hasPrefix("/"), !(w.hasPrefix("/") || w.hasPrefix("~")) { continue }
+                if w.hasSuffix(r) {
+                    let before = w[w.index(w.endIndex, offsetBy: -r.count - 1)]
+                    if before != "/" { return true }
+                }
+                if w.hasPrefix(r), r.hasPrefix("/"), !(r.split(separator: "/").last ?? "").contains(".") {
+                    let after = w[w.index(w.startIndex, offsetBy: r.count)]
+                    if after != "/" { return true }
+                }
+            }
+            return false
+        }
+        return list.filter { !isFragment($0) }
+    }
+
+    /// The key two references to the same file share: macOS's `/tmp`, `/var`
+    /// and `/etc` are `/private/...` (R2-7).
+    public static func canonical(_ reference: String) -> String {
+        for prefix in ["/private/tmp/", "/private/var/", "/private/etc/"] where reference.hasPrefix(prefix) {
+            return String(reference.dropFirst("/private".count))
+        }
+        return reference
     }
 
     private mutating func add(_ artifact: TerminalArtifact, to found: inout [TerminalArtifact]) {
-        guard seen.insert(artifact.reference).inserted else { return }
+        guard seen.insert(Self.canonical(artifact.reference)).inserted else { return }
         var artifact = artifact
         artifact.order = count
         count += 1

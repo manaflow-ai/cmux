@@ -201,6 +201,8 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public let symbol: String?
     public let showsSpinner: Bool
     public let text: String
+    /// A second line, smaller, for what to do next (pairing: where the Mac asks).
+    public var detail: String? = nil
 
     public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting to \(mac)…") }
     public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "You're offline")
@@ -209,11 +211,18 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public static func connecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Connecting to \(mac)…") }
     /// A dial that keeps failing (for example WebRTC with no TURN path).
     public static func failed(_ text: String) -> Self { Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text) }
-    /// The Mac shows "Allow … to connect?" for this phone (verify/phone-approvals.md).
-    public static func waitingForPairing(on mac: String) -> Self { Self(symbol: "lock.shield", showsSpinner: true, text: "Allow this iPhone on \(mac)") }
+    /// The Mac asks "Allow … to connect?" for this phone
+    /// (verify/phone-approvals.md): a notification, a Dock bounce and
+    /// Settings → Mobile on a Mac with #20491, only a cmux dialog on an older
+    /// one. "Look for cmux" is true for both.
+    public static func waitingForPairing(on mac: String) -> Self {
+        Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone on \(mac)"),
+             detail: String(localized: "Look for cmux on your Mac"))
+    }
     /// The same after the phone replaced an unreadable stored key.
     public static func waitingForPairingAfterNewKeys(on mac: String) -> Self {
-        Self(symbol: "lock.shield", showsSpinner: true, text: "This iPhone's keys were reset. Allow it again on \(mac)")
+        Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
+             detail: String(localized: "Its keys were reset. Look for cmux on your Mac"))
     }
 }
 
@@ -233,13 +242,29 @@ public struct ConnectionBanner: View {
             } else if let symbol = state.symbol {
                 Image(systemName: symbol)
             }
-            Text(state.text)
+            if let detail = state.detail {
+                // Two lines: what to do, then where (the Mac's notification).
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(state.text).lineLimit(3)
+                    Text(detail)
+                        .font(theme.type.meta)
+                        .foregroundStyle(theme.colors.label2)
+                        .lineLimit(3)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                // A banner over the list: readable, never a wall of text.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+            } else {
+                Text(state.text)
+            }
         }
         .font(theme.type.meta.weight(.semibold))
         .foregroundStyle(theme.colors.label)
-        .padding(.horizontal, 14)
-        .frame(height: 36)
-        .glassEffect(.regular, in: .capsule)
+        .padding(.horizontal, state.detail == nil ? 14 : 16)
+        .padding(.vertical, state.detail == nil ? 0 : 8)
+        .frame(minHeight: 36)
+        .glassEffect(.regular, in: .rect(cornerRadius: state.detail == nil ? 18 : 20, style: .continuous))
+        .padding(.horizontal, 16)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.updatesFrequently)
     }
@@ -258,23 +283,40 @@ public struct CnxToast: Sendable, Hashable, Identifiable {
 }
 
 extension View {
-    /// Shows `state` as a banner under the top safe area, entering from y - 12.
+    /// Shows `state` as a banner under the top safe area, entering from
+    /// y - 12. It takes its own room: the content below (a list) is inset
+    /// by the banner's height at every text size, so it covers nothing (R2-4).
+    /// A swipe up or sideways, or a tap, hides it until the state changes.
     public func cnxBanner(_ state: ConnectionBannerState?) -> some View {
-        overlay(alignment: .top) {
-            ZStack {
-                if let state {
-                    ConnectionBanner(state)
-                        .padding(.top, 8)
-                        .transition(.opacity.combined(with: .offset(y: -12)))
-                }
-            }
-            .animation(theme.motion.snappy.animation, value: state)
-        }
+        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state) }
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
     public func cnxToast(_ toast: Binding<CnxToast?>) -> some View {
         overlay(alignment: .top) { ToastHost(toast: toast) }
+    }
+}
+
+/// The connection banner's slot: dismissible like every toast (`cnxDismissibleToast`); a
+/// dismissed state stays hidden until the state changes.
+private struct BannerHost: View {
+    let state: ConnectionBannerState?
+    @State private var dismissed: ConnectionBannerState?
+
+    var body: some View {
+        ZStack {
+            if let state, state != dismissed {
+                ConnectionBanner(state)
+                    .cnxDismissibleToast(entry: .top, announcement: state.text) {
+                        withAnimation(theme.motion.snappy.animation) { dismissed = state }
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .offset(y: -12)))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .animation(theme.motion.snappy.animation, value: state)
     }
 }
 
@@ -307,9 +349,10 @@ private struct ToastHost: View {
                     try? await Task.sleep(for: .seconds(3))
                     if toast?.id == value.id { toast = nil }
                 }
-                .gesture(DragGesture(minimumDistance: 8).onEnded { drag in
-                    if drag.translation.height < 0 { toast = nil }
-                })
+                // Swipe up or sideways (it came from the top), or tap; VoiceOver: Dismiss.
+                .cnxDismissibleToast(entry: .top, announcement: value.text) {
+                    if toast?.id == value.id { toast = nil }
+                }
             }
         }
         .animation(theme.motion.snappy.animation, value: toast)

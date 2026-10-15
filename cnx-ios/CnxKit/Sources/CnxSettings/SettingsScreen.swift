@@ -23,8 +23,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let directory: (any SettingsDeviceDirectory)?
     @Binding var path: [SettingsRoute]
     let scrollRequest: String?
-    @State private var confirmsLogOut = false
+    @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
+    /// One device list for the "Devices" count here and the Devices page.
+    @State private var deviceList = SettingsDeviceList()
+    @State private var notificationPermission: NotificationPermission?
+    @Environment(\.scenePhase) private var scenePhase
 
     public init(auth: CnxAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
@@ -45,35 +49,25 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             List {
                 accountSection.id("top")
                 if let team = store.activeTeam {
-                    Section("Team") {
+                    Section {
                         NavigationLink(value: SettingsRoute.team) {
                             HStack(spacing: 14) {
-                                TeamAvatar(name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji, size: 28)
-                                Text(team.name).font(theme.type.rowTitle)
+                                SettingsTeamAvatar(team: team, size: 28)
+                                UnbrokenText(team.name)
                             }
                         }
                     }
                 }
-                Section {
-                    Picker(selection: $settings.transport) {
-                        ForEach(TransportKind.allCases) { Text($0.title).tag($0) }
-                    } label: {
-                        SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right")
+                Section("Connection") {
+                    NavigationLink(value: SettingsRoute.transport) {
+                        SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
                     }
-                    .pickerStyle(.menu)
-                    NavigationLink(value: SettingsRoute.pairedMacs) {
-                        SettingsLabel("Paired Macs", symbol: "desktopcomputer", value: "\(directory == nil ? store.activeTeam?.macs.count ?? 0 : store.accountMacCount ?? store.activeTeam?.macs.count ?? 0)")
+                    NavigationLink(value: SettingsRoute.devices) {
+                        SettingsLabel("Devices", symbol: "laptopcomputer.and.iphone", value: devicesValue)
                     }
-                } header: {
-                    Text("Connection")
-                } footer: {
-                    if directory?.relayAvailable == false {
-                        Text("Relay (TURN) unavailable — connections outside your network may fail. Switching reconnects to your Macs.")
-                    } else {
-                        Text("Switching reconnects to your Macs.")
-                    }
+                    .accessibilityIdentifier("settings.devices")
                 }
-                Section("Terminal") {
+                Section {
                     NavigationLink(value: SettingsRoute.terminal) {
                         SettingsLabel("Terminal", symbol: "apple.terminal", value: "\(settings.terminalFontSize) pt")
                     }
@@ -89,17 +83,16 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     }
                 }
                 .id("appearance")
-                Section("Notifications") {
-                    NavigationLink(value: SettingsRoute.notifications) {
-                        SettingsLabel("Notifications", symbol: "bell")
-                    }
-                }
                 Section {
+                    NavigationLink(value: SettingsRoute.notifications) {
+                        SettingsLabel("Notifications", symbol: "bell",
+                                      value: notificationPermission?.rootValue(push: BuildCapabilities.current.push))
+                    }
                     Toggle(isOn: $settings.requireFaceID) {
                         SettingsLabel("Require Face ID", symbol: "faceid")
                     }
                 } header: {
-                    Text("Security")
+                    Text("Privacy & notifications")
                 } footer: {
                     Text("Require Face ID or passcode to open cmux on this device.")
                 }
@@ -117,18 +110,18 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 }
                 Section {
                     Button(role: .destructive) {
-                        confirmsLogOut = true
+                        confirmsSignOut = true
                     } label: {
                         Label {
-                            Text("Log out").font(theme.type.rowTitle)
+                            Text("Sign out").font(theme.type.rowTitle)
                         } icon: {
-                            Image(systemName: "rectangle.portrait.and.arrow.right").font(.system(size: 17))
+                            SettingsIcon("rectangle.portrait.and.arrow.right")
                         }
                         .foregroundStyle(theme.colors.danger)
                     }
                     .accessibilityIdentifier("settings.logout")
-                    .confirmationDialog("Log out of cmux?", isPresented: $confirmsLogOut, titleVisibility: .visible) {
-                        Button("Log out", role: .destructive) { Task { await auth.signOut() } }
+                    .confirmationDialog("Sign out of cmux?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+                        Button("Sign out", role: .destructive) { Task { await auth.signOut() } }
                     }
                 } footer: {
                     VersionFooter().id("bottom")
@@ -151,9 +144,29 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             .sheet(item: $editingTeam) { team in
                 TeamAppearanceEditor(team: team) { saveAppearance($0, team) }
             }
+            // The count follows the account's Macs as discovery finds them.
+            .task(id: store.accountMacCount) { await deviceList.load(directory) }
+            .onAppear { Task { notificationPermission = await NotificationPermission.current() } }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { notificationPermission = await NotificationPermission.current() }
+            }
             }
         }
         .cnxNeutralControlTint()
+    }
+
+    /// The Devices page's Mac rows, counted; no value until they load.
+    private var devicesValue: String? {
+        SettingsDeviceRows.rootValue(service: deviceList.devices, hasService: directory != nil,
+                                     liveMacs: store.teams.flatMap(\.macs))
+    }
+
+    private var transportValue: String {
+        #if DEBUG
+        if DeveloperOptions.relayOnly { return "\(settings.transport.title), relay only" }
+        #endif
+        return settings.transport.title
     }
 
     @ViewBuilder private var accountSection: some View {
@@ -163,9 +176,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     HStack(spacing: 14) {
                         UserInitials(user.initials, size: 40)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(user.name).font(theme.type.rowTitle.weight(.semibold))
+                            UnbrokenText(user.name, weight: .semibold)
                             if let email = user.email {
-                                Text(email).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                                EmailText(email).font(theme.type.meta).foregroundStyle(theme.colors.label2)
                             }
                         }
                     }
@@ -182,7 +195,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             if let team = store.activeTeam {
                 TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
             }
-        case .pairedMacs: PairedMacsPage(store: store, directory: directory)
+        case .transport: TransportPage(settings: settings, relayAvailable: directory?.relayAvailable)
+        case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
         case .composer: ComposerPage(settings: settings)
         case .notifications: NotificationsPage(settings: settings)
@@ -193,50 +207,123 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 
 /// Pushed settings pages.
 public enum SettingsRoute: Hashable, Sendable {
-    case account, team, pairedMacs, terminal, composer, notifications, acknowledgements
+    case account, team, transport, devices, terminal, composer, notifications, acknowledgements
 
-    /// The route named by its case name (DEBUG launch arguments).
+    /// The route named by its case name (DEBUG launch arguments). The old
+    /// name "pairedMacs" opens Devices.
     public init?(name: String) {
-        let all: [SettingsRoute] = [.account, .team, .pairedMacs, .terminal, .composer, .notifications, .acknowledgements]
+        if name == "pairedMacs" {
+            self = .devices
+            return
+        }
+        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .composer, .notifications, .acknowledgements]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
 }
 
-/// A settings row label: 17 pt line icon in a 22 pt frame, title, trailing value.
+/// A settings row icon: 17 pt line symbol in a 22 pt frame, both growing with
+/// Dynamic Type up to twice their size.
+struct SettingsIcon: View {
+    let symbol: String
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 17
+    @ScaledMetric(relativeTo: .body) private var frame: CGFloat = 22
+
+    init(_ symbol: String) {
+        self.symbol = symbol
+    }
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: min(size, 34)))
+            .frame(width: min(frame, theme.metrics.settingsIconFrame * 2))
+    }
+}
+
+/// A settings row label: icon, title, trailing value. At accessibility text
+/// sizes the value goes under the title, as in iOS Settings, so the title
+/// never breaks mid-word.
 struct SettingsLabel: View {
-    let title: LocalizedStringKey
+    let title: String
     let symbol: String
     let value: String?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(_ title: LocalizedStringKey, symbol: String, value: String? = nil) {
-        self.title = title
+    init(_ title: LocalizedStringResource, symbol: String, value: String? = nil) {
+        self.title = String(localized: title)
         self.symbol = symbol
         self.value = value
     }
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 17))
-                .frame(width: theme.metrics.settingsIconFrame)
-                .foregroundStyle(theme.colors.label)
-            Text(title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
-            if let value {
-                Spacer(minLength: 8)
-                Text(value).font(theme.type.rowTitle).foregroundStyle(theme.colors.label2)
+            SettingsIcon(symbol).foregroundStyle(theme.colors.label)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) {
+                    UnbrokenText(title).foregroundStyle(theme.colors.label)
+                    if let value {
+                        Text(value).font(theme.type.rowTitle).foregroundStyle(theme.colors.label2)
+                    }
+                }
+            } else {
+                Text(verbatim: title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                if let value {
+                    Spacer(minLength: 8)
+                    Text(value).font(theme.type.rowTitle).foregroundStyle(theme.colors.label2).lineLimit(1)
+                }
             }
         }
     }
 }
 
+/// An email address on one line: shrinks, then truncates in the middle;
+/// never hyphenated.
+struct EmailText: View {
+    let email: String
+
+    init(_ email: String) {
+        self.email = email
+    }
+
+    var body: some View {
+        Text(verbatim: email)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .truncationMode(.middle)
+    }
+}
+
+/// A team avatar that grows with Dynamic Type (up to twice its size).
+struct SettingsTeamAvatar: View {
+    let team: Team
+    let size: CGFloat
+    @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
+
+    var body: some View {
+        TeamAvatar(name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji, size: size * min(scale, 2))
+    }
+}
+
+extension NotificationPermission {
+    /// The system's current answer (nil outside an app bundle).
+    static func current() async -> NotificationPermission? {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return nil }
+        switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+        case .authorized, .provisional, .ephemeral: return .on
+        case .denied: return .off
+        case .notDetermined: return .notDetermined
+        @unknown default: return nil
+        }
+    }
+}
+
 private struct LinkRow: View {
-    let title: LocalizedStringKey
+    let title: LocalizedStringResource
     let symbol: String
     let url: String
     @Environment(\.openURL) private var openURL
 
-    init(_ title: LocalizedStringKey, symbol: String, url: String) {
+    init(_ title: LocalizedStringResource, symbol: String, url: String) {
         self.title = title
         self.symbol = symbol
         self.url = url
@@ -261,18 +348,26 @@ private struct LinkRow: View {
 struct UserInitials: View {
     let initials: String
     let size: CGFloat
+    let background: CnxColorToken
+    @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
-    init(_ initials: String, size: CGFloat) {
+    /// Raised gray inside a row; white on the light grouped background
+    /// (Account's header, which has no row).
+    static let onGrouped = CnxColorToken(dark: CnxRGBA(hex: "#2C2C2E"), light: CnxRGBA(hex: "#FFFFFF"))
+
+    init(_ initials: String, size: CGFloat, background: CnxColorToken = theme.colors.surfaceRaised) {
         self.initials = initials
         self.size = size
+        self.background = background
     }
 
     var body: some View {
+        let size = size * min(scale, 2)
         Text(initials)
             .font(.system(size: size * 0.38, weight: .semibold))
             .foregroundStyle(theme.colors.label)
             .frame(width: size, height: size)
-            .background(theme.colors.surfaceRaised, in: .circle)
+            .background(background, in: .circle)
             .accessibilityHidden(true)
     }
 }
@@ -354,26 +449,30 @@ private struct DiagonalHalf: Shape {
     }
 }
 
-/// Centered mark + "Version 1.0 (123) · tag".
 #if DEBUG
 /// Settings → Developer (DEBUG and Demo builds): demo toggles read at launch,
-/// so a phone demo needs no launch arguments.
+/// so a phone demo needs no launch arguments. Relay only lives on the
+/// Transport page.
 private struct DeveloperSection: View {
     let auth: CnxAuthModel
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
-    @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
+    @AppStorage(DeveloperOptions.slowFaceIDKey) private var slowFaceID = false
     @State private var launchedWithMock = DeveloperOptions.mockData
 
     var body: some View {
+        let mock = DeveloperOptions.mockSwitch(stored: mockData)
         Section {
-            Toggle(isOn: $mockData) {
-                SettingsLabel("Mock data", symbol: "theatermasks")
+            Toggle(isOn: Binding(get: { mock.on }, set: { mockData = $0 })) {
+                SettingsLabel("Mock (layout only)", symbol: "theatermasks")
             }
-            Toggle(isOn: $relayOnly) {
-                SettingsLabel("Relay only (simulate distant network)", symbol: "point.3.connected.trianglepath.dotted")
+            .disabled(mock.forced)
+            .accessibilityIdentifier("settings.developer.mock")
+            // Mock approvals wait 2 s, so "Waiting for Face ID…" can be seen.
+            Toggle(isOn: $slowFaceID) {
+                SettingsLabel("Slow mock Face ID", symbol: "faceid")
             }
-            .toggleStyle(.cnxSwitch)
+            .disabled(!mock.on)
             Picker(selection: $launchDemo) {
                 Text("None").tag("")
                 ForEach(DeveloperOptions.demos, id: \.id) { demo in
@@ -400,25 +499,27 @@ private struct DeveloperSection: View {
         } header: {
             Text("Developer")
         } footer: {
-            Text("Mock data signs in as a sample user with sample teams, Macs and chats. Changes apply at the next launch: quit, then open cmux again. Relay only applies at once: links skip direct paths, so WebRTC goes through TURN and WireGuard through the cmux relay, as from a distant network. To sign in with the dev test account, enter 42 as the email.")
+            VStack(alignment: .leading, spacing: 8) {
+                Text(mock.forced ? "Set by the launch environment." : "Sample user, teams and Macs for checking layout. Applies at next launch.")
+                Text("Dev test account: enter 42 as the email.")
+            }
         }
     }
 }
 #endif
 
+/// "Version 1.0 (123) · tag", centered, text only.
 struct VersionFooter: View {
     var body: some View {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "1.0"
         let build = info["CFBundleVersion"] as? String ?? "1"
         let tag = (info["CNXTag"] as? String).flatMap { $0.isEmpty ? nil : $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
-        VStack(spacing: 8) {
-            CmuxMark().fill(theme.colors.label3).frame(width: 16, height: 16)
-            Text(verbatim: "Version \(version) (\(build))" + (tag.map { " · \($0)" } ?? ""))
-                .font(theme.type.legal)
-                .foregroundStyle(theme.colors.label3)
-        }
-        .frame(maxWidth: .infinity)
+        Text(verbatim: "Version \(version) (\(build))" + (tag.map { " · \($0)" } ?? ""))
+            .font(theme.type.legal)
+            .foregroundStyle(theme.colors.label3)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
         .padding(.top, 28)
         .accessibilityElement(children: .combine)
     }

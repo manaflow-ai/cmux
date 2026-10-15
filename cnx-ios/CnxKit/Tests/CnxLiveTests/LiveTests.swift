@@ -100,10 +100,16 @@ import Testing
 struct MockDialer: MacLinkDialer {
     let fail: Bool
     var dialed: (@Sendable (LinkEndpoint) -> Void)?
+    var roamed: (@Sendable (String) -> Void)?
     func dial(_ endpoint: LinkEndpoint, transport: CnxTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         dialed?(endpoint)
         if fail { throw LinkError(code: "timeout", message: "") }
         return MockMacLink(transport: transport)
+    }
+
+    func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        roamed?(teamID)
+        return [("roam_direct", 12)]
     }
 }
 
@@ -130,6 +136,27 @@ struct MockDialer: MacLinkDialer {
         controller.send(.relayOnly(false))
         for _ in 0..<200 where !(controller.phase.isConnected && seen.values.count == 2) { await Task.yield() }
         #expect(seen.values == [true, false])
+    }
+
+    /// A network change roams the live link in place: the dialer is told
+    /// once (a burst of path updates settles first) and nothing redials.
+    @Test func networkChangeRoamsWithoutRedialing() async throws {
+        let dials = Seen()
+        let roams = Seen()
+        let dialer = MockDialer(fail: false, dialed: { _ in dials.append(true) }, roamed: { _ in roams.append(true) })
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
+        let url = URL(string: "https://x")!
+        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while roams.values.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(roams.values.count == 1)
+        #expect(dials.values.count == 1)
+        #expect(controller.phase.isConnected)
     }
 
     @Test func dialFailureWaitsWithReadableReason() async throws {
@@ -349,6 +376,123 @@ struct MockDialer: MacLinkDialer {
     }
 }
 
+// MARK: Launch reconcile
+
+@MainActor
+@Suite struct LaunchReconcileLiveTests {
+    /// The first live list after a launch keeps the cached rows' known activity
+    /// times (the snapshot), so rows are reconciled, not resorted as "no activity seen".
+    @Test func firstLiveListKeepsCachedActivityTimes() async throws {
+        let link = MockMacLink { _, data in
+            data.split(separator: 0x0A).map { request -> Data in
+                let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
+                let id = object["id"] as! String
+                switch object["cmd"] as! String {
+                case "list-workspaces":
+                    return Data(#"{"id":"\#(id)","ok":true,"data":{"workspaces":[{"id":1,"key":"k1","name":"one","screens":[]},{"id":2,"key":"k2","name":"two","screens":[]}]}}"#.utf8) + Data([0x0A])
+                case "list-agents":
+                    return Data(#"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#.utf8) + Data([0x0A])
+                default:
+                    return Data(#"{"id":"\#(id)","ok":true,"data":{}}"#.utf8) + Data([0x0A])
+                }
+            }
+        }
+        let seen = Date(timeIntervalSince1970: 1_700_000_000)
+        let cached = [Workspace(id: "k2", macID: "mac", title: "two", directory: "~", tabs: [], lastActivityAt: seen, hasActivityTime: true)]
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        await sync.bind(try await link.openChannel(service: "daemon", args: [:]), macID: "mac", cached: cached)
+        let tree = try #require(sync.tree)
+        let two = try #require(tree.workspaces.first { $0.id == "k2" })
+        #expect(two.hasActivityTime)
+        #expect(two.lastActivityAt == seen)
+        #expect(tree.workspaces.first { $0.id == "k1" }?.hasActivityTime == false)
+    }
+}
+
+// MARK: Off-main channel setup after the dial
+
+/// A daemon that answers the setup batch (verify/perf-latency.md).
+private func setupDaemon(_ log: CommandLog? = nil) -> MockMacLink {
+    MockMacLink { service, data in
+        data.split(separator: 0x0A).map { request -> Data in
+            let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
+            let id = object["id"] as! String
+            let cmd = object["cmd"] as! String
+            log?.append("\(service):\(cmd)", nil)
+            let line: String
+            switch cmd {
+            case "list-workspaces":
+                line = #"{"id":"\#(id)","ok":true,"data":{"workspaces":[{"id":1,"key":"k1","name":"one","screens":[]}]}}"#
+            case "list-agents":
+                line = #"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#
+            default:
+                line = #"{"id":"\#(id)","ok":true,"data":{}}"#
+            }
+            return Data(line.utf8) + Data([0x0A])
+        }
+    }
+}
+
+private struct LinkOf: MacLinkDialer {
+    let link: MockMacLink
+    func dial(_ endpoint: LinkEndpoint, transport: CnxTransport.TransportKind, accessToken: String) async throws -> any MacLink { link }
+}
+
+@MainActor
+@Suite struct PreparedLinkTests {
+    /// The setup batch goes out in the dial step; binding it later publishes the
+    /// list without sending anything more.
+    @Test func preparedDaemonBindsWithoutAnotherRequest() async throws {
+        let log = CommandLog()
+        let link = setupDaemon(log)
+        let prepared = await WorkspaceSync.prepare(try await link.openChannel(service: "daemon", args: [:]), deviceID: "d", deviceName: "iPhone")
+        _ = await prepared.replies.value
+        #expect(log.count == 5)
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        var trees: [DaemonTree] = []
+        sync.onTree = { trees.append($0) }
+        await sync.bind(prepared, macID: "mac")
+        #expect(trees.count == 1)
+        #expect(sync.tree?.workspaces.map(\.id) == ["k1"])
+        #expect(sync.daemon != nil)
+        #expect(log.count == 5)
+    }
+
+    /// `prepare` runs once per dial, before the link is handed over, and its
+    /// result is there for that link once.
+    @Test func dialRunsPrepareBeforeHandingTheLinkOver() async throws {
+        let mock = setupDaemon()
+        let controller = LinkController(transport: .webRTC, dialer: LinkOf(link: mock), accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        let calls = CommandLog()
+        controller.prepare = { _, macID in
+            calls.append("prepare", macID)
+            return "ready-\(macID)"
+        }
+        var preparedAtHandover: (any Sendable)?
+        controller.onLink = { link in
+            if let link { preparedAtHandover = controller.takePrepared(for: link) }
+        }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<5000 where preparedAtHandover == nil { await Task.yield() }
+        #expect(calls.count == 1)
+        #expect(preparedAtHandover as? String == "ready-m")
+        #expect(controller.takePrepared(for: mock) == nil)
+    }
+
+    /// A link that knows its path is connected in the same turn it is adopted:
+    /// the hand-over does not wait for the state stream.
+    @Test func linkWithKnownPathIsConnectedAtHandover() async throws {
+        let controller = LinkController(transport: .webRTC, dialer: LinkOf(link: setupDaemon()), accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        var phaseAtHandover: LinkMachine.Phase?
+        controller.onLink = { if $0 != nil { phaseAtHandover = controller.phase } }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<5000 where phaseAtHandover == nil { await Task.yield() }
+        #expect(phaseAtHandover?.isConnected == true)
+    }
+}
+
 // MARK: Workspace creation on the daemon
 
 @MainActor
@@ -452,6 +596,7 @@ final class CommandLog: @unchecked Sendable {
         }
     }
     func contains(_ cmd: String) -> Bool { lock.withLock { commands.contains(cmd) } }
+    var count: Int { lock.withLock { commands.count } }
     var names: [String: String] { lock.withLock { nameByCommand } }
 }
 

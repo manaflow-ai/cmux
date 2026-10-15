@@ -1,27 +1,27 @@
 # Draft: #13742 trust call for the cmux-next iPhone link
 
 Not posted. This is the draft of one consolidated comment for
-https://github.com/manaflow-ai/cmux/issues/13742. It covers the four trust
+https://github.com/manaflow-ai/cmux/issues/13742. It covers the five trust
 decisions behind cmux on iPhone (the cnx app) reaching a cmux-next Mac. The
 relay analysis is `cnx-ios/SECURITY.md`; the pairing and approval design is
 `cnx-ios/verify/phone-approvals.md` (both on `feat-cnx-ios`).
 
 ---
 
-**Trust call: cmux on iPhone connecting to a cmux-next Mac (#20414, #20491, #20531, `feat-cnx-ios-fileroots`)**
+**Trust call: cmux on iPhone connecting to a cmux-next Mac (#20414, #20491, #20531, `feat-cnx-ios-fileroots`, `feat-cnx-ios-agentcwd`)**
 
 With Settings > Mobile > Allow iPhone Connections on, the cmux app on the same
 account's iPhone opens the Mac's workspaces, terminals, browser tabs, agent
 chats and Chief. Every phone request reaches the Mac through `cnx-hostd`, a
 helper the Mac app runs, which passes it to one service (`daemon`, `acpmux`,
-`chief`, `file`, `upload`) through a default-deny policy. Four calls need an
+`chief`, `file`, `upload`) through a default-deny policy. Five calls need an
 answer before these land.
 
 Threats considered for each: a stolen sign-in token, a malicious or
 compromised Mac, a lost phone, an observer on the relay or TURN path, and
 prompt injection from agent output.
 
-Things that hold for all four:
+Things that hold for all five:
 
 - **Admission.** The Worker stamps the dialer's user on every signal
   (`fromUserId`, PROTOCOL.md "Admission"), and hostd admits only the Mac's
@@ -60,7 +60,7 @@ on, the app runs `cnx-hostd`.
 | Threat | What stops it | What's left |
 | --- | --- | --- |
 | Stolen sign-in token | Admission is same-user only, so the token must be the person's. With #20491, a token alone reaches no service. | Without #20491, a token is the whole device trust: anyone holding it reaches the terminals. |
-| Malicious Mac | The phone dials only Macs on its own account, and sees what that Mac sends. | The phone trusts the Worker's Mac list. Nothing in `phone-approvals.md` pins a Mac key, so a host registered with a stolen token would get what the person types or uploads to it. |
+| Malicious Mac | The phone dials only Macs on its own account, and sees what that Mac sends. It pins each paired Mac's identity key on first use and refuses a Mac that can't prove it ("This Mac's identity changed…"), before it signs or sends anything. | Closed in `feat-cnx-ios-chiefsign` bae2a073 (phone, hostd) and #20491 3eaa3ef0 (the Mac's Keychain key). Left: a host registered under a new device id shows as one more Mac in the list; the person pairs it only by choice. |
 | Lost phone | Remove in Settings > Mobile ends the phone's live links (`drop_phone`). | A phone still signed in registers again. Keeping it out needs signing that session out of the account. |
 | Relay observer | End-to-end WireGuard or DTLS. | Metadata. |
 | Prompt injection | A link in agent output opens only as a web page in the Mac browser; `file:`, `javascript:` and app schemes are refused. | The `http(s)` narrowing is in the Rust policy only; the Swift mirror (`DaemonLanePolicy.swift`) keeps the same command list. |
@@ -145,12 +145,11 @@ person's, like the Mac's own avatar field, which isn't person-only.
 | Malicious Mac | Chief is the Mac's own. | None new. |
 | Lost phone | Remove and pairing, as above. | A phone with Require Face ID off can message Chief, which runs agents under its own policy. |
 | Relay observer | End to end. | Metadata. |
-| Prompt injection | The phone can't bind as an agent or as Chief (`conversation-bind`, `conversation-agent-token` refused). Command-bearing params, `participants.add`, `actor`, and every terminal, workspace and `cloud-*` command are refused. The avatar is at most 16 characters, with no control characters or picture names. | `conversation-op: question.answer` passes with the owner stamped as respondent, without a Face ID signature. Chief has no permission card yet; when it gets one, its Allow goes through the signed path (`phone-approvals.md`, "Known gaps"). |
+| Prompt injection | The phone can't bind as an agent or as Chief (`conversation-bind`, `conversation-agent-token` refused). Command-bearing params, `participants.add`, `actor`, and every terminal, workspace and `cloud-*` command are refused. The avatar is at most 16 characters, with no control characters or picture names. | Closed in `feat-cnx-ios-chiefsign` bae2a073 and #20491 3eaa3ef0: `question.answer` from a paired phone counts only with its Face ID signature over this Mac, conversation, question and answer (one use, at most 300 s, `chief_answers.rs`); unsigned answers are refused before the Chief owner. Chief has no permission card yet; when it gets one, its Allow goes through the signed path too. |
 
-**Recommendation: approve,** with one condition: before Chief's questions can
-grant anything, their answers from the phone go through the signed path. The
-avatar is cosmetic, and engine choice only picks among options the brain
-validates.
+**Recommendation: approve.** The condition (Chief question answers on the
+signed path) is closed in bae2a073 / 3eaa3ef0. The avatar is cosmetic, and
+engine choice only picks among options the brain validates.
 
 **Alternatives:** allow Chief messages but refuse `chief.engine.set` (engine
 and avatar stay Mac-only). Or keep Chief off the link.
@@ -198,6 +197,67 @@ Evidence: unit tests for each refusal
 `without_a_daemon_no_tab_folder_is_shared`) and the `file` cases in
 `tests/host.rs`, per `SECURITY.md` on that branch. No live run on a Mac yet.
 
+**The same rule for agent chats (`feat-cnx-ios-agentcwd` at e0f1c3bf).** A
+phone's New Claude Chat in a workspace fails today: "cwd is refused: a remote
+WebSocket connection may use only a known project or a configured webRoots
+folder". acpmux treats the phone's splice as a remote (`Web`) connection, and
+its guard (`remote_guard.rs`, `web_roots`) admits only `webRoots` from
+config.json and known projects (folders of sessions acpmux already has). The
+branch has the Mac app hand acpmux the same tab folders on its person
+connection (`_acpmux/workspace_roots_set`, memory only, person-only), while
+iPhone connections are on. acpmux applies its existing guards: no `/`, home or
+above, canonical paths. The agent still runs under the Web rules (asking
+policy, no MCP servers from the phone, every tool approval answered by the
+person). Evidence: acpmux `tests/workspace_roots.rs` (before refused, only the
+person sets it, `/` and home dropped, symlink and `..` out refused, cleared
+refuses again). Recommendation: approve it together with (a).
+
+### 5. Sign-out keeps this iPhone's Mac approval (`feat-cnx-ios-persist`)
+
+**What changes.** Until now, signing out of the phone asked the linked Mac to
+forget it and deleted its device ids and Secure Enclave keys, so signing back
+in to the same account meant a new "Allow “<phone>” to connect?" dialog on
+every Mac. Now the phone keeps its identity for each account: the link and
+presence device ids (Keychain, this device only, after first unlock), the two
+enclave keys (`identity.<user>`, `approval.<user>`) and the pinned Mac keys.
+Sign-out only stops pushes (`DELETE /v1/devices/:id/push`) and drops the
+account's data on the phone: the Feed, workspace snapshots and unsent Chief
+messages. The old removal is now its own action, Settings > Devices > "Remove
+This iPhone from My Macs": the linked Mac forgets the phone, the keys are
+replaced, and every Mac asks again. Account deletion forgets the keys and ids
+too (`verify/persistence.md`).
+
+**Why it is safe.** A Mac admits a link only when all three hold: the
+Worker-stamped `fromUserId` is the Mac's own user (hostd `admitted`), the
+device id is one that user registered (the Worker refuses another user's id
+with `403 not_owner`, and only admits a signaling socket for a device the
+caller registered), and the phone proves the identity key the Mac's person
+approved for that device id, in a list the Mac keeps per signed-in user. A
+second account signing in on the same phone gets its own device ids and keys
+and reaches none of the first account's Macs; it can't use the first
+account's keys, which are never exported and never leave the enclave.
+
+| Threat | What stops it | What's left |
+| --- | --- | --- |
+| Another person signs in on this phone | Admission is per user; the other account has its own ids and keys; the first account's Feed, snapshots and preferences left the screen at sign-out. | The first account's keys stay in this phone's Keychain until "Remove This iPhone from My Macs" or account deletion; they are usable only by a session of the first account. |
+| Stolen sign-in token for the same account, on this phone | Nothing new: a signed-in session already had the keys. | A signed-out phone that the same account signs in to again connects with no prompt. Before, it asked again. |
+| Stolen token on another device | The keys never leave this phone's enclave. | None new. |
+| Lost or handed-on phone | "Remove This iPhone from My Macs" on the phone, or revoking it in Settings > Mobile on the Mac. Require Face ID locks the app. | Sign-out alone no longer cuts the phone off its Macs. Someone who gives a phone away should use the removal action. |
+
+**Recommendation: approve.** The prompt protects the Mac against a key it
+has not seen, not against the same account returning on the same phone with
+the key it already allowed. The removal action keeps a one-tap way to cut a
+phone off.
+
+**Alternative:** sign-out keeps the device ids but replaces the keys (each
+sign-in asks every Mac again, as before).
+
+Evidence: CnxKit tests `AccountSignOutTests` (sign-out never calls the Mac
+removal and keeps the ids and keys), `DeviceIdentityPersistenceTests`,
+`PhoneKeysPersistenceTests`, `RemoveThisPhoneUnpairTests` (a signed `unpair`
+reaches the Mac), `RemoveThisPhoneCoordinatorTests`, `AccountPreferencesTests`;
+live run in `verify/persistence.md`.
+
 ### Decisions
 
 - **iPhone host (#20414):** may the Mac app host iPhone links behind the
@@ -213,10 +273,19 @@ Evidence: unit tests for each refusal
 - **Chief over the link (#20531):** may the paired phone use Chief
   conversations, `chief.engine.get`/`set` and `chief.stop`, with its avatar
   edit counting as the person's? Reply `approve Chief over the link` (Chief
-  question answers move to the signed path before they can grant anything)
+  question answers already need the phone's Face ID signature, bae2a073)
   or `Chief without engine and avatar edits` or `keep Chief off the link`.
-- **File previews (`feat-cnx-ios-fileroots`):** what may `file` read? Reply
-  `approve fileroots (a)` (read-only below the folder of a live tab, no
-  hidden names, not `/` or `~`) or `share workspace folders (b)` (every
-  workspace folder, until hostd restarts) or `keep files blocked` (chat roots
-  only, none by default).
+- **Workspace folders for the phone (`feat-cnx-ios-fileroots`,
+  `feat-cnx-ios-agentcwd`):** may the phone read files below, and start agent
+  chats in, the folder of a tab the Mac has open? Reply `approve tab folders
+  for files and agent chats` (both branches: read-only file previews with no
+  hidden names, and agent chats under the Web rules; never `/` or `~`) or
+  `approve tab folders for files only` (fileroots (a); agent chats stay in
+  known projects and webRoots) or `share workspace folders (b)` (every
+  workspace folder for files, until hostd restarts) or `keep files and new
+  agent chats blocked` (chat roots only, none by default).
+- **Sign-out keeps the Mac approval (`feat-cnx-ios-persist`):** may signing
+  out of the phone keep its device ids, enclave keys and Mac approvals, with
+  "Remove This iPhone from My Macs" as the explicit way to end them? Reply
+  `approve: sign-out keeps the approval` or `sign-out replaces the keys`
+  (every sign-in asks each Mac again).

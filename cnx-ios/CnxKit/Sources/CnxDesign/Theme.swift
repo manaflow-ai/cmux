@@ -49,7 +49,7 @@ public struct CnxMetrics: Sendable {
     public var ctaInlineHeight: CGFloat = 40
     public var ctaInlinePadding: CGFloat = 20
     public var sidebarCapsuleHeight: CGFloat = 48
-    public var settingsRowHeight: CGFloat = 54
+    public var settingsRowHeight: CGFloat = 52
     public var settingsIconFrame: CGFloat = 22
     public var groupRadius: CGFloat = 26
     public var sidebarRowPitch: CGFloat = 48

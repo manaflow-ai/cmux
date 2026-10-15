@@ -1,7 +1,11 @@
+import CmuxAgentQuestion
 import CmuxConversationCore
 import CnxModel
 import Foundation
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Owns the Chief `ConversationStore` for the app's lifetime (the list row
 /// and the open conversation share it) and mirrors what the list shows:
@@ -53,8 +57,32 @@ public final class ChiefSession {
     /// Chief's avatar text (``ChiefIdentity/avatar``): the Mac's, once its
     /// `chief.engine.get` reply carries one, else "C".
     public private(set) var avatar: String
-    /// The Mac Chief's newest engine report (``ChiefControl/engine()``).
+    /// The Mac Chief's newest engine report (``ChiefControl/engine()``),
+    /// else the last one this phone read from that Mac (kept per Mac in
+    /// ``ChiefPreferences``), so the settings page always shows a model.
     public private(set) var engineReport: ChiefEngineReport?
+    /// Whether ``engineReport`` came from this connection (false: the copy
+    /// kept from an earlier one, shown while the Mac's Chief can't answer).
+    public private(set) var engineReportIsCurrent = false
+    /// Why the newest engine read failed (or came back without models); nil
+    /// once a read listed them.
+    public private(set) var engineProblem: ChiefEngineProblem?
+    /// The Mac Chief runs on (its link device id): the key of the kept engine report.
+    public var macID: String? {
+        didSet {
+            guard macID != oldValue, !engineReportIsCurrent else { return }
+            engineReport = macID.flatMap { preferences.engineReport(macID: $0) }
+        }
+    }
+    /// Waits between engine reads after a failure (``watchEngine()``).
+    let clock: any Clock<Duration>
+    /// Chief's questions in the conversation, in message order.
+    public private(set) var questions: [AgentQuestion] = []
+    /// Each answer's progress, by question id (``ChiefAnswerFlow``).
+    public private(set) var answers: [String: ChiefAnswerFlow] = [:]
+    /// The signer for answers (Face ID with this phone's approval key), asked
+    /// at answer time: the link's pairing may change while Chief is open.
+    public var answerSigner: (@MainActor () -> (any ChiefAnswerSigning)?)?
     /// The newest message the user has seen with the conversation open.
     private var seenMessageID: String?
     /// Messages waiting for Chief to connect (``ChiefOutbox``).
@@ -64,8 +92,10 @@ public final class ChiefSession {
     private var alertedSeq: Int?
 
     public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
-                preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil) {
+                preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.identity = identity
+        self.clock = clock
         avatar = identity.avatar
         self.preferences = preferences
         outboxStore = outbox ?? .standard
@@ -75,7 +105,18 @@ public final class ChiefSession {
         control = (backend as? ChiefDaemonBackend)?.control
         ChiefAlerts.shared.install()
         attach()
+        #if canImport(UIKit)
+        // Back in the foreground: Chief may have recovered while the app
+        // was away (its model server came back); read it again.
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.loadEngine() }
+        }
+        #endif
     }
+
+    @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
 
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is up).
     public func use(_ backend: any ConversationBackend) {
@@ -83,27 +124,176 @@ public final class ChiefSession {
         self.backend = backend
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
-        engineReport = nil
+        // The kept report stays on screen until this connection reads one.
+        engineReport = macID.flatMap { preferences.engineReport(macID: $0) }
+        engineReportIsCurrent = false
+        engineProblem = nil
+        lastTurnFailure = nil
+        lastTurnFailureID = nil
         alertedSeq = nil
+        questions = []
+        answers = [:]
         attach()
+    }
+
+    /// Chief's newest message, when it reports a failed turn (the
+    /// conversation shows it in plain words; this keeps the raw detail).
+    public private(set) var lastTurnFailure: ChiefTurnFailure?
+    /// The id of that message.
+    public private(set) var lastTurnFailureID: String?
+    /// The failed message whose Try Again was sent (its bar goes away).
+    private var retriedFailureID: String?
+
+    /// What the bar over the conversation shows: the open question first,
+    /// else Try Again for a failed newest turn not tried again yet.
+    public var barItem: ChiefBarItem? {
+        if let question = openQuestion { return .question(question) }
+        guard let id = lastTurnFailureID, let failure = lastTurnFailure, id != retriedFailureID, isConnected else { return nil }
+        return .failure(id: id, failure)
+    }
+
+    /// Try Again on a failed turn: the brain does not run a failed turn
+    /// again by itself (it retries only connection errors and capacity
+    /// waits, before it posts), so this sends the user's message that the
+    /// turn answered again, as a new message: Chief answers it once its
+    /// model is back. Does nothing without a failed newest turn.
+    public func retryFailedTurn() {
+        guard let id = lastTurnFailureID, id != retriedFailureID,
+              let failed = store.messages.first(where: { $0.id == id }) else { return }
+        let asked = store.messages.last { message in
+            message.senderID != identity.chiefID && !message.isUnsent && (message.seq ?? 0) < (failed.seq ?? .max)
+        }
+        let text = asked?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        retriedFailureID = id
+        send(ConversationComposeMessage(text: text.isEmpty ? String(localized: "Please try that again.") : text))
+    }
+
+    /// The question waiting for an answer from this phone: the newest
+    /// pending one, or one whose answer is in flight or failed.
+    public var openQuestion: AgentQuestion? {
+        questions.last { question in
+            question.isPending || (answers[question.id].map { $0.isBusy || $0.state == .unconfirmed } ?? false)
+        }
+    }
+
+    /// Answers `question` (Face ID, then the Mac). The flow says where it is;
+    /// a second call while one is in flight does nothing.
+    public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) {
+        guard let source = backend as? any ChiefQuestionSource else { return }
+        var flow = answers[question.id] ?? ChiefAnswerFlow()
+        guard flow.begin() else { return }
+        answers[question.id] = flow
+        let id = question.id
+        let signer = answerSigner?()
+        let approved: @Sendable () -> Void = { [weak self] in
+            Task { @MainActor [weak self] in self?.answers[id]?.approved() }
+        }
+        Task { @MainActor [weak self] in
+            do {
+                try await source.answer(question, with: answer, signer: signer, approved: approved)
+                // The approval hop can still be queued: approve before storing.
+                self?.answers[id]?.approved()
+                self?.answers[id]?.stored()
+            } catch {
+                self?.answers[id]?.failed(error)
+            }
+        }
+    }
+
+    /// Check after a lost reply (R2-5): fetches the conversation again; the
+    /// question's state on the Mac settles the answer's.
+    public func checkAnswer(_ questionID: String) {
+        guard let source = backend as? any ChiefQuestionSource, var flow = answers[questionID], flow.beginCheck() else { return }
+        answers[questionID] = flow
+        Task { @MainActor [weak self] in
+            do {
+                try await source.recheckQuestions()
+                guard let self else { return }
+                let current = source.questionFeed.current.first { $0.id == questionID }
+                if let current, !current.isPending {
+                    self.answers[questionID]?.stored()
+                } else {
+                    self.answers[questionID]?.checkedStillPending()
+                }
+            } catch {
+                self?.answers[questionID]?.failed(error)
+            }
+        }
     }
 
     /// Keeps what the Mac Chief's engine report says about Chief (its
     /// avatar) for every place Chief is drawn; the details page calls it
     /// with each report it reads or writes.
     public func adopt(_ report: ChiefEngineReport) {
+        // A report without models (the Mac's Chief could not list them)
+        // keeps the models of the kept one, so the picker still offers them.
+        var report = report
+        if let problem = ChiefEngineProblem(report: report) {
+            if let kept = engineReport {
+                report.offered.models = kept.offered.models
+                if report.offered.defaultModel == nil { report.offered.defaultModel = kept.offered.defaultModel }
+            }
+            engineProblem = problem
+        } else {
+            engineProblem = nil
+            if let macID { preferences.setEngineReport(report, macID: macID) }
+        }
         engineReport = report
-        let text = report.avatar ?? identity.avatar
-        if avatar != text { avatar = text }
+        engineReportIsCurrent = true
+        if let daemon = backend as? ChiefDaemonBackend {
+            // The backend draws the header; `refresh` reads it back from the store.
+            Task { await daemon.applyAvatar(report.avatar) }
+        } else {
+            let text = report.avatar ?? identity.avatar
+            if avatar != text { avatar = text }
+        }
     }
 
     /// Reads the engine report once Chief is reachable over the Mac link.
     private func loadEngine() {
-        guard let control else { return }
+        Task { @MainActor [weak self] in await self?.refreshEngine() }
+    }
+
+    /// Reads the Mac Chief's engine report now. On failure the report
+    /// shown stays (this connection's, or the one kept for this Mac) and
+    /// ``engineProblem`` says why; returns that problem (nil: models listed).
+    @discardableResult
+    public func refreshEngine() async -> ChiefEngineProblem? {
+        guard let control else { return nil }
         let store = store
-        Task { @MainActor [weak self] in
-            guard let report = try? await control.engine(), let self, self.store === store else { return }
-            self.adopt(report)
+        do {
+            let report = try await control.engine()
+            guard self.store === store else { return nil }
+            engineError = nil
+            adopt(report)
+        } catch {
+            guard self.store === store else { return nil }
+            engineProblem = ChiefEngineProblem(error)
+            engineError = error
+        }
+        return engineProblem
+    }
+
+    /// The raw error of the newest failed engine read (diagnostics only).
+    public private(set) var engineError: (any Error)?
+
+    /// The waits between engine reads while one keeps failing: 2, 4, 8,
+    /// 16, then every 30 s.
+    nonisolated static func retryDelay(attempt: Int) -> Duration {
+        attempt >= 4 ? .seconds(30) : .seconds(2 << max(0, attempt))
+    }
+
+    /// Keeps Chief's engine report fresh while someone looks at it (the
+    /// settings page runs this as its task): reads it now, and while the
+    /// read fails for a reason that can pass (the Mac or its model server
+    /// is down), again with backoff until it lists models. Ends when the
+    /// task is cancelled or the problem needs a person (Chief not set up).
+    public func watchEngine() async {
+        var attempt = 0
+        while !Task.isCancelled, control != nil {
+            guard let problem = await refreshEngine(), problem.isTransient else { return }
+            do { try await clock.sleep(for: Self.retryDelay(attempt: attempt)) } catch { return }
+            attempt += 1
         }
     }
 
@@ -121,10 +311,11 @@ public final class ChiefSession {
         return message.text.contains("?") && message.id != seenMessageID
     }
 
-    /// Home's Needs You filter: something waits in the outbox, or Chief is
-    /// idle with its newest message unread.
+    /// Home's Needs You filter: something waits in the outbox, Chief is
+    /// waiting on the user (the pin's preview, F6), or Chief is idle with its
+    /// newest message unread.
     public var needsYou: Bool {
-        if !outbox.isEmpty { return true }
+        if !outbox.isEmpty || isWaitingOnYou { return true }
         guard !isTyping, let message = lastMessage else { return false }
         return message.senderID == identity.chiefID && unreadCount > 0
     }
@@ -158,6 +349,18 @@ public final class ChiefSession {
 
     private func attach() {
         let store = store
+        if let source = backend as? any ChiefQuestionSource {
+            source.questionFeed.observe { [weak self] found in
+                Task { @MainActor [weak self] in
+                    guard let self, self.store === store, self.questions != found else { return }
+                    self.questions = found
+                    // A lost reply whose answer the Mac did store reads Sent.
+                    for question in found where !question.isPending && self.answers[question.id]?.state == .unconfirmed {
+                        self.answers[question.id]?.stored()
+                    }
+                }
+            }
+        }
         store.addObserver { [weak self, weak store] _ in
             guard let self, let store, store === self.store else { return }
             self.refresh()
@@ -170,6 +373,15 @@ public final class ChiefSession {
     private func refresh() {
         let newest = store.messages.last { $0.seq != nil && !$0.isScheduled }
         if newest != lastMessage { lastMessage = newest }
+        // A failed turn is offered for Try Again only while it is the newest message.
+        let failure = newest.flatMap { message in
+            message.senderID == identity.chiefID
+                ? (backend as? ChiefDaemonBackend)?.failureLog.failure(messageID: message.id) : nil
+        }
+        if failure != lastTurnFailure || (failure == nil ? nil : newest?.id) != lastTurnFailureID {
+            lastTurnFailure = failure
+            lastTurnFailureID = failure == nil ? nil : newest?.id
+        }
         if ChiefAlerts.shared.conversationVisible, seenMessageID != newest?.id { seenMessageID = newest?.id }
         if unreadCount != store.unreadCount { unreadCount = store.unreadCount }
         let typing = store.typingParticipantIDs.contains(identity.chiefID)
@@ -177,6 +389,11 @@ public final class ChiefSession {
         let connected = store.connection == .connected
         if isConnected != connected { isConnected = connected }
         if title != store.info?.title { title = store.info?.title }
+        // Chief's avatar as the conversation draws it (the Mac's text, live).
+        if let drawn = store.info?.participants.first(where: { $0.id == identity.chiefID })?.initials,
+           !drawn.isEmpty, drawn != avatar {
+            avatar = drawn
+        }
         let listState = store.info?.listState
         if isMuted != (listState?.muted ?? false) { isMuted = listState?.muted ?? false }
         if sendsReadReceipts != (listState?.sendReadReceipts ?? true) { sendsReadReceipts = listState?.sendReadReceipts ?? true }

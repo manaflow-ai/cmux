@@ -64,7 +64,13 @@ public struct ChiefAnswerSigner: ChiefAnswerSigning {
             macDevice: macDevice, approver: phoneID, conversation: conversation, messageID: messageID, partIndex: partIndex,
             nonce: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(),
             expiresAt: Int(now().timeIntervalSince1970 + ApprovalPayload.lifetime), answer: answer)
-        let sign = try await keys.authorizeApproval(reason: String(localized: "Answer Chief's question"))
+        let sign: @Sendable (Data) throws -> Data
+        do {
+            sign = try await keys.authorizeApproval(reason: String(localized: "Answer Chief's question"))
+        } catch PhoneKeys.Failure.cancelled {
+            // The sheet says "Face ID was cancelled", not a key error.
+            throw ChiefApprovalCancelled()
+        }
         return payload.approval(signature: try sign(payload.message))
     }
 }

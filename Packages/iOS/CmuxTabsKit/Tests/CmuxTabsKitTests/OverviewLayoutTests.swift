@@ -8,6 +8,19 @@ private func proMax(count: Int) -> OverviewLayout {
 }
 
 struct OverviewLayoutTests {
+    /// One tab: a larger centred card (device Pro Max 294.7 pt at x 72.7;
+    /// simulator Pro 268 pt at x 66.7, top 122, bottom 500).
+    @Test func loneTabIsALargerCentredCard() {
+        let pro = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 1)
+        let r = pro.card(0)
+        #expect(r.width == 268 && r.minX == 67 && r.minY == 122)
+        #expect(abs(r.maxY - 500) < 1)
+        let max = proMax(count: 1).card(0)
+        #expect(abs(max.width - 294.7) < 2 && abs(max.midX - 220) < 0.5)
+        // Two tabs: back to columns.
+        #expect(proMax(count: 2).card(0).width == 196)
+    }
+
     /// Device screenshot (iPhone 17 Pro Max, 3x): 196 pt cards with a
     /// 15.2 pt continuous corner.
     @Test func proMaxCardCornerMatchesTheDevice() {
@@ -82,5 +95,17 @@ struct OverviewLayoutTests {
         let g = proMax(count: 24)
         let o = g.offset(revealing: 2, from: 2000)
         #expect(abs(g.screenFrame(2, offset: o).minY - g.top) < 0.5)
+    }
+
+    /// Drag to reorder: the slot under the finger, gaps counting as the
+    /// nearest card.
+    @Test func slotUnderTheFinger() {
+        let g = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 5)
+        for i in 0..<5 {
+            let c = g.card(i)
+            #expect(g.slot(at: CGPoint(x: c.midX, y: c.midY)) == i)
+        }
+        #expect(g.slot(at: CGPoint(x: g.card(0).maxX + 4, y: g.card(0).midY)) == 0)
+        #expect(g.slot(at: CGPoint(x: g.card(4).midX, y: g.card(4).maxY + 200)) == nil)
     }
 }

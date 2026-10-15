@@ -12,9 +12,27 @@ import UniformTypeIdentifiers
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showCamera = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if model.isScrolledUp {
+                // In the card, not over the rows: a floating button hid the
+                // end of the lines under it (Codex QA F3).
+                Button {
+                    model.scrollToBottom()
+                } label: {
+                    Label("Jump to bottom", systemImage: "arrow.down")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        .background(Color.primary.opacity(0.08), in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityLabel("Scroll to bottom")
+                .transition(.opacity)
+            }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -28,21 +46,33 @@ struct TerminalComposer: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             HStack(alignment: .bottom, spacing: 6) {
-                if model.uploader != nil { plusMenu }
+                if model.attachmentsAvailable { plusMenu }
                 field
                 sendButton
             }
         }
         .padding(6)
+        // The glass sits on 85 % of the terminal background, so rows that
+        // scroll under the composer are not legible through it (SPEC M3).
+        .background(Color(uiColor: CnxGhosttyApp.background).opacity(0.85), in: .rect(cornerRadius: 24, style: .continuous))
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 8)
         .animation(.smooth(duration: 0.3), value: model.attachments.count)
+        .animation(.smooth(duration: 0.2), value: model.isScrolledUp)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
             photoItems = []
             Task { await loadPhotos(items) }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            TerminalCameraPicker { image in
+                guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+                model.addAttachment(ComposerAttachment(kind: .image, name: "Camera \(Self.stamp()).jpg",
+                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            }
+            .ignoresSafeArea()
         }
         .fileImporter(isPresented: $model.showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
@@ -51,13 +81,30 @@ struct TerminalComposer: View {
     }
 
     private var plusMenu: some View {
-        Menu {
-            Section {
-                Button("Photos", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
-                Button("Files", systemImage: "folder") { model.showFileImporter = true }
+        // ChatGPT's order: Camera, Photos, Files. Paste leads only when the
+        // pasteboard holds an image or a file (SPEC P9).
+        // Paste is offered only for an image or a file (text pastes into the
+        // field itself), and then first (R1-8). Reading the types does not
+        // trigger the paste prompt.
+        let pasteFirst = ComposerPasteRoute.offersPaste(
+            hasImage: UIPasteboard.general.hasImages,
+            hasFileURL: UIPasteboard.general.contains(pasteboardTypes: [UTType.fileURL.identifier]))
+        return Menu {
+            if pasteFirst {
+                Section { pasteButton }
             }
             Section {
-                Button("Paste", systemImage: "doc.on.clipboard") { pasteFromClipboard() }
+                if TerminalCameraPicker.isAvailable {
+                    Button("Camera", systemImage: "camera") { showCamera = true }
+                } else {
+                    Button {} label: {
+                        Label("Camera", systemImage: "camera")
+                        Text("No camera on this device")
+                    }
+                    .disabled(true)
+                }
+                Button("Photos", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
+                Button("Files", systemImage: "folder") { model.showFileImporter = true }
             }
         } label: {
             Image(systemName: "plus")
@@ -68,6 +115,10 @@ struct TerminalComposer: View {
         }
         .tint(.primary)
         .accessibilityLabel("Add attachment")
+    }
+
+    private var pasteButton: some View {
+        Button("Paste", systemImage: "doc.on.clipboard") { pasteFromClipboard() }
     }
 
     private var field: some View {
@@ -86,8 +137,10 @@ struct TerminalComposer: View {
                     model.composerFocused = isFocused
                     if isFocused { model.composerFocusOnAppear = false }
                     if isFocused { model.directTyping = false }
+                    model.controller?.inputFocusChanged()
                 },
-                onReturn: { model.send() }
+                onReturn: { model.send() },
+                shouldInsert: { model.composerShouldInsert($0) }
             )
         }
         .padding(.leading, 4)
@@ -101,16 +154,17 @@ struct TerminalComposer: View {
         } label: {
             ZStack {
                 if model.isUploading {
-                    ProgressView().tint(Color(uiColor: .systemBackground))
+                    ProgressView().tint(.white)
                 } else {
                     Image(systemName: empty ? "return" : "arrow.up")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(empty ? Color.primary : Color(uiColor: .systemBackground))
+                        .foregroundStyle(empty ? Color.primary : Color.white)
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
             .frame(width: 36, height: 36)
-            .background(empty ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(Color.primary), in: .circle)
+            // ↑ (send) is the primary action: accent fill, like the agent composer (SPEC P11).
+            .background(empty ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(Color(uiColor: .systemBlue)), in: .circle)
         }
         .buttonStyle(.plain)
         .disabled(model.isUploading)
@@ -121,12 +175,24 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.send")
     }
 
+    /// An image or a copied file becomes an attachment (uploaded to the Mac on
+    /// send, its Mac path typed: the same path as Files); text goes into the
+    /// field; a phone `file:///` path is never typed (R2-2).
     private func pasteFromClipboard() {
-        if model.uploader != nil, let image = UIPasteboard.general.image, let data = image.pngData() {
+        let board = UIPasteboard.general
+        let route = ComposerPasteRoute.route(hasImage: board.hasImages, fileURL: board.hasURLs ? board.url : nil,
+                                             string: board.hasStrings ? board.string : nil)
+        switch route {
+        case .image:
+            guard let image = board.image, let data = image.pngData() else { return }
             model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
                                                    thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
-        } else if let text = UIPasteboard.general.string {
+        case .file(let url):
+            Task { await loadFiles([url]) }
+        case .text(let text):
             model.composerText += text
+        case .nothing:
+            break
         }
     }
 
@@ -222,20 +288,24 @@ struct AttachmentStrip: View {
                             Button {
                                 model.removeAttachment(attachment.id)
                             } label: {
+                                // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(Color(uiColor: .systemBackground))
-                                    .frame(width: 20, height: 20)
-                                    .background(Color.primary, in: .circle)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 22, height: 22)
+                                    .background(Color(white: 0.18), in: .circle)
+                                    .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5))
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(.rect)
                             }
                             .buttonStyle(.plain)
-                            .offset(x: 5, y: -5)
+                            .offset(x: 16, y: -16)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }
                 }
             }
-            .padding(.top, 6)
-            .padding(.horizontal, 6)
+            .padding(.top, 8)
+            .padding(.horizontal, 8)
         }
         .scrollIndicators(.hidden)
     }
@@ -283,6 +353,39 @@ struct AttachmentStrip: View {
             .frame(height: 56)
             .background(Color.primary.opacity(0.08), in: .rect(cornerRadius: 12, style: .continuous))
         }
+    }
+}
+#endif
+
+#if os(iOS)
+/// UIImagePickerController's camera for the composer's Camera item (SwiftUI has no camera picker).
+struct TerminalCameraPicker: UIViewControllerRepresentable {
+    static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: TerminalCameraPicker
+        init(_ parent: TerminalCameraPicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { parent.onImage(image) }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
 #endif

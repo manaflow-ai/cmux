@@ -64,8 +64,17 @@ struct TabsToolbar: View {
     var onGo: (String) -> Void
     var onSwipeChanged: (CGFloat) -> Void
     var onSwipeEnded: (CGFloat, CGFloat) -> Void
+    /// Swipe up on the bar (Safari opens the tab grid, following the
+    /// finger): the upward translation and velocity in points (/s).
+    var onSwipeUpChanged: (CGFloat, CGFloat) -> Void = { _, _ in }
+    var onSwipeUpEnded: (CGFloat, CGFloat) -> Void = { _, _ in }
 
     @State private var labelWidth: CGFloat = 69
+    /// The bar drag's direction, fixed once it moved past the slop.
+    @State private var swipeAxis: BarSwipe.Axis?
+    /// A bar drag moved past the slop: the button under the finger must not
+    /// act on touch-up (Safari never opens a menu from a swipe).
+    @State private var swipeMoved = false
     @State private var progressShown: CGFloat = 0
     @State private var progressOpacity: Double = 0
     @Environment(\.tabsKitTheme) private var theme
@@ -95,6 +104,16 @@ struct TabsToolbar: View {
         // shapes together and ignores per-shape opacity, which the side
         // circles need for Safari's fade while they slide inward.
         ZStack(alignment: .topLeading) {
+            // The whole bar row takes touches, gaps included: a touch between
+            // the controls must not reach the page under the toolbar.
+            let row = layout.back.union(layout.capsule).union(layout.right)
+            Color.clear
+                .frame(width: row.width, height: row.height)
+                .contentShape(.rect)
+                .onTapGesture {}
+                .position(x: row.midX, y: row.midY)
+                .allowsHitTesting(!collapsed)
+                .accessibilityHidden(true)
             backButton(layout.back)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(features.contains(.history) ? sideOpacity : 0)
@@ -228,7 +247,7 @@ struct TabsToolbar: View {
         let glyphOpacity: Double = (collapsed || chrome.editing ? 0 : 1) * (chrome.menuOpen ? 0.3 : 1)
         ZStack {
             // Leading page-menu slot (48 pt).
-            Button(action: onMenu) {
+            Button(action: unlessSwiped(onMenu)) {
                 PageMenuGlyph()
                     .fill(theme.colors.label)
                     .frame(width: 16.3, height: 12.3)
@@ -266,7 +285,7 @@ struct TabsToolbar: View {
             }
 
             // Trailing reload / stop.
-            Button(action: onReload) {
+            Button(action: unlessSwiped(onReload)) {
                 ZStack {
                     if loading {
                         Image(systemName: "xmark").transition(.opacity)
@@ -319,9 +338,9 @@ struct TabsToolbar: View {
 
     /// Title over a subtitle (a terminal's `host ~/cwd`); collapses to the title.
     @ViewBuilder private func titleLabel(_ t: (title: String, subtitle: String, monospaced: Bool), _ r: CGRect) -> some View {
-        Button {
+        Button(action: unlessSwiped {
             if collapsed { chrome.expand(tap: true, theme) } else if features.contains(.pageMenu) { onMenu() }
-        } label: {
+        }) {
             VStack(spacing: 0) {
                 Text(t.title)
                     .font(.system(size: collapsed ? 13 : 15, weight: .semibold))
@@ -347,7 +366,7 @@ struct TabsToolbar: View {
         let isSearch: Bool = if case .url(_, _, let s) = address { s } else { false }
         // A placeholder has no menu glyph, so it may use the leading slot.
         let maxW = max(40, r.width - (isPlaceholder ? m.control + 24 : 2 * m.control + 8))
-        Button {
+        Button(action: unlessSwiped {
             if collapsed {
                 chrome.expand(tap: true, theme)
             } else if features.contains(.addressEditing) {
@@ -355,7 +374,7 @@ struct TabsToolbar: View {
             } else if features.contains(.pageMenu) {
                 onMenu()
             }
-        } label: {
+        }) {
             HStack(spacing: 5) {
                 if isPlaceholder || isSearch {
                     Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .medium))
@@ -381,15 +400,37 @@ struct TabsToolbar: View {
         .accessibilityLabel(collapsed ? "Show toolbar, \(address.label)" : "Address, \(address.label)")
     }
 
+    /// A button action that does nothing when the touch was a bar swipe.
+    private func unlessSwiped(_ action: @escaping () -> Void) -> () -> Void {
+        {
+            if swipeMoved { swipeMoved = false } else { action() }
+        }
+    }
+
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { v in
-                guard !chrome.editing, !collapsed, abs(v.translation.width) > abs(v.translation.height) || chrome.swiping else { return }
-                onSwipeChanged(v.translation.width)
+                guard !chrome.editing, !collapsed else { return }
+                swipeMoved = true
+                let axis = swipeAxis ?? BarSwipe.axis(v.translation)
+                if swipeAxis == nil { swipeAxis = axis }
+                switch axis {
+                case .horizontal: onSwipeChanged(v.translation.width)
+                case .up: onSwipeUpChanged(-v.translation.height, -v.velocity.height)
+                case .down: break
+                }
             }
             .onEnded { v in
-                guard chrome.swiping else { return }
-                onSwipeEnded(v.translation.width, v.predictedEndTranslation.width)
+                let axis = swipeAxis
+                swipeAxis = nil
+                // After the button under the finger saw this touch-up.
+                Task { @MainActor in swipeMoved = false }
+                switch axis {
+                case .horizontal?:
+                    if chrome.swiping { onSwipeEnded(v.translation.width, v.predictedEndTranslation.width) }
+                case .up?: onSwipeUpEnded(-v.translation.height, -v.velocity.height)
+                default: break
+                }
             }
     }
 

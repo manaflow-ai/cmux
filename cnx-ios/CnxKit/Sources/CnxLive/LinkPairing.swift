@@ -26,7 +26,7 @@ public struct LinkPairing: Sendable {
     /// What the phone says when a paired Mac's identity changed.
     public static let identityChanged = String(localized: """
         This Mac's identity changed, so this iPhone won't connect: it may not be your Mac. \
-        If you reinstalled cmux or replaced the Mac, remove it in Settings → Paired Macs, then let it add itself again.
+        If you reinstalled cmux or replaced the Mac, remove it in Settings → Devices, then let it add itself again.
         """)
 
     /// Where pairing with the linked Mac stands.
@@ -190,7 +190,7 @@ public struct LinkPairing: Sendable {
         return .proven(key.lowercased())
     }
 
-    /// Sign-out: asks the Mac to forget this phone (best effort, over a live link).
+    /// "Remove This iPhone from My Macs": asks the Mac to forget this phone (best effort, over a live link).
     public func unpair(link: any MacLink, macID: String) async {
         guard let (identity, approval) = try? keys.publicKeys(),
               let channel = try? await link.openChannel(service: "auth", args: [

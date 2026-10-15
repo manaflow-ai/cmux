@@ -35,6 +35,8 @@ struct ToolRowView: View {
                 header
             }
             .buttonStyle(.plain)
+            // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
+            .padding(.vertical, -6)
             if expanded {
                 ToolOutputView(call: call)
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -63,7 +65,9 @@ struct ToolRowView: View {
                     .font(.subheadline.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    // Commands cut at the tail (a token cut in the middle reads wrong);
+                    // paths keep the middle cut so the file name stays.
+                    .truncationMode(call.kind == .execute ? .tail : .middle)
             }
             if let code = call.exitCode, code != 0 {
                 Text("Exit \(code)").font(.footnote).foregroundStyle(Color.cnxDanger)
@@ -78,7 +82,8 @@ struct ToolRowView: View {
                     .rotationEffect(.degrees(expanded ? 90 : 0))
             }
         }
-        .frame(minHeight: 32)
+        // 44 pt hit target; the Button's container pulls the row back to 32 pt of layout.
+        .frame(minHeight: 44)
         .contentShape(.rect)
     }
 }
@@ -139,10 +144,12 @@ struct ToolGroupView: View {
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .frame(minHeight: 32)
+                // 44 pt hit target on a 32 pt row (the extra overlaps the row gaps).
+                .frame(minHeight: 44)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .padding(.vertical, -6)
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(calls) { call in
@@ -193,10 +200,12 @@ struct ThoughtRow: View {
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .frame(minHeight: 32)
+                // 44 pt hit target on a 32 pt row (the extra overlaps the row gaps).
+                .frame(minHeight: 44)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .padding(.vertical, -6)
             if expanded || isLive {
                 Text(text)
                     .font(.subheadline)
@@ -248,7 +257,7 @@ struct DiffSnippet: View {
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
-                .frame(height: 40)
+                .frame(height: 44)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -273,15 +282,17 @@ struct DiffSnippet: View {
                 .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
             }
             .scrollIndicators(.hidden)
+            .trailingOverflowFade()
             if preview.remaining > 0 {
-                Button("Show \(preview.remaining) more lines") {
+                Button(preview.remaining == 1 ? "Show 1 more line" : "Show \(preview.remaining) more lines") {
                     withAnimation(.cnxSmooth) { showAll = true }
                 }
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 16)
-                .padding(.bottom, 14)
-                .padding(.top, 4)
+                .frame(minHeight: 44)
+                .contentShape(.rect)
+                .padding(.bottom, 2)
             }
         }
         .background(Color.cnxCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
@@ -289,8 +300,8 @@ struct DiffSnippet: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
         }
         .contextMenu {
-            Button("Open diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
-            Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
+            Button("Open Diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
+            Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
         }
     }
 
@@ -340,17 +351,33 @@ struct EditedFilesCard: View {
                     openDiff(changeSet, file: file.id)
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: file.status == .added ? "doc.badge.plus" : "doc.text")
-                            .font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 18)
+                        // Viewed (the shared `DiffViewedStore`): marked in Changes, Review or the file screen.
+                        let viewed = DiffViewedStore.shared.isViewed(file)
+                        Image(systemName: viewed ? "checkmark.circle.fill" : (file.status == .added ? "doc.badge.plus" : "doc.text"))
+                            .font(.system(size: 13)).foregroundStyle(viewed ? Color.cnxSuccess : .secondary).frame(width: 18)
+                            .accessibilityLabel(viewed ? Text("Viewed") : Text(""))
                         if typeSize.isAccessibilitySize {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(2).truncationMode(.middle)
+                                // The whole name at full size, wrapping when it must (every name
+                                // the same size); the smaller folder goes under it and truncates first.
+                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(3)
+                                    .truncationMode(.middle)
+                                if !file.directory.isEmpty {
+                                    Text(file.directory).font(.footnote).foregroundStyle(.tertiary)
+                                        .lineLimit(1).truncationMode(.head)
+                                }
                                 DiffCounts(additions: file.additions, deletions: file.deletions).fixedSize()
                             }
                             Spacer(minLength: 0)
                         } else {
-                            Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1).layoutPriority(1)
-                            Text(file.directory).font(.footnote).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                            // The folder gets only what the whole name leaves, or nothing (no sliver).
+                            FolderNameLayout(folderFirst: false, spacing: 10) {
+                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1).truncationMode(.middle)
+                                Text(file.directory).font(.footnote).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                                    .frame(minWidth: 0, alignment: .leading)
+                                    .clipped()
+                            }
+                            .layoutPriority(1)
                             Spacer(minLength: 4)
                             DiffCounts(additions: file.additions, deletions: file.deletions)
                                 .fixedSize()
@@ -358,8 +385,8 @@ struct EditedFilesCard: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .frame(minHeight: 40)
+                    .padding(.vertical, 4)
+                    .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)

@@ -112,7 +112,53 @@ final class FakeDaemon: @unchecked Sendable {
         }
     }
 
+    /// The approval the last `question.answer` carried.
+    private(set) var lastApproval: [String: Any]?
+    /// Event lines sent after the next reply (a Mac-side change).
+    private var queued: [Data] = []
+
+    func queue(_ event: [String: Any]) {
+        lock.withLock { queued.append(line(event)) }
+    }
+
+    /// Chief posts `text` on its own (a turn's end), delivered as a
+    /// `conversation-changed` event after the next reply.
+    func queueChiefMessage(_ text: String) {
+        lock.withLock {
+            let posted = message(author: "agent_mux", text: text, client: "chief-\(messages.count + 1)")
+            messages.append(posted)
+            rev += 1
+            queued.append(line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev,
+                                "transaction": NSNull(), "change": ["kind": "message", "message": posted]]))
+        }
+    }
+
+    /// Chief asks to allow a command (part 1 of its message).
+    func seedChiefQuestion() -> String {
+        lock.withLock {
+            let question: [String: Any] = [
+                "type": "question", "harness": "chief", "session": "chief",
+                "items": [["id": "allow", "prompt": "Allow cargo test?", "multi_select": false, "allows_other": false,
+                           "options": [["id": "allow", "label": "Allow"], ["id": "deny", "label": "Don't Allow"]]]],
+                "state": ["kind": "pending"],
+            ]
+            let asked = message(author: "agent_mux", text: "", client: "seed-question",
+                                parts: [["type": "text", "text": "Want me to allow it?"], question])
+            messages.append(asked)
+            return asked["id"] as! String
+        }
+    }
+
     func respond(_ request: Data) -> [Data] {
+        let replies = respondNow(request)
+        let events: [Data] = lock.withLock {
+            defer { queued = [] }
+            return queued
+        }
+        return replies + events
+    }
+
+    private func respondNow(_ request: Data) -> [Data] {
         lock.withLock {
             let object = try! JSONSerialization.jsonObject(with: request.dropLast()) as! [String: Any]
             let id = object["id"] as! String
@@ -188,6 +234,16 @@ final class FakeDaemon: @unchecked Sendable {
                     let answered = line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev, "transaction": NSNull(),
                                          "change": ["kind": "message", "message": answer]])
                     return [reply, sent, readCursor, typing, answered]
+                case "question.answer":
+                    lastApproval = object["approval"] as? [String: Any]
+                    let messageID = op["message_id"] as! String
+                    let part = op["part_index"] as! Int
+                    guard let index = messages.firstIndex(where: { $0["id"] as? String == messageID }) else { return [] }
+                    var parts = messages[index]["parts"] as! [[String: Any]]
+                    parts[part]["state"] = ["kind": "answered", "answer": op["answer"]!]
+                    messages[index]["parts"] = parts
+                    rev += 1
+                    return [ok(["rev": rev, "replayed": false, "change": ["kind": "message-updated", "message": messages[index]]])]
                 case "reaction.add":
                     let messageID = op["message_id"] as! String
                     guard let index = messages.firstIndex(where: { $0["id"] as? String == messageID }) else { return [] }

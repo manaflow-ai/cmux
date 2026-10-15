@@ -18,6 +18,8 @@ public final class WorkspaceSync {
     public private(set) var lastError: String?
 
     @ObservationIgnored public var onTree: (@MainActor (DaemonTree) -> Void)?
+    /// A notification was posted on the Mac (terminal agents, `cmux notify`).
+    @ObservationIgnored public var onNotification: (@MainActor () -> Void)?
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var refreshing = false
@@ -27,6 +29,9 @@ public final class WorkspaceSync {
     /// only activity time the daemon gives.
     @ObservationIgnored private var activity: [Int: Date] = [:]
     @ObservationIgnored public private(set) var macID = ""
+    /// Counts bound `daemon` channels: names the current connection (a new
+    /// channel, even to the same Mac, is a new one).
+    @ObservationIgnored public private(set) var connectionSerial = 0
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
 
@@ -38,36 +43,71 @@ public final class WorkspaceSync {
     /// The live client (nil while unbound), for Chief and other daemon users.
     public var daemon: DaemonClient? { client }
 
-    /// Binds a fresh `daemon` channel for `macID` (nil unbinds).
-    public func bind(_ channel: (any LinkChannel)?, macID: String) async {
+    /// Binds a fresh `daemon` channel for `macID` (nil unbinds). `cached` is
+    /// what the list shows for the Mac before this answer (the launch
+    /// snapshot): the first live list keeps those rows' known activity times,
+    /// so it reconciles with them instead of resorting every row to "no
+    /// activity seen yet".
+    public func bind(_ channel: (any LinkChannel)?, macID: String, cached: [Workspace] = []) async {
         eventTask?.cancel()
         client = nil
+        connectionSerial += 1
         activity = [:]
         guard let channel else { return }
-        self.macID = macID
+        await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
+    }
+
+    /// A `daemon` channel whose client is reading and whose setup batch is on
+    /// its way, made without the main actor right after the dial
+    /// (verify/perf-latency.md).
+    public struct Prepared: Sendable {
+        let client: DaemonClient
+        let replies: Task<[Result<Data, any Error>], Never>
+    }
+
+    /// Starts `channel`'s client and sends the whole setup in one write (one
+    /// round trip, not five): declare the client, identify, subscribe, list
+    /// agents, list workspaces. The daemon answers a connection's lines in
+    /// order; events after the subscribe wait in the client's stream. Does not
+    /// wait for the answers (a Mac that pairs holds them until `auth` passes).
+    public nonisolated static func prepare(_ channel: any LinkChannel, deviceID: String, deviceName: String) async -> Prepared {
         let client = DaemonClient(channel: channel)
-        self.client = client
         await client.start()
+        let replies = Task.detached { () -> [Result<Data, any Error>] in
+            let replies = await client.requests([
+                ("set-client-info", [
+                    "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
+                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"],
+                ]),
+                ("identify", [:]),
+                ("subscribe", ["tree_events": "deltas"]),
+                ("list-agents", [:]),
+                ("list-workspaces", [:]),
+            ])
+            ConnectTimeline.shared.mark("first_daemon_response")
+            return replies
+        }
+        return Prepared(client: client, replies: replies)
+    }
+
+    /// Binds a prepared `daemon` channel for `macID` and publishes its list
+    /// when the setup answers arrive.
+    public func bind(_ prepared: Prepared, macID: String, cached: [Workspace] = []) async {
+        eventTask?.cancel()
+        activity = [:]
+        self.macID = macID
+        let client = prepared.client
+        self.client = client
+        connectionSerial += 1
         let events = client.events
         eventTask = Task { [weak self] in
             for await line in events {
                 self?.handle(DaemonEvent.parse(line))
             }
         }
-        // The whole setup in one write (one round trip, not five): declare
-        // the client, identify, subscribe, list agents, list workspaces. The
-        // daemon answers a connection's lines in order.
-        let replies = await client.requests([
-            ("set-client-info", [
-                "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
-                "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"],
-            ]),
-            ("identify", [:]),
-            ("subscribe", ["tree_events": "deltas"]),
-            ("list-agents", [:]),
-            ("list-workspaces", [:]),
-        ])
-        ConnectTimeline.shared.mark("first_daemon_response")
+        let replies = await prepared.replies.value
+        // Bound again meanwhile (another link or Mac): this answer is stale.
+        guard self.client === client else { return }
         do {
             _ = try Self.check(replies[0].get())
             let identify = try Self.check(replies[1].get())
@@ -76,7 +116,8 @@ public final class WorkspaceSync {
             }
             _ = try Self.check(replies[2].get())
             if let reply = try? Self.check(replies[3].get()) { applyAgents(reply) }
-            let next = try DaemonTree(reply: replies[4].get(), macID: macID, previous: tree?.workspaces ?? [], agents: agents)
+            let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
+            let next = try DaemonTree(reply: replies[4].get(), macID: macID, previous: known.isEmpty ? cached : known, agents: agents)
             tree = next
             lastError = nil
             onTree?(next)
@@ -101,6 +142,9 @@ public final class WorkspaceSync {
             activity[surface] = Date()
             Task { await refresh() }
         case .treeChanged:
+            Task { await refresh() }
+        case .notification:
+            onNotification?()
             Task { await refresh() }
         case .resubscribe:
             Task {

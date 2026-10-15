@@ -24,12 +24,17 @@ struct TeamSidebar: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Teams")
-                        .font(theme.type.meta)
-                        .foregroundStyle(theme.colors.label2)
-                        .padding(.horizontal, theme.metrics.sideMargin)
-                        .padding(.top, 24)
-                        .padding(.bottom, 6)
+                    // A label only when there is a list to label.
+                    if store.teams.count > 1 {
+                        Text("Teams")
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2)
+                            .padding(.horizontal, theme.metrics.sideMargin)
+                            .padding(.top, 24)
+                            .padding(.bottom, 6)
+                    } else {
+                        Spacer().frame(height: 16)
+                    }
                     ForEach(store.teams) { team in
                         row(team)
                     }
@@ -43,8 +48,11 @@ struct TeamSidebar: View {
                         .padding(.horizontal, theme.metrics.sideMargin)
                         .padding(.vertical, 8)
                     }
-                    inviteRow
-                        .padding(.top, 4)
+                    // The personal space is just you: nobody to invite.
+                    if let team = store.activeTeam, !team.isPersonalSpace {
+                        inviteRow
+                            .padding(.top, 4)
+                    }
                 }
             }
             .scrollBounceBehavior(.basedOnSize)
@@ -113,7 +121,9 @@ struct TeamSidebar: View {
         .padding(.horizontal, theme.metrics.selectedRowInset)
         .contextMenu {
             Button("Change color and icon", systemImage: "paintpalette") { shell.editingTeam = team }
-            Button("Invite to team", systemImage: "person.badge.plus") { shell.invite(to: team) }
+            if !team.isPersonalSpace {
+                Button("Invite to team", systemImage: "person.badge.plus") { shell.invite(to: team) }
+            }
             Button("Copy team name", systemImage: "doc.on.doc") {
                 UIPasteboard.general.string = team.name
                 theme.haptics.copy()
@@ -125,7 +135,9 @@ struct TeamSidebar: View {
         Button {
             if let team = store.activeTeam { shell.invite(to: team) }
         } label: {
-            HStack(spacing: 14) {
+            // Same columns as the team rows: the glyph centered in the 36 pt
+            // avatar column, the title at the team name's x.
+            HStack(spacing: 12) {
                 ZStack {
                     if shell.isFetchingInvite {
                         ProgressView()

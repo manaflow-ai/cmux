@@ -66,6 +66,16 @@ public final class AppStore {
         UserDefaults.standard.set(id, forKey: Self.lastTeamKey)
     }
 
+    /// Setup's "Personal": makes the personal space active when the store
+    /// lists it (mock data, or live once the account's spaces have loaded);
+    /// false when it isn't listed yet (the live coordinator adds it).
+    @discardableResult
+    public func selectPersonalSpace() -> Bool {
+        guard let id = teams.first(where: \.isPersonalSpace)?.id else { return false }
+        selectTeam(id)
+        return true
+    }
+
     public func setAppearance(_ appearance: TeamAppearance, for teamID: String) {
         guard let index = teams.firstIndex(where: { $0.id == teamID }) else { return }
         teams[index].appearance = appearance
@@ -119,9 +129,32 @@ public final class AppStore {
 
     /// Replaces one Mac's workspaces, keeping the others.
     public func replaceWorkspaces(macID: String, with next: [Workspace]) {
-        let others = workspaces.filter { $0.macID != macID || pendingWorkspaceIDs.contains($0.id) }
-        let merged = others + next
+        let merged = Self.reconciled(workspaces, macID: macID, with: next, keeping: pendingWorkspaceIDs)
         if merged != workspaces { workspaces = merged }
+    }
+
+    /// `current` with one Mac's rows replaced by `next` in place: the Mac's
+    /// block stays where its first (cached or live) row was, so the first live
+    /// answer after a launch does not move that Mac's rows behind every other
+    /// Mac's (a reorder the list animates). Other Macs' rows and this phone's
+    /// pending creations stay where they are.
+    nonisolated static func reconciled(_ current: [Workspace], macID: String, with next: [Workspace],
+                                       keeping pending: Set<String>) -> [Workspace] {
+        var result: [Workspace] = []
+        result.reserveCapacity(current.count + next.count)
+        var placed = false
+        for workspace in current {
+            if workspace.macID == macID, !pending.contains(workspace.id) {
+                if !placed {
+                    result += next
+                    placed = true
+                }
+            } else {
+                result.append(workspace)
+            }
+        }
+        if !placed { result += next }
+        return result
     }
 
     /// A Stack Auth team as the account reports it.
@@ -135,7 +168,7 @@ public final class AppStore {
         }
     }
 
-    private static let lastTeamKey = "cnx.lastTeamID"
+    static let lastTeamKey = "cnx.lastTeamID"
     private static func appearanceKey(_ teamID: String) -> String { "cnx.teamAppearance.\(teamID)" }
 
     private static func storedAppearance(_ teamID: String) -> TeamAppearance? {

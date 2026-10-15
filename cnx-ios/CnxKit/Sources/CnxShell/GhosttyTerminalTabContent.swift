@@ -3,19 +3,102 @@ import CnxModel
 import CnxTerminal
 import CnxWorkspaces
 import SwiftUI
+import UIKit
+import Observation
+import OSLog
+
+private let warmLog = Logger(subsystem: "dev.cmux.cnx", category: "terminal")
 
 /// Plugs CnxTerminal into the workspace tabs in its embedded chrome: TabsKit
 /// owns the status bar area and the toolbar, the terminal's actions go into
 /// the page menu, and the grid card is a snapshot of the page (no second live
-/// surface). One host (model + controller) per tab, kept while the tab exists,
-/// so the surface and scrollback survive tab switches.
+/// surface). One host (model + controller) per tab. The `warmLimit` most
+/// recently shown tabs keep their surface and attached session, so switching
+/// between them needs no reattach and no new surface; an older one is cooled
+/// (session detached, surface released) and keeps its last frame, which its
+/// page shows at once, dimmed, while it reattaches.
 @MainActor
 final class GhosttyTerminalTabContent: TerminalTabContent {
+    /// Live Ghostty surfaces (and Mac attaches) kept across tab switches.
+    static let warmLimit = 4
     private var hosts: [String: TerminalTabHost] = [:]
+    private var warm = TerminalWarmSet<String>(limit: GhosttyTerminalTabContent.warmLimit)
+    /// Cooled tabs' pages as last seen.
+    private var lastFrames: [String: UIImage] = [:]
     /// Tabs whose host runs on a live session (the rest show the connecting
     /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
     private var workspaceOwner: [String: String] = [:]
+    /// Per tab: "Reattaching…" in the title pill after a slow reattach (P5),
+    /// fed from the host model's `connectionState` while the tab has a host.
+    private var indicators: [String: ReattachIndicator<ContinuousClock>] = [:]
+    /// What each tab's page and card show; a placeholder host is swapped for
+    /// the live one in place, so a page already on screen attaches (R1-0).
+    private var slots: [String: TerminalTabSlot] = [:]
+    /// Tabs on a placeholder session and where they live, offered their live
+    /// session on every live-data change (`liveDataChanged`).
+    private var upgrade = TerminalTabUpgrade()
+    private var placeholderTabs: [String: (tab: WorkspaceTab, workspace: Workspace)] = [:]
+    /// Last frames kept across launches.
+    var frameStore: TerminalFrameStore? = .standard
+    private var backgroundObserver: NSObjectProtocol?
+
+    init() {
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveFrames() }
+        }
+    }
+
+    /// Going to the background: each live page's frame goes to disk, so a
+    /// later cold launch restoring the tab shows it at once.
+    private func saveFrames() {
+        guard let frameStore else { return }
+        for (id, host) in hosts where liveTabs.contains(id) {
+            host.model.captureSnapshot()
+            if let data = host.model.frameForSaving()?.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: id) }
+        }
+    }
+
+    /// The tab's slot, made on first read (not observed state itself).
+    private func slot(for id: String, host: TerminalTabHost) -> TerminalTabSlot {
+        if let slot = slots[id] {
+            if slot.host !== host { slot.host = host }
+            return slot
+        }
+        let slot = TerminalTabSlot(host: host)
+        slots[id] = slot
+        return slot
+    }
+
+    /// Live data changed (the workspace tree, a Mac's data): tabs still on a
+    /// placeholder get their live session now, in the page already shown.
+    func liveDataChanged() {
+        guard sessionProvider != nil else { return }
+        for id in upgrade.upgradable(hasLiveSession: { [weak self] id in self?.canGoLive(id) ?? false }) {
+            guard let place = placeholderTabs[id] else { continue }
+            // The workspace as it is now (tabs opened or closed since).
+            let workspace = workspaceLookup?(place.workspace.id) ?? place.workspace
+            let tab = workspace.tabs.first { $0.id == id } ?? place.tab
+            let host = host(for: tab, in: workspace)
+            if liveTabs.contains(id) {
+                _ = slot(for: id, host: host)
+                warmLog.info("terminal tab \(id, privacy: .public) moved from the placeholder to its live session")
+            }
+        }
+    }
+
+    /// The current copy of a workspace (its tabs), for `liveDataChanged`.
+    var workspaceLookup: (@MainActor (String) -> Workspace?)?
+
+    /// Whether the tab would get a live session now (the tree lists its surface).
+    var hasLiveSession: (@MainActor (String) -> Bool)?
+
+    private func canGoLive(_ id: String) -> Bool {
+        hasLiveSession?(id) ?? false
+    }
+    private var feeds: [String: Task<Void, Never>] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
     var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
@@ -23,7 +106,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
     var uploaderProvider: (@MainActor (WorkspaceTab) -> (@MainActor (Data, String) async throws -> String)?)?
-    /// DEBUG mock mode (Settings → Developer → Mock data): tabs with no live
+    /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
     /// The workspace's Mac, for the connecting placeholder's label.
@@ -37,12 +120,24 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let open = Set(workspace.tabs.map(\.id))
         for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
             hosts[id] = nil
+            stopWatching(id)
+            indicators[id] = nil
             workspaceOwner[id] = nil
             liveTabs.remove(id)
+            warm.remove(id)
+            lastFrames[id] = nil
+            slots[id] = nil
+            upgrade.removed(tabID: id)
+            placeholderTabs[id] = nil
+            frameStore?.remove(id)
         }
         let live = sessionProvider?(tab)
         if let host = hosts[tab.id], live == nil { return host }
         if live != nil { liveTabs.insert(tab.id) }
+        // A placeholder replaced by the live session: its frame carries over,
+        // and it stops.
+        let previous = hosts[tab.id]
+        previous?.model.session.stop()
         // A live tab never builds the mock: without a session it shows the
         // honest connecting placeholder (TerminalSessionChoice).
         let mock = mockDataEnabled && live == nil && sessionProvider == nil
@@ -54,21 +149,103 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             title: tab.title
         )
         model.uploader = live == nil ? nil : uploaderProvider?(tab)
+        var frame = lastFrames.removeValue(forKey: tab.id) ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
+        if frame == nil, let data = frameStore?.load(tab.id) { frame = UIImage(data: data) }
+        model.restoreLastFrame(frame)
+        if live != nil, let frameStore {
+            // The next cold launch shows what was on screen last (R2-5), not
+            // the frame from the last time the app went to the background.
+            let id = tab.id
+            model.frameSaver = { image in
+                Task.detached(priority: .utility) {
+                    if let data = image.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: id) }
+                }
+            }
+        }
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
+        upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
+        placeholderTabs[tab.id] = live == nil ? (tab, workspace) : nil
+        if let slot = slots[tab.id] { slot.host = host }
+        watchReattach(tab.id, model: model)
         workspaceOwner[tab.id] = workspace.id
         return host
     }
 
     /// Drops every host (another account or live data stopped).
     func reset() {
+        for id in Array(feeds.keys) { stopWatching(id) }
+        indicators = [:]
         hosts = [:]
+        slots = [:]
+        upgrade.reset()
+        placeholderTabs = [:]
         workspaceOwner = [:]
         liveTabs = []
+        warm = TerminalWarmSet(limit: Self.warmLimit)
+        lastFrames = [:]
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
-        AnyView(TerminalTabPage(host: host(for: tab, in: workspace), insets: context.safeAreaInsets, isInteractive: context.isInteractive))
+        let host = host(for: tab, in: workspace)
+        for id in warm.touch(tab.id) { cool(id) }
+        let slot = slot(for: tab.id, host: host)
+        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
+    }
+
+    /// Releases a tab that fell out of the warm set: its Mac attach and its
+    /// Ghostty surface go, its last frame stays for the card and for the page
+    /// when it is shown again (a new host, attached in the background).
+    private func cool(_ id: String) {
+        guard let host = hosts.removeValue(forKey: id) else { return }
+        if let frame = host.model.snapshot {
+            lastFrames[id] = frame
+            if let data = (host.model.frameForSaving() ?? frame).jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: id) }
+        }
+        slots[id] = nil
+        upgrade.removed(tabID: id)
+        placeholderTabs[id] = nil
+        host.model.session.stop()
+        stopWatching(id)
+        liveTabs.remove(id)
+        warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(self.lastFrames[id] == nil ? "none" : "kept", privacy: .public)")
+    }
+
+    // MARK: Reattach indicator (design/terminal P5)
+
+    /// The tab's indicator, made on first read and kept, so the tab list
+    /// that read it observes it before the tab's host exists. Not observed
+    /// state itself: making one during a view update notifies nothing.
+    private func indicator(_ id: String) -> ReattachIndicator<ContinuousClock> {
+        if let indicator = indicators[id] { return indicator }
+        let indicator = ReattachIndicator()
+        indicators[id] = indicator
+        return indicator
+    }
+
+    /// Feeds the tab's indicator from its host model's connection state.
+    private func watchReattach(_ id: String, model: TerminalModel) {
+        stopWatching(id)
+        let indicator = indicator(id)
+        feeds[id] = Task { [weak indicator, model] in
+            for await state in Observations({ model.connectionState }) {
+                guard let indicator else { return }
+                if case .reattaching = state { indicator.update(reattaching: true) } else { indicator.update(reattaching: false) }
+            }
+        }
+    }
+
+    /// The host went away (closed or cooled). A cooled tab's next host feeds
+    /// the same indicator again.
+    private func stopWatching(_ id: String) {
+        feeds.removeValue(forKey: id)?.cancel()
+        indicators[id]?.cancel()
+    }
+
+    /// A read (no host is created): the tab's pill says "Reattaching…" while
+    /// its reattach has lasted 400 ms or more.
+    func statusSubtitle(for tab: WorkspaceTab) -> String? {
+        indicator(tab.id).isShown ? "Reattaching…" : nil
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
@@ -76,7 +253,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
-        AnyView(TerminalTabCard(model: host(for: tab, in: workspace).model, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+        let slot = slot(for: tab.id, host: host(for: tab, in: workspace))
+        return AnyView(TerminalTabSlotCard(slot: slot, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
     }
 
     func overviewWillAppear(active tab: WorkspaceTab) {
@@ -85,12 +263,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {
         let model = host(for: tab, in: workspace).model
+        // The keyboard toggle and ^C live on the key bar, and Back leaves
+        // the workspace, so the menu does not repeat them (design/terminal P1).
         return [
-            TerminalTabAction(title: model.keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                              systemImage: model.keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard") { model.toggleKeyboard() },
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
-            TerminalTabAction(title: "Send Ctrl-C", systemImage: "xmark.octagon") { model.sendControl("c") },
             TerminalTabAction(title: "Clear", systemImage: "clear") { model.sendControl("l") },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]
@@ -100,5 +277,38 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// DEBUG demos drive the open terminal tab through its model.
     func model(forTabID id: String) -> TerminalModel? { hosts[id]?.model }
     #endif
+}
+
+/// The host a tab's page shows now. Observed: when a placeholder host is
+/// replaced by the live one, the page on screen swaps to it (R1-0).
+@MainActor
+@Observable
+final class TerminalTabSlot {
+    var host: TerminalTabHost
+
+    init(host: TerminalTabHost) {
+        self.host = host
+    }
+}
+
+struct TerminalTabSlotPage: View {
+    let slot: TerminalTabSlot
+    let insets: EdgeInsets
+    let isInteractive: Bool
+
+    var body: some View {
+        TerminalTabPage(host: slot.host, insets: insets, isInteractive: isInteractive)
+            .id(ObjectIdentifier(slot.host))
+    }
+}
+
+struct TerminalTabSlotCard: View {
+    let slot: TerminalTabSlot
+    let insets: EdgeInsets
+
+    var body: some View {
+        TerminalTabCard(model: slot.host.model, insets: insets)
+            .id(ObjectIdentifier(slot.host))
+    }
 }
 #endif

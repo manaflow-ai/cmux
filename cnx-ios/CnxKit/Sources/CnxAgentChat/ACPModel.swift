@@ -416,11 +416,13 @@ public enum ACPSessionUpdate: Hashable, Sendable {
     case currentMode(String)
     case configOptions([ACPConfigOption])
     case usage(used: Int, size: Int)
+    /// `session_info_update`: the agent named the session (ACP session title).
+    case sessionInfo(title: String?)
 }
 
 extension ACPSessionUpdate: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case sessionUpdate, content, messageId, entries, availableCommands, currentModeId, configOptions, used, size, toolCallId
+        case sessionUpdate, content, messageId, entries, availableCommands, currentModeId, configOptions, used, size, toolCallId, title
     }
 
     public init(from decoder: any Decoder) throws {
@@ -447,6 +449,8 @@ extension ACPSessionUpdate: Decodable {
             self = .configOptions(try container.decode([ACPConfigOption].self, forKey: .configOptions))
         case "usage_update":
             self = .usage(used: try container.decode(Int.self, forKey: .used), size: try container.decode(Int.self, forKey: .size))
+        case "session_info_update":
+            self = .sessionInfo(title: try container.decodeIfPresent(String.self, forKey: .title))
         default:
             throw DecodingError.dataCorruptedError(forKey: .sessionUpdate, in: container, debugDescription: "Unhandled sessionUpdate \(kind)")
         }

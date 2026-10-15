@@ -16,26 +16,28 @@ enum JoystickDirection: Sendable, Equatable {
     }
 }
 
-/// The joystick's state machine (SPEC 10.3): the thumb follows the finger within
-/// 28 pt; direction is quantized to 4 ways; distance picks the gear:
-/// 8-16 pt repeats every 160 ms, 16-24 pt every 80 ms, beyond 24 pt every 30 ms.
-/// The first key fires on crossing 8 pt. Haptics per key in gears 1-2 and every
-/// 4th key in gear 3.
+/// The joystick's state machine (SPEC 10.3, Codex QA F5): direction is
+/// quantized to 4 ways; the first key fires on crossing the 8 pt dead zone,
+/// and a hold repeats like a held key (`JoystickRepeat`). A haptic per key.
 @MainActor
 @Observable
 final class JoystickEngine {
     static let radius: CGFloat = 28
-    static let deadZone: CGFloat = 8
+    static let deadZone: CGFloat = JoystickRepeat.deadZone
+    /// The thumb's lowest point: inside the 44 pt key bar, above the keyboard.
+    static let maxDownwardThumb: CGFloat = 14
 
     private(set) var thumb: CGSize = .zero
     private(set) var gear = 0
     private(set) var direction: JoystickDirection?
     private(set) var keysSent = 0
+    /// The finger's distance from the center now (the repeat rate follows it).
+    private var distance: CGFloat = 0
     var send: (JoystickDirection) -> Void = { _ in }
 
     @ObservationIgnored private var repeatTask: Task<Void, Never>?
     @ObservationIgnored private let clock: any Clock<Duration>
-    @ObservationIgnored private let selection = UISelectionFeedbackGenerator()
+    @ObservationIgnored private let impact = UIImpactFeedbackGenerator(style: .light)
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         self.clock = clock
@@ -67,8 +69,14 @@ final class JoystickEngine {
     /// The finger moved to `translation` from the center.
     func update(_ translation: CGSize) {
         let distance = hypot(translation.width, translation.height)
-        let scale = distance > Self.radius ? Self.radius / distance : 1
-        thumb = CGSize(width: translation.width * scale, height: translation.height * scale)
+        self.distance = distance
+        // The thumb follows the finger past the circle, so the finger does
+        // not cover it (user note 2026-10-14); the floating copy draws it,
+        // never lower than the key bar's bottom: the keyboard window is above
+        // the page and would hide it (Codex QA F6).
+        var offset = JoystickGeometry().thumbOffset(for: translation)
+        offset.height = min(offset.height, Self.maxDownwardThumb)
+        thumb = offset
         let newGear = Self.gear(for: distance)
         let newDirection = newGear == 0 ? nil : Self.direction(for: translation)
         let crossed = gear == 0 && newGear > 0
@@ -92,27 +100,78 @@ final class JoystickEngine {
         gear = 0
         direction = nil
         thumb = .zero
+        touching = false
+        // The floating thumb springs back before the circle's own takes over
+        // (a bounded animation length, not synchronization).
+        returning = true
+        returnTask?.cancel()
+        returnTask = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: .milliseconds(350))
+            if !Task.isCancelled { self?.returning = false }
+        }
     }
+
+    /// The finger is on the joystick.
+    var touching = false {
+        didSet { if touching { returnTask?.cancel(); returning = false } }
+    }
+    /// Springing back after release.
+    private(set) var returning = false
+    @ObservationIgnored private var returnTask: Task<Void, Never>?
+    /// The circle's center in global coordinates (for the floating thumb).
+    var center: CGPoint = .zero
+    /// The thumb is drawn above the key bar, unclipped, while dragged.
+    var showsFloatingThumb: Bool { touching || returning }
 
     private func fire(_ direction: JoystickDirection) {
         keysSent += 1
         send(direction)
-        if gear < 3 || keysSent % 4 == 0 { selection.selectionChanged() }
+        impact.impactOccurred(intensity: 0.6)
     }
 
+    /// One arrow already went; held, it repeats after 400 ms at the rate
+    /// the distance gives (`JoystickRepeat`, iOS key repeat).
     private func restartRepeat() {
         repeatTask?.cancel()
         repeatTask = Task { @MainActor [weak self] in
+            guard let clock = self?.clock else { return }
+            do { try await clock.sleep(for: JoystickRepeat.initialDelay) } catch { return }
             while let self, !Task.isCancelled, let direction = self.direction {
-                do { try await self.clock.sleep(for: Self.interval(gear: self.gear)) } catch { return }
-                guard !Task.isCancelled, self.direction == direction else { continue }
                 self.fire(direction)
+                do { try await self.clock.sleep(for: JoystickRepeat().interval(distance: self.distance)) } catch { return }
             }
         }
     }
 }
 
-/// 36 pt glass circle with a 14 pt thumb.
+/// 36 pt glass circle with a 14 pt thumb and four faint chevrons, so it
+/// reads as a joystick, not a radio button (SPEC P8). The thumb grows 1.2x
+/// while touched; each cursor step is a light haptic (`JoystickEngine`).
+/// The joystick's thumb while dragged, drawn over the whole terminal page so
+/// the key bar's clip does not cut it: it follows the finger up to 1.5x the
+/// circle and springs back on release (user note 2026-10-14).
+struct JoystickThumbOverlay: View {
+    let engine: JoystickEngine
+
+    var body: some View {
+        GeometryReader { proxy in
+            let origin = proxy.frame(in: .global).origin
+            if engine.showsFloatingThumb {
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: 14, height: 14)
+                    .scaleEffect(engine.touching ? 1.2 : 1)
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                    .position(x: engine.center.x - origin.x + engine.thumb.width,
+                              y: engine.center.y - origin.y + engine.thumb.height)
+                    .animation(engine.touching ? nil : .spring(response: 0.3, dampingFraction: 0.6), value: engine.thumb)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 struct Joystick: View {
     let engine: JoystickEngine
 
@@ -120,19 +179,35 @@ struct Joystick: View {
         ZStack {
             Circle()
                 .fill(Color.primary.opacity(engine.gear > 0 ? 0.16 : 0.08))
-                .frame(width: 36, height: 36)
+                .frame(width: 32, height: 32)
+            ForEach(Array(["chevron.up", "chevron.right", "chevron.down", "chevron.left"].enumerated()), id: \.offset) { index, name in
+                Image(systemName: name)
+                    .font(.system(size: 6, weight: .bold))
+                    .foregroundStyle(Color.primary.opacity(0.3))
+                    .offset(x: [0, 11, 0, -11][index], y: [-11, 0, 11, 0][index])
+            }
             Circle()
                 .fill(Color.secondary)
                 .frame(width: 14, height: 14)
-                .offset(engine.thumb)
-                .animation(engine.gear == 0 ? .spring(response: 0.3, dampingFraction: 0.6) : nil, value: engine.thumb)
+                // While dragged the thumb is drawn above the key bar, where
+                // it can leave the circle (`JoystickThumbOverlay`).
+                .opacity(engine.showsFloatingThumb ? 0 : 1)
         }
-        .frame(width: 40, height: 40)
-        .contentShape(.circle)
+        .frame(width: 34, height: 40)
+        .onGeometryChange(for: CGPoint.self) { proxy in
+            let frame = proxy.frame(in: .global)
+            return CGPoint(x: frame.midX, y: frame.midY)
+        } action: { engine.center = $0 }
+        .contentShape(.rect)
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { engine.update($0.translation) }
-                .onEnded { _ in engine.release() }
+                .onChanged { value in
+                    if !engine.touching { engine.touching = true }
+                    engine.update(value.translation)
+                }
+                .onEnded { _ in
+                    engine.release()
+                }
         )
         .accessibilityElement()
         .accessibilityLabel("Cursor joystick")

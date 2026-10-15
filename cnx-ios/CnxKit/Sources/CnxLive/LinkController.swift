@@ -1,4 +1,5 @@
 import class CnxModel.ConnectTimeline
+import enum CnxModel.DeveloperOptions
 import CnxTransport
 import Foundation
 import Observation
@@ -37,6 +38,20 @@ public final class LinkController {
     nonisolated static let foregroundProbeTimeout: Duration = .milliseconds(2000)
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
+    /// Runs right after a dial, in the same detached step (no main actor):
+    /// the coordinator opens the channels it needs first (`auth`, `daemon`)
+    /// and sends its setup batch, so the live list needs no main-actor turn
+    /// per channel. Its result is held for the link (`takePrepared(for:)`).
+    @ObservationIgnored public var prepare: (@Sendable (any MacLink, _ macID: String) async -> (any Sendable)?)?
+    /// What `prepare` returned for the adopted link.
+    @ObservationIgnored private var prepared: (link: ObjectIdentifier, value: any Sendable)?
+
+    /// What `prepare` made for `link`, once (nil for another link, or taken).
+    public func takePrepared(for link: any MacLink) -> (any Sendable)? {
+        guard let prepared, prepared.link == ObjectIdentifier(link) else { return nil }
+        self.prepared = nil
+        return prepared.value
+    }
 
     public init(
         transport: TransportKind,
@@ -57,11 +72,62 @@ public final class LinkController {
     public func prewarm(baseURL: URL, teamID: String, deviceID: String) {
         let dialer = dialer
         let accessToken = accessToken
-        Task {
-            guard let token = try? await accessToken(false) else { return }
-            let steps = await dialer.prewarm(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
-            guard !steps.isEmpty else { return }
-            ConnectTimeline.shared.mark("prewarmed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+        // Detached: a task that starts on the main actor waits for it first.
+        Task.detached { await Self.prewarm(dialer: dialer, accessToken: accessToken, baseURL: baseURL, teamID: teamID, deviceID: deviceID) }
+    }
+
+    /// Off the main actor: at launch it is busy drawing the first frames.
+    private nonisolated static func prewarm(dialer: any MacLinkDialer, accessToken: @Sendable (Bool) async throws -> String,
+                                            baseURL: URL, teamID: String, deviceID: String) async {
+        guard let token = try? await accessToken(false) else { return }
+        let steps = await dialer.prewarm(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
+        guard !steps.isEmpty else { return }
+        ConnectTimeline.shared.mark("prewarmed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+    }
+
+    /// The token and the dial, off the main actor (verify/perf-latency.md: at
+    /// launch the main actor is busy drawing the first frames, and the dial
+    /// waited for it twice, about 0.45 s). Only adopting the link needs it.
+    private nonisolated static func connect(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
+                                            forceRefresh: Bool,
+                                            accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
+        let token = try await accessToken(forceRefresh)
+        ConnectTimeline.shared.mark("token_ready")
+        let link = try await dialer.dial(endpoint, transport: transport, accessToken: token)
+        if let timed = link as? any TimedMacLink {
+            let steps = timed.timings.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " ")
+            ConnectTimeline.shared.mark("link_connected", detail: steps)
+        } else {
+            ConnectTimeline.shared.mark("link_connected")
+        }
+        return link
+    }
+
+    /// Path updates come in bursts (one interface goes, another comes);
+    /// the roam waits this long for the burst to end.
+    nonisolated static let networkSettle: Duration = .milliseconds(150)
+    @ObservationIgnored private var networkTask: Task<Void, Never>?
+
+    /// The phone's network changed or came back: the live link moves onto it
+    /// without a redial (WireGuard roams in place), and a link that already
+    /// failed redials now instead of at its backoff.
+    public func networkChanged(baseURL: URL, teamID: String, deviceID: String) {
+        networkTask?.cancel()
+        let dialer = dialer
+        let accessToken = accessToken
+        let clock = clock
+        networkTask = Task { [weak self] in
+            do { try await clock.sleep(for: Self.networkSettle) } catch { return }
+            ConnectTimeline.shared.mark("network_changed")
+            // Detached: the roam must not wait for the main actor.
+            let steps = await Task.detached { () -> [(String, Double)] in
+                guard let token = try? await accessToken(false) else { return [] }
+                return await dialer.networkChanged(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
+            }.value
+            log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
+            ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+            guard let self, !Task.isCancelled else { return }
+            if case .waiting = self.phase { self.send(.foreground) }
         }
     }
 
@@ -91,6 +157,7 @@ public final class LinkController {
             watchTask?.cancel()
             heartbeatTask?.cancel()
             retryTask?.cancel()
+            prepared = nil
             if let link {
                 self.link = nil
                 onLink?(nil)
@@ -104,27 +171,36 @@ public final class LinkController {
                 return
             }
             endpoint.relayOnly = machine.relayOnly
+            endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
             log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
             refreshTokenNextDial = false
             ConnectTimeline.shared.mark("dial_start", detail: transport.rawValue)
+            // The token, the dial and the coordinator's first channels start
+            // now, off the main actor; this task (main actor) only waits for
+            // the link and adopts it.
+            let prepare = prepare
+            let macDeviceID = endpoint.macDeviceID
+            let work = Task.detached { () async throws -> (link: any MacLink, prepared: (any Sendable)?) in
+                let link = try await Self.connect(dialer: dialer, endpoint: endpoint, transport: transport,
+                                                  forceRefresh: forceRefresh, accessToken: accessToken)
+                guard let prepare, !Task.isCancelled else { return (link, nil) }
+                return (link, await prepare(link, macDeviceID))
+            }
             dialTask = Task { [weak self] in
                 do {
-                    let token = try await accessToken(forceRefresh)
-                    ConnectTimeline.shared.mark("token_ready")
-                    let link = try await dialer.dial(endpoint, transport: transport, accessToken: token)
-                    if let timed = link as? any TimedMacLink {
-                        let steps = timed.timings.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " ")
-                        ConnectTimeline.shared.mark("link_connected", detail: steps)
-                    } else {
-                        ConnectTimeline.shared.mark("link_connected")
+                    let (link, prepared) = try await withTaskCancellationHandler {
+                        try await work.value
+                    } onCancel: {
+                        work.cancel()
                     }
                     guard let self, !Task.isCancelled, generation == self.machine.generation else {
                         await link.close()
                         return
                     }
+                    self.prepared = prepared.map { (ObjectIdentifier(link), $0) }
                     self.adopt(link, generation: generation)
                 } catch {
                     log.error("dial failed: \(String(describing: error), privacy: .public)")
@@ -161,6 +237,7 @@ public final class LinkController {
     }
 
     private func adopt(_ link: any MacLink, generation: Int) {
+        ConnectTimeline.shared.mark("link_adopted")
         self.link = link
         watchTask?.cancel()
         let states = link.states
@@ -188,6 +265,12 @@ public final class LinkController {
         // Measure RTT once up front so the status line has a number quickly,
         // then keep probing so a silent Mac is noticed.
         send(.foreground)
+        // A link that knows it is up is connected now: the state stream's first
+        // element would only say so a main-actor turn later.
+        if let path = link.connectedPath, case .connecting = machine.phase {
+            send(.dialSucceeded(generation: generation, path: path))
+            onLink?(link)
+        }
         heartbeatTask?.cancel()
         let clock = clock
         heartbeatTask = Task { [weak self] in

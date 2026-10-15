@@ -5,6 +5,7 @@ import GameController
 import GhosttyNextKit
 import IOSurface
 import UIKit
+import UniformTypeIdentifiers
 
 /// One Ghostty surface in mirror mode (adapted from CmuxiOSTerminal's
 /// GhosttyTerminalView). The phone owns no PTY: session output arrives through
@@ -189,6 +190,90 @@ final class TerminalSurfaceView: UIView {
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 
+    /// Blank rows at the top of the screen (absolute rows `0...lastRow`):
+    /// the mirror's rows above the remote screen that nothing ever wrote
+    /// (`TerminalRowShift` puts the Mac's screen at the bottom of the taller
+    /// mirror). Ghostty's plain formatter writes one newline per blank row
+    /// before the first row with text, so the count is the number of leading
+    /// newlines; an all-blank range reads as empty (returns `lastRow + 1`).
+    /// Reads at most `lastRow + 1` rows under the surface lock.
+    func leadingBlankRows(through lastRow: Int) -> Int? {
+        guard let surface, lastRow >= 0 else { return nil }
+        let columns = max(1, grid.columns)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
+                                          x: UInt32(columns - 1), y: UInt32(lastRow)),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return lastRow + 1 }
+        let bytes = UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len))
+        return TerminalDocumentLayout.leadingNewlines(in: bytes, limit: lastRow + 1)
+    }
+
+    /// Plain text of the active screen's rows `0...lastRow` (the alternate
+    /// screen in a TUI). Takes the surface lock: on demand only.
+    func screenRowsText(through lastRow: Int) -> String? {
+        guard let surface, lastRow >= 0 else { return nil }
+        let columns = max(1, grid.columns)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
+                                          x: UInt32(columns - 1), y: UInt32(lastRow)),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    /// The lowest row with text in `top...bottom` (absolute rows), reading one
+    /// row at a time from the bottom: rows below the cursor that an inline
+    /// TUI draws (hints, status). Nil when all are blank.
+    /// Plain text of one absolute row (0 = oldest scrollback row).
+    func rowText(_ row: Int) -> String? {
+        guard let surface, row >= 0 else { return nil }
+        let columns = max(1, grid.columns)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row)),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
+                                          x: UInt32(columns - 1), y: UInt32(row)),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    func lastNonBlankRow(from top: Int, through bottom: Int) -> Int? {
+        guard surface != nil, top <= bottom else { return nil }
+        for row in stride(from: bottom, through: top, by: -1) {
+            guard let surface else { return nil }
+            let columns = max(1, grid.columns)
+            let selection = ghostty_selection_s(
+                top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row)),
+                bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
+                                              x: UInt32(columns - 1), y: UInt32(row)),
+                rectangle: false
+            )
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text(surface, selection, &text) else { continue }
+            defer { ghostty_surface_free_text(surface, &text) }
+            if let pointer = text.text, text.text_len > 0 {
+                let bytes = UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len))
+                if bytes.contains(where: { $0 != 0x20 && $0 != 0x0A && $0 != 0x0D && $0 != 0x09 }) { return row }
+            }
+        }
+        return nil
+    }
+
     /// Columns and rows of the local grid.
     var grid: (columns: Int, rows: Int) {
         guard let surface else { return (0, 0) }
@@ -197,17 +282,26 @@ final class TerminalSurfaceView: UIView {
     }
 
     /// The cursor's absolute row (0 = oldest scrollback row) given Ghostty's
-    /// total rows: probes the active area without drawing, then restores the viewport.
+    /// total rows, when the cursor is in the viewport; nil otherwise. It no
+    /// longer moves the viewport to the active area to look: Ghostty renders
+    /// on its own thread and could present a frame of the active area in
+    /// between, which the page showed for a frame over the rows being read
+    /// (user reports 2026-10-14, frames of another region while scrolling).
     func cursorAbsoluteRow(totalRows: Int) -> Int? {
-        guard surface != nil else { return nil }
+        guard surface != nil, let row = cursorViewportRow else { return nil }
         let activeTop = max(0, totalRows - grid.rows)
-        if let row = cursorViewportRow, pinnedRow == nil || pinnedRow! >= activeTop {
-            return activeTop + row
-        }
-        scrollViewport(activeTop)
-        let row = cursorViewportRow
-        if let pinnedRow { scrollViewport(pinnedRow) }
-        return row.map { activeTop + $0 }
+        return min(pinnedRow ?? activeTop, activeTop) + row
+    }
+
+    /// The cursor's cell in this view's coordinates, when it is in the viewport.
+    var visibleCursorCell: CGRect? {
+        guard let surface else { return nil }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport, metrics.cell_height > 0 else { return nil }
+        return CGRect(x: metrics.padding_left + Double(metrics.cursor_column) * metrics.cell_width,
+                      y: metrics.padding_top + Double(metrics.cursor_row) * metrics.cell_height,
+                      width: metrics.cell_width * Double(max(1, metrics.cursor_width_cells)),
+                      height: metrics.cell_height)
     }
 
     /// The cursor row relative to the viewport top, when the cursor is in the viewport.
@@ -373,12 +467,27 @@ final class TerminalSurfaceView: UIView {
         input.tapSticky(modifier, at: ProcessInfo.processInfo.systemUptime)
     }
 
-    /// Text as typed (single line) or as a paste (several lines), then Return when asked.
+    /// The composer's draft as one paste (bracketed when the program asked
+    /// for it), then Return as its own keystroke a moment later
+    /// (`ComposerSubmit`, Codex QA F1).
     func sendText(_ text: String, pressReturn: Bool) {
-        if !text.isEmpty {
-            perform(text.contains("\n") ? [.paste(text)] : [.text(text)])
+        perform(ComposerSubmit(text: text, pressReturn: pressReturn))
+    }
+
+    func perform(_ submit: ComposerSubmit) {
+        for step in submit.steps {
+            switch step {
+            case .paste(let draft):
+                perform([.paste(draft)])
+            case .enter where submit.delaysEnter:
+                Task { @MainActor [weak self] in
+                    try? await ContinuousClock().sleep(for: ComposerSubmit.enterDelay)
+                    self?.sendKey(usage: TerminalHIDUsage.enter)
+                }
+            case .enter:
+                sendKey(usage: TerminalHIDUsage.enter)
+            }
         }
-        if pressReturn { sendKey(usage: TerminalHIDUsage.enter) }
     }
 
     // MARK: Responder
@@ -427,6 +536,30 @@ final class TerminalSurfaceView: UIView {
     override func paste(_ sender: Any?) {
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
         perform([.paste(text)])
+    }
+
+    // MARK: Paste control (Codex QA F14)
+
+    /// What the key bar's system paste control may hand this view: text.
+    /// A tap on a `UIPasteControl` is the person's explicit paste, so iOS
+    /// asks nothing ("Allow Paste" appeared for every new clipboard when the
+    /// key read the pasteboard itself).
+    func configurePasteControlTarget() {
+        pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers: [UTType.plainText.identifier, UTType.utf8PlainText.identifier])
+    }
+
+    override func paste(itemProviders: [NSItemProvider]) {
+        for provider in itemProviders where provider.canLoadObject(ofClass: NSString.self) {
+            _ = provider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
+                guard let text = object as? String, !text.isEmpty else { return }
+                DispatchQueue.main.async { self?.perform([.paste(text)]) }
+            }
+            return
+        }
+    }
+
+    override func canPaste(_ itemProviders: [NSItemProvider]) -> Bool {
+        itemProviders.contains { $0.canLoadObject(ofClass: NSString.self) }
     }
 }
 

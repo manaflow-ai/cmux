@@ -26,6 +26,8 @@ public final class LiveFeed: FeedActions {
 
     let store: FeedStore
     weak var hub: AcpmuxHub?
+    /// Terminal agents' events (the daemon's notifications), read again on pull to refresh.
+    weak var terminal: TerminalFeed?
     var place: @MainActor (String) -> Place?
     let now: @MainActor () -> Date
     /// Open asks per session (resolved when the session reports none pending).
@@ -136,6 +138,7 @@ public final class LiveFeed: FeedActions {
     /// any finished turns the Feed missed, resolves asks the Mac no longer
     /// has, and reads each waiting session's open asks again.
     public func refresh() async throws {
+        await terminal?.refresh()
         guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected to your Mac", reason: nil) }
         let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]))
         let sessions = (watched["sessions"]?.arrayValue ?? []).compactMap(AcpmuxSession.init)

@@ -88,10 +88,15 @@ struct ChiefWire {
             return ConversationReactionMark(participantID: who, reaction: reaction)
         }
         let retracted = date(object["retracted_at"])
+        // A failed turn's note reads as a plain sentence (never the harness's
+        // raw error, which names internal hosts); the raw text is kept for
+        // diagnostics by the backend (``failure(_:)``).
+        var shown = retracted == nil ? text(parts: parts) : ""
+        if author == identity.chiefID, let failure = ChiefTurnFailure(text: shown) { shown = failure.displayText }
         return ConversationMessage(
             id: id, seq: seq, clientMessageID: object["client_msg_id"] as? String, senderID: author,
             sentAt: date(object["created_at"]) ?? Date(),
-            text: retracted == nil ? text(parts: parts) : "",
+            text: shown,
             replyToID: (object["reply_to"] as? [String: Any])?["message_id"] as? String,
             editedAt: date(object["edited_at"]),
             unsentAt: retracted,
@@ -100,6 +105,13 @@ struct ChiefWire {
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
             mentions: retracted == nil ? mentions(parts: parts) : []
         )
+    }
+
+    /// The failed turn a Chief message reports, from its raw text.
+    func failure(_ object: [String: Any]) -> ChiefTurnFailure? {
+        guard object["author"] as? String == identity.chiefID,
+              object["retracted_at"] == nil || object["retracted_at"] is NSNull else { return nil }
+        return ChiefTurnFailure(text: text(parts: object["parts"] as? [[String: Any]] ?? []))
     }
 
     func textParts(_ text: String) -> [[String: Any]] {

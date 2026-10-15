@@ -34,7 +34,13 @@ transport or models.
   on screen. Your content is laid out at full size inside the moving rect; it
   is never re-laid out or rebuilt. On the settled grid the active tab's card
   is that same live view (no hand-off to a snapshot), so nothing on screen
-  swaps at either end of a zoom. Return false from `isContentReady` while a
+  swaps at either end of a zoom. To keep the grid static instead (no live
+  renderer under a card, for heat and scroll performance), return true from
+  `showStaticCard(for:)` after pausing the content on its last frame and
+  putting that frame in its card; `resumeLiveContent(_:)` restarts it when
+  the grid is left, so the zoom still starts from the same pixels.
+  `overviewVisibilityChanged(_:)` and `overviewScrollingChanged(_:)` tell
+  you when to stop or hold card updates. Return false from `isContentReady` while a
   tab's content would still be blank (a terminal attaching) and its card
   covers it.
 - **Close buttons and titles.** They arrive and leave as in Safari (measured
@@ -47,15 +53,42 @@ transport or models.
 - **Notices.** Set `notice` on your data source (for example when
   `createTab` returns nil) and the kit shows it as a glass toast at the top;
   a refused New Tab never opens another tab instead.
-- **Swipe to close.** Swipe a card left to close it, as in Safari: horizontal
-  drags only, 1:1 to the left (rubber band to the right), closes past 72% of
-  the card's width or on a left fling faster than 225 pt/s, else springs back;
-  the close goes through your `close(_:)` and the grid reflows.
+- **New Tab.** (+) puts one placeholder card in the grid. If your source
+  lists the new tab before `createTab` returns, that tab takes the
+  placeholder's slot in place, so the grid never shows two new cards. The
+  new tab then grows from the screen's centre at 0.7 scale over the blurring
+  grid on Safari's new-tab spring (0.34 / 0.97), showing its `card(for:)`
+  until the zoom ends (so a web view that is still loading never shows
+  blank). Closing the last tab on the grid opens a fresh one at once (from
+  0.84, sharp, at rest in about 275 ms), never an empty grid.
+- **Swipe to close.** Swipe a card left to close it, as in Safari (measured
+  on an iPhone 17 Pro Max): horizontal drags only; the card lifts (scale 1.09)
+  while dragged, follows the finger from touch-down to the left and resists
+  to the right (100 pt gives 44 pt), gliding over the touch slop in 80 ms.
+  It closes past 72% of the card's width or on a left fling faster than
+  225 pt/s; a slow drag under that always springs back (0.56 / 0.92, right
+  0.75 / 0.81, settling to scale 1 with 0.57 / 0.94). A closing card keeps
+  flying left at the release speed, lifted and opaque, until it is off
+  screen; 99 ms in the kit calls your `close(_:)`, so remove the tab at once
+  and the count and reflow follow (false: the card springs back and your
+  `notice` shows). Cards also take swipes while the zoom heads to the grid,
+  and a card tapped then opens once the grid settles. When one tab is left,
+  it opens.
+- **Long press.** A long press lifts the card (× 1.06), dims the others and
+  shows a glass menu: your `cardMenu(for:)` groups (Copy Link, Duplicate
+  Tab), then Close Tab and Close Other Tabs. With `supportsReordering`,
+  moving the finger after the press drags the card to another slot
+  (`moveTab(_:to:)`).
+- **One tab.** A lone tab gets Safari's larger centred card (two thirds of
+  the screen width, same aspect, close button and title row) with "1 Tab" in
+  the bar; the grid reflows into and out of it.
 - **Pinch.** Pinch in on a page to go to the grid; pinch out on a card to
   open it. Tracking is 1:1 with rubber banding, and release keeps the finger
   velocity.
 - **Toolbar swipe.** Swiping sideways on the address capsule moves to the
-  neighboring tab. Swiping past the last tab creates a new one.
+  neighboring tab. Swiping past the last tab creates a new one. Swiping up
+  opens the grid, the page following the finger. A swipe never triggers the
+  button it started on.
 - **Status bar.** The style follows each tab's `statusBarStyle`.
 - **Reduce Motion.** Spatial animations become short crossfades.
 
@@ -82,9 +115,10 @@ final class MyTabs: TabsDataSource {
 
     func activate(_ id: String) { activeTabID = id }
 
-    func close(_ id: String) {
+    func close(_ id: String) async -> Bool {
         tabs.removeAll { $0.id == id }
         if activeTabID == id { activeTabID = tabs.last?.id }
+        return true  // false (with `notice` set) when the close was refused
     }
 
     func createTab(_ option: TabsKitNewTabOption) async -> String? {
@@ -230,6 +264,11 @@ xcodebuild -project CmuxTabsKitDemo.xcodeproj -scheme CmuxTabsKitDemo \
 
 Launch the demo with the `-showGrid` argument to open the grid once the
 first page has loaded.
+
+Verification hooks (launch arguments): `-tabCount N` starts with N web pages
+(try 0 and 50), `-failCreate` refuses every New Tab and `-failClose` refuses
+every close; both refusals show the data source's `notice` as a toast and the
+grid stays as it was (a swiped card springs back).
 
 ## Tests
 

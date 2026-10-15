@@ -57,14 +57,33 @@ struct TabsScreen<Source: TabsDataSource>: View {
     @State private var cardSwipes = CardSwipeState()
     /// Tab the zoom shows: the active tab, a tapped card, or a created tab.
     @State private var zoomTabId: String?
-    /// Grid content origin in the screen's coordinate space, reported by the grid.
-    @State private var gridContentOrigin: CGPoint?
-    /// (+) pressed and the tab not created yet: the grid shows a placeholder card.
+    /// The grid's scroll offset and content origin, written on every scroll
+    /// frame. A reference (not `@State` values) so a scroll frame does not
+    /// re-evaluate this screen and every card; only the views that read it
+    /// (the zoom while it runs, the live page following its card) update.
+    @State private var gridScroll = GridScrollTracker()
+    private var gridContentOrigin: CGPoint? { gridScroll.contentOrigin }
+    private var overviewScroll: CGFloat { gridScroll.offset }
+    /// The active tab shown on the settled grid by its static card
+    /// (`TabsDataSource.showStaticCard(for:)`).
+    @State private var staticCardID: String?
+    /// (+) pressed and the tab not created yet: the grid shows a placeholder
+    /// card until the source lists the new tab (NewTabSlot).
     @State private var pendingNewTab: TabsKitNewTabOption?
+    @State private var newTabSlot: NewTabSlot?
+    /// A just-created tab opening from the screen's centre (Safari's new
+    /// tab, not from its grid slot), and how.
+    @State private var newTabZoomID: String?
+    @State private var newTabZoom = NewTabZoom.plus
+    /// A card tapped while the zoom headed to the grid: opened once it settles.
+    @State private var queuedOpen: String?
+    /// The active tab changed on the settled grid (its tab was closed): its
+    /// grid card stands for it until the grid is left, so the live page
+    /// never appears in the closed card's slot next to that card.
+    @State private var activeChangedOnGrid = false
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     @State private var zoomPinchActive = false
-    @State private var overviewScroll: CGFloat = 0
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
     @State private var menuContent = false
@@ -84,7 +103,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Card titles and close buttons appear over the last fifth of the way.
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: tabs.count + (pendingNewTab == nil ? 0 : 1))
+        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count)
     }
 
     private var toolbarLayout: ToolbarLayout {
@@ -101,17 +120,19 @@ struct TabsScreen<Source: TabsDataSource>: View {
             TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
                         // On the settled grid the page layer draws the active
                         // tab's card live (the same view as the page).
-                        hiddenTabId: zoomState.phase == .overview ? activeID : zoomTabId,
+                        hiddenTabId: zoomState.phase == .overview ? (staticCardID == activeID || activeChangedOnGrid ? nil : activeID) : zoomTabId,
                         gridInteractive: zoomState.gridInteractive,
+                        swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
                         controlsInteractive: overviewVisible && zoomState.headingToOverview,
-                        scrollOffset: $overviewScroll, position: $overviewPosition,
+                        scroll: gridScroll, position: $overviewPosition,
                         onSelect: { closeOverview(selecting: $0) },
-                        onClose: { id in withAnimation(theme.motion.resolve(theme.motion.reflow)) { source.close(id) } },
+                        onClose: { id in await source.close(id) },
                         onNewTab: newTabFromOverview,
                         onDone: { closeOverview(selecting: activeID) },
                         onCloseAll: closeAll,
-                        pending: pendingNewTab,
-                        onContentOrigin: { origin in if gridContentOrigin != origin { gridContentOrigin = origin } })
+                        pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
+                        onScrolling: { source.overviewScrollingChanged($0) },
+                        onQueueSelect: { queuedOpen = $0 })
                 .opacity(overviewVisible ? 1 : 0)
                 .allowsHitTesting(overviewVisible)
                 .accessibilityHidden(!zoomState.gridInteractive)
@@ -138,6 +159,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 .frame(width: size.width, height: size.height)
             }
 
+            // Out of the hierarchy on the settled grid (invisible there, and
+            // accessibility tools list hidden views too).
+            if zoomState.phase != .overview {
             TabsToolbar(chrome: chrome, tab: activeTab, size: size, safeBottom: safeBottom, keyboard: keyboard,
                         history: source.providesHistoryMenus ? { direction in
                             activeID.map { source.history(direction, for: $0) } ?? []
@@ -148,11 +172,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onReload: { if let id = activeID { source.reloadOrStop(id) } },
                         onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
                         onEndEditing: { endEditing() }, onGo: go,
-                        onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded)
+                        onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
+                        onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded)
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
                 .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
+            }
 
             // Kept mounted (transparent) so the droplet starts growing on
             // the first frame after the tap instead of after its first layout.
@@ -194,11 +220,34 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
+        .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
+        .onChange(of: zoomState.phase == .overview) { _, onGrid in
+            if onGrid {
+                if let id = activeID, source.showStaticCard(for: id) { staticCardID = id }
+            } else if let id = staticCardID {
+                staticCardID = nil
+                source.resumeLiveContent(id)
+            }
+        }
+        // A tab that becomes active on the settled grid (the active one was
+        // closed) is offered as a static card too, so it rides the reflow
+        // with the other cards instead of appearing as the live page.
+        .onChange(of: activeID) { old, new in
+            if zoomState.phase == .overview { activeChangedOnGrid = true }
+            guard zoomState.phase == .overview, let new, new != staticCardID else { return }
+            if let old, old == staticCardID { source.resumeLiveContent(old) }
+            staticCardID = source.showStaticCard(for: new) ? new : nil
+        }
         .onAppear {
             zoomDriver.onSettle = { phase in
                 if phase == .page {
                     zoomTabId = nil
+                    queuedOpen = nil
                     chrome.expand(tap: true, theme)
+                }
+                if phase == .overview, let id = queuedOpen {
+                    queuedOpen = nil
+                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
                 }
             }
         }
@@ -206,13 +255,23 @@ struct TabsScreen<Source: TabsDataSource>: View {
             guard let wanted, wanted != zoomState.headingToOverview else { return }
             if wanted { openOverview() } else { closeOverview(selecting: activeID) }
         }
+        .onChange(of: zoomState.phase) { _, phase in
+            if phase == .page || phase == .overview { newTabZoomID = nil }
+            if phase != .overview { activeChangedOnGrid = false }
+        }
+        .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
         .onChange(of: zoomState.headingToOverview) { _, heading in
             if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
         }
         .onChange(of: tabs.isEmpty, initial: true) { _, empty in
             // Closing the last tab opens a fresh one, as Safari does.
-            if empty, !overviewVisible, let option = source.newTabOptions.first {
+            guard empty, let option = source.newTabOptions.first else { return }
+            if !overviewVisible {
                 Task { _ = await source.createTab(option) }
+            } else if zoomState.phase == .overview {
+                // Safari never leaves an empty grid: a fresh tab grows in
+                // at once (0.95 -> 1 in about 200 ms).
+                newTab(option, zoom: .lastTabClosed)
             }
         }
     }
@@ -243,9 +302,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
     @ViewBuilder private var pageLayer: some View {
         let phase = zoomState.phase
         let settled = phase == .page
+        // On the settled grid the rect is in the grid's content coordinates
+        // and `GridFollowOffset` moves it with the scroll.
         let g = settled ? (rect: fullRect, radius: chrome.swiping ? theme.metrics.screenRadius : 0)
-            : phase == .overview ? (rect: activeCardRect.offsetBy(dx: activeID.map { cardSwipes.offset($0) } ?? 0, dy: 0),
+            : phase == .overview ? (rect: activeCardContentRect.offsetBy(dx: activeID.map { cardSwipes.offset($0) } ?? 0, dy: 0),
                                     radius: overviewLayout.cardRadius) : zoomGeometry()
+        let asCard = phase == .overview && staticCardID != nil && staticCardID == activeID
         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
         let close = phase == .overview ? zoomDriver.chrome.closeOpacity
             : CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: phase == .interactive || zoomState.headingToOverview)
@@ -254,7 +316,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if let tab = activeTab {
                 source.content(for: tab, context: contentContext)
                     .id(tab.id)
-                if !source.isContentReady(tab.id) {
+                // Until the content is ready, and while a new tab grows from
+                // the screen's centre, its card stands in (a web view that
+                // was just created draws nothing for about 300 ms).
+                if !source.isContentReady(tab.id) || (newTabZoomID == tab.id && phase != .page) {
                     ScaledContent(pageSize: size) { source.card(for: tab) }
                         .allowsHitTesting(false)
                 }
@@ -264,14 +329,14 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .scaleEffect(scale, anchor: .topLeading)
         .frame(width: max(1, g.rect.width), height: max(1, g.rect.height), alignment: .topLeading)
         .clipShape(.rect(cornerRadius: g.radius, style: .continuous))
-        .allowsHitTesting(settled && !chrome.swiping && !chrome.editing)
+        .allowsHitTesting(settled && !chrome.swiping && !chrome.editing && !asCard)
         // The card's close button: it rides the zooming card's corner at full
         // size (fading in with progress) and is the active card's close
         // button on the settled grid (this layer covers that card).
         .overlay(alignment: .topTrailing) {
             if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, let id = activeID {
                 Button {
-                    withAnimation(theme.motion.resolve(theme.motion.reflow)) { source.close(id) }
+                    Task { _ = await source.close(id) }
                 } label: {
                     CardCloseGlyph().padding(4).contentShape(.rect)
                 }
@@ -282,17 +347,24 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 .accessibilityLabel("Close \(activeTab?.title ?? "")")
             }
         }
-        .offset(x: g.rect.minX + (chrome.swiping ? chrome.swipeOffset : 0), y: g.rect.minY)
-        .opacity(phase == .overview ? (activeID.map { cardSwipes.opacity($0) } ?? 1) : 1)
+        .modifier(GridFollowOffset(origin: CGPoint(x: g.rect.minX + (chrome.swiping ? chrome.swipeOffset : 0), y: g.rect.minY),
+                                   scroll: phase == .overview ? gridScroll : nil))
+        .opacity(asCard || (phase == .overview && activeChangedOnGrid) ? 0 : phase == .overview ? (activeID.map { cardSwipes.opacity($0) } ?? 1) : 1)
+        // On the settled grid this is the active card: it moves with the
+        // grid's reflow (a closed tab, the lone-tab layout) instead of jumping.
+        // Not while a new tab is being added: its zoom from the screen's
+        // centre then started from the reflow's in-flight offset (it grew
+        // from the top-left corner, re-audit kit D5).
+        .animation(phase == .overview && pendingNewTab == nil && !activeChangedOnGrid
+                   ? theme.motion.resolve(theme.motion.reflow) : nil, value: tabs.map(\.id))
         .accessibilityHidden(!settled)
         .tabsKitStatusBarStyle(overviewVisible ? nil : activeTab?.statusBarStyle)
     }
 
-    /// The active tab's card on screen (the grid's reported content origin).
-    private var activeCardRect: CGRect {
+    /// The active tab's card in the grid's content coordinates.
+    private var activeCardContentRect: CGRect {
         let index = activeIndex ?? 0
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1))
-        return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
+        return OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1)).card(index)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at
@@ -355,6 +427,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// to the screen through the grid's reported content origin, or the
     /// layout at the last known offset before the grid has reported.
     private func zoomEndpoint() -> CGRect {
+        if let id = newTabZoomID, id == zoomTabId { return newTabZoom.rect(in: fullRect) }
         let index: Int
         if zoomTabId == TabsScreenSpace.newTabMarker {
             index = tabs.count
@@ -425,7 +498,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             t.disablesAnimations = true
             withTransaction(t) { overviewPosition = ScrollPosition(y: offset) }
             // Until the scroll view reports it, the fallback endpoint uses it too.
-            overviewScroll = offset
+            gridScroll.offset = offset
         }
     }
 
@@ -460,30 +533,40 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     /// (+): the new tab's card goes into the grid at once (placeholder in
-    /// its slot); the zoom grows from that slot once the client created the
-    /// tab. A refused create leaves the grid as it was.
-    private func newTabFromOverview(_ option: TabsKitNewTabOption) {
+    /// its slot, until the source lists the tab, which then takes that slot
+    /// in place); the zoom grows from that slot once the client created the
+    /// tab, on Safari's new-tab spring. A refused create leaves the grid as
+    /// it was.
+    private func newTabFromOverview(_ option: TabsKitNewTabOption) { newTab(option, zoom: .plus) }
+
+    private func newTab(_ option: TabsKitNewTabOption, zoom: NewTabZoom) {
         guard zoomState.phase == .overview, pendingNewTab == nil else { return }
+        newTabZoom = zoom
         pendingNewTab = option
+        newTabSlot = NewTabSlot(baseline: tabs.map(\.id))
         Task {
             let id = await source.createTab(option)
-            withAnimation(theme.motion.resolve(theme.motion.reflow)) { pendingNewTab = nil }
+            withAnimation(theme.motion.resolve(theme.motion.reflow)) {
+                pendingNewTab = nil
+                newTabSlot = nil
+            }
             guard let id else { return }
             openCreated(id)
         }
     }
 
-    /// Zooms from a just-created tab's card into it (grid only).
+    /// Grows a just-created tab from the screen's centre (grid only).
     private func openCreated(_ id: String) {
         guard zoomState.phase == .overview, tabs.contains(where: { $0.id == id }) else { return }
         if activeID != id { source.activate(id) }
         zoomTabId = id
-        zoomDriver.go(toOverview: false)
+        newTabZoomID = id
+        zoomDriver.openNewTab(spring: newTabZoom.spring)
     }
 
     private func closeAll() {
         let ids = tabs.map(\.id)
-        withAnimation(theme.motion.resolve(theme.motion.reflow)) { for id in ids { source.close(id) } }
+        Task { for id in ids { _ = await source.close(id) } }
         if let option = source.newTabOptions.first { newTabFromOverview(option) }
     }
 
@@ -594,6 +677,24 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     // MARK: Toolbar swipe
+
+    /// Swipe up on the bar: the page shrinks toward its card with the finger.
+    private func swipeUpChanged(_ up: CGFloat, _ velocity: CGFloat) {
+        if zoomState.phase == .page {
+            guard !chrome.swiping, activeID != nil else { return }
+            zoomTabId = activeID
+            prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
+            zoomDriver.beginInteraction()
+        }
+        guard zoomState.phase == .interactive else { return }
+        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
+    }
+
+    /// Release: on to the grid or back to the page, on the release spring.
+    private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
+        guard zoomState.phase == .interactive, !zoomPinchActive else { return }
+        zoomDriver.endInteraction(velocity: BarSwipe.velocity(up: up, velocity: velocity), startedFromOverview: false)
+    }
 
     private func swipeChanged(_ dx: CGFloat) {
         if !chrome.swiping { chrome.swiping = true }

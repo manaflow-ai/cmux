@@ -81,6 +81,57 @@ def settle_time(fr, after_t, until_t=None, threshold=2.0):
     return settled
 
 
+class DeviceLog:
+    """The app's `timing` lines (ConnectTimeline), each with its wall-clock time.
+
+    The simulator shares the host clock, so a line's timestamp maps into a
+    recording exactly like a host time does."""
+
+    def __init__(self, udid):
+        import threading
+        self.lines = []  # (epoch seconds, message)
+        self.proc = subprocess.Popen(
+            ["xcrun", "simctl", "spawn", udid, "log", "stream", "--style", "ndjson", "--level", "info",
+             "--predicate", 'subsystem == "dev.cmux.cnx" AND category == "timing"'],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
+        time.sleep(1.0)  # `log stream` attaches before the first measured event
+
+    def _read(self):
+        import datetime
+        for line in self.proc.stdout:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            msg = ev.get("eventMessage", "")
+            ts = ev.get("timestamp", "")
+            try:
+                when = datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f%z").timestamp()
+            except ValueError:
+                continue
+            self.lines.append((when, msg))
+
+    def stop(self):
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+
+    def find(self, needle, after, before=None):
+        """[(time, message)] of lines containing `needle` within [after, before)."""
+        return [(t, m) for t, m in self.lines if needle in m and t >= after and (before is None or t < before)]
+
+    @staticmethod
+    def since_start_ms(message):
+        """The `(<n>ms)` since-process-start figure of a timing line."""
+        import re
+        m = re.search(r"\((\d+)ms\)", message)
+        return int(m.group(1)) if m else None
+
+
 def summarize(samples):
     s = sorted(x for x in samples if x is not None)
     if not s:
@@ -91,11 +142,32 @@ def summarize(samples):
 
 
 class Latency:
-    def __init__(self, journey, out_dir, log, samples=20):
+    def __init__(self, journey, out_dir, log, samples=20, max_load=None):
         self.j, self.sim, self.mac = journey, journey.sim, journey.mac
         self.out, self.log, self.n = out_dir, log, samples
+        self.max_load = max_load
         os.makedirs(out_dir, exist_ok=True)
         self.metrics = {}
+        self.loads = []
+
+    def gate(self, limit_s=300):
+        """Load gate: before a sample, wait (at most `limit_s`) until this Mac's
+        1-minute load average is at or under `max_load`, so before/after runs
+        compare at matched load. Records the load each sample ran at."""
+        waited = 0
+        while self.max_load is not None and os.getloadavg()[0] > self.max_load and waited < limit_s:
+            if waited == 0:
+                self.log(f"    load {os.getloadavg()[0]:.1f} > {self.max_load}: waiting")
+            time.sleep(5); waited += 5
+        load = round(os.getloadavg()[0], 1)
+        self.loads.append(load)
+        return load
+
+    def load_summary(self, start):
+        loads = self.loads[start:]
+        if not loads:
+            return {}
+        return {"load_1min_median": statistics.median(loads), "load_1min_max": max(loads), "max_load_gate": self.max_load}
 
     def video(self, name):
         return os.path.join(self.out, f"{name}.mp4")
@@ -166,21 +238,34 @@ class Latency:
         return (0, 150, 402, 300)
 
     def cold_connect(self):
-        """Kill + launch. Two numbers per launch: the Mac sees the phone's link up
-        (cnx-hostd log, same host clock), and the list region settles with the Mac's rows (video)."""
+        """Kill + launch, n times. Per launch:
+        - cold_connect_to_list: the app's process start (its own timing line) to the
+          list region settled with the Mac's rows (video). The settle window ends
+          when the rig terminates the app for the next launch: an earlier rig took
+          the window to the next launch's host time minus 1 s, which under load fell
+          after the next terminate, so the home screen became the 'final look' and
+          the metric read the gap between launches (about 4 s), not the app.
+        - cold_app_live / cold_app_cached: the app's own marks (process start to the
+          first live / cached workspace row on screen).
+        - cold_link_up: process start (simctl launch) to cnx-hostd logging the link up."""
         j = self.j
         j.back_to_list()
         region = self._list_region()
-        samples, links = [], []
+        samples, links, lives, cached, spawn = [], [], [], [], []
         vid = self.video("cold_connect")
+        dlog = DeviceLog(self.sim.udid)
         t_rec = self.sim.record_start(vid)
-        launches = []
+        launches, terms = [], []
+        load0 = len(self.loads)
         for i in range(self.n):
+            self.gate()
+            terms.append(time.time() - t_rec)
             self.sim.terminate("dev.cmux.cnx")
             time.sleep(1.0)
+            t_call = time.time()
             # -cnx-tab (DEBUG) only picks the first tab, so the list is on screen from launch.
             t = self.sim.launch("dev.cmux.cnx", args=("-cnx-tab", "workspaces"))
-            launches.append(t - t_rec)
+            launches.append((t_call, t))
             up = None
             while time.time() - t < 20 and up is None:
                 ev = [e for e in self.mac.link_events(t) if e[1] == "up"]
@@ -191,18 +276,47 @@ class Latency:
             if not ok:
                 launches[-1] = None
             time.sleep(1.5)
+        terms.append(time.time() - t_rec)
         self.sim.record_stop()
+        time.sleep(1.0)
+        dlog.stop()
         fr = frames(vid, region)
-        for i, t0 in enumerate(launches):
-            if t0 is None:
-                samples.append(None); continue
-            nxt = next((x for x in launches[i + 1:] if x is not None), None)
-            t1 = settle_time(fr, t0, (nxt - 1.0) if nxt else None)
+        starts = []
+        for i, l in enumerate(launches):
+            if l is None:
+                starts.append(None); samples.append(None); continue
+            t_call, t_ret = l
+            # The process start, from the app's first timing line after the launch call.
+            first = dlog.find("timing launch ", t_call - 0.05, t_call + 15)
+            p0 = None
+            if first:
+                when, msg = first[0]
+                ms = DeviceLog.since_start_ms(msg)
+                p0 = when - ms / 1000.0 if ms is not None else None
+            live = dlog.find("timing launch workspace_row_live", t_call - 0.05, t_call + 20)
+            cache = dlog.find("timing launch workspace_row_cached", t_call - 0.05, t_call + 20)
+            lives.append(DeviceLog.since_start_ms(live[0][1]) / 1000.0 if live else None)
+            cached.append(DeviceLog.since_start_ms(cache[0][1]) / 1000.0 if cache else None)
+            if p0 is not None:
+                spawn.append(t_ret - p0)
+                links[i] = None if links[i] is None else links[i] + (t_ret - p0)
+            t0 = (p0 if p0 is not None else t_ret) - t_rec
+            starts.append(t0)
+            end = terms[i + 1] - 0.05
+            # Dimmed (cached) rows turning live is a small change in pixels: a low
+            # threshold, and never earlier than the app's own live-row mark.
+            t1 = settle_time(fr, t0, end, threshold=0.25)
+            if t1 is not None and live and p0 is not None:
+                t1 = max(t1, live[0][0] - t_rec)
             samples.append((t1 - t0) if t1 else None)
-        self.metrics["cold_connect_to_list"] = summarize(samples) | {"video": os.path.basename(vid),
-            "note": "simctl launch (process start) to the list region settled with the Mac's rows (video)"}
-        self.metrics["cold_link_up"] = summarize(links) | {"note": "simctl launch to cnx-hostd logging the phone's link up"}
-        self.log(f"    cold: {self.metrics['cold_connect_to_list']} link: {self.metrics['cold_link_up']}")
+        self.metrics["cold_connect_to_list"] = summarize(samples) | {"video": os.path.basename(vid), "load_1min": round(os.getloadavg()[0], 1),
+            "raw_ms": [None if x is None else round(x * 1000) for x in samples], **self.load_summary(load0),
+            "note": "process start (the app's timing line) to the list region settled with the Mac's live rows (video, and never before the app's workspace_row_live mark); window ends at the next terminate"}
+        self.metrics["cold_app_live"] = summarize(lives) | {"note": "app mark: process start to the first live workspace row on screen"}
+        self.metrics["cold_app_cached"] = summarize(cached) | {"note": "app mark: process start to the first cached workspace row on screen"}
+        self.metrics["cold_link_up"] = summarize(links) | {"note": "process start to cnx-hostd logging the phone's link up"}
+        self.metrics["cold_launch_return"] = summarize(spawn) | {"note": "rig overhead: process start to `simctl launch` returning"}
+        self.log(f"    cold: {self.metrics['cold_connect_to_list']} live(app): {self.metrics['cold_app_live']} link: {self.metrics['cold_link_up']}")
 
     def warm_reconnect(self, background_s=20):
         """Home, `background_s` in background, foreground. Measured on the Mac side: the
@@ -230,32 +344,59 @@ class Latency:
         self.log(f"    warm: {self.metrics['warm_reconnect']}")
 
     def tab_switch(self):
+        """Grid -> card tap, n times, alternating two terminal tabs. t0 is the touch
+        as the app sees it (its `tab_activate` timing event, mapped into the video);
+        an `axe tap` takes 0.3 to 0.7 s from the host call to the touch under load, so
+        the host call time is reported separately (tab_switch_host). The settle
+        window ends at the next tap on the Tabs button (an earlier rig ended it
+        2.5 s before the next card tap, which could fall after the grid had opened
+        again: the grid became the 'final look')."""
         j = self.j
         j.back_to_list(); j.open_seed_workspace()
-        samples = []
+        samples, host_samples, first = [], [], []
         vid = self.video("tab_switch")
+        dlog = DeviceLog(self.sim.udid)
         t_rec = self.sim.record_start(vid)
-        taps = []
+        taps, grid_taps = [], []
+        load0 = len(self.loads)
         for i in range(self.n):
             name = "e2e-t2" if i % 2 == 0 else "e2e-t1"
+            self.gate()
+            grid_taps.append(time.time() - t_rec)
             self.sim.tap_q(label="Tabs", kind="Button")
             cand = self.sim.wait(contains=name, timeout=8)
             if not cand:
                 taps.append(None); continue
             t = self.sim.tap_el(cand)
-            taps.append(t - t_rec)
+            taps.append(t)
             time.sleep(1.5)
+        grid_taps.append(time.time() - t_rec)
         self.sim.record_stop()
+        time.sleep(1.0)
+        dlog.stop()
         fr = frames(vid, (0, 100, 402, 560))
-        for i, t0 in enumerate(taps):
+        for i, t in enumerate(taps):
+            if t is None:
+                samples.append(None); host_samples.append(None); first.append(None); continue
+            act = dlog.find("timing event tab_activate", t - 0.05, t + 5)
+            th = t - t_rec
+            t0 = (act[0][0] - t_rec) if act else None
+            end = grid_taps[i + 1] - 0.05
+            t1 = settle_time(fr, t0 if t0 is not None else th, end)
+            host_samples.append((t1 - th) if t1 else None)
             if t0 is None:
-                samples.append(None); continue
-            nxt = next((x for x in taps[i + 1:] if x is not None), None)
-            t1 = settle_time(fr, t0, (nxt - 2.5) if nxt else None)
+                samples.append(None); first.append(None); continue
             samples.append((t1 - t0) if t1 else None)
-        self.metrics["tab_switch"] = summarize(samples) | {"video": os.path.basename(vid),
-                                                         "note": "tap on a tab card in the grid to the terminal page settled"}
-        self.log(f"    tab switch: {self.metrics['tab_switch']}")
+            tc = first_change(fr, t0 - 0.001, threshold=1.0)
+            first.append((tc - t0) if tc is not None and tc < end else None)
+        self.metrics["tab_switch"] = summarize(samples) | {"video": os.path.basename(vid), "load_1min": round(os.getloadavg()[0], 1),
+            "raw_ms": [None if x is None else round(x * 1000) for x in samples], **self.load_summary(load0),
+            "note": "touch (app's tab_activate event) on a tab card in the grid to the terminal page settled (includes TabsKit's zoom)"}
+        self.metrics["tab_switch_first_frame"] = summarize(first) | {
+            "note": "touch to the first changed frame (the zoom starts)"}
+        self.metrics["tab_switch_host"] = summarize(host_samples) | {
+            "note": "host `axe tap` call to the page settled (the old definition; includes axe's delivery time)"}
+        self.log(f"    tab switch: {self.metrics['tab_switch']} first frame: {self.metrics['tab_switch_first_frame']} host: {self.metrics['tab_switch_host']}")
 
     def run(self, which=None):
         plan = [("keystroke_echo_idle", lambda: self.keystroke_echo(False)),

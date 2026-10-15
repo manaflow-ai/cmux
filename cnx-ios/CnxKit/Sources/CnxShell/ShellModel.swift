@@ -3,6 +3,7 @@ import CnxAgentChat
 import CnxAuth
 import CnxBrowserStream
 import CnxDesign
+import CnxFeed
 import CnxLive
 import CnxModel
 import CnxSettings
@@ -53,7 +54,7 @@ final class ShellModel {
     var live: LiveCoordinator?
     /// Settings → Connection's device list and account deletion (live mode).
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
-    /// DEBUG mock mode (Settings → Developer → Mock data): sample content only.
+    /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     private let mockMode: Bool
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
@@ -61,13 +62,22 @@ final class ShellModel {
     var shareURL: ShareItem?
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
+    /// Where the user was, kept across launches (design/terminal P10).
+    @ObservationIgnored let lastOpen: LastOpenMemory
+    /// A launch restore still waiting for its workspace to be listed.
+    @ObservationIgnored private var pendingRestore: LastOpenLocation?
+    /// One launch restore per model.
+    @ObservationIgnored private var restoreAttempted = false
+    /// A restored workspace whose Mac was not online yet: linked once it is (R1-0).
+    @ObservationIgnored private var restoreLinkMac: String?
 
     struct ShareItem: Identifiable {
         let id = UUID()
         let url: URL
     }
 
-    init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel) {
+    init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, lastOpen: LastOpenMemory = .standard) {
+        self.lastOpen = lastOpen
         self.store = store
         self.auth = auth
         self.settings = settings
@@ -82,6 +92,11 @@ final class ShellModel {
         let delay = UserDefaults.standard.double(forKey: "cnx-mock-create-delay")
         let mock = delay > 0 ? MockWorkspaceCreationBackend(latency: .seconds(delay)) : MockWorkspaceCreationBackend()
         mockCreation = mock
+        // `-cnx-refuse-next-tab`: the next tab request is refused like the live report's
+        // (the Mac's cwd policy), for the new-tab captures.
+        if CommandLine.arguments.contains("-cnx-refuse-next-tab") {
+            mock.failNext = "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
+        }
         offlineCreation = mockMode ? mock : UnavailableWorkspaceCreationBackend()
         #else
         offlineCreation = UnavailableWorkspaceCreationBackend()
@@ -101,6 +116,28 @@ final class ShellModel {
         }
     }
 
+    /// A terminal agent's Feed event: its workspace on Workspaces, at that
+    /// terminal tab (as a tap on the workspace row with that tab does).
+    func openTerminal(_ item: FeedItem) {
+        guard let workspace = store.workspace(id: item.workspaceID) else {
+            toast = CnxToast(symbol: "exclamationmark.circle", text: "That workspace is no longer open")
+            return
+        }
+        store.noteOpened(tabID: item.tabID, in: workspace.id)
+        store.markSeen(workspace.id)
+        tab = .workspaces
+        if workspacesPath.last?.id == workspace.id {
+            // Its page is already up, on the tab it had: build it again on this tab.
+            workspacesPath = []
+            Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
+        } else {
+            workspacesPath = [workspace]
+        }
+        if let live, store.teams.flatMap(\.macs).contains(where: { $0.id == workspace.macID && $0.isOnline }) {
+            live.select(macID: workspace.macID)
+        }
+    }
+
     /// Points terminal tabs and new workspaces at `live`, or back at the
     /// offline fallbacks when it is nil (the mocks only in DEBUG mock mode). RootView creates the coordinator when the account
     /// resolves, which can be after this shell was built (a restored session,
@@ -115,6 +152,8 @@ final class ShellModel {
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
         if let live {
             terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
+            terminalTabs.hasLiveSession = { [weak live] id in live?.workspaces.tree?.surfaces[id] != nil }
+            terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
             terminalTabs.uploaderProvider = { [weak live] tab in live?.terminalUploader(tabID: tab.id) }
             let backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link, acpmux: live.acpmux)
@@ -125,6 +164,7 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             terminalTabs.sessionProvider = nil
+            terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             creator.backend = offlineCreation
@@ -177,6 +217,75 @@ final class ShellModel {
         shellLog.error("new workspace on \(mac, privacy: .public) refused: \(message, privacy: .public)")
     }
 
+    // MARK: Last location (design/terminal P10)
+
+    /// Where the user is now: the root tab, and on Workspaces the open
+    /// workspace and its tab on screen.
+    var lastOpenLocation: LastOpenLocation {
+        guard tab == .workspaces, let shown = workspacesPath.last else { return LastOpenLocation(rootTab: tab.rawValue) }
+        let id = store.resolvedWorkspaceID(shown.id)
+        return LastOpenLocation(rootTab: tab.rawValue, workspaceID: id, macID: shown.macID, tabID: store.lastTabByWorkspace[id])
+    }
+
+    /// At launch: go back to the saved workspace and tab, now or once its
+    /// Mac lists it (`continueRestore`).
+    func beginRestore() {
+        guard !restoreAttempted else { return }
+        restoreAttempted = true
+        guard pendingRestore == nil, let saved = lastOpen.load() else { return }
+        pendingRestore = saved
+        continueRestore()
+    }
+
+    /// The workspaces (or a Mac's data phase) changed while a restore waits.
+    func continueRestore() {
+        if let macID = restoreLinkMac, let live,
+           store.teams.flatMap(\.macs).contains(where: { $0.id == macID && $0.isOnline }) {
+            restoreLinkMac = nil
+            live.select(macID: macID)
+        }
+        guard let saved = pendingRestore else { return }
+        let decision = LastOpenRestore.decide(saved: saved, workspaces: store.activeWorkspaces) { [store] in store.macDataPhase($0) }
+        switch decision {
+        case .nothing:
+            pendingRestore = nil
+        case .wait:
+            if tab != .workspaces { tab = .workspaces }
+        case .showList:
+            pendingRestore = nil
+            tab = .workspaces
+        case .open(let workspaceID, let tabID):
+            pendingRestore = nil
+            guard let workspace = store.workspace(id: workspaceID) else { return }
+            // The saved tab, never the Needs-you jump to a waiting agent
+            // (that is for a user's tap, `WorkspacesList.openWorkspace`).
+            if let tabID { store.noteOpened(tabID: tabID, in: workspaceID) }
+            tab = .workspaces
+            workspacesPath = [workspace]
+            // Its tabs come from its Mac: link it, as a tap on the row does.
+            if let live, store.teams.flatMap(\.macs).contains(where: { $0.id == workspace.macID && $0.isOnline }) {
+                live.select(macID: workspace.macID)
+            } else {
+                // Not online yet at launch: link it as soon as it is.
+                restoreLinkMac = workspace.macID
+            }
+            shellLog.info("restored workspace \(workspaceID, privacy: .public) tab \(tabID ?? "-", privacy: .public)")
+        }
+    }
+
+    /// The location changed: remember it. A move by the user while a
+    /// restore waits cancels the restore; the restore's own switch to the
+    /// Workspaces list does not overwrite the saved workspace.
+    func locationChanged(_ location: LastOpenLocation) {
+        if pendingRestore != nil {
+            if location == LastOpenLocation(rootTab: LastOpenLocation.workspacesTab) { return }
+            pendingRestore = nil
+        }
+        // The user left the restored workspace: no late link for it.
+        if let macID = restoreLinkMac, location.macID != macID { restoreLinkMac = nil }
+        lastOpen.save(location)
+    }
+
     /// The drawer pan only opens from a tab root (stack depth 1).
     private func updateInteractiveOpen() {
         let depth = switch tab {
@@ -209,6 +318,14 @@ final class ShellModel {
 
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
+        #if DEBUG
+        // Layout captures only: `-cnx-banner-demo pairing|pairing-reset`.
+        switch UserDefaults.standard.string(forKey: "cnx-banner-demo") {
+        case "pairing"?: return .waitingForPairing(on: "Mac Studio")
+        case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
+        default: break
+        }
+        #endif
         if store.isOffline { return .offline }
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
         switch live?.pairingState {

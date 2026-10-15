@@ -57,6 +57,8 @@ public struct WorkspacesList: View {
     @State private var visibleBottom: CGFloat = .infinity
     /// Each row's frame in the list (read on demand, never drawn from).
     @State private var rowFrames = RowFrames()
+    /// The Macs' names and Filter rows, memoized (verify/perf-latency.md).
+    @State private var macText = MacFilterMemo()
     @State private var closingFrame: CGRect = .zero
     /// The list's scroller, for bringing a row into view before its close popover.
     @State private var scrollProxy: ScrollViewProxy?
@@ -88,9 +90,13 @@ public struct WorkspacesList: View {
 
     private func mac(_ id: String) -> MacDevice? { macs.first { $0.id == id } }
 
-    /// Tags for the team's Macs that share a name, so every place that
-    /// names a Mac says which one ("Aziz's MacBook Pro (3F2A)").
-    private var sameNames: MacNameDisambiguation { MacNameDisambiguation(macs) }
+    /// Every Mac on the account (all teams): the scope of the same-name tags,
+    /// as in Settings → Devices.
+    private var accountMacs: [MacDevice] { MacNameDisambiguation.scope(store.teams) }
+
+    /// Tags for the account's Macs that share a name, so every place that
+    /// names a Mac says which one ("Aziz's MacBook Pro 3F2A").
+    private var sameNames: MacNameDisambiguation { macText.names(accountMacs) }
 
     private func displayName(_ mac: MacDevice) -> String { sameNames.displayName(mac) }
 
@@ -157,7 +163,7 @@ public struct WorkspacesList: View {
     /// refresh, "2 need you", or with several Macs how many are online.
     private var subtitle: String {
         if let mac = scopedMac {
-            return "\(displayName(mac)) · " + RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+            return "\(displayName(mac)) · " + RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         }
         if showsUpdating && isRefreshing { return "Updating…" }
         let waiting = inbox.needsYouCount
@@ -175,7 +181,7 @@ public struct WorkspacesList: View {
     }
 
     private func unavailableMessage(_ ws: Workspace) -> String {
-        let seen = mac(ws.macID).map { RelativeStamp().presence(isOnline: false, lastSeenAt: $0.lastSeenAt) } ?? "Offline"
+        let seen = mac(ws.macID).map { RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: $0.lastSeenAt) } ?? "Offline"
         return "\(seen). \u{201C}\(ws.title)\u{201D} opens when the Mac is awake with cmux running."
     }
 
@@ -307,10 +313,7 @@ public struct WorkspacesList: View {
                 emptyState
             }
         }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .background { PullDownSearch() }
+        .cnxPullDownSearch(text: $query)
         .modifier(OptionalRefresh(refresh: refresh))
         .animation(theme.motion.smooth.animation, value: inbox.scope)
         .animation(theme.motion.smooth.animation, value: inbox.needsYou.map(\.id))
@@ -471,7 +474,7 @@ public struct WorkspacesList: View {
     private func foldLine(_ fold: WorkspaceInbox.Fold, proxy: ScrollViewProxy) -> some View {
         let isOpen = fold.isForcedOpen || unfolded.contains(fold.mac.id)
         let detail = switch fold.reason {
-        case .offline: RelativeStamp().presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
+        case .offline: RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
         case .notConnected: "Not connected"
         case .failed: "Can't connect"
         }
@@ -498,8 +501,31 @@ public struct WorkspacesList: View {
             HStack(spacing: 6) {
                 Image(systemName: fold.reason == .offline ? "moon.zzz" : "bolt.horizontal.circle")
                     .accessibilityHidden(true)
-                Text("\(displayName(fold.mac)) · \(detail)")
-                    .lineLimit(3)
+                // The name with its tag capsule, as Settings → Devices shows it;
+                // the plain text form when the capsule line doesn't fit.
+                // At accessibility sizes: name (never broken mid-word), the tag
+                // on its own line, then the presence, as Devices does.
+                Group {
+                    if typeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 4) {
+                            UnbrokenText(fold.mac.name, style: .footnote, weight: .semibold)
+                            if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
+                            UnbrokenText(detail, style: .footnote, weight: .semibold)
+                        }
+                    } else {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 6) {
+                                Text(fold.mac.name).lineLimit(1)
+                                if let tag = sameNames.tag(for: fold.mac.id) { MacNameTag(tag) }
+                                Text("· \(detail)").lineLimit(1)
+                            }
+                            Text("\(displayName(fold.mac)) · \(detail)")
+                                .lineLimit(3)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("\(displayName(fold.mac)) · \(detail)"))
                 Spacer(minLength: 8)
                 if fold.reason != .offline {
                     if reconnect != nil { Text(fold.reason == .notConnected ? "Connect" : "Retry") }
@@ -585,7 +611,7 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "moon.zzz",
                 title: "\(displayName(mac)) is offline",
-                message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
+                message: "\(RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.offline")
         case .failed(let reason):
@@ -645,12 +671,14 @@ public struct WorkspacesList: View {
                 Label("All Macs", systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
-            ForEach(MacScope.menuOrder(macs)) { mac in
+            ForEach(macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
+                                                         linkStatus: store.macLinkStatus, live: store.tracksMacData,
+                                                         now: MinuteClock.shared.now))) { mac in
                 // A title and a subtitle Text directly in the label: a menu
                 // shows the second as the subtitle (not inside a Label).
                 Toggle(isOn: chosen(.mac(mac.id))) {
-                    Text(mac.name)
-                    Text(macDetail(mac))
+                    Text(mac.title)
+                    Text(mac.detail)
                     // The model has no Mac kind (laptop or desktop) yet.
                     Image(systemName: "desktopcomputer")
                 }
@@ -666,13 +694,6 @@ public struct WorkspacesList: View {
     /// On for the chosen scope; turning one on chooses it (turning the chosen one off does nothing).
     private func chosen(_ value: MacScope) -> Binding<Bool> {
         Binding(get: { scope == value }, set: { if $0 { select(value) } })
-    }
-
-    /// Presence plus this phone's connection ("Online · Connecting…"), and the live link line.
-    private func macDetail(_ mac: MacDevice) -> String {
-        let presence = RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-        let status = store.macStatusLine(mac, presence: presence).text
-        return [status, sameNames.detail(for: mac.id), store.macLinkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
     }
 
     private func retry() {
@@ -830,7 +851,7 @@ struct WorkspaceRow: View {
     /// seen since the phone connected.
     @ViewBuilder private var time: some View {
         if workspace.hasActivityTime {
-            Text(RelativeStamp().string(for: workspace.lastActivityAt))
+            Text(RelativeStamp(now: MinuteClock.shared.now).string(for: workspace.lastActivityAt))
                 .font(theme.type.meta)
                 .monospacedDigit()
                 .foregroundStyle(status == .needsYou ? theme.colors.label : theme.colors.label2)
@@ -859,7 +880,7 @@ struct WorkspaceRow: View {
         let line = StatusLine.words(workspace, status: status, macName: macName)
         parts.append(contentsOf: line)
         if workspace.hasActivityTime, status != .creating {
-            parts.append(RelativeDateTimeFormatter().localizedString(for: workspace.lastActivityAt, relativeTo: Date()))
+            parts.append(RelativeDateTimeFormatter().localizedString(for: workspace.lastActivityAt, relativeTo: MinuteClock.shared.now))
         }
         return parts.joined(separator: ", ")
     }
@@ -959,71 +980,6 @@ struct ShimmerText: View {
                     }
             }
         }
-    }
-}
-
-/// Starts the list with the search field tucked under the navigation bar,
-/// so it appears on a pull-down (ChatGPT, Mail). `.searchable`'s drawer is
-/// otherwise open at the top on launch; UIKit hides it once the list's
-/// offset passes the field, so the list starts that far down, once.
-private struct PullDownSearch: UIViewRepresentable {
-    func makeUIView(context: Context) -> Probe { Probe() }
-    func updateUIView(_ uiView: Probe, context: Context) {}
-
-    final class Probe: UIView {
-        private var done = false
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            guard window != nil, !done else { return }
-            DispatchQueue.main.async { [weak self] in self?.tuck() }
-        }
-
-        private func tuck() {
-            guard !done, let controller = owningController(),
-                  let search = controller.navigationItemWithSearch()?.searchController?.searchBar,
-                  let scroll = controller.view.firstSubview(of: UICollectionView.self) else { return }
-            done = true
-            let height = search.frame.height
-            guard height > 0, scroll.contentOffset.y <= -scroll.adjustedContentInset.top + 1 else { return }
-            scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top + height), animated: false)
-            // The collapsed drawer shrinks the top inset; settle on the new top
-            // so the first row sits right under the bar.
-            DispatchQueue.main.async {
-                scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
-            }
-        }
-
-        private func owningController() -> UIViewController? {
-            var responder: UIResponder? = self
-            while let next = responder?.next {
-                if let controller = next as? UIViewController { return controller }
-                responder = next
-            }
-            return nil
-        }
-    }
-}
-
-private extension UIViewController {
-    /// This controller's or an ancestor's navigation item that carries the search controller.
-    func navigationItemWithSearch() -> UINavigationItem? {
-        var controller: UIViewController? = self
-        while let current = controller {
-            if current.navigationItem.searchController != nil { return current.navigationItem }
-            controller = current.parent
-        }
-        return nil
-    }
-}
-
-private extension UIView {
-    func firstSubview<T: UIView>(of type: T.Type) -> T? {
-        for subview in subviews {
-            if let match = subview as? T { return match }
-            if let match = subview.firstSubview(of: type) { return match }
-        }
-        return nil
     }
 }
 

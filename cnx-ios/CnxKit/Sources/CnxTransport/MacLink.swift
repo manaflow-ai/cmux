@@ -39,9 +39,16 @@ public protocol MacLink: AnyObject, Sendable {
     func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel
     func ping() async throws -> UInt32
     func close() async
+    /// The path of a link that is already up when the dial returns (nil:
+    /// unknown until its first `states` element). The controller then adopts
+    /// it as connected at once instead of waiting a main-actor turn for the
+    /// state stream (verify/perf-latency.md).
+    var connectedPath: LinkPathKind? { get }
 }
 
 extension MacLink {
+    public var connectedPath: LinkPathKind? { nil }
+
     public func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         try await openChannel(service: service, args: args)
     }
@@ -81,13 +88,18 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "simulate distant network": no direct path. WebRTC uses only
     /// TURN (path `turn`), WireGuard only the service's relay (path `relay`).
     public var relayOnly: Bool
+    /// Debug baseline: do not offer the media lane, so browser video rides
+    /// its reliable channel even over WebRTC (verify/browser-video-track.md).
+    public var browserVideoOnChannel: Bool
 
-    public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String, relayOnly: Bool = false) {
+    public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String, relayOnly: Bool = false,
+                browserVideoOnChannel: Bool = false) {
         self.baseURL = baseURL
         self.teamID = teamID
         self.deviceID = deviceID
         self.macDeviceID = macDeviceID
         self.relayOnly = relayOnly
+        self.browserVideoOnChannel = browserVideoOnChannel
     }
 }
 
@@ -100,11 +112,24 @@ public protocol MacLinkDialer: Sendable {
     func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)]
     /// Forgets warm sockets and cached servers (sign-out).
     func resetWarmState() async
+    /// The phone's network changed or came back: live links move onto it
+    /// without a redial (WireGuard roams; the signaling socket is checked
+    /// and replaced when dead). Returns the steps as `name=ms` pairs.
+    func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)]
 }
 
 extension MacLinkDialer {
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] { [] }
     public func resetWarmState() async {}
+    public func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] { [] }
+}
+
+/// A link that can measure a simulated network change (DEBUG builds).
+public protocol NetworkChangeProbing: MacLink {
+    /// Pings for 1 s, takes the network away (and roams at once when
+    /// `roam`), keeps pinging for `windowMillis`; returns JSON with the
+    /// longest wait for a pong (`stall_ms`) and the roam steps.
+    func networkChangeProbe(roam: Bool, windowMillis: UInt32) async -> String
 }
 
 /// A dialed link that can say how its dial went (`name`, ms since the dial began).

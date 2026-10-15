@@ -11,7 +11,7 @@ extension AppStore {
                 MacDevice(id: "mac-studio", name: "Aziz's Mac Studio", isOnline: true),
                 MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-2 * 3600)),
             ]),
-            Team(id: "team-personal", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
+            Team(id: "personal-mock", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
                 MacDevice(id: "mbp-home", name: "Home MacBook", isOnline: false),
                 // Two Macs that share a name (a reinstall, or two laptops):
                 // the lists tag each with its id ending.
@@ -106,6 +106,18 @@ extension AppStore {
                 id: "ws-dotfiles", macID: "mbp", title: "dotfiles", directory: "~/dotfiles", branch: "main",
                 tabs: [WorkspaceTab(id: "t-dotfiles", kind: .terminal, title: "nvim", subtitle: "~/dotfiles")],
                 lastActivityAt: ago(4 * 24 * 60)
+            ),
+            // Personal's same-name Macs (3F2A online, 91C7 asleep): the
+            // Workspaces list's tagged rows and folded group.
+            Workspace(
+                id: "ws-site", macID: "8c41e0d2-3f2a", title: "site", directory: "~/Development/site", branch: "main",
+                tabs: [WorkspaceTab(id: "t-site", kind: .terminal, title: "zsh", subtitle: "~/Development/site")],
+                lastActivityAt: ago(40)
+            ),
+            Workspace(
+                id: "ws-photos", macID: "5b97a6f1-91c7", title: "photos", directory: "~/photos", branch: "main",
+                tabs: [WorkspaceTab(id: "t-photos", kind: .terminal, title: "zsh", subtitle: "~/photos")],
+                lastActivityAt: ago(3 * 24 * 60 + 10)
             ),
         ]
         let feed = [

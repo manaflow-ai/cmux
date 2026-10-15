@@ -27,6 +27,18 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
     /// The brain's engine controls (model, harness, effort, stop) on the same channel.
     public let control: ChiefControl
 
+    /// The Mac's avatar event (cmux-tui events.md `chief-profile-changed`).
+    static let profileEvent = "chief-profile-changed"
+
+    /// Draws Chief with the Mac's avatar text (nil: "C"), as an engine
+    /// report or a `chief-profile-changed` event gives it.
+    public func applyAvatar(_ text: String?) async {
+        await core.applyAvatar(text)
+    }
+
+    /// Chief's failed turns with the brain's raw error, by message id.
+    public var failureLog: ChiefFailureLog { core.failureLog }
+
     /// The link service of the Chief owner (cnx-hostd `chief`).
     public static let service = "chief"
 
@@ -117,11 +129,16 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
 
     actor Core {
         let client: DaemonClient
-        let identity: ChiefIdentity
-        let wire: ChiefWire
+        /// Chief's avatar follows the Mac (`chief-profile-changed`).
+        private(set) var identity: ChiefIdentity
+        private(set) var wire: ChiefWire
         let preferences: ChiefPreferences
         private var conversationID: String?
         private var info: ConversationInfo?
+        /// Chief's questions in this conversation (``ChiefQuestionFeed``).
+        nonisolated let questionFeed = ChiefQuestionFeed()
+        /// Failed turns by message id, with the brain's raw error (``ChiefFailureLog``).
+        nonisolated let failureLog = ChiefFailureLog()
         private var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         private var rev: UInt64 = 0
         private var eventSeq = 0
@@ -255,6 +272,9 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         /// A wire message, its attachments' bytes read first.
         private func decode(_ object: [String: Any]) async -> ConversationMessage? {
             await hydrate(object)
+            let asked = ChiefQuestionFeed.questions(in: object)
+            questionFeed.update(asked.questions, seq: asked.seq)
+            if let id = object["id"] as? String { failureLog.record(wire.failure(object), messageID: id) }
             return wire.message(object, peerReadSeq: peerReadSeq, bytes: attachmentBytes)
         }
 
@@ -404,9 +424,49 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             continuation?.yield(.message(message, eventSeq: eventSeq))
         }
 
+        /// Fetches the conversation again (after an unconfirmed answer):
+        /// the store refetches the newest page, and the question feed hears
+        /// whether the Mac has the answer.
+        func resync() async throws {
+            let id = try await resolve()
+            try await connect(id: id, lagged: true)
+            // Read the newest page here too, so the feed is settled when this returns.
+            _ = try await history(beforeSeq: nil, limit: 50)
+        }
+
+        /// Draws Chief with `text` (nil: the default "C") from now on, and
+        /// tells the store, so the header and every avatar change in place.
+        func applyAvatar(_ text: String?) {
+            let avatar = text ?? ChiefIdentity.defaultAvatar
+            guard avatar != identity.avatar else { return }
+            identity.avatar = avatar
+            wire = ChiefWire(identity: identity)
+            guard var info else { return }
+            info.participants = info.participants.map { participant in
+                guard participant.id == identity.chiefID else { return participant }
+                var changed = participant
+                changed.initials = avatar
+                return changed
+            }
+            self.info = info
+            continuation?.yield(.conversationChanged(info))
+        }
+
         func route(_ line: Data) async {
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                  let event = object["event"] as? String, object["conversation"] as? String == conversationID else { return }
+                  let event = object["event"] as? String else { return }
+            // The Mac's Chief Settings changed the avatar (capability
+            // chief-profile-events-v1): no conversation, only the text.
+            if event == ChiefDaemonBackend.profileEvent {
+                // Only an explicit `avatar` changes it: null clears it (a
+                // picture, or none); a profile event about something else
+                // (no key) leaves Chief as drawn (R2-6).
+                if object.keys.contains("avatar") {
+                    applyAvatar(ChiefEngineReport.avatarText(object["avatar"] as? String))
+                }
+                return
+            }
+            guard object["conversation"] as? String == conversationID else { return }
             switch event {
             case "conversation-typing":
                 guard let who = object["participant"] as? String, who != identity.meID else { return }

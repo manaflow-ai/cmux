@@ -99,6 +99,43 @@ import Testing
         #expect(artifacts.map(\.reference) == ["/Users/cmux/cnx-ios-e2e/r2/live/work/demo/reports/2026-10-13-round2-verification/long-folder/x.md"])
     }
 
+    /// R2-7 (seen live): the command line listed the whole path first, then
+    /// `ls -l` output wrapped it at 53 columns; the piece `p/cnx-...md` stayed.
+    @Test func aPieceOfAPathAlreadyListedWholeGoes() {
+        var extractor = ArtifactExtractor()
+        let stream = "clear; ls -l /tmp/cnx-e2e-070024-sample.md\r\n-rw-r--r--@ 1 aziz  wheel  40 Oct 14 07:00 /tm\r\np/cnx-e2e-070024-sample.md\r\n"
+        var artifacts = extractor.scan(Data(stream.utf8))
+        #expect(artifacts.map(\.reference).contains("p/cnx-e2e-070024-sample.md"))
+        let screen = "clear; ls -l /tmp/cnx-e2e-070024-sample.md\n-rw-r--r--@ 1 aziz  wheel  40 Oct 14 07:00 /tmp/cnx-e2e-070024-sample.md\n"
+        artifacts = extractor.reconcile(artifacts, screenText: screen, columns: nil)
+        #expect(artifacts.map(\.reference) == ["/tmp/cnx-e2e-070024-sample.md"])
+    }
+
+    /// R3-3 (seen live): pieces of wrapped paths in scrollback, after the
+    /// whole path left the screen.
+    @Test func fragmentsInScrollbackGo() {
+        let list = [
+            TerminalArtifact(reference: "/tmp/cnx-e2e-091910.txt", kind: .text),
+            TerminalArtifact(reference: "rivate/tmp/cnx-e2e-091910.txt", kind: .text),
+            TerminalArtifact(reference: "1910.txt", kind: .text),
+            TerminalArtifact(reference: "/tm", kind: .directory),
+            TerminalArtifact(reference: "docs/a.md", kind: .markdown),
+            TerminalArtifact(reference: "/repo/docs/a.md", kind: .markdown),
+            TerminalArtifact(reference: "https://cmux.com/a", kind: .link),
+        ]
+        #expect(ArtifactExtractor.droppingFragments(list).map(\.reference)
+                == ["/tmp/cnx-e2e-091910.txt", "docs/a.md", "/repo/docs/a.md", "https://cmux.com/a"])
+    }
+
+    @Test func tmpAndPrivateTmpAreOneEntry() {
+        var extractor = ArtifactExtractor()
+        let artifacts = extractor.scan(Data("cat /tmp/x.md\nopen /private/tmp/x.md\n".utf8))
+        #expect(artifacts.map(\.reference) == ["/tmp/x.md"])
+        #expect(ArtifactExtractor.canonical("/private/var/log/a.txt") == "/var/log/a.txt")
+        let merged = extractor.reconcile(artifacts, screenText: "open /private/tmp/x.md\n", columns: nil)
+        #expect(merged.map(\.reference) == ["/tmp/x.md"])
+    }
+
     @Test func reconcileKeepsHistoryThatLeftTheScreen() {
         var extractor = ArtifactExtractor()
         let artifacts = extractor.scan(Data("old/notes.md\n".utf8))
@@ -129,6 +166,19 @@ import Testing
 
 /// The Mac's 42-row screen on the bottom of a 151-row mirror (offset 109).
 @Suite struct TerminalRowShiftTests {
+    /// User report (2026-10-14): Codex CLI prints its history with a scroll
+    /// region from the screen's top (`ESC[1;Nr` then `\r\n` per line). On the
+    /// Mac those lines go to the scrollback; shifted, the region started
+    /// below the mirror's top and every line was discarded. The region keeps
+    /// the mirror's first row as its top.
+    @Test func aRegionFromTheTopKeepsTheMirrorsTop() {
+        var shift = TerminalRowShift()
+        let out = String(decoding: shift.filter(Data("\u{1B}[1;30r".utf8), offset: 109, remoteRows: 42), as: UTF8.self)
+        #expect(out == "\u{1B}[1;139r")
+        // A region below the top is still shifted whole.
+        #expect(String(decoding: shift.filter(Data("\u{1B}[31;42r".utf8), offset: 109, remoteRows: 42), as: UTF8.self) == "\u{1B}[140;151r")
+    }
+
     private func run(_ chunks: [String], offset: Int = 109, rows: Int = 42) -> String {
         var shift = TerminalRowShift()
         return chunks.map { String(decoding: shift.filter(Data($0.utf8), offset: offset, remoteRows: rows), as: UTF8.self) }.joined()

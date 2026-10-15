@@ -13,6 +13,10 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         case permission(ACPPermissionRequest)
         case finished
         case failed
+        /// A terminal agent (Codex, Claude Code in a terminal tab) waits for the
+        /// person: an approval or a question in its TUI. It is answered in the
+        /// terminal, so the item opens the tab instead of answering inline.
+        case needsInput
     }
 
     /// The message this event answers, shown as an iMessage-style quote bubble.
@@ -51,6 +55,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// the card shows it instead of its buttons, and never claims "Allowed"
     /// before the signed answer went out (review m10).
     public var pending: String?
+    /// The event came from a terminal tab (a terminal agent's notification):
+    /// opening it shows the terminal, and it takes no inline reply.
+    public var opensTerminal = false
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -72,7 +79,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         guard resolution == nil else { return false }
         switch kind {
         case .question(let question): return question.isPending
-        case .permission: return true
+        case .permission, .needsInput: return true
         default: return false
         }
     }
@@ -114,7 +121,8 @@ public final class FeedStore {
     @ObservationIgnored public weak var actions: (any FeedActions)?
     public static let shared = FeedStore(
         items: FeedStore.initialItems(mockContentEnabled: DeveloperOptions.mockContentEnabled),
-        answersLocally: DeveloperOptions.mockContentEnabled
+        answersLocally: DeveloperOptions.mockContentEnabled,
+        readMarks: .standard
     )
     /// DEBUG mock content only: with no Mac behind the Feed, answers apply
     /// locally. Otherwise an answer with no `actions` fails on the item.
@@ -134,7 +142,35 @@ public final class FeedStore {
     }
 
     public private(set) var items: [FeedItem] {
-        didSet { if items != oldValue { onItemsChange?(items) } }
+        didSet {
+            guard items != oldValue else { return }
+            // Events read before (this launch or an earlier one) stay read when the Mac
+            // reports them again.
+            if items.contains(where: { !$0.isRead && readIDs.contains($0.id) }) {
+                items = items.map { item in
+                    var item = item
+                    if readIDs.contains(item.id) { item.isRead = true }
+                    return item
+                }
+                return
+            }
+            recordReadMarks()
+            onItemsChange?(items)
+        }
+    }
+    /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
+    @ObservationIgnored private var readMarks: FeedReadMarks?
+    @ObservationIgnored private var readIDs: [String] = []
+
+    private func recordReadMarks() {
+        let read = items.filter(\.isRead).map(\.id)
+        let unread = Set(items.filter { !$0.isRead }.map(\.id))
+        var next = readIDs.filter { !unread.contains($0) }
+        let known = Set(next)
+        next += read.filter { !known.contains($0) }
+        guard next != readIDs else { return }
+        readIDs = next
+        readMarks?.save(next)
     }
     /// Called after every change (live mode saves the Feed with `FeedArchive`).
     @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
@@ -149,8 +185,16 @@ public final class FeedStore {
     public private(set) var unseenNewIDs: [String] = []
     private var liveIndex = 0
 
-    public init(items: [FeedItem], answersLocally: Bool = false) {
-        self.items = items.sorted { $0.createdAt > $1.createdAt }
+    public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil) {
+        self.readMarks = readMarks
+        let readIDs = readMarks?.load() ?? []
+        self.readIDs = readIDs
+        let read = Set(readIDs)
+        self.items = items.sorted { $0.createdAt > $1.createdAt }.map { item in
+            var item = item
+            if read.contains(item.id) { item.isRead = true }
+            return item
+        }
         self.answersLocally = answersLocally
     }
 
@@ -193,7 +237,11 @@ public final class FeedStore {
     public func clearUnseen() { unseenNewIDs = [] }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
-    public func markUnread(_ id: String) { mutate(id) { $0.isRead = false } }
+    public func markUnread(_ id: String) {
+        readIDs.removeAll { $0 == id }
+        readMarks?.save(readIDs)
+        mutate(id) { $0.isRead = false }
+    }
 
     /// Marks an event done (swipe): it leaves the Feed; `undoDone` brings it back.
     public func markDone(_ id: String) {
@@ -215,6 +263,23 @@ public final class FeedStore {
     }
 
     /// Replaces every item (live mode starts empty).
+    /// The signed-in account's read flags (`FeedReadMarks.forAccount`): another
+    /// account on this phone never sees them, and the same account keeps them
+    /// across sign-out (verify/persistence.md).
+    public func useReadMarks(_ marks: FeedReadMarks?) {
+        readMarks = marks
+        readIDs = marks?.load() ?? []
+    }
+
+    /// Sign-out: the Feed's items leave memory (the account's archive is
+    /// deleted by the caller); nothing is saved for it any more.
+    public func clearForSignOut() {
+        onItemsChange = nil
+        actions = nil
+        replaceAll([])
+        useReadMarks(nil)
+    }
+
     public func replaceAll(_ next: [FeedItem]) {
         items = next.sorted { $0.createdAt > $1.createdAt }
         unseenNewIDs = []
@@ -256,6 +321,12 @@ public final class FeedStore {
     }
 
     public func item(id: String) -> FeedItem? { items.first { $0.id == id } }
+
+    /// Drops an item the source withdrew (a duplicate of another event).
+    public func remove(_ id: String) {
+        items.removeAll { $0.id == id }
+        unseenNewIDs.removeAll { $0 == id }
+    }
 
     /// Marks an open ask resolved elsewhere (another device or the Mac).
     public func resolveElsewhere(_ id: String, text: String) {
@@ -368,6 +439,17 @@ public final class FeedStore {
             return
         }
         guard answersLocally else { return failUnsent(id) }
+        let delay = DeveloperOptions.mockFaceIDDelay
+        if option.isAllow, delay > .zero {
+            guard item(id: id)?.pending == nil else { return }
+            mutate(id) { $0.pending = Self.waitingForFaceID }
+            Task {
+                try? await Task.sleep(for: delay)
+                mutate(id) { $0.pending = nil }
+                applyRespond(id, option: option)
+            }
+            return
+        }
         applyRespond(id, option: option)
     }
 

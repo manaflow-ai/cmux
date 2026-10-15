@@ -39,6 +39,20 @@ public final class TerminalModel {
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
     public var uploader: (@MainActor (_ data: Data, _ name: String) async throws -> String)?
+    /// The composer shows its `+` menu: a Mac can receive attachments, or
+    /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
+    var attachmentsAvailable: Bool {
+        if uploader != nil { return true }
+        #if DEBUG
+        return session is MockTerminalSession
+        #else
+        return false
+        #endif
+    }
+    /// The terminal surface is first responder (keys go straight to the PTY).
+    var surfaceFocused = false
+    /// The terminal or its composer has focus: the key bar shows (SPEC M4).
+    var inputFocused: Bool { surfaceFocused || composerFocused }
     /// Attachments are being sent; the composer waits.
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
@@ -62,6 +76,18 @@ public final class TerminalModel {
     /// Embedded (workspace tab): the page as last seen, for the tab grid card.
     public internal(set) var snapshot: UIImage?
 
+    /// A tab rebuilt after it was cooled out of the warm set (a new, empty
+    /// surface): its page as last seen, which the page shows dimmed under the
+    /// connecting label until the Mac's terminal is attached again. Cleared on
+    /// attach, so a later dropped link never covers the live surface with it.
+    public private(set) var coldFrame: UIImage?
+
+    public func restoreLastFrame(_ image: UIImage?) {
+        guard let image else { return }
+        coldFrame = image
+        if snapshot == nil { snapshot = image }
+    }
+
     /// Set by the controller.
     weak var controller: TerminalViewController?
 
@@ -73,6 +99,38 @@ public final class TerminalModel {
         self.connectionState = session.connectionState
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
+    }
+
+    /// The Mac's output after an attach is drawn: a held last frame (a cold
+    /// restore) goes now, not when the attach starts (that showed the stale
+    /// frame over the live one, R2-5). Throttled, the new frame is saved for
+    /// the next cold launch.
+    func liveOutputDrawn() {
+        if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
+        saveFrameSoon()
+    }
+
+    /// Saves the page's frame (for the next cold launch) at most every few seconds.
+    public var frameSaver: (@MainActor (UIImage) -> Void)?
+    @ObservationIgnored private var lastFrameSave: CFTimeInterval = 0
+    @ObservationIgnored private var frameSavePending = false
+
+    /// The page for the next cold launch, without the cursor block (R3-4).
+    public func frameForSaving() -> UIImage? {
+        controller?.snapshot(hidingCursor: true)
+    }
+
+    func saveFrameSoon() {
+        guard frameSaver != nil, !frameSavePending else { return }
+        let wait = max(0, 3 - (CACurrentMediaTime() - lastFrameSave))
+        frameSavePending = true
+        Task { @MainActor [weak self] in
+            if wait > 0 { try? await ContinuousClock().sleep(for: .seconds(wait)) }
+            guard let self else { return }
+            frameSavePending = false
+            lastFrameSave = CACurrentMediaTime()
+            if let image = controller?.snapshot(hidingCursor: true) { frameSaver?(image) }
+        }
     }
 
     func ingest(_ event: TerminalSessionEvent) {
@@ -97,6 +155,9 @@ public final class TerminalModel {
 
     /// Files and links in a batch of output (the screen's per-frame batch).
     func scanOutput(_ data: Data) {
+        // A full-screen program's screen is drawing, not output: its rows
+        // are not paths (round 5).
+        guard !isTUI else { return }
         collector.scan(data)
         if showArtifacts { scheduleReconcile() }
     }
@@ -106,9 +167,11 @@ public final class TerminalModel {
     /// wraps joined, full-width rows continued), so the list is rescanned
     /// against it whenever Files and Links is open.
     func reconcileArtifactsWithScreen() {
-        guard let surface = controller?.surface, let text = surface.screenText() else { return }
-        let columns = surface.grid.columns
-        collector.reconcile(screenText: text, columns: columns > 0 ? columns : nil)
+        // Not while a TUI owns the screen (its screen is not the shell's
+        // output); rows are joined only where Ghostty soft-wrapped them,
+        // which its text read already does (R4-2).
+        guard !isTUI, let surface = controller?.surface, let text = surface.screenText() else { return }
+        collector.reconcile(screenText: text, columns: nil)
     }
 
     /// While Files and Links is open, the list is reconciled with the
@@ -186,11 +249,12 @@ public final class TerminalModel {
 
     /// The send button: text plus Return; empty is a bare Return (Enter).
     /// With attachments, each is uploaded to the Mac first, then the real
-    /// paths (shell-quoted) and the text are typed without Return, so the
-    /// person finishes the command line before running it.
+    /// paths (shell-quoted) and the text go as one paste; Return follows when
+    /// there was text (a prompt to run), not for paths alone, which the
+    /// person finishes (`ComposerSubmit`).
     public func send() {
         guard attachments.isEmpty else {
-            sendAttachments()
+            sendAttachments(pressReturn: true)
             return
         }
         controller?.surface.sendText(composerText, pressReturn: true)
@@ -199,14 +263,14 @@ public final class TerminalModel {
 
     public func sendWithoutReturn() {
         guard attachments.isEmpty else {
-            sendAttachments()
+            sendAttachments(pressReturn: false)
             return
         }
         controller?.surface.sendText(composerText, pressReturn: false)
         composerText = ""
     }
 
-    private func sendAttachments() {
+    private func sendAttachments(pressReturn: Bool) {
         guard !isUploading else { return }
         guard let uploader else {
             attachmentError = "Connect to the Mac to send attachments."
@@ -230,8 +294,8 @@ public final class TerminalModel {
             }
             guard let self else { return }
             self.isUploading = false
-            let line = Self.commandLine(paths: paths, text: self.composerText)
-            self.controller?.surface.sendText(line, pressReturn: false)
+            let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
+            self.controller?.surface.perform(submit)
             self.composerText = ""
             self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
         }
@@ -241,19 +305,6 @@ public final class TerminalModel {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
-    /// The typed line: each path shell-quoted, then the text.
-    static func commandLine(paths: [String], text: String) -> String {
-        let quoted = paths.map(shellQuoted).joined(separator: " ")
-        guard !text.isEmpty else { return quoted + " " }
-        return quoted + " " + text
-    }
-
-    /// A path as one shell word: bare when it has only safe characters, else single-quoted.
-    static func shellQuoted(_ path: String) -> String {
-        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%")
-        if !path.isEmpty, path.unicodeScalars.allSatisfy({ safe.contains($0) }) { return path }
-        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
@@ -286,6 +337,15 @@ public final class TerminalModel {
         case .hideKeyboard: controller?.hideKeyboard()
         }
         sticky = surface.input.sticky
+    }
+
+    /// The composer is about to insert `text`. With ctrl or alt on, the key
+    /// goes to the terminal instead (SPEC M1); returns false then.
+    func composerShouldInsert(_ text: String) -> Bool {
+        guard let surface = controller?.surface, let actions = surface.input.composerKey(text) else { return true }
+        surface.perform(actions)
+        sticky = surface.input.sticky
+        return false
     }
 
     func joystick(_ direction: JoystickDirection) {

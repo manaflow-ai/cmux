@@ -130,6 +130,7 @@ def main():
     ap.add_argument("--skip", default="", help="comma list of journey step ids to skip")
     ap.add_argument("--latency", default="all", help="'all', 'none' or a comma list of metrics")
     ap.add_argument("--samples", type=int, default=20)
+    ap.add_argument("--max-load", type=float, help="load gate: before each latency sample, wait (up to 5 min) for this Mac's 1-minute load average to be at or under this")
     ap.add_argument("--keep", action="store_true", help="leave the Mac app running and the simulator booted")
     ap.add_argument("--out")
     a = ap.parse_args()
@@ -153,6 +154,8 @@ def main():
     app_path = os.path.join(CNX, f"build/dd/Build/Products/{a.config}-iphonesimulator/CnxApp.app") if a.no_build else build_ios(log, a.config)
     rig = os.path.expanduser(f"~/cnx-ios-e2e/{os.path.basename(mac_app)[len('cmux DEV '):-4]}")
     mac = Mac(rig, mac_app).prepare()
+    # The rig's simulator pairs without the Mac's person-only prompt (DEBUG seed).
+    mac.seed_pairing(names=[sim_name])
     log(f"Mac app {os.path.basename(mac_app)} ({mac.bundle_id}), rig {rig}, settings {mac.config}")
     udid = ensure_sim(sim_name, RUNTIMES[a.ios], log)
     sim = Sim(udid, os.path.join(out, "shots"))
@@ -176,7 +179,7 @@ def main():
         if a.latency != "none":
             log("latency")
             which = None if a.latency == "all" else set(a.latency.split(","))
-            metrics = Latency(j, os.path.join(out, "latency"), log, a.samples).run(which)
+            metrics = Latency(j, os.path.join(out, "latency"), log, a.samples, a.max_load).run(which)
         j.run(only=set(a.steps.split(",")) if a.steps else None, skip=set(filter(None, a.skip.split(","))), last=True)
     finally:
         if j:

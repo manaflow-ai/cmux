@@ -59,10 +59,14 @@ public final class LiveCoordinator {
     /// may fail, and the app says so.
     public private(set) var relayAvailable: Bool?
     @ObservationIgnored public let feed: LiveFeed
+    /// Terminal agents' events in the Feed (the daemon's notification ledger).
+    @ObservationIgnored public let terminalFeed: TerminalFeed
 
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let api: LiveAPI
     @ObservationIgnored let identity: DeviceIdentity
+    /// Where `identity` and the pairing keys are kept (the Keychain; memory in tests).
+    @ObservationIgnored let secrets: any DeviceSecretStore
     @ObservationIgnored let userID: String
     @ObservationIgnored let deviceName: String
     /// The phone's keys; nil (tests, mock) skips pairing.
@@ -84,13 +88,21 @@ public final class LiveCoordinator {
     /// The pairing run on a link: input-lane channels (another stream, which can
     /// overtake `auth`) wait for it (review m6), and Retry re-runs a refused one (M2).
     @ObservationIgnored private var pairingGate: (link: any MacLink, passed: Task<Bool, Never>)?
-    /// Sign-out's unpair ran (it runs once: a second one would make new keys).
-    @ObservationIgnored private var unpairStarted = false
+    /// The account was deleted: sign-out keeps nothing of it.
+    @ObservationIgnored public private(set) var accountDeleted = false
+    /// Signed out: nothing more is saved for the account.
+    @ObservationIgnored private var stopped = false
+    /// "Remove This iPhone from My Macs" is running.
+    @ObservationIgnored private var removalRunning = false
+    /// How many times this phone was removed from its Macs (tests).
+    @ObservationIgnored public private(set) var removedFromMacsCount = 0
     /// Terminal tabs handed out, reattached on every new link.
     @ObservationIgnored private var terminals: [WeakTerminal] = []
     private struct WeakTerminal { weak var session: DaemonTerminalSession? }
     @ObservationIgnored private var chiefLive = false
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
+    /// Follows the phone's network (Wi-Fi, cellular, airplane mode).
+    @ObservationIgnored private var networkTask: Task<Void, Never>?
     /// The account's Macs that were online at the last look (nil before the first).
     @ObservationIgnored private var previouslyOnline: Set<String>?
     /// The account's own Macs at the last discovery (nil before the first):
@@ -137,8 +149,12 @@ public final class LiveCoordinator {
         feedStore: FeedStore = .shared,
         keys: PhoneKeys? = nil,
         snapshots: LiveSnapshotStore = .standard,
+        secrets: any DeviceSecretStore = KeychainSecretStore(),
+        readMarks: FeedReadMarks? = nil,
+        pins: MacPins? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
+        self.secrets = secrets
         ConnectTimeline.shared.mark("coordinator_start")
         self.snapshots = snapshots
         self.store = store
@@ -146,23 +162,38 @@ public final class LiveCoordinator {
         self.identity = identity
         self.userID = userID
         self.deviceName = deviceName
-        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName) }
+        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID)) }
         self.clock = clock
         workspaces = WorkspaceSync(deviceID: identity.link, deviceName: deviceName)
         let apiForLink = api
         link = LinkController(transport: transport, relayOnly: relayOnly, dialer: dialer, clock: clock,
                               accessToken: { try await apiForLink.accessToken($0) })
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
+        terminalFeed = TerminalFeed(store: feedStore)
         link.endpoint = { [weak self] macID in
             guard let self, let teamID = self.registeredTeamID else { return nil }
             return LinkEndpoint(baseURL: self.api.baseURL, teamID: teamID, deviceID: self.identity.link, macDeviceID: macID)
         }
         feed.place = { [weak self] sessionID in self?.place(sessionID: sessionID) }
         feed.hub = acpmux
+        feed.terminal = terminalFeed
+        terminalFeed.request = { [weak self] command, params, connection in
+            // Never another connection's (or another Mac's) channel.
+            guard let self, self.workspaces.connectionSerial == connection, let client = self.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            var fields: [String: Any] = [:]
+            for (key, value) in params { fields[key] = value }
+            return try await client.request(command, params: fields)
+        }
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
+        feedStore.useReadMarks(readMarks ?? .forAccount(userID))
         feedStore.replaceAll(archive.load())
-        feedStore.onItemsChange = { [weak self] _ in self?.scheduleFeedSave(archive) }
+        feedStore.onItemsChange = { [weak self] items in
+            self?.scheduleFeedSave(archive)
+            self?.terminalFeed.itemsChanged(items)
+        }
         feedStore.actions = feed
         feedStore.syncState = .connecting
         store.workspaces = []
@@ -171,7 +202,16 @@ public final class LiveCoordinator {
         store.macConnection = [:]
         store.teamDataState = .loading
         link.onLink = { [weak self] link in self?.linkChanged(link) }
+        // Right after each dial, off the main actor: open `auth` then `daemon`
+        // (in that order: a Mac that pairs serves channels opened behind
+        // `auth`) and send the workspace setup batch.
+        let pairing = pairing
+        let deviceID = identity.link
+        link.prepare = { link, _ in
+            await Self.prepareLink(link, pairing: pairing, deviceID: deviceID, deviceName: deviceName)
+        }
         workspaces.onTree = { [weak self] tree in self?.apply(tree) }
+        workspaces.onNotification = { [weak self] in self?.terminalFeed.notificationPosted() }
         acpmux.onWatchEvent = { [weak self] event in
             guard let self else { return }
             self.feed.handle(event, sessions: self.acpmux.sessions)
@@ -187,6 +227,57 @@ public final class LiveCoordinator {
         }
         observeLink()
         restoreSnapshot()
+        watchNetwork()
+    }
+
+    // MARK: Network changes
+
+    #if DEBUG
+    private static var networkProbeStarted = false
+
+    /// DEBUG: launched with `CNX_NETWORK_PROBE=roam` (or `loss`, no roam),
+    /// measure a simulated network change once, `CNX_NETWORK_PROBE_DELAY`
+    /// seconds (default 3) after the first link comes up, and log the result
+    /// as `network_probe {json}`.
+    private func runNetworkProbeIfAsked(_ link: any MacLink) {
+        guard !Self.networkProbeStarted, let mode = ProcessInfo.processInfo.environment["CNX_NETWORK_PROBE"],
+              let probing = link as? any NetworkChangeProbing else { return }
+        Self.networkProbeStarted = true
+        let roam = mode != "loss"
+        let delay = Double(ProcessInfo.processInfo.environment["CNX_NETWORK_PROBE_DELAY"] ?? "") ?? 3
+        let clock = clock
+        Task.detached {
+            try? await clock.sleep(for: .seconds(delay))
+            log.notice("network_probe start roam=\(roam, privacy: .public)")
+            let result = await probing.networkChangeProbe(roam: roam, windowMillis: roam ? 3000 : 20000)
+            log.notice("network_probe \(result, privacy: .public)")
+        }
+    }
+    #endif
+
+    private func watchNetwork() {
+        let monitor = NetworkPathMonitor()
+        networkTask = Task { [weak self] in
+            for await event in monitor.events {
+                guard let self else { return }
+                self.networkPathChanged(event)
+            }
+        }
+    }
+
+    /// The phone moved to another network or lost it: links roam in place
+    /// (no redial), presence reconnects.
+    func networkPathChanged(_ event: NetworkPathEvent) {
+        switch event {
+        case .lost:
+            log.info("network lost")
+            ConnectTimeline.shared.mark("network_lost")
+        case .changed(let path):
+            log.info("network changed: \(path, privacy: .public)")
+            presence?.kick()
+            guard let teamID = registeredTeamID else { return }
+            link.networkChanged(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+        }
     }
 
     // MARK: Warm start
@@ -544,6 +635,7 @@ public final class LiveCoordinator {
     /// devices, push tokens and preferences.
     public func deleteAccountData() async throws {
         try await api.deleteMe()
+        forgetThisPhone()
     }
 
     /// Where a notification's session lives: the agent tab bound to it, or
@@ -558,6 +650,9 @@ public final class LiveCoordinator {
 
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
+        stopped = true
+        networkTask?.cancel()
+        networkTask = nil
         discoveryTask?.cancel()
         discoveryTask = nil
         teamTask?.cancel()
@@ -622,6 +717,9 @@ public final class LiveCoordinator {
     // MARK: Link
 
     private func linkChanged(_ link: (any MacLink)?) {
+        #if DEBUG
+        if let link { runNetworkProbeIfAsked(link) }
+        #endif
         acpmux.macLink = nil
         currentLink = link
         servedLink = nil
@@ -643,29 +741,69 @@ public final class LiveCoordinator {
             }
             return
         }
+        if let prepared = self.link.takePrepared(for: link) as? PreparedLink {
+            // The dial already opened `auth` and `daemon`: serve now, in this turn.
+            ConnectTimeline.shared.mark("link_served")
+            let passed = startServing(link, macID: macID, auth: prepared.auth, daemon: prepared.daemon)
+            Task { [weak self] in await self?.finishServing(link, macID: macID, passed: passed) }
+            return
+        }
         Task { [weak self] in await self?.serve(link, macID: macID) }
+    }
+
+    /// What the dial step opened on a link before handing it over
+    /// (`LinkController.prepare`): no main-actor turn per channel.
+    struct PreparedLink: Sendable {
+        let auth: Result<LinkPairing.Opened, LinkError>?
+        let daemon: Result<WorkspaceSync.Prepared, LinkError>
+    }
+
+    nonisolated static func prepareLink(_ link: any MacLink, pairing: LinkPairing?, deviceID: String,
+                                        deviceName: String) async -> PreparedLink {
+        let auth = await pairing?.open(link: link)
+        ConnectTimeline.shared.mark("pairing_opened")
+        do {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            ConnectTimeline.shared.mark("daemon_channel_open")
+            return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName)))
+        } catch {
+            return PreparedLink(auth: auth, daemon: .failure(error as? LinkError ?? LinkError(code: "daemon", message: LinkController.reason(error))))
+        }
     }
 
     /// Pairs `link` and serves its channels. Runs again on the same link from
     /// Retry after the Mac refused or nobody answered (review M2).
     private func serve(_ link: any MacLink, macID: String) async {
+        // Pairing first: a Mac that pairs serves a channel only after `auth`, and holds the
+        // ones opened behind it until it passes. Workspaces, the chats and the Feed open
+        // right behind it, without waiting for each other (an open costs no round trip).
+        ConnectTimeline.shared.mark("link_served")
+        let auth = await self.openPairing(link)
+        guard let passed = startServing(link, macID: macID, auth: auth, daemon: nil) else { return }
+        await finishServing(link, macID: macID, passed: passed)
+    }
+
+    /// Serves `link` from this turn: workspaces bind, the version check and
+    /// pairing start. Nil (and `auth` closed) when the link moved on.
+    private func startServing(_ link: any MacLink, macID: String, auth: Result<LinkPairing.Opened, LinkError>?,
+                              daemon: Result<WorkspaceSync.Prepared, LinkError>?) -> Task<Bool, Never>? {
+        guard currentLink === link else {
+            if case .success(let opened)? = auth { Task { await opened.close() } }
+            if case .success(let prepared)? = daemon { Task { await prepared.client.close() } }
+            return nil
+        }
+        servedLink = link
+        acpmux.macLink = link
+        bindWorkspaces(link, macID: macID, prepared: daemon)
+        Task { [weak self] in await self?.checkVersion(link, macID: macID) }
+        let passed = startPairing(link, macID: macID, auth: auth)
+        pairingGate = (link, passed)
+        return passed
+    }
+
+    private func finishServing(_ link: any MacLink, macID: String, passed: Task<Bool, Never>?) async {
+        guard let passed else { return }
         do {
-            // Pairing first: a Mac that pairs serves a channel only after `auth`, and holds the
-            // ones opened behind it until it passes. Workspaces, the chats and the Feed open
-            // right behind it, without waiting for each other (an open costs no round trip).
-            let auth = await self.openPairing(link)
-            guard self.currentLink === link else {
-                if case .success(let opened)? = auth { await opened.close() }
-                return
-            }
-            self.servedLink = link
-            self.acpmux.macLink = link
-            self.bindWorkspaces(link, macID: macID)
-            Task { [weak self] in await self?.checkVersion(link, macID: macID) }
-            let passed = Task { @MainActor [weak self] in
-                await self?.pair(link, macID: macID, auth: auth) ?? false
-            }
-            self.pairingGate = (link, passed)
             guard await passed.value else {
                 // Nothing on this link is served now: terminals, files and uploads say
                 // "not connected" instead of `unpaired`, and Retry pairs again.
@@ -718,14 +856,19 @@ public final class LiveCoordinator {
 
     /// Opens the `daemon` channel and loads the workspaces; a failure or a
     /// Mac that never answers shows as a failure with Retry.
-    private func bindWorkspaces(_ link: any MacLink, macID: String) {
+    private func bindWorkspaces(_ link: any MacLink, macID: String, prepared: Result<WorkspaceSync.Prepared, LinkError>? = nil) {
         armWorkspacesDeadline(link, macID: macID)
         Task { [weak self] in
             guard let self else { return }
             do {
-                let daemon = try await link.openChannel(service: "daemon", args: [:])
-                ConnectTimeline.shared.mark("daemon_channel_open")
-                await self.workspaces.bind(daemon, macID: macID)
+                let cached = self.store.workspaces.filter { $0.macID == macID }
+                if let prepared {
+                    await self.workspaces.bind(try prepared.get(), macID: macID, cached: cached)
+                } else {
+                    let daemon = try await link.openChannel(service: "daemon", args: [:])
+                    ConnectTimeline.shared.mark("daemon_channel_open")
+                    await self.workspaces.bind(daemon, macID: macID, cached: cached)
+                }
                 // The link may have moved on (another Mac, or this one was removed).
                 if let error = self.workspaces.lastError, self.link.target?.macID == macID, self.store.macData[macID]?.source != .live {
                     self.store.handleMacData(.failed(error), macID: macID)
@@ -808,42 +951,70 @@ public final class LiveCoordinator {
     }
 
     /// Proves this phone's keys on the `auth` channel `auth`; false when the Mac refused it.
-    private func pair(_ link: any MacLink, macID: String, auth: Result<LinkPairing.Opened, LinkError>?) async -> Bool {
-        guard let pairing, let auth else { return true }
+    /// Proves this phone's keys on `auth`, starting at once off the main actor
+    /// (the Mac holds the `daemon` answers until it passes). The task's value
+    /// is false when the Mac refused it.
+    private func startPairing(_ link: any MacLink, macID: String, auth: Result<LinkPairing.Opened, LinkError>?) -> Task<Bool, Never> {
+        guard let pairing, let auth else { return Task { true } }
         let name = self.link.target?.name ?? "your Mac"
         let keys = pairing.keys
-        let outcome = await pairing.finish(auth, macID: macID) { [weak self] in
+        let onWaiting: @MainActor @Sendable () -> Void = { [weak self] in
             // Only the current link's pairing speaks for the banner (review M1).
             guard let self, self.currentLink === link else { return }
             self.pairingState = keys.takeReplaced() ? .waitingAfterNewKeys(mac: name) : .waiting(mac: name)
         }
-        guard currentLink === link else { return false }
-        switch outcome {
-        case .paired(let macDevice):
-            pairingState = .paired
-            acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
-                try await keys.authorizeApproval(reason: reason)
+        let outcome = Task.detached { await pairing.finish(auth, macID: macID, onWaiting: onWaiting) }
+        return Task { @MainActor [weak self] in
+            let outcome = await outcome.value
+            guard let self, self.currentLink === link else { return false }
+            switch outcome {
+            case .paired(let macDevice):
+                self.pairingState = .paired
+                self.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
+                    try await keys.authorizeApproval(reason: reason)
+                }
+                return true
+            case .legacy:
+                self.pairingState = .idle
+                return true
+            case .refused(let error):
+                log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
+                self.pairingState = error.code == "denied" ? .denied(mac: name) : .failed(LinkPairing.refusalText(error))
+                return false
             }
-            return true
-        case .legacy:
-            pairingState = .idle
-            return true
-        case .refused(let error):
-            log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
-            pairingState = error.code == "denied" ? .denied(mac: name) : .failed(LinkPairing.refusalText(error))
-            return false
         }
     }
 
-    /// Sign-out: asks the linked Mac to forget this phone, then deletes its keys.
-    /// Runs once (review m4): a second call would load, and so create, new keys.
-    public func unpair() async {
-        guard let pairing, !unpairStarted else { return }
-        unpairStarted = true
+    /// Settings → Devices → "Remove This iPhone from My Macs": asks the linked
+    /// Mac to forget this phone, deletes this account's pairing keys (so no
+    /// Mac that approved them can be reached with them again), and redials,
+    /// so the next link asks the Mac to allow this iPhone again.
+    /// Sign-out does not do this: it keeps the phone's identity and approvals
+    /// (verify/persistence.md). One removal at a time (review m4: a second
+    /// one racing it would load, and so create, new keys mid-unpair).
+    public func removeThisPhoneFromMacs() async {
+        guard let pairing, !removalRunning else { return }
+        removalRunning = true
+        defer { removalRunning = false }
         if let link = currentLink, let macID = self.link.target?.macID {
             await pairing.unpair(link: link, macID: macID)
         }
+        // Drop the link the Mac approved with the old keys before they go, so
+        // nothing on it loads (and so makes) new keys mid-removal; then dial again.
+        let target = self.link.target
+        self.link.send(.target(nil))
         pairing.keys.reset()
+        removedFromMacsCount += 1
+        if target != nil { retarget() }
+    }
+
+    /// Account deletion, after the service forgot the account: this phone's
+    /// keys and device ids for it go too (they can never be used again).
+    public func forgetThisPhone() {
+        accountDeleted = true
+        pairing?.keys.reset()
+        pairing?.pins.removeAll()
+        DeviceIdentity.forget(userID: userID, store: secrets)
     }
 
     /// A live session for a terminal tab of the Mac (`s<surface>`), or nil
@@ -854,7 +1025,8 @@ public final class LiveCoordinator {
         guard let surface = workspaces.tree?.surfaces[tabID] else { return nil }
         // The daemon titles a shell tab with its folder; the composer says "Send to <program>".
         let program = programName.hasPrefix("/") || programName.hasPrefix("~") || programName.isEmpty ? "terminal" : programName
-        let session = DaemonTerminalSession(surface: surface, programName: program, open: { [weak self] in
+        let info = ["name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": identity.link]
+        let session = DaemonTerminalSession(surface: surface, programName: program, clientInfo: info, open: { [weak self] in
             guard let link = await self?.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
@@ -905,6 +1077,8 @@ public final class LiveCoordinator {
     private func startChief(_ link: any MacLink) async {
         let session = ChiefSession.shared
         session.macName = self.link.target?.name
+        // Chief's settings show this Mac's last known model until it answers.
+        session.macID = self.link.target?.macID
         // A newer link (or none) took over while this one was opening: leave it be.
         func current() -> Bool { (currentLink as AnyObject?) === (link as AnyObject) }
         func offline(_ reason: String) {
@@ -943,6 +1117,8 @@ public final class LiveCoordinator {
                 return
             }
             session.status = nil
+            // Answers to Chief's questions sign with this phone's key after Face ID.
+            session.answerSigner = { [weak self] in self?.chiefAnswerSigner() }
             session.use(ChiefDaemonBackend(client: client))
             chiefLive = true
             chiefStatus = nil
@@ -971,6 +1147,7 @@ public final class LiveCoordinator {
         scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.
         if acpmux.isReady { feed.hydrate(Array(acpmux.sessions.values)) }
+        terminalFeed.treeChanged(tree, macID: macID, connection: workspaces.connectionSerial)
     }
 
     @ObservationIgnored private var feedSavePending = false
@@ -980,7 +1157,7 @@ public final class LiveCoordinator {
         guard !feedSavePending else { return }
         feedSavePending = true
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, !stopped else { return }
             feedSavePending = false
             archive.save(feed.store.items)
         }

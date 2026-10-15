@@ -52,7 +52,7 @@ impl Recorder {
     }
 }
 
-async fn stream_over(transport: Transport) {
+async fn stream_over(transport: Transport, video_lane: bool) {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let sockets = tempfile::tempdir().unwrap();
     let launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -91,6 +91,7 @@ async fn stream_over(transport: Transport) {
             transport,
             include_loopback: true,
             relay_only: false,
+            video_lane,
         },
         None,
     )
@@ -124,10 +125,16 @@ async fn stream_over(transport: Transport) {
     recorder
         .until("frames with an age", |r| r.frames.lock().unwrap().iter().any(|f| f.age_us.is_some()))
         .await;
+    recorder.until("a P-frame", |r| r.frames.lock().unwrap().iter().any(|f| !f.keyframe)).await;
     {
         let frames = recorder.frames.lock().unwrap();
         assert!(frames[0].keyframe);
-        assert_eq!(frames[0].access_unit.len(), 2500);
+        // SPS, PPS and the IDR slice of the stand-in host, byte for byte
+        // whichever way they came.
+        assert_eq!(&frames[0].access_unit[..5], &[0, 0, 0, 1, 0x67]);
+        assert_eq!(frames[0].access_unit.len(), 18 + 5 + 4 + 2500);
+        let p = frames.iter().find(|f| !f.keyframe).unwrap();
+        assert_eq!(p.access_unit.len(), 5 + 4 + 2500, "{:?}", &p.access_unit[..12]);
         let aged = frames.iter().find_map(|f| f.age_us).unwrap();
         assert!((0..2_000_000).contains(&aged), "age {aged}");
     }
@@ -148,16 +155,116 @@ async fn stream_over(transport: Transport) {
     assert!(stream.send_message(r#"{"t":"welcome"}"#.into()).is_err());
     let stats = stream.stats();
     assert!(stats.frames >= 1 && stats.bytes >= 2500 && stats.clock_offset_us.is_some());
+    // With the lane offered the video rides it on either transport.
+    assert_eq!(stats.video_track, video_lane, "{stats:?}");
     stream.close();
     recorder.until("closed", |r| r.closed.lock().unwrap().is_some()).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn browser_stream_over_webrtc() {
-    stream_over(Transport::WebRtc).await;
+    stream_over(Transport::WebRtc, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_stream_over_the_webrtc_video_track() {
+    stream_over(Transport::WebRtc, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_stream_over_rtp_inside_the_wireguard_tunnel() {
+    stream_over(Transport::WireGuard, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn browser_stream_over_wireguard() {
-    stream_over(Transport::WireGuard).await;
+    stream_over(Transport::WireGuard, false).await;
+}
+
+/// The real CEF browser host (`CNX_RB_HOST_EXE`, e.g. a DEV app's
+/// `Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/...`) over
+/// the WebRTC video track, with a page from `CNX_RB_URL`. Measurement support,
+/// not part of the suite: `cargo test -p cnx-ffi --test browser real_host -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs a real browser host"]
+async fn real_host_over_the_track() {
+    let Ok(exe) = std::env::var("CNX_RB_HOST_EXE") else { return };
+    let url = std::env::var("CNX_RB_URL").unwrap_or_else(|_| "about:blank".into());
+    let video_lane = std::env::var("CNX_RB_CHANNEL").is_err();
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let sockets = tempfile::tempdir().unwrap();
+    let services = ServiceConfig {
+        tui_socket_dir: sockets.path().to_path_buf(),
+        default_session: "main".into(),
+        default_socket: None,
+        file_roots: Vec::new(),
+        acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
+        browser: cnx_hostd::browser::BrowserConfig::process(
+            exe.into(),
+            std::env::var("CNX_RB_CACHE").map_or_else(|_| sockets.path().join("rb"), Into::into),
+            2,
+        ),
+        chief_socket: None,
+        agent_tab_host: None,
+        uploads_dir: sockets.path().join("uploads"),
+        upload_max_bytes: 1024 * 1024,
+        pairing: None,
+    };
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    tokio::spawn(serve_signaling(
+        mac,
+        AnswerContext {
+            owner_user_id: "alice".into(),
+            services: Arc::new(services),
+            ice: IceSource::Fixed(Vec::new()),
+            include_loopback: true,
+            exclude_cgnat: false,
+        },
+    ));
+    let handle = connect_inner(
+        ConnectRequest {
+            base_url: server.base_url.clone(),
+            token: "user:alice".into(),
+            team_id: "team".into(),
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mac_device_id: mac_id,
+            transport: Transport::WebRtc,
+            include_loopback: true,
+            relay_only: false,
+            video_lane,
+        },
+        None,
+    )
+    .await
+    .expect("connect");
+    let recorder = Arc::new(Recorder::default());
+    let stream = handle
+        .open_browser(serde_json::json!({"tab": "real", "url": url}).to_string(), recorder.clone())
+        .await
+        .unwrap();
+    recorder.until("welcome", |r| r.messages.lock().unwrap().iter().any(|m| m["t"] == "welcome")).await;
+    stream
+        .send_message(
+            serde_json::json!({"t": "rb.open", "tab": "real", "profile": "default", "viewer": "phone",
+                "screen": {"css_width": 402, "css_height": 722, "scale": 2.0, "refresh_hz": 60, "color_space": "srgb"},
+                "caps": {"codecs": ["h264"], "tile_codecs": [], "max_fps": 60}})
+            .to_string(),
+        )
+        .unwrap();
+    for second in 0..8 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let frames = recorder.frames.lock().unwrap();
+        let keyframes = frames.iter().filter(|f| f.keyframe).count();
+        let first = frames.first().map(|f| f.access_unit.iter().take(12).copied().collect::<Vec<_>>());
+        println!(
+            "t={second}s frames={} keyframes={keyframes} stats={:?} first={first:?}",
+            frames.len(),
+            stream.stats()
+        );
+    }
+    let msgs: Vec<String> = recorder.messages.lock().unwrap().iter().map(|m| m["t"].to_string()).collect();
+    println!("messages: {msgs:?}");
+    assert!(recorder.frames.lock().unwrap().len() > 30);
+    stream.close();
 }

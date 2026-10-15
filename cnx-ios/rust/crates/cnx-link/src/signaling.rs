@@ -72,6 +72,12 @@ pub enum SignalPayload {
         /// "Lanes"); absent from older peers.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         lanes: Vec<String>,
+        /// Which of `endpoints` are the dialer's TURN relayed addresses. The
+        /// Mac sends plain UDP to them like any endpoint, so only this tells
+        /// it that such a route is TURN, not direct (its path label); absent
+        /// from older phones.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        relayed: Vec<String>,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -374,6 +380,11 @@ impl SignalingClient {
         &self.shared.device_id
     }
 
+    /// Whether `other` is a handle of this same socket.
+    pub fn same_socket(&self, other: &SignalingClient) -> bool {
+        Arc::ptr_eq(&self.shared, &other.shared)
+    }
+
     /// When the socket opened.
     pub fn opened_at(&self) -> std::time::Instant {
         self.shared.opened
@@ -538,6 +549,13 @@ mod tests {
             {"kind":"wg-init","publicKey":"k","endpoints":["1.2.3.4:5"],"overlayIP":"10.77.0.2"}))
         .unwrap();
         assert!(matches!(init, SignalPayload::WgInit { .. }));
+        let with_relayed: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-init","publicKey":"k","endpoints":["1.2.3.4:5","9.9.9.9:7"],"overlayIP":"10.77.0.2",
+             "relayed":["9.9.9.9:7"]}))
+        .unwrap();
+        assert!(
+            matches!(with_relayed, SignalPayload::WgInit { ref relayed, .. } if relayed == &["9.9.9.9:7"])
+        );
         let hello: SignalMessage = serde_json::from_str(
             r#"{"type":"hello","you":"p","macs":[{"deviceId":"m","name":"Mac","online":true,"lastSeenAt":1}]}"#,
         )

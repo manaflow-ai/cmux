@@ -106,6 +106,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     private func open(_ item: FeedItem) {
         store.markRead(item.id)
+        // A terminal agent's event opens its terminal tab (Workspaces), not a chat.
+        if item.opensTerminal, let openTerminal = FeedRouting.shared.openTerminal {
+            openTerminal(item)
+            return
+        }
         path.append(AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID))
     }
 
@@ -123,23 +128,30 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     Button {
                         withAnimation(.cnxSnap) { store.filter = filter }
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 10) {
                             Text(filter.rawValue)
                             if filter == .needsYou, store.needsYouCount > 0 {
                                 Text("\(store.needsYouCount)")
                                     .font(.caption.weight(.bold))
                                     .foregroundStyle(Color.cnxOnAccent)
                                     .padding(.horizontal, 6)
+                                    .padding(.vertical, 1)
                                     .frame(minWidth: 18, minHeight: 18)
                                     .background(Color.cnxAccent, in: .capsule)
                                     .contentTransition(.numericText())
                             }
                         }
                         .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                        .fixedSize()
                         .padding(.horizontal, 14)
-                        .frame(height: 36)
+                        .padding(.vertical, 6)
+                        // Grows with Dynamic Type: at AX sizes the text and badge stay inside the capsule.
+                        .frame(minHeight: 36)
                         .background(store.filter == filter ? Color.cnxFillSelected : Color.clear, in: .capsule)
-                        .contentShape(.capsule)
+                        // 44 pt target around the 36 pt capsule.
+                        .frame(minHeight: 44)
+                        .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(store.filter == filter ? .isSelected : [])
@@ -148,7 +160,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .padding(.horizontal, 20)
         }
         .scrollIndicators(.hidden)
-        .padding(.vertical, 6)
+        .trailingOverflowFade(width: 32)
+        .padding(.vertical, 2)
         .sensoryFeedback(.selection, trigger: store.filter)
     }
 
@@ -169,7 +182,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 }
             }
         } label: {
-            Image(systemName: "line.3.horizontal.decrease")
+            Label("Filter", systemImage: "line.3.horizontal.decrease")
         }
         .accessibilityLabel("Filter")
     }
@@ -286,6 +299,10 @@ private struct DoneUndoBar: View {
                 .padding(.horizontal, 18)
                 .frame(height: 44)
                 .glassEffect(.regular.interactive(), in: .capsule)
+                // Swipe down or sideways to dismiss (it came from the bottom); a tap is Undo's.
+                .cnxDismissibleToast(entry: .bottom, announcement: "Marked done", tapDismisses: false) {
+                    if store.lastDoneID == id { withAnimation(.cnxSmooth) { store.clearDone() } }
+                }
                 .padding(.bottom, 12)
                 .transition(.offset(y: 16).combined(with: .opacity))
                 .task(id: id) {

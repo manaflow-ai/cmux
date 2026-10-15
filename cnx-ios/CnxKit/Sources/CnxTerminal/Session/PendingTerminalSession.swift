@@ -46,7 +46,7 @@ public enum TerminalSessionChoice {
     }
 
     /// `live`: the Mac's session for the tab, when it exists. `mockDataEnabled`:
-    /// Settings → Developer → Mock data (or a mock launch); ignored outside DEBUG.
+    /// Settings → Developer → Mock (or a mock launch); ignored outside DEBUG.
     public static func session(
         live: (any TerminalSession)?,
         mockDataEnabled: Bool,
@@ -55,7 +55,12 @@ public enum TerminalSessionChoice {
     ) -> any TerminalSession {
         if let live { return live }
         #if DEBUG
-        if mockDataEnabled { return MockTerminalSession() }
+        if mockDataEnabled {
+            // A Codex-like inline TUI streaming history (reproduction harness).
+            if ProcessInfo.processInfo.arguments.contains("-cnx-term-fake-codex") { return FakeCodexSession() }
+            if ProcessInfo.processInfo.arguments.contains("-cnx-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
+            return MockTerminalSession()
+        }
         #endif
         return PendingTerminalSession(macName: macName, programName: programName)
     }

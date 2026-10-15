@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxAgentQuestion
 import CnxArtifacts
+import CmuxAgentBrands
 import CnxDesign
 import CnxDiff
 import CnxMarkdown
@@ -101,7 +102,7 @@ public final class AgentChatSurface {
         var unique: [String: DiffFile] = [:]
         for file in files { unique[file.id] = file }
         let ordered = files.map(\.id).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.compactMap { unique[$0] }
-        return DiffChangeSet(id: "session", title: "Agent edits", subtitle: "Edits in this chat", files: ordered)
+        return DiffChangeSet(id: "session", title: "Agent Edits", subtitle: "Edits in this chat", files: ordered)
     }
 
     /// Whether the chat has agent edits to open.
@@ -139,8 +140,9 @@ public final class AgentChatSurface {
         switch command {
         case .chatSend(let prompt):
             Task {
-                composerFocused = true
-                try? await Task.sleep(for: .milliseconds(500))
+                // Text goes into the composer without focusing it: a raised keyboard on a
+                // fresh simulator shows the system's swipe-typing tip over the composer.
+                // The composer expands because it has content.
                 for character in prompt {
                     text.append(character)
                     try? await Task.sleep(for: .milliseconds(28))
@@ -148,7 +150,6 @@ public final class AgentChatSurface {
                 try? await Task.sleep(for: .milliseconds(400))
                 store.send(prompt: text)
                 text = ""
-                composerFocused = false
             }
         case .chatScroll(let toTop):
             following = !toTop
@@ -241,11 +242,11 @@ public struct AgentChatScreen: View {
         ToolbarItem(placement: .principal) {
             Menu {
 
-                Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
-                Button("Agent edits", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
+                Button("Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true }
+                Button("Agent Edits", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
                     .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
-                Button("Copy session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
+                Button("Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
                 if !store.modes.isEmpty {
                     Section("Mode") {
                         Picker("Mode", selection: Binding(get: { store.currentModeID ?? "" }, set: { store.setMode($0) })) {
@@ -255,7 +256,8 @@ public struct AgentChatScreen: View {
                 }
             } label: {
                 VStack(spacing: 1) {
-                    Text(store.summary.name).font(.headline).lineLimit(1).truncationMode(.middle)
+                    Text(store.displayTitle).font(.headline).lineLimit(1).truncationMode(.tail)
+                        .contentTransition(.opacity)
                     HStack(spacing: 5) {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
                         Text("\(store.summary.agentName) · \(store.summary.workspaceTitle)").font(.footnote).foregroundStyle(.secondary)
@@ -264,16 +266,19 @@ public struct AgentChatScreen: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: 240)
             }
-            .accessibilityLabel(Text("\(store.summary.name), \(store.summary.agentName) in \(store.summary.workspaceTitle)"))
+            .menuOrder(.fixed)
+            .accessibilityLabel(Text("\(store.displayTitle), \(store.summary.agentName) in \(store.summary.workspaceTitle)"))
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
-                Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
-                ShareLink(item: AgentChatSurface.transcriptText(store)) { Label("Share transcript", systemImage: "square.and.arrow.up") }
-                Button("Stop agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
+                Button("Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true }
+                ShareLink(item: AgentChatSurface.transcriptText(store)) { Label("Share Transcript", systemImage: "square.and.arrow.up") }
+                Button("Stop Agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
                     .disabled(!store.isRunning)
             } label: {
-                Image(systemName: "ellipsis")
+                // A Label, not a sized Image: the bar hosts a native button whose touch area
+                // covers the whole 44 pt glass circle (a custom label view was cut to 36 pt).
+                Label("More", systemImage: "ellipsis")
             }
             .accessibilityLabel("More")
         }
@@ -341,22 +346,7 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
-        .overlay(alignment: .top) {
-            // Under foreign chrome (a workspace tab) there is no navigation
-            // bar to draw the scroll edge effect, and text ran under the
-            // status bar's clock. Fade it out the way the bar would.
-            if let topInset {
-                LinearGradient(stops: [
-                    .init(color: Color.cnxBackground, location: 0),
-                    .init(color: Color.cnxBackground, location: 0.6),
-                    .init(color: Color.cnxBackground.opacity(0), location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-                .frame(height: topInset + 16)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        }
+        // The soft top edge under the status bar or bar is the controller's TopFadeView.
         .navigationDestination(item: $surface.diffRoute) { route in
             if let file = route.fileID {
                 DiffFileScreen(changeSet: route.changes, fileID: file)
@@ -397,7 +387,11 @@ struct AgentChatTurns: View {
                     .padding(.bottom, 20)
             }
             ForEach(store.turns) { turn in
-                TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id, surface: surface)
+                // Exactly the column's width: one row that cannot shrink never widens the turn.
+                ProposedWidthLayout {
+                    TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id, surface: surface)
+                }
+                    .rowHeightProbe("turn-\(turn.id)")
                     .padding(.bottom, 24)
                     .id(turn.id)
             }
@@ -414,8 +408,8 @@ struct AgentChatEmptyState: View {
     var body: some View {
         if store.turns.isEmpty {
             VStack(spacing: 12) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 22))
+                // The agent's own mark (the Claude or Codex logo), not a generic glyph.
+                AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
                     .frame(width: 48, height: 48)
                     .background(Color.cnxSurfaceRaised, in: .circle)
                 Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
@@ -447,10 +441,14 @@ struct AgentChatJumpButton: View {
                                 PulsingRing()
                             }
                         }
+                        .background(Color.cnxBackground.opacity(0.72), in: .circle)
+                        // A tinted glass disc, so transcript text under it never reads through the arrow.
+                        .glassEffect(.regular.tint(Color.cnxBackground.opacity(0.35)).interactive(), in: .circle)
+                        // The 36 pt disc in a 44 pt target.
+                        .frame(width: 44, height: 44)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
@@ -500,12 +498,17 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
+                // Pinned plan progress while a turn runs (ACP web UI parity).
+                if let progress = store.runningPlan, let entries = store.runningPlanEntries {
+                    PlanProgressBar(progress: progress, entries: entries)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 if !store.queue.isEmpty {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 if let permission = store.pendingPermission, !surface.permissionBarHidden {
-                    PermissionActionBar(request: permission.request) { option in
+                    PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
                         withAnimation(.cnxSmooth) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
                         withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = true }
@@ -637,6 +640,7 @@ struct TurnView: View {
                 let rows = turn.rows
                 ForEach(rows) { row in
                     rowView(row, isLastRow: row.id == rows.last?.id)
+                        .rowHeightProbe("\(row.id)")
                         .transition(.opacity.animation(.easeOut(duration: 0.15)))
                 }
                 if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
@@ -736,7 +740,8 @@ struct StreamingMarkdown: View {
     let isStreaming: Bool
 
     var body: some View {
-        MarkdownView(MarkdownDocument(parsing: markdown), isStreaming: isStreaming)
+        // While streaming, an emphasis or code marker that has not closed yet is hidden.
+        MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
@@ -766,9 +771,9 @@ struct UserBubble: View {
                 .contextMenu {
                     Section(AgentTurn.menuTimestamp(turn.promptAt)) {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = turn.prompt }
-                        Button("Select text", systemImage: "selection.pin.in.out") { selecting = true }
+                        Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
-                            Button("Edit and resend", systemImage: "pencil") { resend(turn.prompt) }
+                            Button("Edit and Resend", systemImage: "pencil") { resend(turn.prompt) }
                         }
                         ShareLink(item: turn.prompt) { Label("Share", systemImage: "square.and.arrow.up") }
                     }
@@ -796,6 +801,7 @@ struct UserBubble: View {
 /// edges line up with the bubble (no remove-badge room).
 struct SentAttachments: View {
     let attachments: [AgentAttachment]
+    @State private var viewing: ImageViewerItem?
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
@@ -821,6 +827,7 @@ struct SentAttachments: View {
                 AttachmentThumb(attachment: file).padding(.top, -6).padding(.trailing, -6)
             }
         }
+        .fullScreenCover(item: $viewing) { FullScreenImageViewer(item: $0) }
     }
 
     @ViewBuilder
@@ -834,8 +841,15 @@ struct SentAttachments: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
+        .contentShape(.rect(cornerRadius: 16, style: .continuous))
+        // Tap opens the image full screen.
+        .onTapGesture {
+            if let data = attachment.data { viewing = ImageViewerItem(id: attachment.id, name: attachment.name, data: data) }
+        }
         .accessibilityElement()
         .accessibilityLabel(Text("Image, \(attachment.name)"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens full screen")
     }
 }
 
@@ -847,7 +861,7 @@ struct AnswerActionRow: View {
     @State private var copied = false
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             IconAction(copied ? "checkmark" : "doc.on.doc", label: "Copy") {
                 UIPasteboard.general.string = turn.answerMarkdown
                 withAnimation(.cnxSnap) { copied = true }
@@ -879,8 +893,55 @@ struct AnswerActionRow: View {
                     .lineLimit(1).fixedSize()
             }
         }
+        // At accessibility sizes the glyphs stop growing at AX1 (90 pt targets made the
+        // row wider than the column).
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        // 44 pt targets on a 32 pt visual row: the extra height overlaps the row's margins.
+        .padding(.vertical, -6)
         .padding(.top, 2)
-        .padding(.leading, -8)
+        .padding(.leading, -14)
+    }
+}
+
+#if DEBUG
+/// `-cnx-row-heights`: logs every size a transcript row is asked for and where it is
+/// placed, to `Documents/row-heights.txt` (round 3: measured vs drawn heights at AX5).
+struct RowHeightProbe: Layout {
+    let name: String
+    static let isEnabled = CommandLine.arguments.contains("-cnx-row-heights")
+    nonisolated(unsafe) static var handle: FileHandle? = {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("row-heights.txt")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        return try? FileHandle(forWritingTo: url)
+    }()
+
+    static func log(_ line: String) { handle?.write(Data((line + "\n").utf8)) }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews.first?.sizeThatFits(proposal) ?? .zero
+        Self.log("fit \(name) w=\(proposal.width.map { "\($0)" } ?? "nil") h=\(proposal.height.map { "\($0)" } ?? "nil") -> \(size.width)x\(size.height)")
+        return size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        Self.log("place \(name) \(bounds.width)x\(bounds.height) at y=\(bounds.minY)")
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+#endif
+
+extension View {
+    @ViewBuilder
+    func rowHeightProbe(_ name: String) -> some View {
+        #if DEBUG
+        if RowHeightProbe.isEnabled {
+            RowHeightProbe(name: name) { self }
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
 #endif

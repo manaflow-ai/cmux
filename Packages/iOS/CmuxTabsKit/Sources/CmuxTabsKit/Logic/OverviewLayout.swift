@@ -22,8 +22,17 @@ struct OverviewLayout: Equatable, Sendable {
     static let baseCardRadius: CGFloat = 13.7
     static let control: CGFloat = 48
 
-    /// 177 pt on a 402 pt screen, 196 pt on 440.
-    var cardWidth: CGFloat { ((size.width - 3 * Self.gridInset) / 2).rounded(.down) }
+    /// A lone tab: Safari shows one larger card, centred (device: 294.7 pt
+    /// wide at x 72.7 on a 440 pt iPhone 17 Pro Max, top 124; simulator:
+    /// 268 pt at x 66.7 on 402, top 122), with the same aspect, close button
+    /// insets and title row, and "1 Tab" in the bar.
+    var isLone: Bool { count == 1 }
+
+    /// Two-column card width: 177 pt on a 402 pt screen, 196 pt on 440.
+    var columnWidth: CGFloat { ((size.width - 3 * Self.gridInset) / 2).rounded(.down) }
+    /// The card width: two thirds of the screen for a lone tab, else the
+    /// column width.
+    var cardWidth: CGFloat { isLone ? (size.width * 2 / 3).rounded() : columnWidth }
     var cardHeight: CGFloat { cardWidth * Self.cardAspect }
     /// 18 pt at 177 pt wide, scaled with the card.
     var cardRadius: CGFloat { Self.baseCardRadius * cardWidth / 177 }
@@ -41,6 +50,9 @@ struct OverviewLayout: Equatable, Sendable {
 
     /// Card frame in content coordinates.
     func card(_ index: Int) -> CGRect {
+        if isLone, index == 0 {
+            return CGRect(x: (size.width - cardWidth) / 2, y: top, width: cardWidth, height: cardHeight)
+        }
         let col = index % 2, row = index / 2
         let x = col == 0 ? Self.gridInset : size.width - Self.gridInset - cardWidth
         return CGRect(x: x, y: top + CGFloat(row) * pitch, width: cardWidth, height: cardHeight)
@@ -54,6 +66,12 @@ struct OverviewLayout: Equatable, Sendable {
     /// The tab zoom's card end: the card's content frame converted to the
     /// screen through the grid content's origin in screen coordinates
     /// (x 0, y = -scroll offset when the grid fills the screen).
+    /// The card slot under `point` (grid content coordinates), counting
+    /// the gaps around a card as that card; nil outside every slot.
+    func slot(at point: CGPoint) -> Int? {
+        (0..<count).first { card($0).insetBy(dx: -8, dy: -16).contains(point) }
+    }
+
     func zoomEndpoint(_ index: Int, contentOrigin: CGPoint?, fallbackOffset: CGFloat) -> CGRect {
         let origin = contentOrigin ?? CGPoint(x: 0, y: -fallbackOffset)
         return card(index).offsetBy(dx: origin.x, dy: origin.y)

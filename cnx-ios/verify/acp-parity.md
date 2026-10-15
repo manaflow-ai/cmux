@@ -89,7 +89,7 @@ Branch `feat-cnx-ios-acp`, 2026-10-13. Modules: the new `CnxArtifacts`, `CnxAgen
 | --- | --- | --- |
 | Artifacts grid and chips | `chatgpt-26-library-grid` | Match: chip row, 2 columns, 1:1 tiles radius 16, 8 pt gaps. Ours adds the name and how it was referenced under each tile. |
 | Artifacts list | `chatgpt-22-uploaded-files-empty` | Rows with type glyph, name, origin and path; previews push in the sheet's own stack. |
-| Chat More menu | `chatgpt-21-chat-more-menu` | "Files and artifacts" first, then Share, Archive, Stop. |
+| Chat More menu | `chatgpt-21-chat-more-menu` | "Files and artifacts" first, then Share transcript and Stop agent (disabled while idle). Archive was removed: the link has no archive call. |
 | Swipe actions | iOS Mail conventions (no capture in the reference set) | Leading blue Read, trailing purple Done outermost, gray Open, full-swipe arming with haptic; Undo bar like Mail's. |
 | Checkpoint restore | web acpmux checkpoints (no phone reference) | Destructive "Restore Files" confirmation; the conversation is not changed. |
 | Handoff review | web acpmux handoff `ReviewMessage` | Same sections and copy (Carried context, Repository checkpoint, the attestation sentence, Continue in X, Discard continuation). |

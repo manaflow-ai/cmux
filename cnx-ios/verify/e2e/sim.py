@@ -222,6 +222,17 @@ class Sim:
                             keys = self.keyboard()
                             if want in keys: break
             if want not in keys:
+                # A loaded Mac can lag the layout switch (or a keyboard intro was still up):
+                # dismiss the intro, give the switch time to land, and try once more.
+                self.dismiss_keyboard_intro()
+                for switch in ("numbers", "more", "more, numbers"):
+                    keys = self.keyboard()
+                    if want in keys: break
+                    if switch in keys:
+                        self.tap_el(keys[switch]); time.sleep(1.0)
+                        keys = self.keyboard()
+                        if want in keys: break
+            if want not in keys:
                 raise LookupError(f"no soft key for {ch!r}; have {sorted(keys)[:40]}")
             if ch in self.SHIFTED and "shift" in keys:
                 self.tap_el(keys["shift"]); time.sleep(0.12)
@@ -288,6 +299,11 @@ class Sim:
                 buf += chunk
                 if "Recording started" in buf:
                     break
+        if "Recording started" not in buf:
+            # e.g. "Host recording is already in progress" after a killed recorder:
+            # a metric without video would report n=0 silently.
+            self.record_stop()
+            raise RuntimeError(f"screen recording did not start: {buf.strip()[-200:]}")
         return time.time()
 
     def record_stop(self):

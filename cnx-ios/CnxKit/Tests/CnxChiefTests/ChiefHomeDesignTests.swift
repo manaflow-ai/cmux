@@ -29,14 +29,46 @@ import SwiftUI
         // A picture's file name is not avatar text.
         #expect(try report(#"{"engine":{},"avatar":"cat.png"}"#).avatar == nil)
         #expect(ChiefEngineReport.avatarText("  AB  ") == "AB")
+        // F7: anything that looks like a file is not text.
+        for file in ["avatar.png", "Cat.JPG", "me.webp", "pics/a", "x.gif"] {
+            #expect(ChiefEngineReport.avatarText(file) == nil)
+        }
+        #expect(ChiefEngineReport.avatarText(nil) == nil)
+        #expect(try report(#"{"engine":{},"avatar":{"picture":"a.png"}}"#).avatar == nil)
         #expect(ChiefEngineReport.avatarText("ABC") == "AB")
+    }
+
+    /// The live Codex report of 10-13 (an older Mac): no resolved model.
+    static func olderMacCodex() throws -> ChiefEngineReport {
+        let line = #"{"protocol":"cmux.protocol/2","type":"response","id":"r1","ok":true,"result":{"engine":{"harness":"codex","model":null,"effort":"high"},"choice":{"harness":"codex","effort":"high"},"recent":[{"harness":"claude","status":"error","ms":177000}],"offered":{"models":[{"id":"default","name":"Default"},{"id":"gpt-6.1-sol","name":"GPT-6.1 Sol"}],"efforts":["low","high"]}}}"#
+        return try ChiefControl.decode(Data(line.utf8), mutation: false)
+    }
+
+    /// The same Chief on a #20531 Mac.
+    static func newMacCodex() throws -> ChiefEngineReport {
+        let line = #"{"protocol":"cmux.protocol/2","type":"response","id":"r1","ok":true,"result":{"engine":{"harness":"codex","model":"gpt-6.1-sol","model_is_default":true,"effort":"high"},"choice":{"harness":"codex","effort":"high"},"avatar":null,"recent":[],"offered":{"models":[{"id":"default","name":"Default (GPT-6.1 Sol)","resolves_to":"gpt-6.1-sol"},{"id":"gpt-6.1-sol","name":"GPT-6.1 Sol","catalog_default":true}],"default_model":{"id":"gpt-6.1-sol","name":"GPT-6.1 Sol"},"efforts":["low","high"]}}}"#
+        return try ChiefControl.decode(Data(line.utf8), mutation: false)
+    }
+
+    /// F1: the #20531 fields decode; the older shape still does.
+    @Test func resolvedDefaultDecodes() throws {
+        let new = try Self.newMacCodex()
+        #expect(new.engine.modelIsDefault == true)
+        #expect(new.offered.defaultModel == .init(id: "gpt-6.1-sol", name: "GPT-6.1 Sol"))
+        #expect(new.defaultEntry?.resolvesTo == "gpt-6.1-sol")
+        #expect(new.resolvedDefaultName == "GPT-6.1 Sol")
+        #expect(new.avatarSupported)
+        let old = try Self.olderMacCodex()
+        #expect(old.engine.modelIsDefault == nil)
+        #expect(old.resolvedDefaultName == nil)
+        #expect(!old.avatarSupported)
     }
 
     /// SPEC 4: acpmux's "default" model entry names what it resolves to and
     /// is not listed twice.
     @Test func defaultModelEntryIsSeparate() throws {
         let got = try report(#"{"engine":{"harness":"codex"},"offered":{"models":[{"id":"default","name":"Default (GPT-6.1 Sol)"},{"id":"gpt-6.1-sol","name":"GPT-6.1 Sol"}]}}"#)
-        #expect(got.defaultModel?.name == "Default (GPT-6.1 Sol)")
+        #expect(got.defaultEntry?.name == "Default (GPT-6.1 Sol)")
         #expect(got.pickableModels.map(\.id) == ["gpt-6.1-sol"])
         #expect(got.modelName("gpt-6.1-sol") == "GPT-6.1 Sol")
         #expect(got.modelName("default") == nil)
@@ -79,8 +111,23 @@ import SwiftUI
         #expect(session.isWaitingOnYou)
         session.discardOutbox()
         #expect(!session.needsYou)
+        // F6: waiting on you (a question not yet seen) counts as Needs You,
+        // as the pin's bubble shows it; covered with the mock below.
         #expect(session.avatar == "C")
     }
+
+    #if DEBUG
+    /// F6: Chief's unseen question shows on the pin and counts as Needs You.
+    @Test func unseenQuestionIsNeedsYou() async {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
+        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: ChiefOutbox(file: file))
+        while session.lastMessage == nil { await Task.yield() }
+        #expect(session.isWaitingOnYou)
+        #expect(session.needsYou)
+        session.markSeen()
+        #expect(!session.isWaitingOnYou)
+    }
+    #endif
 }
 
 #if os(iOS)
@@ -113,18 +160,42 @@ import SwiftUI
         #expect(ChiefSettingsView.durationText(milliseconds: 45_000) == "45 s")
     }
 
-    /// SPEC 4: the default model item names the model it resolves to.
-    @Test func defaultModelLabelNamesTheModel() {
-        let fromEntry = ChiefEngineReport(engine: .init(harness: "codex"),
-                                          offered: .init(models: [.init(id: "default", name: "Default (GPT-6.1 Sol)")]))
-        #expect(ChiefSettingsView.defaultModelLabel(fromEntry) == "Default (GPT-6.1 Sol)")
-        let named = ChiefEngineReport(engine: .init(harness: "codex"),
-                                      offered: .init(models: [.init(id: "default", name: "GPT-6.1 Sol")]))
-        #expect(ChiefSettingsView.defaultModelLabel(named) == "Default (GPT-6.1 Sol)")
-        let resolved = ChiefEngineReport(engine: .init(harness: "claude", model: "opus"),
+    /// F1: a #20531 Mac resolves the default; an older Mac gets plain "Default".
+    @Test func defaultModelLabelNamesTheModel() throws {
+        #expect(ChiefSettingsView.defaultModelLabel(try ChiefEngineReportDesignTests.newMacCodex()) == "Default (GPT-6.1 Sol)")
+        // Only `resolves_to` on the entry.
+        let entry = ChiefEngineReport(engine: .init(harness: "codex"),
+                                      offered: .init(models: [.init(id: "default", name: "Default (GPT-6.1 Sol)", resolvesTo: "gpt-6.1-sol"),
+                                                              .init(id: "gpt-6.1-sol", name: "GPT-6.1 Sol")]))
+        #expect(ChiefSettingsView.defaultModelLabel(entry) == "Default (GPT-6.1 Sol)")
+        // Only `engine.model` with `model_is_default`.
+        let resolved = ChiefEngineReport(engine: .init(harness: "claude", model: "opus", modelIsDefault: true),
                                          offered: .init(models: [.init(id: "opus", name: "Claude Opus")]))
         #expect(ChiefSettingsView.defaultModelLabel(resolved) == "Default (Claude Opus)")
-        #expect(ChiefSettingsView.defaultModelLabel(ChiefEngineReport(engine: .init(harness: "codex"))) == "Default")
+        // The 10-13 live report from an older Mac: no name to give.
+        let old = try ChiefEngineReportDesignTests.olderMacCodex()
+        #expect(ChiefSettingsView.defaultModelLabel(old) == "Default")
+        // An older Mac's chosen model is not "the default".
+        let chosen = ChiefEngineReport(engine: .init(harness: "claude", model: "opus"),
+                                       offered: .init(models: [.init(id: "opus", name: "Claude Opus")]))
+        #expect(ChiefSettingsView.defaultModelLabel(chosen) == "Default")
+    }
+
+    /// F2: no Swift error dumps on the page.
+    @Test func errorsAreSentences() {
+        struct Weird: Error {}
+        #expect(ChiefSettingsView.errorText(Weird(), doing: .load) == "Chief on your Mac didn't answer. Try again.")
+        #expect(ChiefSettingsView.errorText(Weird(), doing: .change) == "Chief on your Mac didn't take the change. Try again.")
+        #expect(ChiefSettingsView.errorText(Weird(), doing: .stop) == "Chief on your Mac didn't stop. Try again.")
+        let refused = ChiefControlError(code: "operation.failed", reason: "not_configured", message: "x")
+        #expect(ChiefSettingsView.errorText(refused, doing: .load) == refused.description)
+        let avatar = ChiefControlError(code: "invalid_avatar", reason: nil, message: "avatar too long: 17")
+        #expect(ChiefSettingsView.errorText(avatar, doing: .change) == "Use an emoji or one or two letters.")
+    }
+
+    /// F4: the pin's bubble and label lose Markdown like the rows.
+    @Test func pinPreviewIsPlain() {
+        #expect(plainPreview("Heads up: run `cargo test -p cnx-link`. **Allow** it?") == "Heads up: run cargo test -p cnx-link. Allow it?")
     }
 }
 

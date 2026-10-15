@@ -1,0 +1,130 @@
+{
+  "meta": {
+    "date": "2026-10-14",
+    "run": "100918-ios26",
+    "ios_head": "aeca56d1f4f28b9a2d3c9949c922dfff6f45357b",
+    "ios_config": "Demo",
+    "ios_runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "simulator": {
+      "name": "cnx-term-review4",
+      "udid": "C45469AC-30D7-456E-8A57-7434FBC98E18"
+    },
+    "mac_app": "cmux DEV cnx-e2e-604fc689.app",
+    "mac_bundle_id": "com.cmuxterm.app.debug.cnx.e2e.604fc689",
+    "mac_tag": "cnx-e2e-604fc689",
+    "mac_source": "origin/feat-cnx-ios-machost 604fc6893acca49b81b7cbf2763e4503ae94776f; fleet job f9133c722640bee8bd62af2b, tag cnx-e2e-604fc689",
+    "mac_launch_s": 0.12,
+    "mac_windows": []
+  },
+  "steps": [
+    {
+      "id": "last_tab_restore",
+      "title": "Last-tab restore and tab grid",
+      "owner": "wsdesign",
+      "started": 1791997759.515075,
+      "status": "fail",
+      "notes": "tab grid has no e2e-t2",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-design-terminal/cnx-ios/verify/e2e/journey.py\", line 85, in step\n    notes = fn() or {}\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-design-terminal/cnx-ios/verify/e2e/journey.py\", line 535, in s_last_tab_restore\n    self.tab_grid_pick(\"e2e-t2\")\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-design-terminal/cnx-ios/verify/e2e/journey.py\", line 517, in tab_grid_pick\n    check(cand, f\"tab grid has no {name}\")\njourney.Fail: tab grid has no e2e-t2\n",
+      "seconds": 21.57,
+      "screenshot": "shots/01-last_tab_restore.png"
+    },
+    {
+      "id": "term_direct",
+      "title": "Terminal: direct typing (soft keyboard)",
+      "owner": "termlive",
+      "started": 1791997782.0089521,
+      "status": "pass",
+      "notes": "typed 'echo d78070' + return on the software keyboard; the Mac ran it",
+      "seconds": 14.85,
+      "screenshot": "shots/02-term_direct.png"
+    },
+    {
+      "id": "term_composer",
+      "title": "Terminal: composer",
+      "owner": "termlive",
+      "started": 1791997798.180415,
+      "status": "pass",
+      "notes": "composer sent 'echo c57751'",
+      "seconds": 17.94,
+      "screenshot": "shots/03-term_composer.png"
+    },
+    {
+      "id": "shell_pull_keyboard_up",
+      "title": "Terminal: pull-down with the keyboard up reaches history",
+      "owner": "termlive",
+      "started": 1791997817.05113,
+      "status": "pass",
+      "notes": "row 1 (S81539) reached after 3 pull-down(s) with the keyboard up; a drag into the keyboard dismissed it on the prompt",
+      "seconds": 51.06,
+      "screenshot": "shots/04-shell_pull_keyboard_up.png"
+    },
+    {
+      "id": "tui_quit_keyboard_up",
+      "title": "Terminal: quit a TUI with the keyboard up",
+      "owner": "termlive",
+      "started": 1791997869.14307,
+      "status": "pass",
+      "notes": "after q with the keyboard up: `top` line at y 323 pt; H78022 reached after 1 pull-down(s), the content moved",
+      "seconds": 27.14,
+      "screenshot": "shots/05-tui_quit_keyboard_up.png"
+    },
+    {
+      "id": "term_keys",
+      "title": "Terminal: ^C, arrows, joystick",
+      "owner": "termlive",
+      "started": 1791997897.2214022,
+      "status": "pass",
+      "notes": "^C interrupted sleep; Up Arrow recalled the last command; Left Arrow moved the cursor (abd -> abcd); joystick moved the cursor 10->2",
+      "seconds": 139.15,
+      "screenshot": "shots/06-term_keys.png"
+    },
+    {
+      "id": "term_tui",
+      "title": "Terminal: vim and top TUI",
+      "owner": "termlive",
+      "started": 1791998037.339474,
+      "status": "pass",
+      "notes": "vim wrote /tmp/cnx-e2e-100918.txt; top ran and quit; shell responsive after (htop not installed)",
+      "seconds": 155.59,
+      "screenshot": "shots/07-term_tui.png"
+    },
+    {
+      "id": "term_scrollback",
+      "title": "Terminal: scrollback",
+      "owner": "termlive",
+      "started": 1791998193.832405,
+      "status": "pass",
+      "notes": "B1: after clear the first row is at y 65 pt and a short session does not scroll; scrolled back through 400 lines; jump-to-bottom tapped",
+      "seconds": 20.4,
+      "screenshot": "shots/08-term_scrollback.png"
+    },
+    {
+      "id": "files_links",
+      "title": "Terminal: Files and Links preview",
+      "owner": "termlive",
+      "started": 1791998215.2181911,
+      "status": "pass",
+      "notes": "listed cnx-e2e-100918-sample.md; preview shows the refusal (not blank); link listed; preview refused: accessibility id artifacts.preview.refused",
+      "seconds": 17.92,
+      "screenshot": "shots/09-files_links.png"
+    },
+    {
+      "id": "background",
+      "title": "Background 45 s / foreground reconnect",
+      "owner": "fastconn",
+      "started": 1791998234.0916538,
+      "status": "pass",
+      "notes": "45 s in background; Connected 8.77 s after foreground; terminal input reached the Mac",
+      "metric_foreground_reconnect_s": 8.77,
+      "seconds": 85.4,
+      "screenshot": "shots/10-background.png"
+    }
+  ],
+  "latency": {},
+  "hangs": [],
+  "summary": {
+    "pass": 9,
+    "fail": 1,
+    "blocked": 0
+  }
+}
