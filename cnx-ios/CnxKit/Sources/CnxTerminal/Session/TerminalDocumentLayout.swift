@@ -72,6 +72,16 @@ public struct TerminalDocumentLayout: Equatable, Sendable {
         max(-topInset, contentHeight + bottomInset - viewportHeight)
     }
 
+    /// Space between the document's last row and the composer card's top.
+    public static let composerGap: CGFloat = 8
+
+    /// The scroll view's bottom inset for a page `pageHeight` tall whose
+    /// composer card starts at `composerTop` (page coordinates): at the
+    /// bottom offset, the last row's bottom edge is `composerGap` above the card.
+    public static func bottomInset(pageHeight: CGFloat, composerTop: CGFloat) -> CGFloat {
+        max(0, pageHeight - composerTop) + composerGap
+    }
+
     /// Whether the blank rows at the top must be read again: the origin is
     /// unknown, the scrollback shrank (`clear`, a reset), or the document's
     /// top is still on the active screen (where an erase can blank it).

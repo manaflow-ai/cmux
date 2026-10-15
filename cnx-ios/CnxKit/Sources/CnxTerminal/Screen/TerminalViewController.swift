@@ -1052,7 +1052,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Insets: content starts under the toolbar and ends above the composer.
         let top = chromeTop
         // The last row rests 8 pt above the composer card (SPEC M3).
-        let bottom = max(0, bounds.height - bottomStack.frame.minY) + Self.composerGap
+        let bottom = TerminalDocumentLayout.bottomInset(pageHeight: bounds.height, composerTop: bottomStack.frame.minY)
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if scrollView.contentInset != insets {
             let previousOffset = scrollView.contentOffset.y
@@ -1157,8 +1157,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// the first and last columns clear the display's corner radius. The
     /// background still fills the page edge to edge.
     static let sidePadding: CGFloat = 6
-    /// Space between the document's last row and the composer card.
-    static let composerGap: CGFloat = 8
 
     /// Asks Ghostty for a viewport that covers the visible rows with margin on
     /// both sides, once the visible rows come within half a margin of the
