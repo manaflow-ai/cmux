@@ -39,6 +39,15 @@ struct OverviewLayout: Equatable, Sendable {
     /// column width.
     var cardWidth: CGFloat { isLone ? (size.width * 2 / 3).rounded() : columnWidth }
     var cardHeight: CGFloat { cardWidth * Self.cardAspect }
+    /// Page points (from the page's top) a card shows.
+    var cardPageHeight: CGFloat { size.width * Self.cardAspect }
+
+    /// How far a rect `width` wide is from full screen (0) to a grid card
+    /// (1): a card's content anchor moves with the zoom, so it never jumps.
+    func cardAnchorFraction(_ width: CGFloat) -> CGFloat {
+        guard size.width > cardWidth, cardWidth > 0 else { return 0 }
+        return min(1, max(0, (size.width - width) / (size.width - cardWidth)))
+    }
     /// 18 pt at 177 pt wide, scaled with the card.
     var cardRadius: CGFloat { Self.baseCardRadius * cardWidth / 177 }
     var pitch: CGFloat { cardHeight + Self.titleRow + Self.rowGap }

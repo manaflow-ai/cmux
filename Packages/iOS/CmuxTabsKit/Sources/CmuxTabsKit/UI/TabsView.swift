@@ -327,18 +327,22 @@ struct TabsScreen<Source: TabsDataSource>: View {
                                     radius: overviewLayout.cardRadius) : zoomGeometry()
         let asCard = phase == .overview && staticCardID != nil && staticCardID == activeID
         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
+        // The card's content anchor, moving with the zoom's scale.
+        let anchor = overviewLayout.cardAnchorFraction(g.rect.width)
+        let contentOffset = anchor > 0 ? anchor * (activeID.map { source.cardContentOffset(for: $0, visibleHeight: overviewLayout.cardPageHeight) } ?? 0) : 0
         let close = phase == .overview ? zoomDriver.chrome.closeOpacity
             : CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: phase == .interactive || zoomState.headingToOverview)
         ZStack(alignment: .topLeading) {
             theme.colors.pageBackground
             if let tab = activeTab {
                 source.content(for: tab, context: contentContext)
+                    .offset(y: -contentOffset)
                     .id(tab.id)
                 // Until the content is ready, and while a new tab grows from
                 // the screen's centre, its card stands in (a web view that
                 // was just created draws nothing for about 300 ms).
                 if !source.isContentReady(tab.id) || (newTabZoomID == tab.id && phase != .page) {
-                    ScaledContent(pageSize: size) { source.card(for: tab) }
+                    ScaledContent(pageSize: size) { source.card(for: tab).offset(y: -contentOffset) }
                         .allowsHitTesting(false)
                         // Safari's new start page sharpens as it grows.
                         .blur(radius: newTabZoomID == tab.id && newTabZoom.blurs && phase != .page
@@ -709,8 +713,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
             guard !chrome.swiping, activeID != nil else { return }
             zoomTabId = activeID
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
-            zoomDriver.beginInteraction()
+            // Safari's page follows its swipe-up curve in time (by finger travel
+            // alone it dropped 98 pt in the first frame, cmux-next re-audit 3 D7).
+            zoomDriver.startSwipeUp()
+            return
         }
+        // The finger turned back down: the swipe takes over interactively.
+        if zoomState.playingSwipeUp, velocity < -50 { zoomDriver.beginInteraction() }
         guard zoomState.phase == .interactive else { return }
         zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
     }
