@@ -23,7 +23,7 @@ struct CloudTerminalExitPresentation: Equatable {
     /// run is news, not history. The provider applies the same window (and a
     /// per-machine cap) to every publish; the tree re-checks it for rows that
     /// age out between publishes.
-    static let retention: TimeInterval = SurfaceFailedExitRetention.window
+    static let retention: TimeInterval = SurfaceResource.failedExitRetentionWindow
 
     /// Short status for the row's detail column: "exit 1", "signal 9".
     var shortStatus: String {
@@ -86,7 +86,7 @@ struct CloudTerminalExitPresentation: Equatable {
     static func isListed(_ resource: SurfaceResource, now: Date) -> Bool {
         // A run with no exit time is aged by the provider from when it was first seen.
         guard resource.exit?.exitedAt != nil else { return true }
-        return SurfaceFailedExitRetention.isWithinWindow(resource, now: now)
+        return SurfaceResource.isWithinFailedExitWindow(resource, now: now)
     }
 
     /// The last `limit` non-blank-trailing lines of the run's final output.

@@ -233,7 +233,7 @@ extension CMUXCLI {
         let options = try Self.parseVMSecretsOptions(args, verb: "rm", valueFlags: ["--scope", "--machine"], boolFlags: ["--project", "--no-sync"])
         let names = try Self.vmSecretsNames(options.positional, verb: "rm")
         // The message names the scope as typed (a machine by its label, not its id).
-        let typedSpec = Self.vmSecretsScopeSpec(options) ?? .all
+        let typedSpec = try Self.vmSecretsScopeSpec(options) ?? .all
         let spec = try resolveVMSecretsMachineScope(typedSpec, client: client)
         var params = vmSecretsScopeParams(spec, directory: FileManager.default.currentDirectoryPath)
         params["names"] = names

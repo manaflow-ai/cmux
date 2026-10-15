@@ -157,8 +157,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// overlay, never a second remote-state store.
     var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
     /// When this Mac first saw each failed tabless run that carries no exit time,
-    /// so ``SurfaceFailedExitRetention`` can age it out like the others.
-    var failedExitFirstSeen: SurfaceFailedExitRetention.FirstSeen = [:]
+    /// so ``SurfaceResource/retainingFailedExits(_:firstSeen:now:)`` can age it out like the others.
+    var failedExitFirstSeen: SurfaceResource.FailedExitFirstSeen = [:]
     /// Rename receipts are transient read-your-write fences. They are keyed by
     /// daemon identity, not by a local title or projection, because one remote
     /// tab can be shown in several windows. The canonical graph remains the
@@ -840,11 +840,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         applyDisplayNamesIfChanged(state)
     }
     /// The machine's rows with failed tabless runs aged and capped
-    /// (``SurfaceFailedExitRetention``). Takes every row on the machine.
+    /// (``SurfaceResource/retainingFailedExits(_:firstSeen:now:)``). Takes every row on the machine.
     func retainingFailedExits(_ resources: [SurfaceResource]) -> [SurfaceResource] {
         let now = Date()
-        failedExitFirstSeen = SurfaceFailedExitRetention.updatingFirstSeen(failedExitFirstSeen, resources: resources, now: now)
-        return SurfaceFailedExitRetention.retained(resources, firstSeen: failedExitFirstSeen, now: now)
+        failedExitFirstSeen = SurfaceResource.updatingFailedExitFirstSeen(failedExitFirstSeen, resources: resources, now: now)
+        return SurfaceResource.retainingFailedExits(resources, firstSeen: failedExitFirstSeen, now: now)
     }
     func publishDelta(
         _ state: CloudVMState,

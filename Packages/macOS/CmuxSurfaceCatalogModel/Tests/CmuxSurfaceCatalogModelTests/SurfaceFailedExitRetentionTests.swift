@@ -43,18 +43,18 @@ import Testing
 
     @Test func runsOlderThanTheWindowAreDroppedAndOtherRowsPassThrough() {
         let recent = Self.failed("recent", exitedAt: Self.now.addingTimeInterval(-60))
-        let old = Self.failed("old", exitedAt: Self.now.addingTimeInterval(-SurfaceFailedExitRetention.window - 1))
-        let kept = SurfaceFailedExitRetention.retained([Self.live("a"), old, recent], firstSeen: [:], now: Self.now)
+        let old = Self.failed("old", exitedAt: Self.now.addingTimeInterval(-SurfaceResource.failedExitRetentionWindow - 1))
+        let kept = SurfaceResource.retainingFailedExits([Self.live("a"), old, recent], firstSeen: [:], now: Self.now)
         #expect(kept.map(\.id.key) == ["a", "recent"])
     }
 
     @Test func atMostTheLimitMostRecentRunsStayPerMachine() {
-        let limit = SurfaceFailedExitRetention.perMachineLimit
+        let limit = SurfaceResource.failedExitPerMachineLimit
         let many = (0..<(limit + 5)).map { index in
             Self.failed("run\(index)", exitedAt: Self.now.addingTimeInterval(-Double(index) * 60))
         }
         let other = Self.failed("elsewhere", on: "vm-2", exitedAt: Self.now.addingTimeInterval(-3_600))
-        let kept = SurfaceFailedExitRetention.retained(many.reversed() + [other], firstSeen: [:], now: Self.now)
+        let kept = SurfaceResource.retainingFailedExits(many.reversed() + [other], firstSeen: [:], now: Self.now)
         let onFirst = kept.filter { $0.machine == .cloud("vm-1") }.map(\.id.key)
         #expect(onFirst.count == limit)
         #expect(Set(onFirst) == Set((0..<limit).map { "run\($0)" }))
@@ -63,22 +63,22 @@ import Testing
 
     @Test func aRunWithNoExitTimeAgesFromWhenItWasFirstSeen() {
         let undated = Self.failed("undated", exitedAt: nil)
-        let first = SurfaceFailedExitRetention.updatingFirstSeen([:], resources: [undated], now: Self.now)
+        let first = SurfaceResource.updatingFailedExitFirstSeen([:], resources: [undated], now: Self.now)
         #expect(first[undated.id] == Self.now)
-        #expect(SurfaceFailedExitRetention.retained([undated], firstSeen: first, now: Self.now).count == 1)
+        #expect(SurfaceResource.retainingFailedExits([undated], firstSeen: first, now: Self.now).count == 1)
 
         // A later publish keeps the first sighting, not the later one.
-        let later = Self.now.addingTimeInterval(SurfaceFailedExitRetention.window + 1)
-        let second = SurfaceFailedExitRetention.updatingFirstSeen(first, resources: [undated], now: later)
+        let later = Self.now.addingTimeInterval(SurfaceResource.failedExitRetentionWindow + 1)
+        let second = SurfaceResource.updatingFailedExitFirstSeen(first, resources: [undated], now: later)
         #expect(second[undated.id] == Self.now)
-        #expect(SurfaceFailedExitRetention.retained([undated], firstSeen: second, now: later).isEmpty)
+        #expect(SurfaceResource.retainingFailedExits([undated], firstSeen: second, now: later).isEmpty)
 
         // A run that is gone is forgotten.
-        #expect(SurfaceFailedExitRetention.updatingFirstSeen(second, resources: [], now: later).isEmpty)
+        #expect(SurfaceResource.updatingFailedExitFirstSeen(second, resources: [], now: later).isEmpty)
     }
 
     @Test func aFailedRunStillShownInATabIsNotRetentionsBusiness() {
-        var shown = Self.failed("shown", exitedAt: Self.now.addingTimeInterval(-SurfaceFailedExitRetention.window * 2))
+        var shown = Self.failed("shown", exitedAt: Self.now.addingTimeInterval(-SurfaceResource.failedExitRetentionWindow * 2))
         shown.remoteViews = [
             SurfaceRemoteView(
                 tabID: "tab_1",
@@ -92,6 +92,6 @@ import Testing
                 paneIndex: nil
             ),
         ]
-        #expect(SurfaceFailedExitRetention.retained([shown], firstSeen: [:], now: Self.now).count == 1)
+        #expect(SurfaceResource.retainingFailedExits([shown], firstSeen: [:], now: Self.now).count == 1)
     }
 }
