@@ -215,6 +215,18 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
   readonly CHIEF_BRAIN_CLAUDE_URL?: string
+  /** The Claude route's auth: "stack" (default, X-Stack-Auth) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-routes.ts. */
+  readonly CHIEF_BRAIN_CLAUDE_AUTH?: string
+  readonly CHIEF_BRAIN_CLAUDE_TOKEN?: string
+  /** Claude names the route serves, comma separated (default "claude-opus-5-5"). */
+  readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
+  /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */
+  readonly CHIEF_BRAIN_CLAUDE_EFFORT_BODY?: string
+  /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
+  readonly CHIEF_BRAIN_CACHE_TTL?: string
+  /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */
+  readonly OPENROUTER_API_KEY?: string
+  readonly OPENROUTER_BASE_URL?: string
   readonly CHIEF_BRAIN_CLAUDE_REFRESH_URL?: string
   readonly CHIEF_BRAIN_CLAUDE_PROJECT?: string
   /** Turns one chief's brains may start per UTC day (default 300): a spend bound for Workers AI. */
