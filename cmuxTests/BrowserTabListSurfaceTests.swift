@@ -27,7 +27,7 @@ struct BrowserTabListSurfaceTests {
             url: URL(string: "about:blank"),
             focus: false
         ))
-        #expect(workspace.focusedPanelId == terminalID)
+        try #require(workspace.focusedPanelId == terminalID)
         TerminalController.shared.setActiveTabManager(manager)
 
         let explicit = try result(TerminalController.shared.handleSocketLine(request(
@@ -35,6 +35,7 @@ struct BrowserTabListSurfaceTests {
             ["workspace_id": workspace.id.uuidString, "surface_id": browser.id.uuidString]
         )))
         #expect(explicit["surface_id"] as? String == browser.id.uuidString)
+        #expect(explicit["surface_ref"] is String)
 
         // Without a surface, the terminal is focused, so no browser is named
         // rather than the terminal.
@@ -42,7 +43,8 @@ struct BrowserTabListSurfaceTests {
             "browser.tab.list",
             ["workspace_id": workspace.id.uuidString]
         )))
-        #expect(implicit["surface_id"] as? String != terminalID.uuidString)
+        #expect(implicit["surface_id"] is NSNull)
+        #expect(implicit["surface_ref"] is NSNull)
     }
 
     private func request(_ method: String, _ params: [String: Any]) throws -> String {
