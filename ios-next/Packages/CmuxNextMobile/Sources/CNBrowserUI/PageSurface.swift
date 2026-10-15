@@ -479,6 +479,7 @@ struct PageSurface: UIViewRepresentable {
         // with the finger (the scroll view's interactive dismissal).
         // (Set only on a change: re-setting it on every frame reset the pan.)
         if host.isScrollEnabled != keyboardActive { host.isScrollEnabled = keyboardActive }
+        host.coversTabBar(keyboardActive)
         // Off the page (the grid, address editing) the surface lets go of
         // the keys: a menu presented over the grid while it was still first
         // responder brought up the software keyboard (re-audit blocker).
@@ -552,6 +553,35 @@ final class PageKeyboardDismissHost: UIScrollView, UIScrollViewDelegate {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { pinSurface() }
+
+    // MARK: Shell tab bar
+
+    private weak var hiddenTabBar: UITabBarController?
+
+    /// The page's keyboard covers the shell's tab bar and its bottom
+    /// accessory: out of the accessibility tree while it is up (layout and
+    /// visibility untouched).
+    func coversTabBar(_ covered: Bool) {
+        let controller = covered ? enclosingTabBarController : hiddenTabBar
+        guard let controller else { return }
+        controller.tabBar.accessibilityElementsHidden = covered
+        controller.bottomAccessory?.contentView.accessibilityElementsHidden = covered
+        hiddenTabBar = covered ? controller : nil
+    }
+
+    private var enclosingTabBarController: UITabBarController? {
+        var responder: UIResponder? = self
+        while let r = responder {
+            if let controller = r as? UITabBarController { return controller }
+            responder = r.next
+        }
+        return nil
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil { coversTabBar(false) }
+    }
 
     /// The page scrolls on the Mac, not here: while the pan drags the
     /// content (which drives the interactive dismissal), the surface rides
