@@ -19086,7 +19086,8 @@ struct CMUXCLI {
             let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
             let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
-            let (profileSelector, urlArgs) = try parseBrowserProfileOption(argsAfterFocus)
+            let (profileSelector, argsAfterProfile) = try parseBrowserProfileOption(argsAfterFocus)
+            let (engineSelector, urlArgs) = try parseBrowserEngineOption(argsAfterProfile)
             // Reject unrecognized flags instead of folding them into the URL, where they
             // would silently produce an unparseable URL (blank page) or a search query.
             if let strayFlag = urlArgs.first(where: { $0.hasPrefix("--") }) {
@@ -19113,6 +19114,12 @@ struct CMUXCLI {
                         defaultValue: "--profile is only supported when browser open creates a new pane; omit the surface selector"
                     ))
                 }
+                guard engineSelector == nil else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.engine.error.navigateUnsupported",
+                        defaultValue: "--engine is only supported when browser open creates a new pane; omit the surface selector"
+                    ))
+                }
                 let sid = try requireSurface()
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
@@ -19131,6 +19138,9 @@ struct CMUXCLI {
             }
             if let profileSelector {
                 params["profile"] = profileSelector
+            }
+            if let engineSelector {
+                params["engine"] = engineSelector
             }
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface
@@ -23366,7 +23376,7 @@ struct CMUXCLI {
             `open`/`open-split`/`new`/`identify` can run without an explicit surface.
 
             Subcommands:
-              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]"))
                 open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
                 --focus defaults to false
               disable | enable | status
@@ -23604,6 +23614,56 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (value, remaining)
+    }
+
+    /// Parses `--engine <webkit|chromium>` (also `--engine=<value>`) for browser
+    /// open commands and returns the canonical engine name the socket expects.
+    /// `chrome` and `cef` name Chromium, `safari` names WebKit, as in cmux Next.
+    func parseBrowserEngineOption(_ args: [String]) throws -> (engine: String?, remaining: [String]) {
+        var remaining: [String] = []
+        var raw: String?
+        var index = 0
+        var pastTerminator = false
+        while index < args.count {
+            let arg = args[index]
+            if pastTerminator || arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--engine" {
+                guard index + 1 < args.count, !args[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: browserEngineOptionError())
+                }
+                raw = args[index + 1]
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--engine=") {
+                raw = String(arg.dropFirst("--engine=".count))
+                index += 1
+                continue
+            }
+            remaining.append(arg)
+            index += 1
+        }
+        guard let raw else { return (nil, remaining) }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "webkit", "safari":
+            return ("webkit", remaining)
+        case "chromium", "chrome", "cef":
+            return ("chromium", remaining)
+        default:
+            throw CLIError(message: browserEngineOptionError())
+        }
+    }
+
+    private func browserEngineOptionError() -> String {
+        String(
+            localized: "cli.browser.engine.error.invalid",
+            defaultValue: "Choose WebKit or Chromium for the browser engine."
+        )
     }
 
     func parseBrowserProfileOption(_ args: [String]) throws -> (selector: String?, remaining: [String]) {
