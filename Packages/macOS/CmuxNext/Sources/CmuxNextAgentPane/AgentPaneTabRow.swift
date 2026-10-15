@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextSettings
 
 /// A chat's header tools in its pane's tab row (`ChromeTunables.tabRowTools`, header/tabRow.ts):
@@ -59,4 +59,11 @@ extension AgentPageEvent {
     static func tabRow(height: CGFloat, trailingInset: CGFloat) -> AgentPageEvent {
         AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset))])
     }
+}
+
+/// A chat's header tools share its pane's tab row (the conformance is the App's, PaneContentView+Parking).
+extension PaneTabRowSharing where Self: AgentPaneView {
+    public var tabRowToolsWidth: CGFloat? { model.tabRow.sharedWidth(zoom: webView.pageZoom) }
+    public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
+    public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
 }

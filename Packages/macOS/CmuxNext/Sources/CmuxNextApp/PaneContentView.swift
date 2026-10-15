@@ -127,7 +127,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown)
-        let rowTools = tabRowToolsWidth(shown: shown, tools: tools)
+        let rowContent = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
+        let rowTools = rowContent?.tabRowWidth(room: bounds.width - tools) ?? 0 // a chat's tools in the row (PaneTabRowSharing)
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -146,7 +147,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // layout pass instead of staying at width zero.
         if let content, content.frame != contentHost.bounds { content.frame = contentHost.bounds }
         layoutAgentTag()
-        offerTabRow(shown: shown, tools: tools)
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
         if hostChanged { onResize?() }
     }
 
