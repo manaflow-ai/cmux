@@ -13,6 +13,7 @@ struct ChiefSettingsCard: View {
     @State private var harnessModel: DefaultsValueModel<String>
     @State private var modelModel: DefaultsValueModel<String>
     @State private var effortModel: DefaultsValueModel<String>
+    @State private var dangerousPermissionsModel: DefaultsValueModel<Bool>
     private let controlWidth: CGFloat
 
     init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, controlWidth: CGFloat) {
@@ -20,6 +21,8 @@ struct ChiefSettingsCard: View {
         _harnessModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.chief.harness))
         _modelModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.chief.model))
         _effortModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.chief.effort))
+        _dangerousPermissionsModel = State(initialValue: DefaultsValueModel(store: defaultsStore,
+                                                                              key: catalog.chief.dangerouslySkipPermissions))
         self.controlWidth = controlWidth
     }
 
@@ -36,6 +39,19 @@ struct ChiefSettingsCard: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsChiefEnabledToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("chief.dangerouslySkipPermissions"),
+                String(localized: "settings.automation.chief.dangerousPermissions", defaultValue: "Skip permission prompts", bundle: .module),
+                subtitle: String(localized: "settings.automation.chief.dangerousPermissions.subtitle",
+                                  defaultValue: "Let Chief's agent run commands without approval cards. Off by default.", bundle: .module)
+            ) {
+                Toggle("", isOn: Binding(get: { dangerousPermissionsModel.current },
+                                         set: { dangerousPermissionsModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsChiefDangerousPermissionsToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -83,7 +99,7 @@ struct ChiefSettingsCard: View {
             }
         }
         .task {
-            startSettingsObservation([enabledModel, harnessModel, modelModel, effortModel])
+            startSettingsObservation([enabledModel, harnessModel, modelModel, effortModel, dangerousPermissionsModel])
         }
     }
 

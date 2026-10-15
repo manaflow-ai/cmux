@@ -19,11 +19,11 @@ enum ChiefDispatchAgent: String, CaseIterable, Equatable {
     case claude
 
     /// The command line used when the caller passes no `--agent-arg`.
-    /// Codex runs with `--yolo` by default (the dispatch convention); Claude
-    /// Code keeps its own permission prompts unless the caller adds a flag.
+    /// Both agents keep their normal permission prompts unless the caller
+    /// explicitly adds a bypass flag.
     var defaultArguments: [String] {
         switch self {
-        case .codex: return ["codex", "--yolo"]
+        case .codex: return ["codex"]
         case .claude: return ["claude"]
         }
     }

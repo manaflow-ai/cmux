@@ -2191,6 +2191,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": "",
           "description": "Reasoning effort passed to the harness, such as low, medium, or high. Leave empty to use the harness default.",
           "descriptionKey": "schemaDescriptions.chief.effort"
+        },
+        "dangerouslySkipPermissions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow Chief's selected agent to bypass permission prompts and sandbox guardrails. Off by default.",
+          "descriptionKey": "schemaDescriptions.chief.dangerouslySkipPermissions"
         }
       }
     },

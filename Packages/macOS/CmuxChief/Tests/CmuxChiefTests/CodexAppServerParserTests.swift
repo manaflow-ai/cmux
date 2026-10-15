@@ -122,4 +122,18 @@ import Testing
         #expect(turn["input"]?.array?.count == 2)
         #expect(turn["input"]?.array?.last?["type"] == "localImage")
     }
+
+    @Test func dangerousPermissionModeIsExplicitAndOptIn() {
+        let request = ChiefTurnRequest(conversation: ConversationID("conv_1"),
+                                       resumeSession: nil, userText: "hi", attachmentPaths: [],
+                                       replyContext: nil, systemPrompt: "", workingDirectory: URL(fileURLWithPath: "/tmp"),
+                                       environment: [:])
+        let safe = CodexAppServerBrain.threadParams(.init(model: "m"), request: request, resume: nil)
+        #expect(safe["approvalPolicy"] == "untrusted")
+        #expect(safe["sandbox"] == "workspace-write")
+        let dangerous = CodexAppServerBrain.threadParams(
+            .init(model: "m", dangerouslySkipPermissions: true), request: request, resume: nil)
+        #expect(dangerous["approvalPolicy"] == "never")
+        #expect(dangerous["sandbox"] == "danger-full-access")
+    }
 }

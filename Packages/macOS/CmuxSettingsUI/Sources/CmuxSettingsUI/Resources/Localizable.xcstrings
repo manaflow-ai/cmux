@@ -16198,6 +16198,124 @@
           }
         }
       }
+    },
+    "settings.automation.chief.dangerousPermissions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip permission prompts"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungsabfragen überspringen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer les demandes d’autorisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخطّي طلبات الأذونات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitir solicitudes de permiso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過權限提示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过权限提示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 요청 건너뛰기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限プロンプトをスキップ"
+          }
+        }
+      }
+    },
+    "settings.automation.chief.dangerousPermissions.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Chief's agent run commands without approval cards. Off by default."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefs Agent darf Befehle ohne Genehmigungskarten ausführen. Standardmäßig deaktiviert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent de Chief peut exécuter des commandes sans cartes d’approbation. Désactivé par défaut."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لوكيل Chief بتشغيل الأوامر دون بطاقات موافقة. معطّل افتراضيًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite al agente de Chief ejecutar comandos sin tarjetas de aprobación. Desactivado de forma predeterminada."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 Chief 的代理程式在沒有核准卡的情況下執行指令。預設關閉。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 Chief 的代理在没有批准卡的情况下运行命令。默认关闭。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 에이전트가 승인 카드 없이 명령을 실행하도록 합니다. 기본적으로 꺼져 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief のエージェントが承認カードなしでコマンドを実行できるようにします。デフォルトはオフです。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

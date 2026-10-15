@@ -22,6 +22,8 @@ public actor ClaudeCodeBrain: ChiefBrain {
         public var model: String
         /// The effort passed to `--effort`, nil for Claude Code's default.
         public var effort: String?
+        /// Whether Claude Code may bypass permission prompts. Off by default.
+        public var dangerouslySkipPermissions: Bool
         /// An explicit `claude` executable; nil looks it up on `PATH`.
         public var executableOverride: URL?
         /// Arguments added after the stream-json flags: by default the
@@ -41,12 +43,15 @@ public actor ClaudeCodeBrain: ChiefBrain {
         /// - Parameters:
         ///   - model: The model id.
         ///   - effort: The effort level, nil for the default.
+        ///   - dangerouslySkipPermissions: Whether to bypass permission prompts.
         ///   - executableOverride: An explicit `claude` path.
         ///   - extraArguments: Arguments after the stream-json flags.
-        public init(model: String, effort: String? = nil, executableOverride: URL? = nil,
+        public init(model: String, effort: String? = nil, dangerouslySkipPermissions: Bool = false,
+                    executableOverride: URL? = nil,
                     extraArguments: [String] = Configuration.chiefArguments) {
             self.model = model
             self.effort = effort
+            self.dangerouslySkipPermissions = dangerouslySkipPermissions
             self.executableOverride = executableOverride
             self.extraArguments = extraArguments
         }
@@ -141,7 +146,13 @@ public actor ClaudeCodeBrain: ChiefBrain {
         case .resume(let id): arguments += ["--resume", id]
         }
         if !systemPrompt.isEmpty { arguments += ["--append-system-prompt", systemPrompt] }
-        return arguments + configuration.extraArguments
+        var extra = configuration.extraArguments
+        if configuration.dangerouslySkipPermissions,
+           let index = extra.firstIndex(of: "default"),
+           index > 0, extra[index - 1] == "--permission-mode" {
+            extra[index] = "bypassPermissions"
+        }
+        return arguments + extra
     }
 
     /// The content blocks of a turn's prompt: the text, then each image.

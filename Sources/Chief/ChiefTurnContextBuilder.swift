@@ -25,6 +25,7 @@ struct ChiefTurnContextBuilder: Sendable {
             userDisplayName: Self.userDisplayName,
             harness: settings.resolvedHarness.displayName,
             model: settings.resolvedModel,
+            dangerouslySkipPermissions: settings.dangerouslySkipPermissions,
             cmuxVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             socketPath: socketPath,
             chiefHomePath: input.home.root.path,

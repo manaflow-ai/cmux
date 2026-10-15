@@ -221,7 +221,8 @@ final class ChiefService {
         // Dogfood tours and screenshots: a scripted turn, no model or credentials.
         if usesScriptedBrain { return ChiefScriptedBrain() }
 #endif
-        return settings.resolvedHarness.makeBrain(model: settings.model, effort: settings.effort)
+        return settings.resolvedHarness.makeBrain(model: settings.model, effort: settings.effort,
+                                                  dangerouslySkipPermissions: settings.dangerouslySkipPermissions)
     }
 
 #if DEBUG

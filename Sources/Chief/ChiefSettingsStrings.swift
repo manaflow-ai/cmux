@@ -104,6 +104,9 @@ enum ChiefSettingsStrings {
     static var showInFinder: String {
         String(localized: "chief.settings.showInFinder", defaultValue: "Show in Finder")
     }
+    static var showInFinderHelp: String {
+        String(localized: "chief.settings.showInFinder.help", defaultValue: "Reveals Chief's files in Finder.")
+    }
     static var showTranscriptLog: String {
         String(localized: "chief.settings.showTranscriptLog", defaultValue: "Show Transcript Log")
     }

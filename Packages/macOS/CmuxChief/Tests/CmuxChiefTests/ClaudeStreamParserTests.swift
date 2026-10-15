@@ -144,6 +144,13 @@ import Testing
         #expect(resumed.suffix(2) == ["--resume", "id-2"])
         #expect(!resumed.contains("--effort"))
     }
+
+    @Test func dangerousPermissionModeReplacesTheDefaultPermissionMode() {
+        let arguments = ClaudeCodeBrain.arguments(
+            .init(model: "m", dangerouslySkipPermissions: true), session: .new("id"), systemPrompt: "")
+        #expect(arguments.contains("bypassPermissions"))
+        #expect(!arguments.contains("default"))
+    }
 }
 
 @Suite struct ChiefBrainSupportTests {

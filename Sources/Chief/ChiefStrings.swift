@@ -63,6 +63,26 @@ enum ChiefStrings {
     static var settingsHarness: String { String(localized: "chief.settings.harness", defaultValue: "Harness") }
     static var settingsModel: String { String(localized: "chief.settings.model", defaultValue: "Model") }
     static var settingsEffort: String { String(localized: "chief.settings.effort", defaultValue: "Effort") }
+    static var settingsDangerousPermissions: String {
+        String(localized: "chief.settings.dangerousPermissions", defaultValue: "Skip permission prompts")
+    }
+    static var settingsDangerousPermissionsHelp: String {
+        String(localized: "chief.settings.dangerousPermissions.help",
+               defaultValue: "Allows the selected agent to run commands and make changes without asking. Off by default; applies to new turns.")
+    }
+    static var settingsDangerousPermissionsPromptTitle: String {
+        String(localized: "chief.settings.dangerousPermissions.prompt.title", defaultValue: "Skip permission prompts?")
+    }
+    static var settingsDangerousPermissionsPromptMessage: String {
+        String(localized: "chief.settings.dangerousPermissions.prompt.message",
+               defaultValue: "The selected agent can run commands and make changes without approval cards. This is a dangerous setting.")
+    }
+    static var settingsDangerousPermissionsTurnOn: String {
+        String(localized: "chief.settings.dangerousPermissions.prompt.turnOn", defaultValue: "Turn On")
+    }
+    static var settingsCancel: String {
+        String(localized: "chief.settings.dangerousPermissions.prompt.cancel", defaultValue: "Cancel")
+    }
     static var settingsDefault: String { String(localized: "chief.settings.default", defaultValue: "Default") }
     static var settingsNextTurn: String {
         String(localized: "chief.settings.nextTurn", defaultValue: "Changes apply from the next turn.")

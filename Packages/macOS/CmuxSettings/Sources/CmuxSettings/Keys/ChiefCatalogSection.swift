@@ -16,6 +16,8 @@ public enum ChiefHarnessSetting: String, CaseIterable, Sendable {
 /// Chief is the Home agent. ``enabled`` hides the Home row and every Chief
 /// entry point when off; ``harness``, ``model`` and ``effort`` pick the agent
 /// that answers. An empty ``model`` or ``effort`` means the harness default.
+/// ``dangerouslySkipPermissions`` is an explicit opt-in for bypassing agent
+/// permission prompts and is off by default.
 public struct ChiefCatalogSection: SettingCatalogSection {
     /// Whether the Home row and Chief entry points are shown.
     public let enabled = DefaultsKey<Bool>(
@@ -43,6 +45,13 @@ public struct ChiefCatalogSection: SettingCatalogSection {
         id: "chief.effort",
         defaultValue: "",
         userDefaultsKey: "chiefEffort"
+    )
+
+    /// Whether Chief may bypass agent permission prompts. Off by default.
+    public let dangerouslySkipPermissions = DefaultsKey<Bool>(
+        id: "chief.dangerouslySkipPermissions",
+        defaultValue: false,
+        userDefaultsKey: "chiefDangerouslySkipPermissions"
     )
 
     /// Creates the Chief settings section with its default keys.

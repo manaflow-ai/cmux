@@ -3,7 +3,8 @@ import CmuxSettings
 import Foundation
 
 /// Which agent CLI answers as Chief, with which model and effort: the cmux
-/// settings `chief.harness`, `chief.model` and `chief.effort`.
+/// settings `chief.harness`, `chief.model`, `chief.effort` and
+/// `chief.dangerouslySkipPermissions`.
 ///
 /// Empty values mean the default (Claude Code; the harness's default model
 /// and effort). Read and written through ``ChiefSettingsAccess``.
@@ -14,6 +15,8 @@ struct ChiefEngineSettings: Equatable, Sendable {
     var model: String
     /// The reasoning effort; empty for the harness's default.
     var effort: String
+    /// Whether the harness may bypass permission prompts. Off by default.
+    var dangerouslySkipPermissions: Bool
 
     /// The harness that runs: an empty or unknown value is Claude Code.
     var resolvedHarness: CmuxChief.ChiefHarness { CmuxChief.ChiefHarness(rawValue: harness.lowercased()) ?? .claude }
@@ -49,6 +52,7 @@ struct ChiefSettingsAccess {
     static let harnessKey = ChiefCatalogSection().harness.userDefaultsKey
     static let modelKey = ChiefCatalogSection().model.userDefaultsKey
     static let effortKey = ChiefCatalogSection().effort.userDefaultsKey
+    static let dangerouslySkipPermissionsKey = ChiefCatalogSection().dangerouslySkipPermissions.userDefaultsKey
 
     let defaults: UserDefaults
 
@@ -60,7 +64,8 @@ struct ChiefSettingsAccess {
     var current: ChiefEngineSettings {
         ChiefEngineSettings(harness: defaults.string(forKey: Self.harnessKey) ?? "",
                             model: defaults.string(forKey: Self.modelKey) ?? "",
-                            effort: defaults.string(forKey: Self.effortKey) ?? "").normalized
+                            effort: defaults.string(forKey: Self.effortKey) ?? "",
+                            dangerouslySkipPermissions: defaults.bool(forKey: Self.dangerouslySkipPermissionsKey)).normalized
     }
 
     /// Writes `settings`; an empty value removes its key (the default).
@@ -68,6 +73,11 @@ struct ChiefSettingsAccess {
         let value = settings.normalized
         for (key, text) in [(Self.harnessKey, value.harness), (Self.modelKey, value.model), (Self.effortKey, value.effort)] {
             if text.isEmpty { defaults.removeObject(forKey: key) } else { defaults.set(text, forKey: key) }
+        }
+        if value.dangerouslySkipPermissions {
+            defaults.set(true, forKey: Self.dangerouslySkipPermissionsKey)
+        } else {
+            defaults.removeObject(forKey: Self.dangerouslySkipPermissionsKey)
         }
     }
 }

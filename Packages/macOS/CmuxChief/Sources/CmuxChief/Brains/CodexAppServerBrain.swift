@@ -18,6 +18,8 @@ public actor CodexAppServerBrain: ChiefBrain {
         public var model: String
         /// The reasoning effort for `turn/start`, nil for the model's default.
         public var effort: String?
+        /// Whether Codex may bypass approval prompts and its sandbox guardrails. Off by default.
+        public var dangerouslySkipPermissions: Bool
         /// An explicit `codex` executable; nil looks it up on `PATH`.
         public var executableOverride: URL?
 
@@ -26,10 +28,13 @@ public actor CodexAppServerBrain: ChiefBrain {
         /// - Parameters:
         ///   - model: The model id.
         ///   - effort: The reasoning effort, nil for the default.
+        ///   - dangerouslySkipPermissions: Whether to bypass approval prompts and sandbox guardrails.
         ///   - executableOverride: An explicit `codex` path.
-        public init(model: String, effort: String? = nil, executableOverride: URL? = nil) {
+        public init(model: String, effort: String? = nil, dangerouslySkipPermissions: Bool = false,
+                    executableOverride: URL? = nil) {
             self.model = model
             self.effort = effort
+            self.dangerouslySkipPermissions = dangerouslySkipPermissions
             self.executableOverride = executableOverride
         }
     }
@@ -111,8 +116,8 @@ public actor CodexAppServerBrain: ChiefBrain {
         var params: [String: ChiefJSON] = [
             "cwd": .string(request.workingDirectory.path),
             "model": .string(configuration.model),
-            "approvalPolicy": "untrusted",
-            "sandbox": "danger-full-access",
+            "approvalPolicy": configuration.dangerouslySkipPermissions ? "never" : "untrusted",
+            "sandbox": configuration.dangerouslySkipPermissions ? "danger-full-access" : "workspace-write",
         ]
         if !request.systemPrompt.isEmpty { params["developerInstructions"] = .string(request.systemPrompt) }
         if let resume { params["threadId"] = .string(resume) }

@@ -41,6 +41,8 @@ final class ChiefSettingsPanel: NSView {
     private let model = NSPopUpButton(frame: .zero, pullsDown: false)
     private let effort = NSPopUpButton(frame: .zero, pullsDown: false)
     private var effortNote = NSTextField(labelWithString: "")
+    private let dangerousPermissions = NSButton(checkboxWithTitle: ChiefStrings.settingsDangerousPermissions,
+                                                target: nil, action: nil)
     private var statsLabel = NSTextField(labelWithString: "")
     private var placeLabel = NSTextField(labelWithString: "")
     /// Show in Finder: the Chief home folder (its path in the tooltip, never in the text).
@@ -181,6 +183,12 @@ final class ChiefSettingsPanel: NSView {
         }
         effortNote = brain.addCaption("", describing: effort)
         brain.addGap(10)
+        dangerousPermissions.target = self
+        dangerousPermissions.action = #selector(dangerousPermissionsChanged)
+        dangerousPermissions.setAccessibilityIdentifier("ChiefSettingsDangerousPermissions")
+        brain.add(dangerousPermissions)
+        brain.addCaption(ChiefStrings.settingsDangerousPermissionsHelp, describing: dangerousPermissions)
+        brain.addGap(10)
         brain.addCaption(ChiefStrings.settingsNextTurn)
     }
 
@@ -241,7 +249,8 @@ final class ChiefSettingsPanel: NSView {
     private func chainKeyViews() {
         // The memory section's own buttons (Show All…) sit between Activity and Conversation.
         let memory = Self.buttons(in: memorySection)
-        let order: [NSView] = [nameField, pictureButton, avatarField, harness, model, effort, homeLink, logButton] + memory
+        let order: [NSView] = [nameField, pictureButton, avatarField, harness, model, effort, dangerousPermissions,
+                               homeLink, logButton] + memory
             + [newConversationButton]
         for (view, next) in zip(order, order.dropFirst()) { view.nextKeyView = next }
     }
@@ -337,12 +346,13 @@ final class ChiefSettingsPanel: NSView {
              current: settings.effort.isEmpty ? nil : settings.effort, defaultTitle: ChiefStrings.settingsDefault)
         effortNote.stringValue = ChiefSettingsStrings.effortDescription(settings.effort)
         effort.setAccessibilityHelp(effortNote.stringValue)
+        dangerousPermissions.state = settings.dangerouslySkipPermissions ? .on : .off
         let path = ChiefService.shared.homeDisplayPath
         placeLabel.stringValue = path == nil ? "" : ChiefSettingsStrings.runsOnThisMac(temporary: ChiefService.shared.homeIsTemporary)
         placeLabel.isHidden = path == nil
         homeLink.isHidden = path == nil
         homeLink.toolTip = path
-        homeLink.setAccessibilityHelp(path)
+        homeLink.setAccessibilityHelp(ChiefSettingsStrings.showInFinderHelp)
         refreshStats()
     }
 
@@ -416,6 +426,27 @@ final class ChiefSettingsPanel: NSView {
         // An effort the new model lacks goes back to the default.
         let offered = settings.resolvedHarness.efforts(for: settings.resolvedModel)
         if !settings.effort.isEmpty, !offered.contains(where: { $0.id == settings.effort }) { settings.effort = "" }
+        ChiefService.shared.setEngineSettings(settings)
+        refresh()
+    }
+
+    @objc private func dangerousPermissionsChanged() {
+        var settings = ChiefService.shared.engineSettings
+        let enabled = dangerousPermissions.state == .on
+        guard enabled != settings.dangerouslySkipPermissions else { return }
+        if enabled {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = ChiefStrings.settingsDangerousPermissionsPromptTitle
+            alert.informativeText = ChiefStrings.settingsDangerousPermissionsPromptMessage
+            alert.addButton(withTitle: ChiefStrings.settingsDangerousPermissionsTurnOn)
+            alert.addButton(withTitle: ChiefStrings.settingsCancel)
+            guard alert.runModal() == .alertFirstButtonReturn else {
+                dangerousPermissions.state = .off
+                return
+            }
+        }
+        settings.dangerouslySkipPermissions = enabled
         ChiefService.shared.setEngineSettings(settings)
         refresh()
     }

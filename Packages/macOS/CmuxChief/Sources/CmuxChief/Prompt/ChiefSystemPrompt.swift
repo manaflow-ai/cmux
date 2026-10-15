@@ -25,6 +25,8 @@ public struct ChiefPromptContext: Sendable, Equatable {
     public var chiefHomePath: String?
     /// A short text summary of the user's workspaces at session start.
     public var workspacesSummary: String?
+    /// Whether the user explicitly enabled dangerous permission bypasses.
+    public var dangerouslySkipPermissions: Bool
     /// The session's start time.
     public var date: Date
     /// The time zone `date` is shown in.
@@ -41,6 +43,7 @@ public struct ChiefPromptContext: Sendable, Equatable {
                 socketPath: String? = nil,
                 chiefHomePath: String? = nil,
                 workspacesSummary: String? = nil,
+                dangerouslySkipPermissions: Bool = false,
                 date: Date = Date(),
                 timeZone: TimeZone = .current) {
         self.userDisplayName = userDisplayName
@@ -53,6 +56,7 @@ public struct ChiefPromptContext: Sendable, Equatable {
         self.socketPath = socketPath
         self.chiefHomePath = chiefHomePath
         self.workspacesSummary = workspacesSummary
+        self.dangerouslySkipPermissions = dangerouslySkipPermissions
         self.date = date
         self.timeZone = timeZone
     }
@@ -95,7 +99,7 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
         var sections = [
             Self.identity(userName: name),
             Self.tools,
-            Self.codingAgents,
+            Self.codingAgentsSection(dangerouslySkipPermissions: context.dangerouslySkipPermissions),
             Self.cloud,
             Self.settings,
             Self.memoryRules,
@@ -206,13 +210,17 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
     /// covered by an Always Allow rule for `cmux chief dispatch`).
     static let dispatchExample = ##"cmux chief dispatch --agent codex --name "#123: fix login" --cwd /Users/me/src/app --wait-working --json -- 'Fix the login bug in src/auth.ts, run its tests, open a PR and report the PR URL.'"##
 
-    static let codingAgents = """
+    static func codingAgentsSection(dangerouslySkipPermissions: Bool = false) -> String {
+        let permissions = dangerouslySkipPermissions
+            ? "The user has enabled the dangerous permission bypass in Chief Settings. For a Codex dispatch, include `--agent-arg --yolo` only when it is appropriate; the setting is an explicit opt-in, not a reason to skip the user's confirmation for costly or destructive work."
+            : "Keep agent permissions on their normal prompts. Do not add `--yolo` or another permission-bypass flag unless the user explicitly asks for it."
+        return """
     # Coding agents
 
     One workspace per independent task, with exactly one agent in it. Never put two tasks in one workspace and never reuse a workspace that holds other work.
 
     1. Pick the directory. Check what you remember and the user's instructions for their repos and how they like branches and worktrees; ask if you don't know. For a fresh git worktree pass `--worktree <repo>` (optionally `--branch <name>`) instead of `--cwd`.
-    2. Start it with one command, nothing chained before or after it: `cmux chief dispatch --agent codex|claude --name "<short title>" --cwd <dir> --wait-working --json -- '<task>'`. For example: `\(dispatchExample)`. The task goes last, in single quotes (write each ' inside it as '\\''); cmux hands it to the agent as one argument, so never build it with `$(…)`, heredocs or temp files. The task must stand alone: what to do, where, and what to report. Use the agent and flags the user prefers (`--agent-arg <arg>`, repeatable); Codex runs as `codex --yolo` when they have not said. The command shows one approval card, which the user can Always Allow.
+    2. Start it with one command, nothing chained before or after it: `cmux chief dispatch --agent codex|claude --name "<short title>" --cwd <dir> --wait-working --json -- '<task>'`. For example: `\(dispatchExample)`. The task goes last, in single quotes (write each ' inside it as '\\''); cmux hands it to the agent as one argument, so never build it with `$(…)`, heredocs or temp files. The task must stand alone: what to do, where, and what to report. Use the agent and flags the user prefers (`--agent-arg <arg>`, repeatable). \(permissions) The command shows one approval card, which the user can Always Allow.
     3. Read the JSON: `status` "working" means the agent is running. "failed" has a `reason`: `trust_prompt` or `sign_in` means it is waiting for the user in that workspace, `agent_not_found` that the agent isn't installed, `timeout` that it has not shown work yet; look once with `cmux read-screen --workspace <workspace_ref> --lines 40`, don't loop, and never dispatch the same task again.
     4. Tell the user the workspace name and ref and what the agent is doing.
 
@@ -220,6 +228,10 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
 
     Talking to an agent: `cmux agent message workspace:N "<text>"` (or the workspace title) delivers the message through the agent's hooks, never by typing into its prompt; an idle Claude Code session wakes up to read it. Prefer it to `cmux send` for agents.
     """
+    }
+
+    /// The default, safe coding-agent guidance kept for callers that only need the fixed section.
+    static var codingAgents: String { codingAgentsSection() }
 
     static let cloud = """
     # Cloud machines

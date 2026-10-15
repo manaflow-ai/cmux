@@ -21,8 +21,10 @@ extension CMUXCLI {
         on this Mac can show it while the agent runs. Keep secrets out of it.
 
         Options:
-          --agent codex|claude   Default codex, started as `codex --yolo`; claude starts as `claude`.
+          --agent codex|claude   Default codex, started with normal permission prompts.
           --agent-arg <arg>      Append one argument to the agent's command (repeatable).
+                               Add `--agent-arg --yolo` only when the user explicitly enabled
+                               Chief's dangerous permission bypass setting.
           --cwd <dir>            The agent's directory (default: the app's default).
           --worktree <repo>      First run `git -C <repo> worktree add -b <branch> <repo>-<slug>`
                                  and start the agent there. <slug> comes from the title.
