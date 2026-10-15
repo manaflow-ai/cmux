@@ -438,8 +438,13 @@ and new workspaces' personal rows are followed into the document
 mutation changes are written back to the personal rows and groups (a
 workspace in Pinned or a custom section is a loose row at its document
 position, a group in Pinned is `pinned`), and
-`workspace.list {order: personal}` is the document's order of this
-machine's workspaces.
+`workspace.list` (no `order`, or `order: personal`) is the document's order of this machine's workspaces: sections in display
+order (Pinned before the machine sections), each group's members in place
+after the group, and a live workspace the document does not place yet where
+`workspaces.newPlacement` puts a new one. Only the array order changes (the
+`index` field stays the session index); `order: session` keeps the session
+order. The private `list-workspaces` tree keeps the session order, because
+its `workspace-added` / `workspace-moved` deltas carry session indexes.
 
 The palette usage history is one document per user (`palette-usage-v1`): the
 palette rows the user ran (a decayed use count per row key, half-life three
@@ -1196,6 +1201,21 @@ harness refuses `fast` with `invalid_speed`), and `compactor_harness` and
 engine harness when it is a Claude one); the compactor fields apply at the
 next brain start. `chief.stop` takes an optional
 subagent `name` and then stops only that subagent.
+With capability `chief-brains-v1` all three take an optional `chief`, the
+Chief's id: for a live Chief other than the default, the daemon forwards to
+that Chief's own brain (its tools socket in the brain directory the daemon's
+brain supervisor gave it) and to no other Chief; absent, `null` or
+`agent_mux` reaches the default Chief's brain as before. A Chief that does not
+exist answers `operation.failed` reason `not_found`; a daemon that runs no
+Chief brains, `not_configured`. A Chief whose brain does not run now (never
+started here, stopped after 30 minutes idle, or between restarts):
+`chief.engine.set` starts it as a message to that Chief would (a brain in
+restart backoff starts only at its retry time), waits up to 15 s for its tools
+socket and then forwards (`unavailable` at once when no brain process starts,
+and when the socket does not answer in time); `chief.engine.get` and `chief.stop` never start a brain and
+answer `unavailable`. With agents
+off in the build session, the same agents-disabled refusal as the default
+Chief. The daemon advertises `chief-brains-v1` only when it runs Chief brains.
 Only the owner's trusted connection may call them: a registered Unix client
 with no link peer record whose principal is `user_local`, which is a local
 client or the link's `owner_session` splice. An agent-bound connection (the
@@ -1263,10 +1283,32 @@ gesture; no request field or claim the page makes up stands in for it. The
 operation ledger records a page's write as `user_local via page:<page>` (`user_local
 via websocket` with no page id), so a page write is told apart from a terminal's.
 Every other connection is refused with `origin.forbidden`. A Chief reads every
-record and changes only its own fields that its `self_edit` lists; tools,
-harnesses, engine and `self_edit` are the owner's only, as are create and
-delete. Any other Chief request is `operation.failed` reason
-`chief_self_edit_denied` with `extra.fields`, before anything is written.
+record and changes only its own fields that its `self_edit` lists; its own
+tools, harnesses, engine and `self_edit` are the owner's only. Any other
+change of itself is `operation.failed` reason `chief_self_edit_denied` with
+`extra.fields`, before anything is written.
+
+A Chief whose `tools` hold `chiefs` (on by default for a new Chief; a record
+made before that default whose tools were still the old default set gets it
+once, recorded in the ledger as `daemon via migration`) may also create
+Chiefs and change other Chiefs' profile, grant and picture, never beyond its
+own grant: the new or changed record's `tools` and `self_edit` are subsets of
+the Chief's, its `harnesses` are any when the Chief's are empty (every
+harness) and otherwise a non-empty subset, and each engine field the Chief has
+set (harness, model, effort) is the same. An edit also needs the target's
+current grant within the Chief's (`target_exceeds_caller`). On a Chief the person made
+(every record no Chief created) a Chief changes only display_name, role and the
+picture (`chief_person_made_fields`); the daemon records which Chief created a
+Chief from the verified caller, never from a request. A create fills the
+grant fields it omits from the Chief's own grant. Refusals, before anything is
+written: `chief_manage_denied` (no `chiefs`), `grant_exceeds_caller` (with
+`extra.fields`), `target_exceeds_caller`, `chief_default_grant` (a grant field
+of the default Chief), `chief_delete_denied` (no Chief deletes a Chief) and `too_many_chiefs`. The ledger records such a write as `<agent id> via chief`. The answer of `chief.profile.create` and `chief.profile.adopt` (not a replay)
+carries the new record's `brain`: `{state: "started"}` or `{state: "not_started",
+reason}`, from the daemon's brain supervisor (`no_supervisor`: this daemon runs
+no Chief brains; `launch_disabled`: agents are off in this build session;
+`supervisor_starting`; `error`, see the daemon log; `unconfirmed`, the
+supervisor did not answer in time).
 An avatar is PNG, JPEG, GIF or WebP, at most 1 MiB, stored once by SHA-256.
 The policy tests are in `crates/cmux-tui/tests/cli/chief_registry.rs`.
 

@@ -931,6 +931,13 @@ jobs:
       # a later republication (cmux-tui-pin-* push or dispatch), and
       # pin-cmux-tui.sh fetch on Windows fails fast until then.
       windows_optional: true
+      # acpmux for GPUI on Windows (cx-ephhf): cmux-tui-acpmux-x86_64-pc-windows-gnu.exe
+      # in cmux-tui-windows/<sha>/ and in the tree beside the Windows daemon
+      # (an optional Windows companion, attested in completion-windows.json),
+      # never in cmux-tui/<sha>/. Its own optional job: a failed acpmux build
+      # publishes the Windows daemon without it.
+      # Not for pull_request_target runs: publish-pr-tree publishes no Windows files.
+      windows_acpmux: ${{ github.event_name != 'pull_request_target' }}
       # Same-repository PRs (pull_request_target) publish the tree that their
       # same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -1083,7 +1090,12 @@ jobs:
     # these tests gate the nightly-next promotion, so they never wait for the
     # shared side pool. Clearing the variable rolls it back. The fork gate
     # stays first (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+    # vars.CI_NEXT_DAEMON_POOL, when set, takes that same slot ahead of the
+    # promote pool. One mini serves CI_NEXT_PROMOTE_POOL, so these tests
+    # queued an hour behind the Release compile and promotion stalled
+    # (2026-10-15); a separate pool keeps promotion's two halves from queuing
+    # behind each other. Clearing it restores the shared promote pool.
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -1280,7 +1292,8 @@ jobs:
       # The Windows build artifact (cmux-tui-x86_64-pc-windows-gnu) carries
       # the hook and both relays too. Only the daemon and its per-terminal
       # host (cmux-tui-host, cx-1vlzr: the daemon spawns it beside itself)
-      # are published, and in their own prefix (see the build job).
+      # are published, and in their own prefix (see the build job), with
+      # acpmux (its own optional artifact, cx-ephhf) when that build made it.
       - name: Move the Windows daemon to its own prefix
         id: windows
         run: |
@@ -1288,6 +1301,9 @@ jobs:
           if [[ ! -f assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe ]]; then
             echo "::warning title=no Windows daemon::the optional Windows build made no cmux-tui-x86_64-pc-windows-gnu.exe; publishing without cmux-tui-windows/$GITHUB_SHA"
             echo "present=false" >> "$GITHUB_OUTPUT"
+            # The acpmux job (cx-ephhf) is separate and may have succeeded:
+            # no Windows file ever goes to cmux-tui/<sha>/.
+            rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
             exit 0
           fi
           echo "present=true" >> "$GITHUB_OUTPUT"
@@ -1300,6 +1316,11 @@ jobs:
             exit 1
           fi
           mv assets/cmux-tui/cmux-tui-host-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
+          if [[ -f assets/cmux-tui/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe ]]; then
+            mv assets/cmux-tui/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
+          else
+            echo "::warning title=no Windows acpmux::the optional Windows acpmux build made no cmux-tui-acpmux-x86_64-pc-windows-gnu.exe; cmux-tui-windows/$GITHUB_SHA has no acpmux"
+          fi
           # The rest of the Windows build: the hook and both relays.
           rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
           ls assets/cmux-tui assets/cmux-tui-windows
@@ -1557,6 +1578,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-directory assets/cmux-tui
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1810,6 +1832,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1909,6 +1932,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1954,6 +1978,7 @@ jobs:
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+              --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"
             python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
@@ -2359,7 +2384,7 @@ jobs:
             # Optional (cx-1vlzr host): only when that commit's manifest
             # attests it; a Windows build from before it has none.
             for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
-              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) else 1)' tree/windows-manifest.json "$asset"; then
+              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) is not None else 1)' tree/windows-manifest.json "$asset"; then
                 fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
               fi
             done
@@ -2414,9 +2439,15 @@ jobs:
           verify_tree() {
           local base="https://files.cmux.com/cmux-tui/tree/$1" name published_sha
           names="cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-unknown-linux-musl cmux-tui-aarch64-unknown-linux-musl"
-          # The Windows daemon is optional: verified when the tree has it.
-          if curl -fsSL --proto '=https' -o /dev/null "$base/completion-windows.json?verify=$GITHUB_RUN_ID-check"; then
+          # The Windows daemon is optional: verified when the tree has it, with
+          # each optional Windows companion (host, acpmux) its completion attests.
+          if curl -fsSL --proto '=https' -o completion-windows.json "$base/completion-windows.json?verify=$GITHUB_RUN_ID-check"; then
             names="$names cmux-tui-x86_64-pc-windows-gnu.exe"
+            for name in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
+              if python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])).get("binaries", {}) else 1)' completion-windows.json "$name"; then
+                names="$names $name"
+              fi
+            done
           else
             echo "::warning title=tree without Windows::$base has no completion-windows.json"
           fi

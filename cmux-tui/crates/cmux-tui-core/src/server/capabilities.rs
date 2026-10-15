@@ -57,6 +57,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
     }
+    if crate::chief_brains::taken().is_some() {
+        capabilities.push(chief_control::CAPABILITY);
+    }
     #[cfg(debug_assertions)]
     capabilities
         .retain(|capability| !test_hidden_capabilities().iter().any(|hidden| hidden == capability));
@@ -176,6 +179,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
+        conversations::HOME_INBOX_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,
@@ -219,6 +223,7 @@ pub(super) fn advertised_capabilities(
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
+        crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,

@@ -11,13 +11,17 @@ import MachO
 /// stripping, `scripts/write-app-symbol-map.py` writes them into
 /// `Contents/Resources/cmux-symbols.bin`: per executable slice, its `LC_UUID`
 /// and the `__TEXT,__text` functions as offsets from the image's Mach-O
-/// header. Builds that skip the release strip (DEV) have no map and keep
+/// header, ending with an unnamed entry at the end of `__TEXT,__text`.
+/// Builds that skip the release strip (DEV) have no map and keep
 /// their symbol table.
 public struct AppSymbolMap: Sendable {
     /// Function start offsets from the image header, ascending.
     let offsets: [UInt]
-    /// Names as `dladdr` gives them (mangled), one per offset.
-    let names: [String]
+    /// The names as `dladdr` gives them (mangled), joined by NUL, one per
+    /// offset. Decoded only for a looked-up frame: a map holds ~450k names.
+    let nameBytes: [UInt8]
+    /// Where each name starts in ``nameBytes``, one per offset.
+    let nameStarts: [UInt32]
 
     /// The map of the running executable, or nil when the bundle has none or
     /// it holds no slice with this executable's UUID. Loaded on first use;
@@ -51,14 +55,16 @@ public struct AppSymbolMap: Sendable {
                   let table = Self.table(Reader(bytes: [UInt8](inflated as Data)))
             else { return nil }
             offsets = table.offsets
-            names = table.names
+            nameBytes = table.nameBytes
+            nameStarts = table.nameStarts
             return
         }
         return nil
     }
 
     /// The function holding `offset` (from the image header): its mangled
-    /// name and the offset into it, or nil before the first function.
+    /// name and the offset into it, or nil before the first function or past
+    /// the end of `__TEXT,__text` (stubs).
     public func function(at offset: UInt) -> (name: String, offset: UInt)? {
         // The first function starting after `offset`; the one before it holds it.
         var low = 0
@@ -67,8 +73,18 @@ public struct AppSymbolMap: Sendable {
             let middle = low + (high - low) / 2
             if let start = offsets[checked: middle], start <= offset { low = middle + 1 } else { high = middle }
         }
-        guard let start = offsets[checked: low - 1], let name = names[checked: low - 1] else { return nil }
+        guard let start = offsets[checked: low - 1], let name = name(at: low - 1) else { return nil }
         return (name, offset - start)
+    }
+
+    /// The name of entry `index`; nil for the unnamed end of `__TEXT,__text`.
+    private func name(at index: Int) -> String? {
+        guard let first = nameStarts[checked: index] else { return nil }
+        let start = Int(truncatingIfNeeded: first)
+        // A name ends at the NUL before the next name, the last at the end.
+        let end = nameStarts[checked: index + 1].map { Int(truncatingIfNeeded: $0) - 1 } ?? nameBytes.count
+        guard start >= 0, start < end, end <= nameBytes.count else { return nil }
+        return String(decoding: nameBytes.dropFirst(start).prefix(end - start), as: UTF8.self)
     }
 
     /// The `LC_UUID` of the Mach-O image at `header`.
@@ -86,7 +102,7 @@ public struct AppSymbolMap: Sendable {
     }
 
     /// Decodes a slice payload: u32 count, LEB128 offset deltas, NUL-joined names.
-    private static func table(_ payload: Reader) -> (offsets: [UInt], names: [String])? {
+    private static func table(_ payload: Reader) -> (offsets: [UInt], nameBytes: [UInt8], nameStarts: [UInt32])? {
         var payload = payload
         guard let count = payload.uint32() else { return nil }
         var offsets: [UInt] = []
@@ -97,10 +113,15 @@ public struct AppSymbolMap: Sendable {
             offset = offset.addingReportingOverflow(delta).partialValue
             offsets.append(offset)
         }
-        let names = payload.rest.split(separator: 0, omittingEmptySubsequences: false)
-            .map { String(decoding: $0, as: UTF8.self) }
-        guard names.count == offsets.count else { return nil }
-        return (offsets, names)
+        let nameBytes = Array(payload.rest)
+        var nameStarts: [UInt32] = [0]
+        nameStarts.reserveCapacity(offsets.count)
+        for (index, byte) in nameBytes.enumerated() where byte == 0 {
+            guard let start = UInt32(exactly: index + 1) else { return nil }
+            nameStarts.append(start)
+        }
+        guard nameStarts.count == offsets.count else { return nil }
+        return (offsets, nameBytes, nameStarts)
     }
 
     /// Reads little-endian fields from a byte array; a read past the end is nil.

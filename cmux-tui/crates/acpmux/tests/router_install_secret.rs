@@ -1,14 +1,15 @@
-//! The local router with no default keychain (cx-f4thx): it runs on a random
-//! in-memory install secret, says so in `status` (`install_secret:
-//! ephemeral`), and the keys it mints work for that run only. Driven through
-//! `acpmux router serve`, its admin socket and its loopback data plane. On
-//! Linux the router always runs this way; on macOS the debug-only
-//! `CMUX_CODEROUTER_TEST_NO_KEYCHAIN` takes the same path as a Mac without a
-//! login keychain.
+//! The local router's install secret (cx-f4thx): on every platform a random
+//! in-memory secret per run (never the macOS Keychain, whose access prompt
+//! asked again for every differently signed build). It says so in `status`
+//! (`install_secret: ephemeral`), and the keys it mints work for that run
+//! only. Driven through `acpmux router serve`, its admin socket and its
+//! loopback data plane.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -43,7 +44,6 @@ fn start_router(home: &Path, stderr: &Path) -> Router {
     let child = daemon_env::acpmux(home)
         .args(["router", "serve"])
         .env("ACPMUX_HOME", home)
-        .env("CMUX_CODEROUTER_TEST_NO_KEYCHAIN", "1")
         .env("RUST_LOG", "warn")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -108,7 +108,7 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn with_no_keychain_keys_work_for_one_router_run_and_the_status_says_ephemeral() {
+fn keys_work_for_one_router_run_and_the_status_says_ephemeral() {
     let home = scratch();
     let log = home.join("router-stderr.log");
     let router = start_router(&home, &log);
@@ -136,14 +136,9 @@ fn with_no_keychain_keys_work_for_one_router_run_and_the_status_says_ephemeral()
     assert_eq!(relay_status(port, &key), 401, "a key outlived its router run");
     stop(&home, router);
 
-    // The fallback is visible: one warning line on stderr per run (macOS; on
-    // Linux the random secret is the only kind, with no fallback to report).
-    let warnings = std::fs::read_to_string(&log)
-        .unwrap()
-        .lines()
-        .filter(|l| l.contains("this router run uses a random in-memory secret"))
-        .count();
-    assert_eq!(warnings, if cfg!(target_os = "macos") { 2 } else { 0 }, "router stderr: {log:?}");
+    // No Keychain path at all: no fallback warning on any platform.
+    let stderr = std::fs::read_to_string(&log).unwrap();
+    assert!(!stderr.to_lowercase().contains("keychain"), "router stderr: {stderr}");
 
     // The secret part of the key reached no file under the home and no log.
     let secret = key.rsplit('_').next().unwrap().to_owned();
