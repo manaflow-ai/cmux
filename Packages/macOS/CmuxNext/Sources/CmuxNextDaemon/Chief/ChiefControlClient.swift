@@ -138,9 +138,9 @@ public struct ChiefControlClient: Sendable {
 
     /// `chief.engine.set`: absent fields stay, "default" clears one; the
     /// report after the write.
-    public func setChiefEngine(harness: String? = nil, model: String? = nil,
-                               effort: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
-        let fields = [("harness", harness), ("model", model), ("effort", effort)]
+    public func setChiefEngine(harness: String? = nil, model: String? = nil, effort: String? = nil,
+                               avatar: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
+        let fields = [("harness", harness), ("model", model), ("effort", effort), ("avatar", avatar)]
         let params = Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, JSONValue.string($0)) } })
         let key = "cmux-next-chief-engine-" + UUID().uuidString.lowercased()
         do {

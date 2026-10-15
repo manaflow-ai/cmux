@@ -586,6 +586,12 @@
       ]
     },
     {
+      "name": "chief-profile-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "client-attached",
       "streams": [
         "subscribe"

@@ -120,9 +120,18 @@ fn a_brain_refusal_keeps_its_code_and_text() {
 /// Runs `operation` through the origin gate's parse and `handle_with` on
 /// `client`, with the fake brain at `socket`; the response line.
 fn call(mux: &Arc<Mux>, client: u64, operation: &str, socket: &Path) -> Value {
+    call_with(mux, client, operation, json!({}), socket)
+}
+
+/// [`call`] with `extra` params beside the selectors.
+fn call_with(mux: &Arc<Mux>, client: u64, operation: &str, extra: Value, socket: &Path) -> Value {
     let (writer, outbound) = tests::captured_writer();
+    let mut params = json!({"machine":"current","session":"current"});
+    for (key, value) in extra.as_object().cloned().unwrap_or_default() {
+        params[key] = value;
+    }
     let mut line = json!({"protocol":"cmux.protocol/2","type":"request","id":"c","operation":operation,
-                          "params":{"machine":"current","session":"current"}});
+                          "params":params});
     if operation != "chief.engine.get" {
         line["idempotency_key"] = json!("k1");
     }
@@ -197,4 +206,32 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
         stop["value"],
         json!({"stopped":true,"subagents":["a3"],"note":"Stopped by the user: a3."})
     );
+}
+
+/// chief.engine.set {avatar} reaches the brain and, once the brain wrote it,
+/// tells the owner's clients (`chief-profile-changed`, a phone's Chief
+/// header); a set without an avatar tells nothing.
+#[test]
+fn an_avatar_set_reaches_the_brain_and_tells_the_owners_clients() {
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefEngineSet, &fields(json!({"avatar":""}))),
+        json!({"tool":"engine","action":"set","avatar":""})
+    );
+    let mux = Mux::new_for_test("chief-control-avatar", crate::SurfaceOptions::default());
+    let owner = mux.control_clients.register(ClientTransport::Unix, writer());
+    let events = mux.subscribe();
+    let (_dir, sock, seen) = brain(json!({"engine":{"harness":"codex"},"avatar":"🦊"}));
+    let set = call_with(&mux, owner, "chief.engine.set", json!({"avatar":"🦊"}), &sock);
+    assert_eq!(set["result"]["value"]["avatar"], "🦊", "{set}");
+    assert_eq!(seen.lock().unwrap()[0], json!({"tool":"engine","action":"set","avatar":"🦊"}));
+    let profile: Vec<Option<String>> = events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::ChiefProfileChanged { avatar } => Some(avatar),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(profile, [Some("🦊".to_owned())]);
+    let _ = call_with(&mux, owner, "chief.engine.set", json!({"effort":"high"}), &sock);
+    assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::ChiefProfileChanged { .. })));
 }

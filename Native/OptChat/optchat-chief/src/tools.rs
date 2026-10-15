@@ -389,6 +389,7 @@ fn connection(conn: UnixStream, served: &Served) {
                                 effort: field("effort"),
                                 speed: field("speed"),
                                 compactor_speed: field("compactor_speed"),
+                                avatar: field("avatar"),
                             }))
                         }
                         _ => None,

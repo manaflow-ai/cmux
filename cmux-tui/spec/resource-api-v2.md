@@ -1041,8 +1041,16 @@ daemon forwards one line to the brain host's tools socket
 brain's JSON: the engine report (passed through unchanged) or `{stopped,
 subagents?, note?}`. `chief.engine.set` also takes `speed` and
 `compactor_speed` (`default` or `fast`, the codex priority tier; a Claude
-harness refuses `fast` with `invalid_speed`); `chief.stop` takes an optional
-subagent `name` and then stops only that subagent.
+harness refuses `fast` with `invalid_speed`) and `avatar`, the Chief's avatar
+text in the brain's profile.json (at most 16 characters, no controls, not a
+picture's file name; empty clears it; else `invalid_avatar`). A set with
+`avatar` emits `chief-profile-changed` to the owner's own subscribe clients
+(`chief-profile-events-v1`, events.md). The report's `avatar` is that text
+(null for none or a picture), and `engine.model` is the model turns run: the
+chosen one, else what the default resolves to (`model_is_default`; the
+offered `default` entry's `resolves_to` and `offered.default_model`).
+`chief.stop` takes an optional subagent `name` and then stops only that
+subagent.
 Only the owner's trusted connection may call them: a registered Unix client
 with no link peer record whose principal is `user_local`, which is a local
 client or the link's `owner_session` splice. An agent-bound connection (the
