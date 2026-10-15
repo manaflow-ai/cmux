@@ -453,3 +453,85 @@ async fn restart_ends_a_lost_wait_for_stats() {
     let range = options(acpmux::store::now_ms(), 366);
     assert_eq!(hub.stats(&range).unwrap().waiting_ms, 0);
 }
+
+#[test]
+fn stats_permission_wait_runs_from_request_to_decision() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + HOUR));
+    log.prompt(DAY0);
+    log.started(DAY0);
+    log.push(DAY0 + MIN, "mux", "permission_request", json!({"permissionId": "x"}));
+    log.push(DAY0 + 5 * MIN, "mux", "permission_decision", json!({"permissionId": "x"}));
+    log.push(DAY0 + 6 * MIN, "mux", "permission_request", json!({"permissionId": "y"}));
+    // A rule's answer is no wait on the person.
+    log.push(DAY0 + 6 * MIN, "mux", "permission_auto", json!({"permissionId": "r"}));
+    log.push(DAY0 + 7 * MIN, "mux", "permission_decision", json!({"permissionId": "y"}));
+    // Asked, and the daemon died before anyone answered: no decision.
+    log.push(DAY0 + 8 * MIN, "mux", "permission_request", json!({"permissionId": "z"}));
+    let s = summarize(&store, &options(DAY0 + HOUR, 1), &live_ids(&[])).unwrap();
+    assert_eq!(s.permission_requests, 3);
+    assert_eq!((s.permission_answered, s.permission_unanswered), (2, 1));
+    assert_eq!(s.permission_wait_ms, 4 * MIN + MIN);
+    assert_eq!(s.permission_wait_max_ms, 4 * MIN);
+}
+
+#[test]
+fn stats_permission_wait_counts_questions_asked_in_the_range() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + 2 * HOUR));
+    // Asked before the range, answered inside it: not this range's question.
+    log.push(DAY0 - 10 * MIN, "mux", "permission_request", json!({"permissionId": "old"}));
+    log.push(DAY0 + MIN, "mux", "permission_decision", json!({"permissionId": "old"}));
+    // Asked by a daemon that died, shown again under the same id by the
+    // next one, answered then: one question, one wait.
+    log.push(DAY0 + 10 * MIN, "mux", "permission_request", json!({"permissionId": "p"}));
+    log.push(DAY0 + 30 * MIN, "mux", "permission_reissued", json!({"permissionId": "p"}));
+    log.push(DAY0 + 32 * MIN, "mux", "permission_decision", json!({"permissionId": "p"}));
+    // A decision for a question this log never asked.
+    log.push(DAY0 + 40 * MIN, "mux", "permission_decision", json!({"permissionId": "ghost"}));
+    // Answered after the range ends: still open as of the range.
+    log.push(DAY0 + 50 * MIN, "mux", "permission_request", json!({"permissionId": "late"}));
+    log.push(DAY0 + 2 * HOUR, "mux", "permission_decision", json!({"permissionId": "late"}));
+    let range = StatsOptions { since: DAY0, until: DAY0 + HOUR, tz_offset_minutes: 0 };
+    let s = summarize(&store, &range, &live_ids(&[])).unwrap();
+    assert_eq!(s.permission_requests, 2);
+    assert_eq!((s.permission_answered, s.permission_unanswered), (1, 1));
+    assert_eq!((s.permission_wait_ms, s.permission_wait_max_ms), (22 * MIN, 22 * MIN));
+}
+
+#[test]
+fn stats_limit_errors_count_failed_turns_and_failovers_on_a_limit() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + 2 * HOUR));
+    fn error(at: u64, log: &mut Log<'_>, text: &str) {
+        log.prompt(at);
+        log.started(at);
+        log.push(at + MIN, "mux", "turn_error", json!({"error": text}));
+        log.push(at + MIN, "mux", "turn_result", json!({"status": "failed", "error": text}));
+    }
+    // Before the range.
+    error(DAY0 - HOUR, &mut log, "You've reached your usage limit");
+    error(DAY0, &mut log, "You've reached your usage limit");
+    error(DAY0 + 10 * MIN, &mut log, "boom");
+    // A failover carried this turn on: the account still hit its limit.
+    log.prompt(DAY0 + 20 * MIN);
+    log.started(DAY0 + 20 * MIN);
+    log.push(
+        DAY0 + 21 * MIN,
+        "mux",
+        "failover",
+        json!({"from": "claude", "to": "claude-pool", "reason": "429 rate limit"}),
+    );
+    // A pool launcher that died fails over too, but is not a limit.
+    log.push(
+        DAY0 + 22 * MIN,
+        "mux",
+        "failover",
+        json!({"from": "claude-pool", "to": "claude", "reason": "agent process closed"}),
+    );
+    log.result(DAY0 + 25 * MIN, "completed");
+    let range = StatsOptions { since: DAY0, until: DAY0 + HOUR, tz_offset_minutes: 0 };
+    let s = summarize(&store, &range, &live_ids(&[])).unwrap();
+    assert_eq!(s.turns_failed, 2);
+    assert_eq!(s.limit_errors, 2);
+}

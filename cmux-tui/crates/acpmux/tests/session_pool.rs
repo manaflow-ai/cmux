@@ -627,7 +627,7 @@ async fn the_shutdown_command_ends_every_agent_host_and_reports_the_counts() {
         .collect();
 
     let out = daemon_env::acpmux(&home)
-        .args(["--json", "daemon", "shutdown"])
+        .args(["--json", "daemon", "shutdown", "--end-agents"])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", &daemon.socket)
         .output()

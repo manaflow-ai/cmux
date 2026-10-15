@@ -17,3 +17,5 @@ public typealias AppTheme = CmuxTheme.AppTheme
 public typealias ThemeAccent = CmuxTheme.ThemeAccent
 /// One Ghostty theme file's colors; see ``CmuxTheme/ThemeFileColors``.
 public typealias ThemeFileColors = CmuxTheme.ThemeFileColors
+/// Where a color transition blends; see ``CmuxTheme/ThemeColorSpace``.
+public typealias ThemeColorSpace = CmuxTheme.ThemeColorSpace
