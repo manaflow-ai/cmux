@@ -25,6 +25,8 @@ import os
 enum CheckedFont {
     private struct Key: Hashable {
         var design: Typography.Design
+        /// `appearance.fonts.ui` for the default design (`AppFonts.Design`); `.system` otherwise.
+        var face: AppFonts.Design
         var size: CGFloat
         var weight: CGFloat
     }
@@ -51,17 +53,25 @@ enum CheckedFont {
             return checked(size: requested) { fresh(design, size: NSFont.systemFontSize, weight: weight) }.font
         }
         let size = (requested * 100).rounded() / 100
-        let key = Key(design: design, size: size, weight: weight.rawValue)
+        let face = design == .default ? DesignSettings.shared.fonts.design : .system
+        let key = Key(design: design, face: face, size: size, weight: weight.rawValue)
         if let font = retained[key] { return font }
-        let (font, isFallback) = checked(size: size) { fresh(design, size: size, weight: weight) }
+        let (font, isFallback) = checked(size: size) { fresh(design, face: face, size: size, weight: weight) }
         // A fallback is not kept: the next call asks AppKit again.
         if !isFallback, retained.count < retainedLimit { retained[key] = font }
         return font
     }
 
-    private static func fresh(_ design: Typography.Design, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+    private static func fresh(_ design: Typography.Design, face: AppFonts.Design = .system, size: CGFloat,
+                              weight: NSFont.Weight) -> NSFont {
         switch design {
-        case .default: .systemFont(ofSize: size, weight: weight)
+        case .default:
+            // The text face's design (rounded, serif, mono) of the system font; the plain system
+            // font when there is none or AppKit can't make it.
+            face.systemDesign.flatMap { systemDesign in
+                let system = NSFont.systemFont(ofSize: size, weight: weight)
+                return nonNull(system)?.fontDescriptor.withDesign(systemDesign).flatMap { NSFont(descriptor: $0, size: size) }
+            } ?? .systemFont(ofSize: size, weight: weight)
         case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
         case .monospacedDigit: .monospacedDigitSystemFont(ofSize: size, weight: weight)
         }
