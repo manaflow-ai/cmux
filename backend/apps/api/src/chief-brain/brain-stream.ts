@@ -75,7 +75,7 @@ export class BrainStream {
   private readonly steps = new Map<string, LiveStep>()
   private deltas = 0
   private timer: ReturnType<typeof setTimeout> | undefined
-  private activity: string | undefined
+  private line: string | undefined
   private chain: Promise<void> = Promise.resolve()
 
   constructor(
@@ -88,7 +88,7 @@ export class BrainStream {
   request(taskId: string): void {
     const t = this.target()
     if (!t.run) return
-    if (t.run !== this.run) [this.run, this.activity] = [t.run, undefined]
+    if (t.run !== this.run) [this.run, this.line] = [t.run, undefined]
     else this.flush(false)
     // A new attempt of the same generation streams its text again from the start.
     for (const s of this.steps.values()) [s.seq, s.pending] = [0, ""]
@@ -156,8 +156,8 @@ export class BrainStream {
 
   private setActivity(line: string): void {
     const l = activityLine(line)
-    if (!l || l === this.activity) return
-    this.activity = l
+    if (!l || l === this.line) return
+    this.line = l
     const at = this.now()
     this.emit({ type: "run.activity", line: l, since: at, at })
   }
