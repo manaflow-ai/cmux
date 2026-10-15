@@ -1,0 +1,30 @@
+{
+  "version": "cef-154.0.28-cmux.25",
+  "cef": "154.0.28",
+  "chromium": "154.0.8037.58",
+  "arch": "arm64",
+  "repo": "manaflow-ai/cef",
+  "tag": "cef-154.0.28-cmux.25",
+  "asset": "cef-154.0.28-cmux.25-macos-arm64.tar.xz",
+  "url": "https://github.com/manaflow-ai/cef/releases/download/cef-154.0.28-cmux.25/cef-154.0.28-cmux.25-macos-arm64.tar.xz",
+  "sha256": "155f6b300630c65ab1bcb6cce281203804b667f6b9d164abe9e7cdf6d01a8414",
+  "r2_bucket": "cmux-cef",
+  "r2_key": "cef/155f6b300630c65ab1bcb6cce281203804b667f6b9d164abe9e7cdf6d01a8414/cef-154.0.28-cmux.25-macos-arm64.tar.xz",
+  "debug_asset": "cef-154.0.28-cmux.25-macos-arm64-debug.tar.xz",
+  "debug_sha256": "6a578f04b02db26caf3a6a8d0b2f9718e8cc68749f1b6d89df256debb426ee2c",
+  "debug_r2_key": "cef/6a578f04b02db26caf3a6a8d0b2f9718e8cc68749f1b6d89df256debb426ee2c/cef-154.0.28-cmux.25-macos-arm64-debug.tar.xz",
+  "fork_branch": "cmux/8037-cmux25-rc",
+  "fork_ref": "25bf5c82fa18db6ef1e76fa87d134f517544ae14",
+  "cmux_cef_api_version": 23,
+  "x86_64": {
+    "asset": "cef-154.0.28-cmux.25-macos-x86_64.tar.xz",
+    "sha256": "2ccc58ce7a53554419eae7ad73646a3c81cebe34fbfe73d714c5857f0d99721a",
+    "r2_key": "cef/2ccc58ce7a53554419eae7ad73646a3c81cebe34fbfe73d714c5857f0d99721a/cef-154.0.28-cmux.25-macos-x86_64.tar.xz",
+    "url": "https://github.com/manaflow-ai/cef/releases/download/cef-154.0.28-cmux.25/cef-154.0.28-cmux.25-macos-x86_64.tar.xz",
+    "debug_asset": "cef-154.0.28-cmux.25-macos-x86_64-debug.tar.xz",
+    "debug_sha256": "ebdb84d0b32b99646dfb2e1f16ada7b20585491657f717fb3979d667493580fd",
+    "debug_r2_key": "cef/ebdb84d0b32b99646dfb2e1f16ada7b20585491657f717fb3979d667493580fd/cef-154.0.28-cmux.25-macos-x86_64-debug.tar.xz",
+    "fork_ref": "25bf5c82fa18db6ef1e76fa87d134f517544ae14"
+  },
+  "require_dcheck_off": true
+}

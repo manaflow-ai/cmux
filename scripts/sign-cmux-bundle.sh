@@ -181,7 +181,21 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # 4. Frameworks
   if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
     "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
+    # The optional Chromium engine (scripts/cef/embed-cef.sh, only in builds
+    # that opt in) has its own inside-out order and per-helper entitlements:
+    # its GPU and Renderer helpers need allow-jit, which --deep would drop.
+    HAS_CEF=0
+    if [[ -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]]; then
+      HAS_CEF=1
+      CMUX_TIMESTAMP="${CMUX_TIMESTAMP:-}" "$SCRIPT_DIR/cef/sign-cef.sh" "$APP_PATH" "$IDENTITY"
+    fi
     while IFS= read -r -d '' framework; do
+      if [[ "$HAS_CEF" == "1" ]]; then
+        case "$(basename "$framework")" in
+          "Chromium Embedded Framework.framework"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app")
+            continue ;;
+        esac
+      fi
       echo "==> signing framework $(basename "$framework")"
       /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
