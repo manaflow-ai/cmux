@@ -68,7 +68,7 @@ const worktreeProps = {
 };
 
 const openComputer: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Computer" });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
 };
 

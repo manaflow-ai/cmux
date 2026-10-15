@@ -25,7 +25,8 @@ public nonisolated struct ActionTargetChoices: Sendable, Hashable {
     static func resolve(_ descriptor: ActionDescriptor, target: ActionTargetRef?,
                         in registry: ActionRegistry) -> (ActionArgument, [ActionEnumCase], String?)? {
         if let (argument, cases) = descriptor.arguments.lazy.compactMap(ActionRegistry.menuChoices).first {
-            return (argument, cases, registry.choiceState?(descriptor.id, target))
+            let own = registry.action(for: descriptor.id)?.choiceState
+            return (argument, cases, own.map { $0(target) } ?? registry.choiceState?(descriptor.id, target))
         }
         guard let argument = descriptor.arguments.first(where: { kind(of: $0, in: descriptor) != nil }),
               let kind = kind(of: argument, in: descriptor),
