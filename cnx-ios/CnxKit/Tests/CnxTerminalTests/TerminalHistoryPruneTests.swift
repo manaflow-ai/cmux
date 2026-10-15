@@ -154,3 +154,33 @@ extension TerminalFrameCoverTests {
         #expect(TerminalScrollGate.maxWait < 0.4)
     }
 }
+
+/// qa11 wt-fling-b (W-T at the cap, 2 of 60 jumps): reading rows, one fully
+/// black frame (the scroll indicator still at the reading position), then
+/// the live bottom. The jump waited for the end's frame; Ghostty's frame for
+/// the end arrived and was placed at the end, replacing the reading frame,
+/// but rows that arrived meanwhile left the end's last rows outside it, so
+/// the page kept waiting at the reader's rows with nothing under them. The
+/// frame on screen is the only frame there is: when it no longer covers the
+/// page, the page goes to the rows it covers nearest the target, and the
+/// rest of the move waits for the next frame.
+@Suite struct TerminalScrollGateInterimTests {
+    let viewport: CGFloat = 800
+
+    @Test func aPlacedFrameThatLeavesThePageUncoveredMovesItToTheFramesRows() {
+        // Content y: the end's frame covers 270000..<272400; the target
+        // (the end) needs 271700..<272500; the page is at 266000.
+        let y = TerminalScrollGate.interimOffset(frame: 270000..<272400, document: 0..<272500, current: 266000,
+                                                 target: 271700, viewport: viewport)
+        #expect(y == 272400 - viewport)
+    }
+
+    @Test func aPageTheFrameStillCoversKeepsWaiting() {
+        // The frame on screen still shows the reader's rows.
+        #expect(TerminalScrollGate.interimOffset(frame: 265500..<267900, document: 0..<272500, current: 266000,
+                                                 target: 271700, viewport: viewport) == nil)
+        // Rows past the document's end are the page's own background.
+        #expect(TerminalScrollGate.interimOffset(frame: 271000..<272500, document: 0..<272500, current: 271900,
+                                                 target: 271950, viewport: viewport) == nil)
+    }
+}

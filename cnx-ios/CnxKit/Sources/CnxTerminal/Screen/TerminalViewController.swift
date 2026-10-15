@@ -567,6 +567,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // frame, and the fallback's forced move under fast output).
         if Self.jumpAwaitsFrame, !forceScroll, freezeView == nil, abs(scrollView.contentOffset.y - target) > 0.5,
            !targetCovered(target) {
+            // The frame just placed is the only one there is: when it no
+            // longer covers the page (it replaced the reader's frame), the
+            // page shows its rows nearest the target meanwhile (qa11
+            // wt-fling-b: the page waited at the reader's rows, black).
+            if let document, let y = TerminalScrollGate.interimOffset(
+                frame: surface.frame.minY..<surface.frame.maxY, document: 0..<document.contentHeight(cellHeight: cell.height),
+                current: scrollView.contentOffset.y, target: target, viewport: view.bounds.height),
+               abs(y - scrollView.contentOffset.y) > 0.5 {
+                settingOffset = true
+                scrollView.contentOffset.y = y
+                settingOffset = false
+                updateBottomFade()
+            }
             awaitFrame(ticks: 6)
             updateViewport(visibleMinY: target)
             return
@@ -704,56 +717,41 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         measured("frame-save") { capture(hidingCursor: true) }
     }
 
-    /// What a still needs from the main thread: the presented frame's
-    /// visible rows copied out of Ghostty's surface, and the page's other
-    /// layers drawn below and above it (`TerminalPageCapture.render` composes
-    /// them on any thread).
+    /// What a still needs from the main thread: the presented frame's rows
+    /// on the page (below the top inset, above the composer card) copied out
+    /// of Ghostty's surface (`TerminalPageCapture.render` composes them on
+    /// any thread). The page's chrome is not part of a still
+    /// (`TerminalStillPlan`; qa11: the composer drawn across a card's middle).
     func capture(hidingCursor: Bool) -> TerminalPageCapture? {
         guard view.window != nil, view.bounds.width > 0 else { return nil }
         // The frame kept for a cold launch has no cursor: it is not where
         // typing goes until the live screen is back (R3-4). The glyph under
         // it stays (V8 claim 8).
         let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = Self.snapshotScale
-        format.opaque = false
-        let renderer = UIGraphicsImageRenderer(bounds: view.bounds, format: format)
-        let visible = view.subviews.filter { !$0.isHidden && $0.alpha > 0.01 }
-        guard let host = visible.first(where: { surface.isDescendant(of: $0) }),
-              let copy = surface.presentedCopy(clip: view.convert(view.bounds, to: surface)) else {
-            let opaque = UIGraphicsImageRendererFormat()
-            opaque.scale = Self.snapshotScale
-            opaque.opaque = true
-            let image = UIGraphicsImageRenderer(bounds: view.bounds, format: opaque).image { _ in
-                view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
-            }
-            return TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale, under: image.cgImage, surface: nil,
-                                       surfaceClip: .null, surfaceFrame: .null, over: nil, cursor: cursor,
-                                       background: CnxGhosttyApp.background)
+        let host: UIView = model.isTUI ? tuiClip : scrollView
+        let rows = TerminalStillPlan.rowsClip(bounds: view.bounds, topInset: model.isTUI ? tuiClip.frame.minY : scrollView.contentInset.top,
+                                              composerTop: bottomStack.frame.minY)
+            .intersection(host.convert(host.bounds, to: view))
+        var capture = TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale, surface: nil, fallback: nil,
+                                          surfaceClip: rows.isNull ? .zero : rows, surfaceFrame: .null, cursor: cursor,
+                                          background: CnxGhosttyApp.background)
+        guard !rows.isNull, !rows.isEmpty, surface.isDescendant(of: host) else { return capture }
+        let clip = view.convert(rows, to: surface)
+        if let copy = surface.presentedCopy(clip: clip) {
+            // The surface drawn from the frame Ghostty presented: the render
+            // server's copy of a live Metal surface came out black on the rig (V5-6).
+            capture.surface = copy
+            capture.surfaceFrame = surface.convert(copy.frame, to: view)
+        } else if let presented = surface.presentedImage(clip: clip) {
+            // The copy failed (an unexpected surface format): the frame
+            // rendered here, on the main thread, as before the copy.
+            sizingLog.notice("still: presented copy failed, rendered on the main thread")
+            capture.fallback = presented.image
+            capture.surfaceFrame = surface.convert(presented.frame, to: view)
+        } else {
+            sizingLog.notice("still: no presented frame; background only")
         }
-        // `layer.render`, not `drawHierarchy`: the render server's copy is
-        // opaque black while the grid covers the page, and a full-page
-        // overlay (the joystick thumb's host) then blacked out everything.
-        func layers(_ views: ArraySlice<UIView>) -> CGImage? {
-            guard !views.isEmpty else { return nil }
-            return renderer.image { context in
-                for sub in views {
-                    context.cgContext.saveGState()
-                    context.cgContext.translateBy(x: sub.frame.minX, y: sub.frame.minY)
-                    sub.layer.render(in: context.cgContext)
-                    context.cgContext.restoreGState()
-                }
-            }.cgImage
-        }
-        let index = visible.firstIndex(of: host) ?? 0
-        // The surface drawn from the frame Ghostty presented: the render
-        // server's copy of a live Metal surface came out black on the rig (V5-6).
-        return TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale,
-                                   under: layers(visible[..<index]), surface: copy,
-                                   surfaceClip: host.convert(host.bounds, to: view).intersection(view.bounds),
-                                   surfaceFrame: surface.convert(copy.frame, to: view),
-                                   over: layers(visible[(index + 1)...]), cursor: cursor,
-                                   background: CnxGhosttyApp.background)
+        return capture
     }
 
     private static let snapshotScale: CGFloat = 2
@@ -1899,7 +1897,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if dragPinsToComposer { targetContentOffset.pointee = scrollView.contentOffset }
     }
 
-    private func setScrollButton(visible: Bool) {
+    private func setScrollButton(visible requested: Bool) {
+        // Following (a Jump to bottom tap, typing) hides the row at once,
+        // while the page may still wait for the end's frame: the composer
+        // shrinks before the page lands, not in the frames after (qa11 wt-fling-b).
+        let visible = requested && !following
         guard model.isScrolledUp != visible else { return }
         model.isScrolledUp = visible
         // The composer shows its Jump to bottom row (`TerminalComposer`).
@@ -1923,6 +1925,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
             settingOffset = false
         }
+        setScrollButton(visible: false)
         applyScroll()
         #if DEBUG
         sizingLog.notice("scroll: jump to bottom (decelerating \(self.scrollView.isDecelerating, privacy: .public), tracking \(self.scrollView.isTracking, privacy: .public)) -> offset \(Int(self.scrollView.contentOffset.y), privacy: .public) of \(Int(self.maxOffsetY), privacy: .public)")
@@ -2129,18 +2132,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 /// The row shift's state, owned by the surface's output queue: every
 /// `filter` call runs there, in feed order.
 /// A still of the page taken on the main thread (`TerminalViewController.capture`)
-/// and composed here, on any thread: the terminal background, the layers
-/// below the surface, the presented frame's rows, the layers above, and the
-/// cursor's cell with the cursor hidden and its glyph kept
-/// (`TerminalCursorErase`).
+/// and composed here, on any thread: the terminal background, the presented
+/// frame's rows clipped to the page's rows area, and the cursor's cell with
+/// the cursor hidden and its glyph kept (`TerminalCursorErase`). No chrome
+/// (`TerminalStillPlan`).
 struct TerminalPageCapture: @unchecked Sendable {
     let bounds: CGRect
     let scale: CGFloat
-    let under: CGImage?
-    let surface: TerminalPresentedCopy?
+    var surface: TerminalPresentedCopy?
+    /// The rows rendered on the main thread when the copy failed.
+    var fallback: CGImage?
     let surfaceClip: CGRect
-    let surfaceFrame: CGRect
-    let over: CGImage?
+    var surfaceFrame: CGRect
     let cursor: CGRect?
     /// The terminal's background (`CnxGhosttyApp.background`).
     let background: UIColor
@@ -2157,19 +2160,18 @@ struct TerminalPageCapture: @unchecked Sendable {
         UIGraphicsPushContext(context)
         background.setFill()
         UIRectFill(bounds)
-        if let under { UIImage(cgImage: under, scale: scale, orientation: .up).draw(in: bounds) }
-        if let surface, let image = surface.makeImage(), !surfaceClip.isNull {
+        if let image = surface?.makeImage() ?? fallback, !surfaceFrame.isNull, !surfaceClip.isEmpty {
             context.saveGState()
             context.clip(to: surfaceClip)
             UIImage(cgImage: image).draw(in: surfaceFrame)
             context.restoreGState()
         }
-        if let over { UIImage(cgImage: over, scale: scale, orientation: .up).draw(in: bounds) }
         UIGraphicsPopContext()
         if let cursor, let data = context.data {
             let pixels = CGRect(x: cursor.minX * scale, y: cursor.minY * scale, width: cursor.width * scale, height: cursor.height * scale)
+                .intersection(surfaceClip.applying(CGAffineTransform(scaleX: scale, y: scale)))
                 .integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
-            if !pixels.isEmpty {
+            if !pixels.isNull, !pixels.isEmpty {
                 var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
                 background.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
                 TerminalCursorErase.erase(pixels: data.assumingMemoryBound(to: UInt8.self), bytesPerRow: context.bytesPerRow,

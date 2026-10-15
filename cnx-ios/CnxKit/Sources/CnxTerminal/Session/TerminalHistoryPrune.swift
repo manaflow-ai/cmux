@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Ghostty prunes its oldest scrollback rows a page at a time once the
@@ -70,6 +71,26 @@ struct TerminalScrollGate {
     static func movesNow(cover: TerminalFrameCover, visibleTop: Int, visibleBottom: Int, documentRows: Range<Int>) -> Bool {
         TerminalBlankWatch.covers(presentedTop: cover.presentedTop, surfaceRows: cover.surfaceRows, visibleTop: visibleTop,
                                   visibleBottom: visibleBottom, documentRows: documentRows)
+    }
+
+    /// While a move waits (qa11 wt-fling-b): Ghostty's new frame replaced
+    /// the one on screen and was placed where its rows belong, and it no
+    /// longer covers the page at `current` (content y; `frame` is the
+    /// surface's span, `document` the document's, `viewport` the page's
+    /// height). The page then goes to the offset nearest `target` whose
+    /// rows that frame shows; nil while the frame still covers the page
+    /// (keep waiting). Rows outside the document are the page's own
+    /// background.
+    static func interimOffset(frame: Range<CGFloat>, document: Range<CGFloat>, current: CGFloat, target: CGFloat,
+                              viewport: CGFloat) -> CGFloat? {
+        func covered(_ y: CGFloat) -> Bool {
+            let lower = max(y, document.lowerBound), upper = min(y + viewport, document.upperBound)
+            guard upper > lower else { return true }
+            return lower >= frame.lowerBound - 0.5 && upper <= frame.upperBound + 0.5
+        }
+        guard !covered(current) else { return nil }
+        let high = max(frame.lowerBound, frame.upperBound - viewport)
+        return min(max(target, frame.lowerBound), high)
     }
 
     /// A wait reached its display-frame limit: move now?
