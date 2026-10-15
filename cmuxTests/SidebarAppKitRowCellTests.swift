@@ -941,6 +941,39 @@ struct SidebarAppKitRowCellTests {
         #expect(Self.distance(inactive, try #require(NSColor(hex: "#0066CC"))) < 0.001)
     }
 
+    @Test
+    func statusContrastUsesThePaintedSubtleSelectionState() throws {
+        let emphasizedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: nil,
+            activeTabIndicatorStyle: .leftRail,
+            subtleSelection: true,
+            isEmphasized: true
+        )
+        let inactiveBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: nil,
+            activeTabIndicatorStyle: .leftRail,
+            subtleSelection: true,
+            isEmphasized: false
+        )
+        #expect(Self.distance(emphasizedBackground, inactiveBackground) > 0.001)
+
+        let explicit = try #require(NSColor(hex: "#FFFFFF"))
+        let fallback = try #require(NSColor(hex: "#FF00FF"))
+        for background in [emphasizedBackground, inactiveBackground] {
+            let contrast = cmuxContrastRatio(foreground: explicit, background: background)
+            let presented = sidebarStatusPresentationNSColor(
+                explicit: explicit,
+                isActive: true,
+                selectedBackground: background,
+                fallback: fallback
+            )
+            let expected = contrast >= sidebarStatusMinimumContrast ? explicit : fallback
+            #expect(Self.distance(presented, expected) < 0.001)
+        }
+    }
+
     /// Issue #18383: `cmux set-status --color` on the selected workspace row.
     /// The rendered status text keeps its explicit color whenever that color
     /// reaches 3:1 against the selection fill, and only falls back to the

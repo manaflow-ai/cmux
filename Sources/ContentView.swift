@@ -16215,18 +16215,26 @@ struct TabItemView: View, Equatable {
     }
 
     private var selectedWorkspaceBackgroundNSColor: NSColor {
+        selectedWorkspaceBackgroundNSColor(isEmphasized: true)
+    }
+
+    private func selectedWorkspaceBackgroundNSColor(isEmphasized: Bool) -> NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             subtleSelection: settings.subtleSelection,
+            isEmphasized: isEmphasized,
             accent: settings.accentColor
         )
     }
 
-    private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
+    private func selectedWorkspaceForegroundNSColor(
+        opacity: CGFloat,
+        isEmphasized: Bool = true
+    ) -> NSColor {
         sidebarSelectedWorkspaceForegroundNSColor(
-            on: selectedWorkspaceBackgroundNSColor,
+            on: selectedWorkspaceBackgroundNSColor(isEmphasized: isEmphasized),
             opacity: opacity
         )
     }
@@ -16302,9 +16310,15 @@ struct TabItemView: View, Equatable {
             : .primary
     }
 
-    private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
+    private func activeSecondaryColor(
+        _ opacity: Double = 0.75,
+        isEmphasized: Bool = true
+    ) -> Color {
         usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+            ? Color(nsColor: selectedWorkspaceForegroundNSColor(
+                opacity: CGFloat(opacity),
+                isEmphasized: isEmphasized
+            ))
             : .secondary
     }
 
@@ -16611,44 +16625,12 @@ struct TabItemView: View, Equatable {
             )
             remoteWorkspaceSection(snapshot: workspaceSnapshot)
 
-            if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
-                let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !metadataEntries.isEmpty {
-                    SidebarMetadataRows(
-                        entries: metadataEntries,
-                        isActive: usesInvertedActiveForeground,
-                        selectedBackground: selectedWorkspaceBackgroundNSColor,
-                        selectedForeground: selectedWorkspaceForegroundNSColor(opacity: 1),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity)
+            if selectionChromeTracksWindowActivation {
+                SidebarSelectionWindowActivationReader { isEmphasized in
+                    metadataAndLogRows(snapshot: workspaceSnapshot, isEmphasized: isEmphasized)
                 }
-                if !metadataBlocks.isEmpty {
-                    SidebarMetadataMarkdownBlocks(
-                        blocks: metadataBlocks,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.8),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity)
-                }
-            }
-
-            if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
-                HStack(alignment: .center, spacing: 4) {
-                    CmuxSystemSymbolImage(magnified: logLevelIcon(latestLog.level), pointSize: scaledFontSize(8), tint: logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
-                    Text(latestLog.message)
-                        .font(magnifiedFont(scaledFontSize(10)))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .transition(.opacity)
+            } else {
+                metadataAndLogRows(snapshot: workspaceSnapshot, isEmphasized: true)
             }
 
             if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
@@ -17095,6 +17077,76 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    @ViewBuilder
+    private func metadataAndLogRows(
+        snapshot workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        isEmphasized: Bool
+    ) -> some View {
+        let detailVisibility = visibleAuxiliaryDetails
+        let selectedBackground = selectedWorkspaceBackgroundNSColor(isEmphasized: isEmphasized)
+        let selectedForeground = selectedWorkspaceForegroundNSColor(
+            opacity: 1,
+            isEmphasized: isEmphasized
+        )
+
+        if detailVisibility.showsMetadata {
+            let metadataEntries = workspaceSnapshot.metadataEntries
+            let metadataBlocks = workspaceSnapshot.metadataBlocks
+            if !metadataEntries.isEmpty {
+                SidebarMetadataRows(
+                    entries: metadataEntries,
+                    isActive: usesInvertedActiveForeground,
+                    selectedBackground: selectedBackground,
+                    selectedForeground: selectedForeground,
+                    activeSecondaryForegroundColor: activeSecondaryColor(
+                        0.65,
+                        isEmphasized: isEmphasized
+                    ),
+                    fontScale: fontScale,
+                    onFocus: { updateSelection() }
+                )
+                .transition(.opacity)
+            }
+            if !metadataBlocks.isEmpty {
+                SidebarMetadataMarkdownBlocks(
+                    blocks: metadataBlocks,
+                    isActive: usesInvertedActiveForeground,
+                    activeForegroundColor: activeSecondaryColor(
+                        0.8,
+                        isEmphasized: isEmphasized
+                    ),
+                    activeSecondaryForegroundColor: activeSecondaryColor(
+                        0.65,
+                        isEmphasized: isEmphasized
+                    ),
+                    fontScale: fontScale,
+                    onFocus: { updateSelection() }
+                )
+                .transition(.opacity)
+            }
+        }
+
+        if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
+            HStack(alignment: .center, spacing: 4) {
+                CmuxSystemSymbolImage(
+                    magnified: logLevelIcon(latestLog.level),
+                    pointSize: scaledFontSize(8),
+                    tint: logLevelColor(
+                        latestLog.level,
+                        isActive: usesInvertedActiveForeground,
+                        isEmphasized: isEmphasized
+                    )
+                )
+                Text(latestLog.message)
+                    .font(magnifiedFont(scaledFontSize(10)))
+                    .foregroundColor(activeSecondaryColor(0.8, isEmphasized: isEmphasized))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .transition(.opacity)
+        }
+    }
+
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
         switch level {
         case .info: return "circle.fill"
@@ -17105,11 +17157,15 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
+    private func logLevelColor(
+        _ level: SidebarLogLevel,
+        isActive: Bool,
+        isEmphasized: Bool
+    ) -> Color {
         let fallback: NSColor
         if isActive {
             let opacity: CGFloat = level == .info ? 0.5 : (level == .progress ? 0.8 : 0.9)
-            fallback = selectedWorkspaceForegroundNSColor(opacity: opacity)
+            fallback = selectedWorkspaceForegroundNSColor(opacity: opacity, isEmphasized: isEmphasized)
         } else {
             fallback = SidebarAppearanceColorResolver().resolvedColor(.secondaryLabelColor, for: colorScheme)
         }
@@ -17118,7 +17174,7 @@ struct TabItemView: View, Equatable {
             isActive: isActive,
             colorScheme: colorScheme,
             accent: settings.accentColor,
-            selectedBackground: selectedWorkspaceBackgroundNSColor,
+            selectedBackground: selectedWorkspaceBackgroundNSColor(isEmphasized: isEmphasized),
             fallback: fallback
         ))
     }
