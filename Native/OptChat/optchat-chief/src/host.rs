@@ -790,6 +790,7 @@ fn start(
         tools,
         user_env: session_dir::host_user_env(),
         profile_tool: chief_tools.grant().allows("profile"),
+        chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.

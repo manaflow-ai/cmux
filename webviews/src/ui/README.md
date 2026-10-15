@@ -84,7 +84,7 @@ first everywhere). Use the token, never a number: `z-index: var(--layer-dropdown
 | `--layer-base`     | 0          | normal flow                                                                                                  |
 | `--layer-raised`   | 1          | a part lifted above its siblings inside one component (a hover card edge, a selected row's outline)          |
 | `--layer-sticky`   | 10         | sticky headers, docked bars inside a scroller                                                                |
-| `--layer-overlay`  | 30         | scrims and dimming layers                                                                                    |
+| `--layer-overlay`  | 30         | scrims and dimming layers; a field's suggestions (New Tab), so the menus its composer opens cover them       |
 | `--layer-modal`    | 40         | dialogs and sheets                                                                                           |
 | `--layer-dropdown` | 50         | menus, popovers, pickers, comboboxes (the shared positioner); above modals so a picker inside a dialog shows |
 | `--layer-toast`    | 900        | transient notices                                                                                            |
