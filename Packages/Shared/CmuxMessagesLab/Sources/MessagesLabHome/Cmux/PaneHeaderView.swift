@@ -14,10 +14,10 @@ import AppKit
 /// 2-3 pt inside its frame, in light and dark differently (rounds 5-8), and a
 /// self-drawn fill did not look like Messages' glass (round 9).
 /// The disc overlaps the pill's top (disc 8-48 pt) and draws over it, whole,
-/// as in Messages; the pill takes the clicks where they overlap. The avatar
-/// draws in `avatarOverlay`, which the host places over the thread view's blur:
-/// under an open thread the avatar only dims (round 8 direction), while the pill
-/// blurs and dims with the transcript under the one backdrop.
+/// as in Messages; the pill takes the clicks where they overlap. Under an open
+/// thread or reply view the whole header, avatar and pill, blurs and dims with
+/// the transcript under the one vendored backdrop, as Messages' (its tp0600
+/// frame: the avatar a soft blob with no letter, the pill a faint blur).
 /// No band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
@@ -46,15 +46,11 @@ final class PaneHeaderView: NSView {
     static let pillCenterY: CGFloat = 58
     static let pillHeight: CGFloat = 28
 
-    /// The avatar's own layer host (the host adds it over the thread view's blur): the disc and its
-    /// dimming tint (ThreadBackdrop's), never hit (clicks reach this header's `mouseDown`).
-    let avatarOverlay = AvatarOverlay()
-
     override init(frame: NSRect) {
         super.init(frame: frame)
         avatar.imageScaling = .scaleProportionallyUpOrDown
-        // Back to front: the host's backing, the pill's glass, the pill's title and chevron; the avatar
-        // draws in `avatarOverlay`, over them: the disc draws whole over the pill's top edge.
+        // Back to front: the host's backing, the pill's glass, the pill's title and chevron, the avatar:
+        // the disc draws whole over the pill's top edge.
         pillBacking.wantsLayer = true
         addSubview(pillBacking)
         addSubview(pillGlass)
@@ -70,7 +66,7 @@ final class PaneHeaderView: NSView {
         pill.target = self
         pill.action = #selector(contactClicked)
         addSubview(pill)
-        avatarOverlay.addSubview(avatar)
+        addSubview(avatar)
         applyTitle()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -120,8 +116,6 @@ final class PaneHeaderView: NSView {
         pillGlass.cornerRadius = h / 2
         pillGlass.isHidden = pill.isHidden
         // The overlay matches this header's frame, so the avatar's frame reads the same in both.
-        if avatarOverlay.frame != frame { avatarOverlay.frame = frame }
-        avatarOverlay.place(avatar.frame)
     }
 
     private func applyTitle() {
@@ -175,58 +169,5 @@ final class PaneHeaderView: NSView {
             picture.draw(in: r, from: square, operation: .sourceOver, fraction: 1)
             return true
         }
-    }
-}
-
-/// The header avatar's own layer host (PaneHeaderView.avatarOverlay): the disc, and over it
-/// ThreadBackdrop's tint (its colour and opacity, out = 5.5 + 0.384 x in), clipped to the disc, faded
-/// with the window view's thread backdrop (`setDimmed`). The host places it over the thread view's
-/// blur, so under an open thread the avatar dims without blurring, as Messages' does. Never hit.
-final class AvatarOverlay: NSView {
-    let tint = CALayer()
-    private(set) var dimmed = false
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        tint.actions = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull(), "cornerRadius": NSNull()]
-        tint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - ThreadBackdrop.gain), alpha: 1).cgColor
-        tint.opacity = 0
-        tint.masksToBounds = true
-        tint.zPosition = 1
-        layer?.addSublayer(tint)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    /// The tint over the disc at `disc` (this view's coordinates).
-    func place(_ disc: CGRect) {
-        guard tint.frame != disc else { return }
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        tint.frame = disc
-        tint.cornerRadius = disc.width / 2
-        CATransaction.commit()
-    }
-
-    /// ThreadBackdrop.animate's tint: the same opacity, duration and curve, begun on the same frame as the
-    /// window view's backdrop. `timing`: the vendored tint's own animation, whose begin time, duration and
-    /// curve this one takes (round 9: started on its own, the avatar ran 0-3 frames off the backdrop);
-    /// without it, ThreadBackdrop's constants from this commit.
-    func setDimmed(_ on: Bool, timing: CABasicAnimation? = nil) {
-        guard on != dimmed else { return }
-        dimmed = on
-        let to: Float = on ? Float(1 - ThreadBackdrop.gain) : 0
-        let a = CABasicAnimation(keyPath: "opacity")
-        a.fromValue = tint.presentation()?.opacity ?? tint.opacity
-        a.toValue = to
-        a.duration = timing?.duration ?? (on ? ThreadBackdrop.openDuration : ThreadBackdrop.closeDuration)
-        a.timingFunction = timing?.timingFunction ?? CAMediaTimingFunction(name: .easeInEaseOut)
-        if let begin = timing?.beginTime, begin > 0 {
-            a.beginTime = begin
-            a.fillMode = .backwards
-        }
-        tint.opacity = to
-        tint.add(a, forKey: "thread")
     }
 }

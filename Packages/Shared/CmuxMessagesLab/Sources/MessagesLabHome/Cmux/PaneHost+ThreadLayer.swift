@@ -67,24 +67,16 @@ extension HostView {
         CATransaction.commit()
     }
 
-    // cmux: under an open thread or reply view the transcript and the header band, the name pill
-    // included, blur and darken under ONE backdrop: the vendored thread layer (ThreadBackdrop, then the
-    // thread's rows) sits over the live header in `threadHost`, unmasked, and its rows render once,
-    // uncut, wherever their flights take them (round 9: per-row masks duplicated and cut rows in
-    // transitions). Only the avatar sits above it, in its own overlay (`PaneHeaderView.avatarOverlay`),
-    // dimmed by a tint that takes the vendored tint's own animation timing (`followThread`).
+    // cmux: under an open thread or reply view the transcript and the whole header, avatar and name
+    // pill, blur and darken under ONE backdrop: the vendored thread layer (ThreadBackdrop, then the
+    // thread's rows) sits over the live header in `threadHost`, unmasked, so everything changes on the
+    // backdrop's own frames, and its rows render once, uncut, wherever their flights take them (round
+    // 9: per-row masks duplicated and cut rows; round 10: Messages' tp0600 frame shows the avatar a soft
+    // blurred blob, not only dimmed).
 
-    /// The vendored backdrop's tint layer (ThreadBackdrop: root's last sublayer, after the blur), read for
-    /// its animation's timing; nil if the layout changes upstream.
-    var vendoredThreadTint: CALayer? {
-        liftedThread?.subviews.first?.layer.sublayers?.first?.sublayers?.last
-    }
-
-    /// The thread view's open state, followed after the engine changes that matter: the avatar dims with
-    /// it, on the vendored tint's frames (its animation's begin time, duration and curve when it has one).
+    /// The thread view's open state, followed after the engine changes that matter.
     func followThread(open: Bool) {
         veilOpen = open
-        paneHeader.avatarOverlay.setDimmed(open, timing: vendoredThreadTint?.animation(forKey: "thread") as? CABasicAnimation)
     }
 
     /// The thread layer holds rows (a thread view open or closing).

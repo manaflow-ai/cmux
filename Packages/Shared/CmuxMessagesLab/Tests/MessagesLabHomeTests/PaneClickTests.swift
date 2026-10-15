@@ -251,33 +251,28 @@ import Testing
 
     // MARK: The header under an open thread or reply view
 
-    /// One backdrop over the live header and the transcript (the pill blurs and dims with it) and the
-    /// thread's rows, all unmasked (rows render once, uncut); only the avatar sits above it, in its
-    /// overlay, dimmed by ThreadBackdrop's tint.
-    @Test func underAnOpenThreadOneBackdropCoversTheHeaderAndTheAvatarDims() throws {
+    /// One backdrop: the vendored thread layer sits over the whole live header (avatar and pill) and the
+    /// transcript, unmasked, and the thread's rows render unmasked above it; nothing of the header is
+    /// above the thread layer, so it all blurs and dims on the backdrop's frames.
+    @Test func underAnOpenThreadOneBackdropCoversTheWholeHeader() throws {
         let (controller, _, demo) = Self.pane()
         let host = controller.host
         host.paneHeader.title = "Chief"
         host.needsLayout = true
         host.layoutSubtreeIfNeeded()
         #expect(host.threadHost.root.mask == nil)
-        let overlay = host.paneHeader.avatarOverlay
-        #expect(overlay.superview === host)
         let views = host.subviews
-        #expect((views.firstIndex(of: overlay) ?? -1) > (views.firstIndex(of: host.threadHost) ?? Int.max))
-        #expect((views.firstIndex(of: host.paneHeader) ?? Int.max) < (views.firstIndex(of: host.threadHost) ?? -1))
-        #expect(!overlay.dimmed)
+        let threadIndex = try #require(views.firstIndex(of: host.threadHost))
+        #expect((views.firstIndex(of: host.paneHeader) ?? Int.max) < threadIndex)
+        #expect(host.paneHeader.avatar.superview === host.paneHeader)
+        #expect(host.paneHeader.avatar.isDescendant(of: host.paneHeader))
         controller.dispatch(.reply(PartRef(messageId: "m1", partIndex: 0)))
         host.needsLayout = true
         host.layoutSubtreeIfNeeded()
         #expect(demo.threadOpen)
-        #expect(overlay.dimmed)
-        #expect(abs(overlay.tint.opacity - Float(1 - ThreadBackdrop.gain)) < 0.0001)
-        // The avatar's tint takes the vendored tint's timing (same duration and curve).
-        let vendored = try #require(host.vendoredThreadTint?.animation(forKey: "thread") as? CABasicAnimation)
-        let ours = try #require(overlay.tint.animation(forKey: "thread") as? CABasicAnimation)
-        #expect(ours.duration == vendored.duration)
+        #expect(host.veilOpen)
         let thread = try #require(HostView.threadLayerView(of: demo))
+        #expect(thread.layer.superlayer === host.threadHost.root)
         let dim = thread.subviews.first?.layer
         let rows = (thread.layer.sublayers ?? []).filter { $0 !== dim }
         #expect(!rows.isEmpty)
@@ -285,6 +280,6 @@ import Testing
         #expect(!host.paneHeader.pillGlass.isHidden)
         #expect(host.paneHeader.pillGlass.frame == host.paneHeader.pill.frame)
         controller.dispatch(.closeThread)
-        #expect(!overlay.dimmed)
+        #expect(!host.veilOpen)
     }
 }

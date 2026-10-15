@@ -107,8 +107,6 @@ final class HostView: NSView {
         // and darkens it with the transcript, as Messages does (PaneHost+ThreadLayer.swift).
         addSubview(paneHeader)
         addSubview(threadHost)
-        // cmux: the avatar over the thread view's blur (dimmed only, as Messages'; PaneHost+ThreadLayer.swift).
-        addSubview(paneHeader.avatarOverlay)
         liftThreadLayer(demo)
         addSubview(selectionHost)
         // The selected bubble's highlight under the text selection's (Host.swift; TranscriptSelection.selectBubble).
