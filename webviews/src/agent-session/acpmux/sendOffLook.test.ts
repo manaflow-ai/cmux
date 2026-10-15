@@ -30,6 +30,11 @@ test("the off disc is a visible step, never the faint 9% disc, and stays below a
   const arrow = percent("--acpmux-send-off-fg");
   expect(arrow).toBeGreaterThanOrEqual(50);
   expect(arrow).toBeLessThan(100);
+  // The empty draft's hover step stays above the resting disc, so pointing at it still shows.
+  const hover = rule(styles, ".acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover");
+  const step = hover.match(/background: ?color-mix\(in srgb, ?var\(--agent-text\) (\d+)%, ?transparent\)/);
+  expect(step).not.toBeNull();
+  expect(Number(step![1])).toBeGreaterThan(disc);
 });
 
 test("an empty draft's Send and Send turned off share one look", () => {
