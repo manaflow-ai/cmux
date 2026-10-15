@@ -33,7 +33,9 @@ struct BillingPlanTests {
     @Test("same-account failure preserves the last known answer")
     func sameAccountFailurePreservesAnswer() {
         let state = BillingPlanState(accountID: "account-a", isPro: true, canManageBilling: true, teamID: "team-a")
+        #expect(state.applyingFailure(for: "account-a", teamID: "team-a") == state)
         #expect(state.applyingFailure(for: "account-a") == state)
+        #expect(state.applyingFailure(for: "account-a", teamID: "team-b") == .unknown)
     }
 
     @Test("different-account failure clears the answer")
