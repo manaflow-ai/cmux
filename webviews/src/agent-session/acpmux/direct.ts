@@ -166,12 +166,57 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
   const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
+  const claudeMeta =
+    raw.toolCall?._meta?.claude && typeof raw.toolCall._meta.claude === "object"
+      ? raw.toolCall._meta.claude
+      : undefined;
+  const suggestions = Array.isArray(claudeMeta?.suggestions)
+    ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
+        if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
+        if (!suggestion || typeof suggestion !== "object") return [];
+        const rules = (suggestion as { rules?: unknown }).rules;
+        return Array.isArray(rules)
+          ? rules.flatMap((rule: unknown) => {
+              if (typeof rule === "string" && rule.trim()) return [rule.trim()];
+              if (!rule || typeof rule !== "object") return [];
+              const value = rule as { toolName?: unknown; ruleContent?: unknown };
+              const tool = typeof value.toolName === "string" ? value.toolName.trim() : "";
+              const content = typeof value.ruleContent === "string" ? value.ruleContent.trim() : "";
+              return [content || tool].filter(Boolean);
+            })
+          : [];
+      })
+    : [];
   return {
     ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
+    command:
+      typeof raw.toolCall?.command === "string"
+        ? raw.toolCall.command
+        : typeof raw.toolCall?.rawInput?.command === "string"
+          ? raw.toolCall.rawInput.command
+          : typeof raw.command === "string"
+            ? raw.command
+            : undefined,
+    description:
+      typeof claudeMeta?.description === "string"
+        ? claudeMeta.description
+        : typeof raw.toolCall?.description === "string"
+          ? raw.toolCall.description
+          : typeof raw.description === "string"
+            ? raw.description
+            : undefined,
+    rule:
+      suggestions.length > 0
+        ? translate("permission.claude.alwaysAllowRule", { rules: suggestions.join(", ") })
+        : typeof raw.toolCall?.rule === "string"
+          ? raw.toolCall.rule
+          : typeof raw.rule === "string"
+            ? raw.rule
+            : undefined,
     kind: raw.toolCall?.kind,
     ...(typeof raw.toolCall?.toolCallId === "string" ? { toolCallId: raw.toolCall.toolCallId } : {}),
     pending: true,
@@ -180,6 +225,13 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
       kind: typeof option.kind === "string" ? option.kind : undefined,
+      description: typeof option.description === "string" ? option.description : undefined,
+      rule:
+        typeof option.rule === "string"
+          ? option.rule
+          : typeof option.suggestion === "string"
+            ? option.suggestion
+            : undefined,
     })),
   };
 }

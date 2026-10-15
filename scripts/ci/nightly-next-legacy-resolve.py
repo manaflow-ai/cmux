@@ -3,7 +3,7 @@
 
 Usage: nightly-next-legacy-resolve.py --action new|continue --pending true|false
            --notarize success|failure|skipped|cancelled --published true|false
-           --apple accepted|refused|unknown
+           --apple accepted|refused|unknown [--requirement-refused true|false]
 
 --apple is Apple's final answer about the submission: accepted when the app
 carries a valid stapled ticket or the notary log says Accepted (an Accepted
@@ -28,6 +28,10 @@ Rules (hq-a3, 2026-10-15):
   submits anew.
 - A continued submission whose attempt failed before Apple answered (for example
   notarytool info failed) is kept and does not count.
+- The macOS job refused the app because its own commit lacks a commit in
+  NIGHTLY_LEGACY_REQUIRED_COMMITS (--requirement-refused true, before any Apple
+  submission): never counted; a continued submission is retired, because that
+  build must never be published.
 - A failed new attempt counts. (A new submission Apple accepted within the wait
   keeps no bundle: notarize-nightly-dmg.sh writes no state for it.)
 """
@@ -48,10 +52,13 @@ def main(argv):
     parser.add_argument("--notarize", choices=["success", "failure", "skipped", "cancelled"], required=True)
     parser.add_argument("--published", type=flag, required=True)
     parser.add_argument("--apple", choices=["accepted", "refused", "unknown"], required=True)
+    parser.add_argument("--requirement-refused", type=flag, default=False)
     args = parser.parse_args(argv)
 
     retire = mark = real = False
-    if args.pending:
+    if args.requirement_refused:
+        retire = args.action == "continue"
+    elif args.pending:
         pass
     elif args.action == "new":
         real = True
