@@ -390,8 +390,11 @@ fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, 
     if !super::cloud_conversations::is_person(mux, client) {
         return (Vec::new(), "signed_out");
     }
-    let listed = super::cloud_conversations::lease_user(mux, client)
-        .and_then(|service| service.inbox_list(None, false).map_err(anyhow::Error::from));
+    // The read holds one of the Cloud's request slots, as cloud-inbox-list does.
+    let listed = super::cloud_conversations::lease_user(mux, client).and_then(|service| {
+        let _permit = service.begin_request()?;
+        service.inbox_list(None, false).map_err(anyhow::Error::from)
+    });
     let value = match listed {
         Ok(value) => value,
         Err(error) => {
