@@ -135,6 +135,16 @@
       "counted": "当前计入：{machines}。已暂停的机器不计入。",
       "provisioning": "{name}（正在预配）",
       "separator": "、"
+    },
+    "trialLimit": {
+      "savedMessage": "Pro 试用包含 1 台已保存的 Cloud VM（包括正在运行的 VM）。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro 试用同一时间只能运行 1 台 Cloud VM。",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro 试用的 20 个 VM 小时已用完。试用结束且订阅续订后开始完整的 Pro。",
+      "hoursAction": "已保存的 VM 仍然可用。试用结束后适用完整的 Pro 限额。",
+      "shapeMessage": "Pro 试用支持 2 个 vCPU、4 GB 内存和 16 GB 磁盘。",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5280,7 +5290,9 @@
     "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
     "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
     "signedOutSignIn": "登录",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "proTrialBadge": "Pro 试用",
+    "proTrialLimits": "Pro 试用包含 1 台配备 2 个 vCPU 和 4 GB 内存的 Cloud VM，以及 20 个 VM 小时。试用结束后开始完整的 Pro。"
   },
   "platforms": {
     "macos": "macOS",

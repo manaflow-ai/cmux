@@ -135,6 +135,16 @@
       "counted": "Trenutno se broje: {machines}. Pauzirane mašine se ne broje.",
       "provisioning": "{name} (priprema se)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Pro probni period uključuje 1 sačuvanu Cloud VM, uključujući VM koja radi.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro probni period uključuje 1 pokrenutu Cloud VM istovremeno.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro probni period je potrošio svojih 20 VM sati. Puni Pro počinje kada probni period završi i vaša pretplata se obnovi.",
+      "hoursAction": "Vaša sačuvana VM ostaje dostupna. Puna Pro ograničenja važe nakon probnog perioda.",
+      "shapeMessage": "Pro probni period podržava 2 vCPU, 4 GB RAM-a i 16 GB diska.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5280,7 +5290,9 @@
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
     "signedOutSignIn": "Prijavite se",
-    "manageInAppStore": "Upravljajte u App Storeu"
+    "manageInAppStore": "Upravljajte u App Storeu",
+    "proTrialBadge": "Pro probni period",
+    "proTrialLimits": "Vaš Pro probni period uključuje 1 Cloud VM sa 2 vCPU i 4 GB RAM-a te 20 VM sati. Puni Pro počinje kada probni period završi."
   },
   "platforms": {
     "macos": "macOS",

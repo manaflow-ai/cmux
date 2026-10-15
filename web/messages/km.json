@@ -135,6 +135,16 @@
       "counted": "កំពុងរាប់ឥឡូវ៖ {machines}។ ម៉ាស៊ីនដែលបានផ្អាកមិនត្រូវបានរាប់ទេ។",
       "provisioning": "{name} (កំពុងរៀបចំ)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "ការសាកល្បង Pro រួមមាន Cloud VM ដែលបានរក្សាទុក 1 រួមទាំង VM ដែលកំពុងដំណើរការ។",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "ការសាកល្បង Pro អនុញ្ញាតឱ្យដំណើរការ Cloud VM មួយក្នុងពេលតែមួយ។",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "ការសាកល្បង Pro បានប្រើ 20 ម៉ោង VM អស់ហើយ។ Pro ពេញលេញចាប់ផ្តើមនៅពេលការសាកល្បងបញ្ចប់ ហើយការជាវរបស់អ្នកបន្ត។",
+      "hoursAction": "VM ដែលបានរក្សាទុករបស់អ្នកនៅតែអាចប្រើបាន។ ដែនកំណត់ Pro ពេញលេញអនុវត្តបន្ទាប់ពីការសាកល្បង។",
+      "shapeMessage": "ការសាកល្បង Pro គាំទ្រ 2 vCPU, RAM 4 GB និងថាស 16 GB។",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5278,7 +5288,9 @@
     "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។",
     "signedOutNotice": "អ្នកមិនទាន់បានចូលទេ។ ចូលដើម្បីមើលគម្រោងបច្ចុប្បន្នរបស់អ្នក ឬស្ដារការទិញដែលមានស្រាប់។",
     "signedOutSignIn": "ចូល",
-    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store"
+    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store",
+    "proTrialBadge": "ការសាកល្បង Pro",
+    "proTrialLimits": "ការសាកល្បង Pro របស់អ្នករួមមាន Cloud VM 1 ដែលមាន 2 vCPU និង RAM 4 GB និង 20 ម៉ោង VM។ Pro ពេញលេញចាប់ផ្តើមនៅពេលការសាកល្បងបញ្ចប់។"
   },
   "platforms": {
     "macos": "macOS",

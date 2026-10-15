@@ -96,11 +96,14 @@ export type AppleSubscriptionInput = {
   readonly currency: string | null;
   readonly priceMilliunits: number | null;
   readonly revokedAt: Date | null;
+  /** The current period is the iOS Pro free trial. */
+  readonly freeTrial?: boolean;
 };
 
 export type AppleTransactionInput = {
   readonly transactionId: string;
   readonly originalTransactionId: string;
+  readonly productId?: string | null;
   readonly planId: string | null;
   readonly purchaseDate: Date | null;
   readonly expiresAt: Date | null;
@@ -136,6 +139,18 @@ export function applePriceUsd(
   return { usd: roundCents(converted), fallback: false, paid: true };
 }
 
+/**
+ * The plan label for analytics: the iOS Pro free trial is "pro_trial", never
+ * Go (its internal entitlement) and never a paid Pro period.
+ */
+export const PRO_TRIAL_ANALYTICS_PLAN_ID = "pro_trial";
+const TRIAL_PRODUCT_SUFFIX = ".pro.trial.monthly";
+const TRIAL_SUBSCRIPTION_PLAN_IDS: ReadonlySet<string> = new Set(["trial_pending", "trial_unverified"]);
+
+function appleRecordPlanId(row: AppleSubscriptionInput): string {
+  return row.freeTrial || TRIAL_SUBSCRIPTION_PLAN_IDS.has(row.planId) ? PRO_TRIAL_ANALYTICS_PLAN_ID : row.planId;
+}
+
 function appleTransactionInterval(
   tx: AppleTransactionInput,
   fallbackPlan: string,
@@ -144,9 +159,12 @@ function appleTransactionInterval(
   // A refunded or revoked period stops at the revocation, not at its expiry.
   const end = tx.revokedAt && tx.revokedAt < tx.expiresAt ? tx.revokedAt : tx.expiresAt;
   if (end <= tx.purchaseDate) return null;
-  const planId = tx.planId ?? fallbackPlan;
+  const pricedPlanId = tx.planId ?? fallbackPlan;
   const months = periodMonths(tx.purchaseDate, tx.expiresAt);
-  const price = applePriceUsd(planId, tx.priceMilliunits, tx.currency, months);
+  const price = applePriceUsd(pricedPlanId, tx.priceMilliunits, tx.currency, months);
+  // The free period of the trial product is the Pro trial, not a paid Pro (or Go) period.
+  const freeTrialPeriod = !price.paid && (tx.productId?.endsWith(TRIAL_PRODUCT_SUFFIX) === true || fallbackPlan === PRO_TRIAL_ANALYTICS_PLAN_ID);
+  const planId = freeTrialPeriod ? PRO_TRIAL_ANALYTICS_PLAN_ID : pricedPlanId;
   return {
     interval: {
       start: tx.purchaseDate,
@@ -169,7 +187,8 @@ function appleRowInterval(row: AppleSubscriptionInput): { interval: CoverageInte
   return appleTransactionInterval({
     transactionId: row.originalTransactionId,
     originalTransactionId: row.originalTransactionId,
-    planId: row.planId,
+    // A trial row's internal plan is not a price; its free period is priced as Pro (zero) and labeled pro_trial.
+    planId: appleRecordPlanId(row) === PRO_TRIAL_ANALYTICS_PLAN_ID ? "pro" : row.planId,
     purchaseDate: start,
     expiresAt: row.expiresAt,
     priceMilliunits: row.priceMilliunits,
@@ -177,7 +196,7 @@ function appleRowInterval(row: AppleSubscriptionInput): { interval: CoverageInte
     storefront: row.storefront,
     revokedAt: row.revokedAt,
     revocationReason: null,
-  }, row.planId);
+  }, appleRecordPlanId(row));
 }
 
 /** Apple keeps access open through the grace period; count it as covered. */
@@ -223,7 +242,7 @@ export function appleSubscriptionRecord(
     source: "apple",
     id: row.originalTransactionId,
     userId: row.userId,
-    planId: row.planId,
+    planId: appleRecordPlanId(row),
     environment: appleEnvironment(row.environment),
     currentStatus: base === "active" && !lastPaid ? "trial" : base,
     cancelScheduled: row.autoRenewEnabled === false && base !== "inactive",

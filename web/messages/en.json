@@ -302,6 +302,16 @@
       "counted": "Counted now: {machines}. Paused machines do not count.",
       "provisioning": "{name} (provisioning)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "The Pro trial includes 1 saved Cloud VM, including the running VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "The Pro trial includes 1 running Cloud VM at a time.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "The Pro trial has used its 20 VM-hours. Full Pro starts when the trial ends and your subscription renews.",
+      "hoursAction": "Your saved VM stays available. Full Pro limits apply after the trial.",
+      "shapeMessage": "The Pro trial supports 2 vCPUs, 4 GB RAM, and 16 GB disk.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "ios": {
@@ -2109,7 +2119,9 @@
     "priceMonthlyNote": "${amount}/mo when billed monthly",
     "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
     "manageInAppStore": "Manage in the App Store",
-    "resumePlan": "Resume {plan}"
+    "resumePlan": "Resume {plan}",
+    "proTrialBadge": "Pro trial",
+    "proTrialLimits": "Your Pro trial includes 1 Cloud VM with 2 vCPUs and 4 GB RAM, and 20 VM-hours. Full Pro starts when the trial ends."
   },
   "home": {
     "taglinePrefix": "The terminal built for ",

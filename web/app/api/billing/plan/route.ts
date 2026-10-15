@@ -3,8 +3,10 @@ import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
 import { parseBearer, jsonResponse } from "../../../../services/vms/routeHelpers";
 import {
+  displayPersonalPlanId,
   FREE_PLAN_ID,
   PRO_PLAN_ID,
+  PRO_TRIAL_LIMITS,
   resolveProPlanStatus,
 } from "../../../../services/billing/pro";
 import {
@@ -93,7 +95,12 @@ export async function GET(request: NextRequest) {
     // two-value enum; `subscriptionPlanId` carries the exact personal plan
     // (free, go, pro, or max) for clients that know the exact plan.
     planId: status.isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
-    subscriptionPlanId: status.planId,
+    // An iOS Pro free trial is named Pro, never Go; `trial` carries its end
+    // and limits for clients that show them.
+    subscriptionPlanId: displayPersonalPlanId(status),
+    ...(status.trial
+      ? { trial: { endsAt: status.trial.endsAt?.toISOString() ?? null, limits: PRO_TRIAL_LIMITS } }
+      : {}),
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     // Who bills the personal plan ("stripe", "apple", or "none"), and where an

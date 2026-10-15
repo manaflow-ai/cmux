@@ -135,6 +135,16 @@
       "counted": "Conteggiate ora: {machines}. Le macchine in pausa non vengono conteggiate.",
       "provisioning": "{name} (in provisioning)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "La prova Pro include 1 Cloud VM salvata, inclusa la VM in esecuzione.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "La prova Pro include 1 Cloud VM in esecuzione alla volta.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "La prova Pro ha usato le sue 20 ore VM. Pro completo inizia alla fine della prova, quando l'abbonamento si rinnova.",
+      "hoursAction": "La tua VM salvata resta disponibile. Dopo la prova si applicano i limiti completi di Pro.",
+      "shapeMessage": "La prova Pro supporta 2 vCPU, 4 GB di RAM e 16 GB di disco.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5280,7 +5290,9 @@
     "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi.",
     "signedOutNotice": "Non hai effettuato l'accesso. Accedi per vedere il piano attuale o ripristinare un acquisto esistente.",
     "signedOutSignIn": "Accedi",
-    "manageInAppStore": "Gestisci nell’App Store"
+    "manageInAppStore": "Gestisci nell’App Store",
+    "proTrialBadge": "Prova Pro",
+    "proTrialLimits": "La tua prova Pro include 1 Cloud VM con 2 vCPU e 4 GB di RAM, e 20 ore VM. Pro completo inizia alla fine della prova."
   },
   "platforms": {
     "macos": "macOS",

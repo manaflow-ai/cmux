@@ -72,6 +72,21 @@ export async function getGoVmUsage(userId: string, now = new Date()): Promise<Go
     trial };
 }
 
+/**
+ * Whether the person's Go entitlement is the iOS Pro free trial, so limit
+ * messages name "Pro trial" and never Go. Same rule as getGoVmUsage and the
+ * database guard. Read only when a Go limit answers a request; a failed read
+ * is not a trial.
+ */
+export async function isGoTrialUser(userId: string, now = new Date()): Promise<boolean> {
+  try {
+    const subscription = await personalBillingPeriod(userId, { now, stripeStatuses: ["active", "trialing"] });
+    return subscription?.planId === "go" && subscription.trial === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Drizzle wraps PostgreSQL constraints; inspect only the known public limits. */
 export function goCapacityConstraint(cause: unknown): "saved" | "active" | "hours" | "period" | null {
   const seen = new Set<unknown>();

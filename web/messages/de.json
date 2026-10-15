@@ -135,6 +135,16 @@
       "counted": "Derzeit gezählt: {machines}. Pausierte Maschinen zählen nicht.",
       "provisioning": "{name} (wird bereitgestellt)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Die Pro-Testversion umfasst 1 gespeicherte Cloud VM, einschließlich der laufenden VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Die Pro-Testversion umfasst eine gleichzeitig laufende Cloud VM.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Die Pro-Testversion hat ihre 20 VM-Stunden verbraucht. Das volle Pro beginnt, wenn die Testversion endet und dein Abo verlängert wird.",
+      "hoursAction": "Deine gespeicherte VM bleibt verfügbar. Nach der Testversion gelten die vollen Pro-Limits.",
+      "shapeMessage": "Die Pro-Testversion unterstützt 2 vCPUs, 4 GB RAM und 16 GB Speicher.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5280,7 +5290,9 @@
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
     "signedOutSignIn": "Anmelden",
-    "manageInAppStore": "Im App Store verwalten"
+    "manageInAppStore": "Im App Store verwalten",
+    "proTrialBadge": "Pro-Testversion",
+    "proTrialLimits": "Deine Pro-Testversion umfasst 1 Cloud VM mit 2 vCPUs und 4 GB RAM sowie 20 VM-Stunden. Das volle Pro beginnt, wenn die Testversion endet."
   },
   "platforms": {
     "macos": "macOS",

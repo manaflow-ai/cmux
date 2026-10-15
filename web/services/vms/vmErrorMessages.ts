@@ -276,11 +276,13 @@ export async function vmMemoryErrorCopy(
 export async function vmGoLimitCopy(
   kind: "saved" | "active" | "hours" | "shape",
   locale: Locale,
+  /** An iOS Pro free trial runs on Go limits but is named "Pro trial", never Go. */
+  trial = false,
 ): Promise<{ readonly message: string; readonly action: string }> {
   const t = createTranslator({
     locale,
     messages: await loadMessages(locale),
-    namespace: "vmErrors.goLimit",
+    namespace: trial ? "vmErrors.trialLimit" : "vmErrors.goLimit",
   }) as unknown as (key: string) => string;
   return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
 }

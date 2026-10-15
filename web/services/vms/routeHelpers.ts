@@ -47,7 +47,7 @@ import {
 import { recordSpanTiming } from "./timings";
 import { planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
-import { goCapacityConstraint } from "./goUsage";
+import { goCapacityConstraint, isGoTrialUser } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
 import {
   captureVmRequestOutcome,
@@ -57,6 +57,7 @@ import {
 } from "./observability";
 import {
   annotateVmRequestBilling,
+  currentVmRequestContext,
   runWithVmRequestContext,
   vmClientIdentityFromRequest,
   vmIdFromRequestPath,
@@ -916,11 +917,33 @@ export function vmModelPlaneErrorResponse(
  * overrides win over these. Entries returning `null` have no shared contract:
  * the create-family errors need plan and operation copy only the route knows.
  */
+/**
+ * Whether the signed-in caller of this VM request is on the iOS Pro free
+ * trial (internally the Go entitlement). Read lazily, only when a Go limit
+ * answers the request.
+ */
+async function vmCallerOnGoTrial(): Promise<boolean> {
+  const userId = currentVmRequestContext()?.userId;
+  return userId ? await isGoTrialUser(userId) : false;
+}
+
+/**
+ * The upgrade a Go limit offers. A Pro free trial is already Pro on the App
+ * Store; full Pro starts when the trial ends, and a web checkout would bill
+ * the person twice, so the trial gets no upgrade prompt.
+ */
+function goLimitUpgrade(trial: boolean): Record<string, unknown> {
+  return trial
+    ? { upgradeRequired: false, trial: true }
+    : { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" };
+}
+
 export async function goLimitResponse(
   kind: "saved" | "active" | "hours",
   locale: Locale,
 ): Promise<Response> {
-  const copy = await vmGoLimitCopy(kind, locale);
+  const trial = await vmCallerOnGoTrial();
+  const copy = await vmGoLimitCopy(kind, locale, trial);
   return vmErrorResponse({
     error: kind === "hours" ? "vm_hours_limit_reached" : kind === "saved" ? "vm_saved_limit_reached" : "vm_active_limit_exceeded",
     status: 402,
@@ -928,7 +951,7 @@ export async function goLimitResponse(
     action: copy.action,
     phase: "billing",
     retryable: false,
-    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+    extra: goLimitUpgrade(trial),
   });
 }
 
@@ -1213,12 +1236,13 @@ export const vmWorkflowErrorResponders = {
     });
   },
   VmGoShapeError: async (_error, context) => {
-    const copy = await vmGoLimitCopy("shape", context.locale);
+    const trial = await vmCallerOnGoTrial();
+    const copy = await vmGoLimitCopy("shape", context.locale, trial);
     return vmErrorResponse({
       error: "vm_resources_require_pro", status: 402, phase: "billing",
       message: copy.message,
       action: copy.action,
-      extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+      extra: goLimitUpgrade(trial),
     });
   },
   VmCreateCreditsInsufficientError: () => null,

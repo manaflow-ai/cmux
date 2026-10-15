@@ -278,7 +278,7 @@ export function AppPricingContent({
         ctaLabel={pricing.pro.cta}
         badge={
           isProCurrent ? (
-            <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
+            <CurrentPlanBadge>{snapshot.trial ? pricing.proTrialBadge : pricing.currentPlan}</CurrentPlanBadge>
           ) : null
         }
         action={proAction === "checkout" ? undefined : (
@@ -291,6 +291,7 @@ export function AppPricingContent({
           />
         )}
       >
+        {isProCurrent && snapshot.trial ? <p className="mt-5 text-sm">{pricing.proTrialLimits}</p> : null}
         <p className="mt-5 text-sm font-medium">{pricing.pro.featuresLead}</p>
         <FeatureList items={proFeatures} />
       </ProPlanCard>
@@ -471,6 +472,8 @@ export type AppPlanSnapshot = {
   billingSource?: PersonalBillingSource;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
+  /** The plan is an iOS Pro free trial; it shows as Pro with the trial limits. */
+  trial?: boolean;
   email: string | null;
 };
 

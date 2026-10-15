@@ -302,6 +302,16 @@
       "counted": "現在カウント中: {machines}。一時停止中のマシンはカウントされません。",
       "provisioning": "{name}（プロビジョニング中）",
       "separator": "、"
+    },
+    "trialLimit": {
+      "savedMessage": "Pro トライアルで保存できる Cloud VM は、実行中の VM を含めて 1 台です。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro トライアルでは同時に 1 台の Cloud VM を実行できます。",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro トライアルの 20 VM 時間を使い切りました。トライアルが終了してサブスクリプションが更新されると、Pro のすべてが使えるようになります。",
+      "hoursAction": "保存した VM は引き続き利用できます。トライアル後は Pro の上限が適用されます。",
+      "shapeMessage": "Pro トライアルでは 2 vCPU、4 GB RAM、16 GB ディスクを利用できます。",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "ios": {
@@ -2109,7 +2119,9 @@
     "priceMonthlyNote": "月払いは${amount}/月",
     "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
     "manageInAppStore": "App Store で管理",
-    "resumePlan": "{plan} を再開"
+    "resumePlan": "{plan} を再開",
+    "proTrialBadge": "Pro トライアル",
+    "proTrialLimits": "Pro トライアルには、2 vCPU と 4 GB RAM の Cloud VM 1 台と 20 VM 時間が含まれます。トライアル終了後に Pro のすべてが使えるようになります。"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",

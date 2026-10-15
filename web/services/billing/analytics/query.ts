@@ -172,6 +172,7 @@ async function loadApple(db: Db, query: AnalyticsQuery) {
       currency: appleSubscriptions.currency,
       priceMilliunits: appleSubscriptions.priceMilliunits,
       revokedAt: appleSubscriptions.revokedAt,
+      freeTrial: appleSubscriptions.freeTrial,
     })
     .from(appleSubscriptions)
     .where(appleEnvironmentFilter(appleSubscriptions.environment, query.environment));
@@ -179,6 +180,7 @@ async function loadApple(db: Db, query: AnalyticsQuery) {
     .select({
       transactionId: appleTransactions.transactionId,
       originalTransactionId: appleTransactions.originalTransactionId,
+      productId: appleTransactions.productId,
       planId: appleTransactions.planId,
       purchaseDate: appleTransactions.purchaseDate,
       expiresAt: appleTransactions.expiresAt,

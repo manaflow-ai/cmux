@@ -265,6 +265,8 @@ export async function GET(request: Request): Promise<Response> {
                 vmHoursIncluded: usage ? usage.includedSeconds / 3600 : 40,
                 vmHoursUsed: usage ? Math.round(usage.usedSeconds / 360) / 10 : null,
                 savedVmLimit: usage?.savedVmLimit ?? GO_SAVED_VM_LIMIT,
+                // An iOS Pro free trial: clients name it "Pro trial", never Go.
+                ...(usage?.trial ? { trial: true } : {}),
               }))
               .catch(() => ({ vmHoursIncluded: 40, vmHoursUsed: null, savedVmLimit: GO_SAVED_VM_LIMIT }))
             : {}),

@@ -135,6 +135,16 @@
       "counted": "Telles nå: {machines}. Maskiner på pause telles ikke.",
       "provisioning": "{name} (klargjøres)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Pro-prøveperioden inkluderer 1 lagret Cloud VM, inkludert VM-en som kjører.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro-prøveperioden inkluderer 1 kjørende Cloud VM om gangen.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro-prøveperioden har brukt sine 20 VM-timer. Full Pro starter når prøveperioden slutter og abonnementet fornyes.",
+      "hoursAction": "Den lagrede VM-en er fortsatt tilgjengelig. Fulle Pro-grenser gjelder etter prøveperioden.",
+      "shapeMessage": "Pro-prøveperioden støtter 2 vCPU-er, 4 GB RAM og 16 GB disk.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5277,7 +5287,9 @@
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
     "signedOutSignIn": "Logg inn",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "proTrialBadge": "Pro-prøveperiode",
+    "proTrialLimits": "Pro-prøveperioden din inkluderer 1 Cloud VM med 2 vCPU-er og 4 GB RAM, og 20 VM-timer. Full Pro starter når prøveperioden slutter."
   },
   "platforms": {
     "macos": "macOS",

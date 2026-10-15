@@ -135,6 +135,16 @@
       "counted": "Comptées actuellement : {machines}. Les machines en pause ne comptent pas.",
       "provisioning": "{name} (en cours de provisionnement)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "L'essai Pro comprend 1 Cloud VM enregistrée, y compris la VM en cours d'exécution.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "L'essai Pro comprend 1 Cloud VM en cours d'exécution à la fois.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "L'essai Pro a utilisé ses 20 heures de VM. Pro complet commence à la fin de l'essai, au renouvellement de votre abonnement.",
+      "hoursAction": "Votre VM enregistrée reste disponible. Les limites complètes de Pro s'appliquent après l'essai.",
+      "shapeMessage": "L'essai Pro prend en charge 2 vCPU, 4 Go de RAM et 16 Go de disque.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5282,7 +5292,9 @@
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
     "signedOutSignIn": "Se connecter",
-    "manageInAppStore": "Gérer dans l’App Store"
+    "manageInAppStore": "Gérer dans l’App Store",
+    "proTrialBadge": "Essai Pro",
+    "proTrialLimits": "Votre essai Pro comprend 1 Cloud VM avec 2 vCPU et 4 Go de RAM, et 20 heures de VM. Pro complet commence à la fin de l'essai."
   },
   "platforms": {
     "macos": "macOS",

@@ -24,6 +24,7 @@ import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
+  displayPersonalPlanId,
   resolveProPlanStatus,
   type BillingManagementKind,
   type PersonalBillingSource,
@@ -376,7 +377,7 @@ function PricingContent({
         ctaLabel={t("pro.cta")}
         badge={
           isProCurrent ? (
-            <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
+            <CurrentPlanBadge>{snapshot.trial ? t("proTrialBadge") : t("currentPlan")}</CurrentPlanBadge>
           ) : null
         }
         action={appStoreAction ? appStoreAction() : isProCurrent ? (
@@ -387,6 +388,7 @@ function PricingContent({
           </SecondaryLink>
         ) : undefined}
       >
+        {isProCurrent && snapshot.trial ? <p className="mt-5 text-sm">{t("proTrialLimits")}</p> : null}
         <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
         <FeatureList items={proFeatures} />
       </ProPlanCard>
@@ -641,6 +643,8 @@ type PlanSnapshot = {
   billingSource?: PersonalBillingSource;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
+  /** The plan is an iOS Pro free trial; it shows as Pro with the trial limits. */
+  trial?: boolean;
 };
 
 /**
@@ -684,10 +688,12 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
   return {
     userId: user.id,
     authenticated: !user.isAnonymous,
-    planId: status.planId,
+    // An iOS Pro free trial is named Pro, never Go.
+    planId: displayPersonalPlanId(status),
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
+    trial: Boolean(status.trial),
   };
 }

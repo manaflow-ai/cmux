@@ -6,6 +6,7 @@ import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import {
   FREE_PLAN_ID,
   PRO_PLAN_ID,
+  displayPersonalPlanId,
   isDevelopmentProAccessEnabled,
   resolveProPlanStatus,
 } from "../../services/billing/pro";
@@ -166,11 +167,13 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
     userId: user.id,
     authenticated: !user.isAnonymous,
     developmentPro: false,
-    planId: status.planId,
+    // An iOS Pro free trial is named Pro, never Go.
+    planId: displayPersonalPlanId(status),
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
+    trial: Boolean(status.trial),
     email: user.primaryEmail,
   };
 }

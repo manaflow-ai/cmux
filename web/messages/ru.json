@@ -135,6 +135,16 @@
       "counted": "Сейчас учитываются: {machines}. Приостановленные машины не учитываются.",
       "provisioning": "{name} (подготавливается)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Пробная версия Pro включает 1 сохранённую Cloud VM, включая работающую VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Пробная версия Pro позволяет одновременно запускать 1 Cloud VM.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Пробная версия Pro израсходовала 20 VM-часов. Полный Pro начнётся, когда пробный период закончится и подписка продлится.",
+      "hoursAction": "Сохранённая VM остаётся доступной. После пробного периода действуют полные лимиты Pro.",
+      "shapeMessage": "Пробная версия Pro поддерживает 2 vCPU, 4 ГБ RAM и 16 ГБ диска.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5280,7 +5290,9 @@
     "billingUnavailable": "Оплата сейчас недоступна. Повторите попытку позже.",
     "signedOutNotice": "Вы не вошли в систему. Войдите, чтобы увидеть текущий план или восстановить существующую покупку.",
     "signedOutSignIn": "Войти",
-    "manageInAppStore": "Управлять в App Store"
+    "manageInAppStore": "Управлять в App Store",
+    "proTrialBadge": "Пробная версия Pro",
+    "proTrialLimits": "Пробная версия Pro включает 1 Cloud VM с 2 vCPU и 4 ГБ RAM и 20 VM-часов. Полный Pro начнётся после окончания пробного периода."
   },
   "platforms": {
     "macos": "macOS",
