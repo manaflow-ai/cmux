@@ -43,7 +43,13 @@ struct FinishedBannerBurstTests {
             let located = try #require(service.locate(surface: SurfaceID(rawValue: surface), in: store))
             var decision = NotificationPolicy.Decision()
             decision.desktop = true
+            decision.sound = "default"
             service.deliver(notification, source: .agent, located: located, decision: decision, program: nil)
+        }
+
+        /// The user reads the tab of `surface` (a banner click, a look at the pane).
+        func read(surface: UInt64) throws {
+            service.acknowledge(try #require(service.locate(surface: SurfaceID(rawValue: surface), in: store)).tab)
         }
 
         /// The banners still in Notification Center: posted and not withdrawn, oldest first.
@@ -86,5 +92,22 @@ struct FinishedBannerBurstTests {
         }
         try harness.deliver(6, surface: 2, title: "Codex finished")
         #expect(harness.showing == ["Claude finished", "Codex finished"], "the window closed: no digest")
+    }
+
+    @Test func anAgentTheUserAlreadyReadLeavesTheBurst() throws {
+        let harness = Harness()
+        try harness.deliver(5, surface: 1, title: "Claude finished")
+        try harness.read(surface: 1)
+        try harness.deliver(6, surface: 2, title: "Codex finished")
+        #expect(harness.showing == ["Codex finished"], "the read agent is not counted again")
+        #expect(harness.service.desktop.posted.last?.sound == "default", "a banner that replaces nothing still sounds")
+    }
+
+    @Test func anAgentFinishingTwiceThenAnotherLeavesOnlyTheDigest() throws {
+        let harness = Harness()
+        try harness.deliver(5, surface: 1, title: "Claude finished")
+        try harness.deliver(6, surface: 1, title: "Claude finished")
+        try harness.deliver(7, surface: 2, title: "Codex finished")
+        #expect(harness.showing == ["2 agents finished"], "both of the first agent's banners give way")
     }
 }
