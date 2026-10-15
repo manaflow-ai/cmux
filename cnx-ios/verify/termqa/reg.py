@@ -128,7 +128,7 @@ def stage_fixtures():
     subprocess.run(["rsync", "-a", src + "/", dest], check=True)
 
 
-CODEX_PROMPT = "Print the numbers 1 to 400, one per line, each followed by a short sentence. No tools."
+CODEX_PROMPT = "Print the numbers 1 to {n}, one per line, each followed by a short sentence. No tools."
 CODEX_DIR = os.environ.get("TQ_CODEX_DIR", "~/cnx-ios-e2e/tq10/proj")
 
 
@@ -171,7 +171,7 @@ def leave_codex(j):
             break
 
 
-def start_agent(j, agent, args, phase="streaming"):
+def start_agent(j, agent, args, phase="streaming", count=400):
     """Typed on the phone (composer paste + Send). Real Codex: phase "streaming"
     returns once its answer rows are arriving, "idle" once it is back at its prompt
     with the answer on screen (the Mac's screen is read for timing only)."""
@@ -183,7 +183,7 @@ def start_agent(j, agent, args, phase="streaming"):
         if not wait_mac(lambda t: "Ask Codex" in t or "›" in t, 60):
             raise RuntimeError("codex prompt never showed")
         time.sleep(1)
-        tq.paste_composer(CODEX_PROMPT)
+        tq.paste_composer(CODEX_PROMPT.format(n=count))
         # This Codex shows no working indicator on screen; its state is read from the
         # answer itself: rows arriving (streaming), or "Worked for" / row 400 with the
         # screen unchanged across two reads 3 s apart (idle).
@@ -203,7 +203,7 @@ def start_agent(j, agent, args, phase="streaming"):
             def idle(t):
                 same = prev[0] == t
                 prev[0] = t
-                finished = "Worked for" in t or re.search(r"(?m)^\s*400\b", t) is not None
+                finished = "Worked for" in t or re.search(r"(?m)^\s*%d\b" % count, t) is not None
                 return same and finished
             if not wait_mac(idle, 900, every=3):
                 raise RuntimeError("codex never finished its answer")
@@ -291,7 +291,7 @@ def s1337(sim, mac, j, agent, name):
 def s1259(sim, mac, j, agent, name):
     """Following a working agent (keyboard down, then up), scrolling history while it
     streams, then a long fling to the top and back."""
-    start_agent(j, agent, [70, 15, 5, 2])
+    start_agent(j, agent, [70, 15, 5, 2], count=1500)
     j.hide_keyboard()
     touch("key")
     time.sleep(3)
@@ -318,6 +318,11 @@ def s1259(sim, mac, j, agent, name):
     time.sleep(3)
     seg["fling"] = (a, time.time())
     tq.rec_stop()
+    try:
+        end_screen = tq.mac_screen()
+    except Exception:
+        end_screen = ""
+    streamed_through = "Worked for" not in end_screen
     m = analyse(video, t0, name)
     w = {k: window(m, t0, *v) for k, v in seg.items()}
     rows = {
@@ -326,7 +331,8 @@ def s1259(sim, mac, j, agent, name):
                          "evidence": w["up"]},
         "T-REG-1259-c": {"red": w["scroll"]["flashes"] > 0, "evidence": w["scroll"]},
         "T-REG-1259-d": {"red": w["fling"]["black"] > 0, "evidence": w["fling"]},
-        "T-REG-1259-e": {"red": sum(x["black"] for x in w.values()) > 0, "note": "any black frame in the run"},
+        "T-REG-1259-e": {"red": sum(x["black"] for x in w.values()) > 0, "note": "any black frame in the run",
+                         "evidence": {"agent_still_streaming_at_end": streamed_through}},
         "T-REG-1259-f": {"red": None, "note": "excluded: the run logs every touch (M-TOUCH); spontaneous reversals are in a/b",
                          "evidence": {k: v["spont_reversals"] for k, v in w.items()}},
     }
