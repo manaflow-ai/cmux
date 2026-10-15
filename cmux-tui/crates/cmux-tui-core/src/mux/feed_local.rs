@@ -164,10 +164,19 @@ impl Mux {
         drop(feed);
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision = revision;
         drop(registry);
+        // An agent's banner takes the reply its hook kept beside the event (memory only).
+        let preview = notification
+            .terminal_id
+            .as_ref()
+            .filter(|_| notification.source == NotificationSource::Agent)
+            .and_then(|terminal| self.take_agent_reply(terminal))
+            .map(|reply| reply.to_string());
         self.emit(MuxEvent::Notification(NotificationEvent {
             notification: numeric_id,
             title: notification.title.clone(),
+            subtitle: notification.subtitle.clone(),
             body: notification.body.clone(),
+            preview,
             level: notification.level,
             surface: notification.surface,
             source: notification.source,

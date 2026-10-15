@@ -88,7 +88,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ PaneChromeMetrics.current }) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
@@ -126,12 +126,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         let shown = shownStripHeight
         stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
+        let tools = toolbarWidth(shown: shown), rowContent = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
+        let rowTools = rowContent?.tabRowWidth(room: bounds.width - tools) ?? 0 // a chat's tools in the row (PaneTabRowSharing)
         if !isBandActive {
-            let tools = toolbarWidth(shown: shown)
-            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools, height: shown)
+            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
-        let hostFrame = isBandActive ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        let hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
@@ -145,6 +146,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // layout pass instead of staying at width zero.
         if let content, content.frame != contentHost.bounds { content.frame = contentHost.bounds }
         layoutAgentTag()
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
         if hostChanged { onResize?() }
     }
 

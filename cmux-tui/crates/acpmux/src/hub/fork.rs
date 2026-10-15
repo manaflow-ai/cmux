@@ -34,7 +34,8 @@ impl Hub {
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
         let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
-        // The fork's workspace: the one the request names, else its parent's.
+        // The fork's workspace: the one the request names (typed or in its
+        // env, `session_env::workspace_id`), else its parent's.
         let workspace_id = workspace_id.or_else(|| parent_meta.workspace_id.clone());
         crate::agent_displays::mark(&mut fork_env, workspace_id.as_deref());
         let sid = parent_meta

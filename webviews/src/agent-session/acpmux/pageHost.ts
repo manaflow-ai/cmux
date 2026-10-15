@@ -12,6 +12,7 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setHeaderState } from "./header/headerState";
+import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
 import { setSessionStatus } from "./sessionStatus";
 
@@ -104,6 +105,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyCustomization(value);
     case "headerState":
       return setHeaderState(event.value);
+    case "tabRow":
+      return setTabRow(event.value);
     case "floatingState":
       return setFloatingState(event.value);
     case "dictation":
