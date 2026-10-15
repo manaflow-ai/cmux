@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv11/gd-fling-b.mp4",
+ "source_frames": 8909,
+ "duration": 152.06,
+ "lit_median": 0.0423,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0109,
+ "max_gap_ms": 66.7
+}

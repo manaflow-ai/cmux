@@ -97,6 +97,24 @@ if __name__ == "__main__" and sys.argv[1] == "transport":
 elif __name__ == "__main__" and sys.argv[1] == "install":
     install(sys.argv[2])
 elif __name__ == "__main__":
+    import threading
+    _samples = []
+    _stop = threading.Event()
+
+    def _sampler():
+        while not _stop.is_set():
+            _samples.append((round(_time.time(), 1), os.getloadavg()[0]))
+            _stop.wait(2.0)
+    threading.Thread(target=_sampler, daemon=True).start()
+    import atexit
+
+    def _report():
+        _stop.set()
+        if _samples:
+            v8.ev("load_window", tool=sys.argv[0], args=sys.argv[1:], n=len(_samples),
+                  load1_max=max(x for _, x in _samples), load1_min=min(x for _, x in _samples),
+                  t0=_samples[0][0], t1=_samples[-1][0])
+    atexit.register(_report)
     mod = importlib.import_module(sys.argv[1])
     sys.argv = [sys.argv[1] + ".py"] + sys.argv[2:]
     mod.main()
