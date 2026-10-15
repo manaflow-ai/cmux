@@ -1,14 +1,30 @@
 import AppKit
 import ObjectiveC
 
+/// Chromium's application protocols (base/message_loop/message_pump_apple.h,
+/// include/cef_application_mac.h), declared under their Objective-C names.
+/// The Objective-C runtime keeps the first protocol registered under a name
+/// and remaps later references to it. These are registered when the app
+/// launches, long before the shim is mapped, so the shim's
+/// `@protocol(CefAppProtocol)` resolves to this declaration (the same
+/// approach as cmux Next's CmuxApplication).
+@objc(CrAppProtocol) protocol ChromiumAppProtocol: NSObjectProtocol {
+    @objc(isHandlingSendEvent) func isHandlingSendEvent() -> Bool
+}
+
+@objc(CrAppControlProtocol) protocol ChromiumAppControlProtocol: ChromiumAppProtocol {
+    @objc(setHandlingSendEvent:) func setHandlingSendEvent(_ handlingSendEvent: Bool)
+}
+
+@objc(CefAppProtocol) protocol CEFAppProtocol: ChromiumAppControlProtocol {}
+
 /// CEF requires the app's `NSApplication` to conform to `CefAppProtocol`
 /// (`isHandlingSendEvent` / `setHandlingSendEvent:`) and to report whether it
 /// is inside `-sendEvent:`: Chromium's message pump and its menus defer work
 /// while an event is being dispatched.
 ///
 /// cmux uses a plain `NSApplication`, so `install` adds the conformance to the
-/// running application's class at run time, once, when CEF starts (after the
-/// shim is mapped, which registers the protocol). It also wraps the class's
+/// running application's class at run time, once, when CEF starts. It also wraps the class's
 /// current `-sendEvent:` (including cmux's own swizzle) so the flag is set
 /// while an event is dispatched. Nothing changes in a session that never
 /// starts Chromium. The runtime owns the one instance; AppKit calls the added
@@ -26,8 +42,8 @@ final class CEFApplicationSupport {
     @discardableResult
     func install(application: NSApplication) -> Bool {
         if isInstalled { return true }
-        guard let appClass = object_getClass(application),
-              let proto = objc_getProtocol("CefAppProtocol") else { return false }
+        guard let appClass = object_getClass(application) else { return false }
+        let proto: Protocol = CEFAppProtocol.self
 
         let getSelector = NSSelectorFromString("isHandlingSendEvent")
         let setSelector = NSSelectorFromString("setHandlingSendEvent:")
