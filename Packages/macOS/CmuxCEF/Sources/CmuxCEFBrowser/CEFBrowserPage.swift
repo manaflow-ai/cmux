@@ -311,6 +311,7 @@ public final class CEFBrowserPage: BrowserPage {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        features.tearDown()
         browser.close()
         eventContinuation?.finish()
         eventContinuation = nil
@@ -339,6 +340,8 @@ public final class CEFBrowserPage: BrowserPage {
         case .closeRequested:
             emit(.closeRequested)
         case .closed:
+            // The runtime routes Chromium's before-close to the browser, not as a shim event.
+            features.tearDown()
             eventContinuation?.finish()
         case .shim(let shimEvent):
             handle(shimEvent)
