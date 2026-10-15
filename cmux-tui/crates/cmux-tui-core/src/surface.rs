@@ -683,6 +683,11 @@ impl Surface {
             terminal_metadata.set_osc_progress(&snapshot.osc_progress),
             "terminal host returned invalid OSC progress metadata"
         );
+        // The prompt or running command the host saw, so a daemon that
+        // adopts a terminal after a restart does not read it as idle.
+        if let Some(activity) = snapshot.shell_activity {
+            terminal_metadata.activity.restore(activity);
+        }
         term.resize(
             snapshot.cols,
             snapshot.rows,
