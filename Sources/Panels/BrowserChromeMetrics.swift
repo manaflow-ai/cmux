@@ -99,5 +99,27 @@ struct BrowserChromeMetrics: Equatable {
         return max(0, min(preferred, pageWidth - promptBarInset * 2))
     }
 
+    /// Glyph size of a full-page recovery view (Chromium error, crash). Base `28`.
+    var recoveryIconSize: CGFloat { scaled(28) }
+
+    /// Title size of a full-page recovery view. Base `17`.
+    var recoveryTitleFontSize: CGFloat { scaled(17) }
+
+    /// Body size of a full-page recovery view. Base `13`.
+    var recoveryBodyFontSize: CGFloat { scaled(13) }
+
+    /// Caption size (error code line) of a full-page recovery view. Base `11`.
+    var recoveryCaptionFontSize: CGFloat { scaled(11) }
+
+    /// Widest text column of a full-page recovery view. Base `420`.
+    var recoveryMaxWidth: CGFloat { scaled(420) }
+
+    /// Space between the parts of a full-page recovery view. Base `10`.
+    var recoverySpacing: CGFloat { scaled(10) }
+
+    /// How far a recovery view sits above the page's center: one toolbar
+    /// height (hit target plus the row's vertical padding). Base `34`.
+    var recoveryVerticalLift: CGFloat { scaled(34) }
+
     private func scaled(_ base: CGFloat) -> CGFloat { base * scale }
 }

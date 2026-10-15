@@ -302,6 +302,8 @@ extension BrowserPanel {
             recoverTerminatedWebContent(reason: "overlayButton")
         case .unloaded:
             restoreUnloadedPage()
+        case .chromiumLoadFailed:
+            _ = reload()
         }
     }
 

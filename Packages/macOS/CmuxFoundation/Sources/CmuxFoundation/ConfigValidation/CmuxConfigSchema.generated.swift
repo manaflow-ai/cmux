@@ -2190,6 +2190,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show omnibar search suggestions."
         },
+        "engine": {
+          "type": "string",
+          "enum": ["webkit", "chromium"],
+          "default": "webkit",
+          "description": "Engine new browser tabs open with. chromium is used only when this build includes the Chromium runtime; otherwise the tab opens in WebKit and says why. The CMUX_BROWSER_ENGINE environment variable overrides it."
+        },
         "theme": {
           "type": "string",
           "enum": ["system", "light", "dark"],

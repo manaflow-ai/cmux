@@ -9,4 +9,7 @@ struct BrowserSplitRequest: Sendable {
     let chromeVisibility: BrowserChromeVisibility
     let transparentBackground: Bool
     let bypassRemoteProxy: Bool
+    /// The engine the request names (`--engine`), or `nil` to follow
+    /// `CMUX_BROWSER_ENGINE` and `browser.engine`.
+    var engine: BrowserEngineKind? = nil
 }

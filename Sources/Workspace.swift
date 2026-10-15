@@ -10134,9 +10134,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        engine: BrowserEngineKind? = nil
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
+        guard let engineChoice = BrowserPanel.resolvedEngineChoice(requested: engine) else { return nil }
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
@@ -10213,7 +10215,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            engineChoice: engineChoice
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -10300,9 +10303,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        engine: BrowserEngineKind? = nil
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
+        guard let engineChoice = BrowserPanel.resolvedEngineChoice(requested: engine) else { return nil }
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
         // that the mirror's rebuild() never reconciles, breaking the 1:1
@@ -10354,7 +10359,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            engineChoice: engineChoice
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
