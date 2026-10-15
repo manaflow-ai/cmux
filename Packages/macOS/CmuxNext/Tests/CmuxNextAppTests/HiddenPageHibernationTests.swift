@@ -66,16 +66,7 @@ import Testing
             <div style="height: 2000px"></div>
             <script>addEventListener('keydown', (e) => { window.pressed = e.isTrusted; }, true);</script>
             """)
-        rig.window.contentView = page.contentView
-        rig.window.makeFirstResponder(page.webView)
-        // A Down arrow on the page: the person used it, and no field changed.
-        let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                 windowNumber: rig.window.windowNumber, context: nil,
-                                                 characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
-        page.webView.keyDown(with: down)
-        try await rig.until("the key reached the page") {
-            (try? await page.evaluate("window.pressed === true", world: .page)) == .bool(true)
-        }
+        try await rig.pressDown(page)
         _ = try await page.evaluate("document.getElementById('s').value = 'b'; true", world: .page)
         rig.window.contentView = nil
         let key = try await rig.hide(page)
@@ -83,18 +74,57 @@ import Testing
         #expect(rig.exemption(key) == .formInput, "a page the person used, with a changed field, hibernated")
     }
 
+    /// #20866 second review: selecting text or pressing a key on a docs page is use, but the fields
+    /// its script filled at load are not the person's: the page still hibernates.
+    @Test func aPageThePersonOnlyUsedWhoseScriptFilledItsFormHibernates() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let page = try await rig.page("browsed", body: """
+            <div id="versions"></div>
+            <input type="radio" name="size" value="small"><input type="radio" name="size" value="large">
+            <div style="height: 2000px"></div>
+            <script>
+            const versions = document.createElement('select');
+            for (const v of ['3.13', '3.14']) {
+              const option = document.createElement('option');
+              option.textContent = v;
+              option.selected = v === '3.14';
+              versions.append(option);
+            }
+            document.getElementById('versions').append(versions);
+            document.querySelector('input[value=large]').checked = true;
+            addEventListener('keydown', (e) => { window.pressed = e.isTrusted; }, true);
+            </script>
+            """)
+        try await rig.pressDown(page)
+        rig.window.contentView = nil
+        let key = try await rig.hide(page)
+        try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        #expect(rig.exemption(key) == nil, "a page the person only read was kept for the fields its script filled")
+        #expect(rig.isHibernated(key))
+    }
+
+    /// #20866 second review: a composer the person typed in and then sent (a chat app clears it)
+    /// holds nothing to lose: the page hibernates.
+    @Test func aRichEditorThePersonClearedLetsThePageHibernate() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let page = try await rig.page("sent", body: "<div id='editor' contenteditable style='height: 200px'></div>")
+        try await rig.type("draft", into: "editor", page)
+        _ = try await page.evaluate("document.getElementById('editor').textContent = ''; true", world: .page)
+        rig.window.contentView = nil
+        let key = try await rig.hide(page)
+        try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        #expect(rig.exemption(key) == nil, "a page whose editor was cleared after sending was kept")
+        #expect(rig.isHibernated(key))
+    }
+
     /// #20866 review: a rich text editor (a mail compose, a comment box) is no form field.
     @Test func aPageThePersonTypedIntoARichEditorKeepsItsPage() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let page = try await rig.page("editor", body: "<div id='editor' contenteditable style='height: 200px'></div>")
-        rig.window.contentView = page.contentView
-        rig.window.makeFirstResponder(page.webView)
-        _ = try await page.evaluate("document.getElementById('editor').focus(); true", world: .page)
-        page.webView.insertText("draft")
-        try await rig.until("the typing reached the editor") {
-            (try? await page.evaluate("document.getElementById('editor').textContent", world: .page)) == .string("draft")
-        }
+        try await rig.type("draft", into: "editor", page)
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
@@ -106,13 +136,17 @@ import Testing
     @Test func aLargePaneStillHasASnapshotAfterHibernating() async throws {
         let rig = try Rig()
         defer { rig.close() }
-        let large = try Self.picture(shade: 0.5, width: 5120, height: 3200)
+        let p3 = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+        let large = try Self.picture(shade: 0.5, width: 5120, height: 3200, space: p3)
         rig.hibernation.capture = { _ in large }
         let key = try await rig.hide(rig.page("large", body: "<p>large</p>"))
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         let snapshot = try #require((rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage,
                                     "a large pane's page hibernated without a snapshot")
         #expect(PreviewImageCache.cost(snapshot) <= rig.services.cache.previews.capacityBytes / 4, "one snapshot takes over a quarter of the cache")
+        // #20866 second review: the page's colors and shape, only smaller.
+        #expect(snapshot.colorSpace?.name == CGColorSpace.displayP3, "the snapshot lost the page's color space")
+        #expect(abs(Double(snapshot.width) / Double(snapshot.height) - 1.6) < 0.005, "the snapshot was squeezed to \(snapshot.width) x \(snapshot.height)")
     }
 
     /// #20866 review: a page that woke and hibernated again showed the picture of its first sleep.
@@ -157,9 +191,10 @@ import Testing
         #expect(last.snapshotImage != nil, "the latest hibernated page lost its snapshot")
     }
 
-    private static func picture(shade: Double, width: Int = 2048, height: Int = 1536) throws -> CGImage {
+    private static func picture(shade: Double, width: Int = 2048, height: Int = 1536,
+                                space: CGColorSpace = CGColorSpaceCreateDeviceRGB()) throws -> CGImage {
         let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                                             space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(gray: shade, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         return try #require(context.makeImage())
@@ -212,6 +247,31 @@ import Testing
             services.cache.withdraw(key, by: pane)
             try #require(services.cache.phase(of: key) == .mountedHidden)
             return key
+        }
+
+        /// A Down arrow on the page (it must note `window.pressed` on keydown): the person used
+        /// it, and no field changed. The page stays in the window.
+        func pressDown(_ page: WebKitTab) async throws {
+            window.contentView = page.contentView
+            window.makeFirstResponder(page.webView)
+            let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                     windowNumber: window.windowNumber, context: nil,
+                                                     characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
+            page.webView.keyDown(with: down)
+            try await until("the key reached the page") {
+                (try? await page.evaluate("window.pressed === true", world: .page)) == .bool(true)
+            }
+        }
+
+        /// Types `text` into the empty rich editor `id` as the person would. The page stays in the window.
+        func type(_ text: String, into id: String, _ page: WebKitTab) async throws {
+            window.contentView = page.contentView
+            window.makeFirstResponder(page.webView)
+            _ = try await page.evaluate("document.getElementById('\(id)').focus(); true", world: .page)
+            page.webView.insertText(text)
+            try await until("the typing reached the editor") {
+                (try? await page.evaluate("document.getElementById('\(id)').textContent", world: .page)) == .string(text)
+            }
         }
 
         func isHibernated(_ key: String) -> Bool { services.cache.browsers[key]?.tab is HibernatedBrowserTab }
