@@ -132,8 +132,11 @@ int cmux_cef_early_malloc_zone_installed(void) { return g_installed; }
 // embeds it (<exe dir>/../Frameworks/Chromium Embedded Framework.framework),
 // or CMUX_CEF_RUNTIME names a runtime directory.
 static int chromium_embedded(void) {
+#if defined(DEBUG)
+  // Debug builds only, like CEFRuntimeLayout's override.
   const char* override_dir = getenv("CMUX_CEF_RUNTIME");
   if (override_dir && *override_dir) return 1;
+#endif
   char exe[PATH_MAX];
   uint32_t size = sizeof exe;
   if (_NSGetExecutablePath(exe, &size) != 0) return 0;

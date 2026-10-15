@@ -154,3 +154,34 @@ import Testing
         #expect(unsafeBitCast(now.__sigaction_u.__sa_handler, to: Int.self) == unsafeBitCast(SIG_IGN, to: Int.self))
     }
 }
+
+@Suite struct CEFSwitchesTests {
+    static let environment = ["CMUX_CEF_LOAD_EXTENSIONS": "/tmp/ext", "CMUX_CEF_EXTRA_SWITCHES": "--enable-x", "CMUX_MOCK_KEYCHAIN": "1"]
+
+    /// A Release build ignores every development variable: no unpacked
+    /// extension skips the consent sheet, no switch or mock keychain sneaks in.
+    @Test func releaseIgnoresDevelopmentVariables() {
+        let switches = CEFSwitches.current(forkAPIVersion: 23, bundleIdentifier: "com.cmuxterm.app",
+                                           environment: Self.environment, allowsDevelopmentOverrides: false)
+        #expect(switches.loadExtensions.isEmpty)
+        #expect(switches.extraSwitches.isEmpty)
+        #expect(!switches.useMockKeychain)
+        #expect(!switches.arguments.contains { $0.hasPrefix("load-extension") || $0 == "use-mock-keychain" || $0 == "enable-x" })
+    }
+
+    /// A Debug build of a release bundle id still ignores them.
+    @Test func debugReleaseBundleIgnoresExtensionsAndSwitches() {
+        let switches = CEFSwitches.current(forkAPIVersion: 23, bundleIdentifier: "com.cmuxterm.app",
+                                           environment: Self.environment, allowsDevelopmentOverrides: true)
+        #expect(switches.loadExtensions.isEmpty)
+        #expect(switches.extraSwitches.isEmpty)
+    }
+
+    @Test func debugDevBundleReadsThem() {
+        let switches = CEFSwitches.current(forkAPIVersion: 23, bundleIdentifier: "com.cmuxterm.app.debug.tag",
+                                           environment: Self.environment, allowsDevelopmentOverrides: true)
+        #expect(switches.loadExtensions == ["/tmp/ext"])
+        #expect(switches.extraSwitches == ["enable-x"])
+        #expect(switches.useMockKeychain)
+    }
+}
