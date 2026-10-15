@@ -165,7 +165,7 @@ class Job:
         # Chromium starts with the first Chromium tab (CEFRuntime.start is lazy).
         self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": "about:blank"},
                                  "focus": True, "origin": "remote"})
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             try:
                 cdp.targets(self.port)
@@ -528,6 +528,10 @@ def phase_ublock(args):
         while time.monotonic() < deadline and not ubo:
             ubo = next((e for e in job.extensions_report() if e.get("name") == UBO_NAME), None)
             time.sleep(0.5)
+        if not args.ubo and "false" in Job.config.replace(" ", ""):
+            job.row("builtin-off: with browser.builtInAdBlocker false uBlock Origin does not run",
+                    not (ubo and ubo.get("enabled")), ubo or "not listed")
+            return "stop"
         job.row("ublock: loaded and enabled", bool(ubo and ubo.get("enabled")), ubo or "not listed")
         if not ubo:
             return "stop"
@@ -655,16 +659,20 @@ def phase_ublock(args):
                 state.get("slot") == "hidden", state, gating=False)
         session = job.open_tab("https://example.com/", match="example.com")
         try:
-            poll(session, "document.readyState === 'complete'", 20)
+            poll(session, "location.host === 'example.com' && document.readyState === 'complete' && !!document.body", 30)
+            time.sleep(1)
             session.evaluate("document.body.insertAdjacentHTML('beforeend', '<div id=\"mv2-slot\" class=\"adsbygoogle-box\" "
                              "style=\"width:300px;height:100px;background:#fdd\">ad slot</div>'); true")
-            hidden = poll(session, "getComputedStyle(document.getElementById('mv2-slot')).display === 'none'", 10)
+            hidden = poll(session, "(() => { const e = document.getElementById('mv2-slot');"
+                                   " return e && getComputedStyle(e).display === 'none'; })()", 10)
+            hidden = {"hidden": bool(hidden), "slot": session.evaluate("(() => { const e = document.getElementById('mv2-slot');"
+                                                                      " return e ? getComputedStyle(e).display : 'missing'; })()")}
             world = ubo_world_state(session)
             shot = job.page_shot(session, f"{job.phase}-cosmetic-example")
         finally:
             session.close()
         job.row("ublock: EasyList generic cosmetic filter hides an ad slot (##.adsbygoogle-box on example.com)",
-                bool(hidden), {"hidden": hidden, "ubo_world": world, "shot": shot})
+                hidden["hidden"], {"result": hidden, "ubo_world": world, "shot": shot})
 
     def insert_css():
         """The API uBlock Origin's cosmetic filtering uses (tabs.insertCSS, user origin)."""
@@ -672,6 +680,7 @@ def phase_ublock(args):
         bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
         try:
             poll(session, "window.mv2 && window.mv2.done", 20)
+            time.sleep(2)  # the tab's URL reaches chrome.tabs after load
             result = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => {
               const t = tabs.find(t => (t.url || '').includes('?css=1'));
               if (!t) return r({error: 'no tab'});
