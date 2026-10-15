@@ -9,9 +9,7 @@ import Testing
 
 /// The New Tab page chooses its style again (Leo 2026-10-13): a style picked on the page
 /// (`newTab.setTemplate`) is saved as `tabs.newTabTemplate`, so every later New Tab shows it.
-/// Terminal is not a style the page sets: New Tab never opens a terminal by itself. How the switch
-/// looks is Settings > Labs `labs.newTabStyle` (Leo 2026-10-14: every look ships as an opt-in, in
-/// release builds too).
+/// Terminal is not a style the page sets: New Tab never opens a terminal by itself.
 @MainActor
 struct NewTabStyleSwitchTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -59,35 +57,22 @@ struct NewTabStyleSwitchTests {
         #expect(settings.snapshot.newTabTemplate == .threads)
     }
 
-    @Test func theLabsStyleSwitchLookReachesEveryNewTab() async throws {
+    /// Every look the New Tab style switch has is a Debug Settings choice (`newTab.styleSwitch`; no
+    /// Labs, Lawrence 2026-10-14) that reaches the next New Tab; with none set the page draws its
+    /// own look, round dots.
+    @Test func eachDebugStyleSwitchLookReachesTheNextNewTab() throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-newtab-look-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "cmux.json")
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
-                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
-        services.settings = settings
-        let labsRow = { settings.diagnostics.contains { $0.path == "labs.newTabStyle" } }
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register(NewTabTunables.all)
+        defer { store.reset([NewTabTunables.styleSwitch.key]) }
 
-        // Nothing set: the page draws its default, round dots.
-        try Data("{}".utf8).write(to: url)
-        await settings.reload()
-        #expect(NewTabPage.sparePage(services).styleSwitch == "round")
-
-        // Each look the Labs row offers reaches the page.
-        for look in ["round", "hint", "dots", "strip", "names"] {
-            try Data(#"{"labs":{"newTabStyle":"\#(look)"}}"#.utf8).write(to: url)
-            await settings.reload()
-            #expect(NewTabPage.sparePage(services).styleSwitch == look)
-            #expect(!labsRow())
+        #expect(NewTabPage.sparePage(services).styleSwitch == nil)
+        for look in NewTabStyleSwitchChoice.allCases {
+            #expect(store.set(NewTabTunables.styleSwitch.key, .choice(look.rawValue)) != nil)
+            #expect(NewTabPage.sparePage(services).styleSwitch == look.rawValue)
         }
-
-        // An unknown look is round dots, and Settings says why.
-        try Data(#"{"labs":{"newTabStyle":"sparkles"}}"#.utf8).write(to: url)
-        await settings.reload()
-        #expect(NewTabPage.sparePage(services).styleSwitch == "round")
-        #expect(labsRow())
+        #expect(Set(NewTabStyleSwitchChoice.allCases.map(\.rawValue)) == ["round", "hint", "dots", "strip", "names"])
     }
 }

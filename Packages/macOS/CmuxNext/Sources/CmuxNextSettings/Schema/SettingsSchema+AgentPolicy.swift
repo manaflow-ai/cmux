@@ -95,6 +95,9 @@ extension SettingsSchema {
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
+        "ui.animations.newTab",
+        "ui.animations.newWorkspace",
+        "ui.animations.bounce",
         "ui.paneAnimations",
         "layout.panePadding",
         "layout.paneCornerRadius",
@@ -157,7 +160,6 @@ extension SettingsSchema {
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
-        "labs.newTabStyle",
         "labs.classicHome",
         "updates.notify",
         "updates.showWhatsNew",

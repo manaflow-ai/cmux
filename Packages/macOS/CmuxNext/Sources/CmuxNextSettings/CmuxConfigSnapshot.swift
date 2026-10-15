@@ -54,6 +54,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
+    public var animationKinds = AnimationKindsSetting()
     /// `ui.paneAnimations`; off when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
@@ -230,6 +231,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (speed, speedDiagnostic) = AnimationSpeedSetting.parse(root)
         snapshot.animationSpeed = speed
         if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
+        snapshot.take(AnimationKindsSetting.parse(root), \.animationKinds)
         snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
@@ -289,7 +291,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
         snapshot.diagnostics += Self.closeWarningDiagnostics(root)
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
-        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1, NewTabStyleSwitch.parse(root).1].compactMap(\.self)
+        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }

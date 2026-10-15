@@ -99,7 +99,7 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+Labs.generated.swift",
         "type": "LabsSettingsSchema",
         "lists": {"labs": ("descriptors", "CmuxConfigSnapshot")},
-        "enums": {"labs.newTabStyle": "NewTabStyleSwitch"},
+        "enums": {},
     },
     {
         "source": "schemas/settings/source/picker.json",
