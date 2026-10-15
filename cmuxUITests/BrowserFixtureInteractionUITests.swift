@@ -173,9 +173,10 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         )
         // A run that selected an engine must be testing that engine: a
         // Chromium run that fell back to WebKit would otherwise pass as WebKit.
+        // An app from before engine selection reports no engine and is WebKit.
         if let engine = XCUIApplication.uiTestBrowserEngine(from: ProcessInfo.processInfo.environment) {
             XCTAssertEqual(
-                opened["engine"] as? String,
+                opened["engine"] as? String ?? "webkit",
                 engine,
                 "browser.open_split opened a different engine than this run selected: \(opened)",
                 file: file,

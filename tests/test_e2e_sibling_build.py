@@ -83,6 +83,13 @@ class SiblingWaitTests(unittest.TestCase):
         self.assertTrue(fake.wait())
         self.assertEqual(fake.sleeps, 2)
 
+    def test_a_chromium_run_is_never_a_sibling(self) -> None:
+        # test-e2e.yml marks a Chromium run's title with " {chromium}" after
+        # the runner; its product embeds CEF and answers no other run.
+        chromium = run(90, runner=f"{SMALL} {{chromium}}")
+        self.assertIsNone(sibling.earlier_sibling([chromium], THIS, SHA, SMALL))
+        self.assertIsNotNone(sibling.earlier_sibling([run(90)], THIS, SHA, SMALL))
+
     def test_a_published_product_ends_the_wait_while_its_tests_run(self) -> None:
         # The build job runs the tests after uploading, so waiting for the job
         # would wait for someone else's tests, and a failing test would look
