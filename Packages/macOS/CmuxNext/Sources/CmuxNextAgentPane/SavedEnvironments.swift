@@ -1,11 +1,10 @@
-import CmuxNextAgentPane
 import Foundation
 
 /// The New Tab page's saved environments (cx-ncc.104, ``AgentPaneEnvironment``), kept on this
 /// Mac in `<Application Support>/<bundle id>/environments.json`: read once, written whole
 /// (atomically, owner-only: env values may be secrets). An actor, so the file IO never runs on
 /// the main actor. A file that does not parse is read as empty and replaced by the next save.
-actor SavedEnvironments: AgentPaneEnvironmentStoring {
+public actor SavedEnvironments: AgentPaneEnvironmentStoring {
     /// Most environments kept; a save past it is refused.
     static let maximumCount = 200
 
@@ -21,7 +20,7 @@ actor SavedEnvironments: AgentPaneEnvironmentStoring {
     }
 
     /// `<Application Support>/<bundle id>/environments.json`.
-    static func forApplication(bundleIdentifier: String?) -> SavedEnvironments {
+    public static func forApplication(bundleIdentifier: String?) -> SavedEnvironments {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
@@ -32,11 +31,11 @@ actor SavedEnvironments: AgentPaneEnvironmentStoring {
         var environments: [AgentPaneEnvironment]
     }
 
-    func list() -> [AgentPaneEnvironment] {
+    public func list() -> [AgentPaneEnvironment] {
         environments().sorted { ($0.updatedAt ?? 0) > ($1.updatedAt ?? 0) }
     }
 
-    func save(_ environment: AgentPaneEnvironment) throws -> AgentPaneEnvironment {
+    public func save(_ environment: AgentPaneEnvironment) throws -> AgentPaneEnvironment {
         guard var kept = environment.validated() else { throw Failure.invalid }
         var all = environments()
         kept.id = kept.id ?? UUID().uuidString
@@ -53,7 +52,7 @@ actor SavedEnvironments: AgentPaneEnvironmentStoring {
         return kept
     }
 
-    func remove(id: String) throws {
+    public func remove(id: String) throws {
         var all = environments()
         guard let index = all.firstIndex(where: { $0.id == id }) else { return }
         all.remove(at: index)
