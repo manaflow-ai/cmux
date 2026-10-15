@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297";
+inline constexpr std::string_view kProtocolIrSha256 = "6ace91cdd3731125872258b93d7ef629e79fac87b0670a4cbfc06f310f563a66";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2975,6 +2975,7 @@ enum class HomeInboxKind {
 };
 
 struct HomeInboxRequest {
+    Field<std::vector<std::string>> owners{};
     friend bool operator==(const HomeInboxRequest&, const HomeInboxRequest&) = default;
 };
 
@@ -2987,6 +2988,7 @@ struct HomeInboxRow {
     std::optional<std::string> last_author{};
     bool marked_unread{};
     std::string name{};
+    std::string owner{};
     std::optional<std::uint64_t> pin_position{};
     bool pinned{};
     std::optional<std::string> preview{};
@@ -2995,6 +2997,7 @@ struct HomeInboxRow {
 };
 
 struct HomeInboxResult {
+    std::string cloud{};
     std::string me{};
     std::vector<HomeInboxRow> rows{};
     friend bool operator==(const HomeInboxResult&, const HomeInboxResult&) = default;

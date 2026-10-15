@@ -8,7 +8,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::types::{AgentClass, Message, Part, Participant, ParticipantKind, Summary, WorkStatus};
 
@@ -74,6 +74,9 @@ pub struct HomeInboxInput<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HomeRow {
     pub id: String,
+    /// `local` (this daemon's conversations) or `cloud` (the person's Cloud
+    /// inbox, through the daemon's lease).
+    pub owner: &'static str,
     pub kind: HomeKind,
     /// The row's display name: a Chief's current name for its direct
     /// conversation, else the title, else the other participants' names.
@@ -232,6 +235,7 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
             let state = input.states.get(&summary.id).copied().unwrap_or_default();
             HomeRow {
                 id: summary.id.clone(),
+                owner: crate::OWNER_LOCAL,
                 kind,
                 name,
                 unread: summary.last_seq.saturating_sub(cursor),
@@ -251,6 +255,82 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
     rows
 }
 
+/// `Summary.owner`-style name of the Cloud owner's rows.
+pub const OWNER_CLOUD: &str = "cloud";
+
+/// One entry of the person's Cloud inbox (UserDO, `cloud-inbox-list`): the
+/// Cloud owner keeps the counts, the preview and the person's list state.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CloudInboxEntry {
+    pub conversation: String,
+    /// `chief`, `dm` or `group`.
+    pub kind: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub last_at: String,
+    #[serde(default)]
+    pub preview: String,
+    #[serde(default)]
+    pub dm_peer: Option<String>,
+    #[serde(default)]
+    pub unread: u64,
+    #[serde(default)]
+    pub removed: bool,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub pin_position: Option<u64>,
+    #[serde(default)]
+    pub marked_unread: bool,
+}
+
+/// A Cloud inbox entry as a Home row; none for a removed or archived entry.
+/// The Cloud owner's kind (`dm` is `direct`; a `group` is a `channel` when it
+/// has a title); the name is the title, else the direct peer's id; a Cloud
+/// Chief's live state is not known here (no `chief_state`).
+pub fn cloud_row(entry: &CloudInboxEntry) -> Option<HomeRow> {
+    if entry.removed || entry.archived {
+        return None;
+    }
+    let kind = match entry.kind.as_str() {
+        "chief" => HomeKind::Chief,
+        "dm" => HomeKind::Direct,
+        _ if entry.title.is_empty() => HomeKind::Group,
+        _ => HomeKind::Channel,
+    };
+    let name = if entry.title.is_empty() {
+        entry.dm_peer.clone().unwrap_or_default()
+    } else {
+        entry.title.clone()
+    };
+    Some(HomeRow {
+        id: entry.conversation.clone(),
+        owner: OWNER_CLOUD,
+        kind,
+        name,
+        unread: entry.unread,
+        activity_at: entry.last_at.clone(),
+        preview: (!entry.preview.is_empty())
+            .then(|| entry.preview.chars().take(PREVIEW_CHARS).collect()),
+        last_author: None,
+        chief: (kind == HomeKind::Chief).then(|| entry.dm_peer.clone()).flatten(),
+        chief_state: None,
+        pinned: entry.pinned,
+        pin_position: entry.pin_position.filter(|_| entry.pinned),
+        marked_unread: entry.marked_unread,
+    })
+}
+
+/// Local and Cloud rows in one list order.
+pub fn merge_rows(mut rows: Vec<HomeRow>, cloud: Vec<HomeRow>) -> Vec<HomeRow> {
+    rows.extend(cloud);
+    rows.sort_by(order);
+    rows
+}
+
 fn order(a: &HomeRow, b: &HomeRow) -> Ordering {
     match (a.pinned, b.pinned) {
         (true, false) => return Ordering::Less,
@@ -264,6 +344,16 @@ fn order(a: &HomeRow, b: &HomeRow) -> Ordering {
         }
         (false, false) => {}
     }
-    // RFC 3339 times of one owner sort as text.
-    b.activity_at.cmp(&a.activity_at).then_with(|| a.id.cmp(&b.id))
+    activity_key(b).cmp(&activity_key(a)).then_with(|| a.id.cmp(&b.id))
+}
+
+/// A time's sort key: RFC 3339 UTC text sorts as text once whole seconds
+/// carry milliseconds too (the Cloud owner may leave them out).
+fn activity_key(row: &HomeRow) -> std::borrow::Cow<'_, str> {
+    let at = row.activity_at.as_str();
+    if at.len() == 20 && at.ends_with('Z') {
+        std::borrow::Cow::Owned(format!("{}.000Z", &at[..19]))
+    } else {
+        std::borrow::Cow::Borrowed(at)
+    }
 }

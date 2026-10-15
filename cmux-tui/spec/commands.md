@@ -6328,7 +6328,8 @@ Result: `object{value, replayed, transaction, stream, sequence}`.
 | status | implemented |
 | since | protocol 12 additive extension; capability `home-inbox-v1` |
 
-The Home list as the caller sees it, over the local conversations: the owner
+The Home list as the caller sees it, over the local conversations and the
+person's Cloud inbox (through this daemon's Cloud lease, as `cloud-inbox-list`): the owner
 derives each row once, so every view (the Messages view, the Channels page,
 the CLI) shows the same list. A read model: it adds facts to the
 `conversation-list` summaries and changes nothing. Trusted local connections
@@ -6355,10 +6356,21 @@ that state itself. `pinned`,
 (`conversation-inbox-state-v1`). Order: pinned rows by `pin_position` (none
 last), then by `activity_at` newest first; ties by id ascending.
 
-Params: none.
+Cloud rows come from the person's Cloud inbox entries (the Cloud owner keeps
+their counts, preview and the person's pins and marks): a removed or archived
+entry is not a row; `dm` is `direct`, a `group` is a `channel` when it has a
+title; `name` is the title, else the direct peer's id; `chief` is the peer of a
+`chief` entry; a Cloud row has no `last_author` and no `chief_state`. Local and
+Cloud rows share one order (a time without milliseconds sorts as `.000`).
 
-Result: `object{me, rows:[HomeInboxRow]}`. `me` is the caller's participant
-id. `HomeInboxRow`: `{id, kind:chief|direct|channel|group, name, unread,
+Params: `owners?:[local|cloud]` (default both). In the app the local
+conversations' owner and the daemon that holds the person's Cloud lease can be
+two daemons: a view asks each for its own owner.
+
+Result: `object{me, rows:[HomeInboxRow], cloud}`. `me` is the caller's participant
+id (local). `cloud` is `included`, `signed_out` (this connection has no Cloud
+lease), `unavailable` (the Cloud did not answer; the local rows still come) or
+`not_asked`. `HomeInboxRow`: `{id, owner:local|cloud, kind:chief|direct|channel|group, name, unread,
 activity_at, preview?, last_author?, chief?, chief_state?:working|waiting|idle,
 pinned, pin_position?, marked_unread}`. A view reads the conversation itself
 (participants, title) from `conversation-list` or `conversation-snapshot`, and

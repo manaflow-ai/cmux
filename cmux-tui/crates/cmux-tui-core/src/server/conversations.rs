@@ -123,6 +123,14 @@ pub(super) struct LinkResolveParams {
     url: String,
 }
 
+/// `home-inbox`: which owners' rows (`local`, `cloud`; default both). In the
+/// app the local conversations' owner and the Cloud lease can be two daemons.
+#[derive(Deserialize)]
+pub(super) struct HomeInboxParams {
+    #[serde(default)]
+    owners: Option<Vec<String>>,
+}
+
 /// `conversation-inbox-op`: the caller's own pin or "marked unread" of one
 /// conversation (`op` is `{kind: "inbox.pin", pinned, position?}` or
 /// `{kind: "inbox.mark_unread", unread}`).
@@ -311,8 +319,23 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 /// (`cmux_conversation::home_inbox`): the same summaries as
 /// `conversation-list`, with the caller's pins and marks, the Chief
 /// registry's current names and who types now.
-pub(super) fn home_inbox(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
+    let owners = params.owners.unwrap_or_else(|| vec!["local".into(), "cloud".into()]);
+    anyhow::ensure!(
+        owners.iter().all(|owner| owner == "local" || owner == "cloud"),
+        "bad request: owners"
+    );
+    let (cloud_rows, cloud) = if owners.iter().any(|owner| owner == "cloud") {
+        cloud_home_rows(mux, client)
+    } else {
+        (Vec::new(), "not_asked")
+    };
+    if !owners.iter().any(|owner| owner == "local") {
+        let principal = mux.conversation_principal(client);
+        let rows = cmux_conversation::merge_rows(Vec::new(), cloud_rows);
+        return Ok(json!({"me": principal, "rows": rows, "cloud": cloud}));
+    }
     let principal = mux.conversation_principal(client);
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -340,8 +363,38 @@ pub(super) fn home_inbox(mux: &Mux, client: u64) -> anyhow::Result<Value> {
         typing: mux.conversation_typing_all(),
         running,
     };
-    let rows = cmux_conversation::home_inbox(&conversations, &input);
-    Ok(json!({"me": principal, "rows": rows}))
+    let rows = cmux_conversation::merge_rows(
+        cmux_conversation::home_inbox(&conversations, &input),
+        cloud_rows,
+    );
+    Ok(json!({"me": principal, "rows": rows, "cloud": cloud}))
+}
+
+/// The person's Cloud inbox as Home rows, through the daemon's lease, and
+/// whether they are in: `included`, `signed_out` (no lease for this
+/// connection) or `unavailable` (the Cloud did not answer). A Cloud failure
+/// never hides the local rows.
+fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, &'static str) {
+    use crate::cloud_conversations::CloudError;
+    let signed_out = |error: &anyhow::Error| {
+        matches!(
+            error.downcast_ref::<CloudError>(),
+            Some(CloudError::SignedOut | CloudError::SessionExpired)
+        )
+    };
+    let listed = super::cloud_conversations::lease_user(mux, client)
+        .and_then(|service| service.inbox_list(None, false).map_err(anyhow::Error::from));
+    match listed {
+        Ok(value) => {
+            let entries: Vec<cmux_conversation::CloudInboxEntry> = value
+                .get("entries")
+                .and_then(|entries| serde_json::from_value(entries.clone()).ok())
+                .unwrap_or_default();
+            (entries.iter().filter_map(cmux_conversation::cloud_row).collect(), "included")
+        }
+        Err(error) if signed_out(&error) => (Vec::new(), "signed_out"),
+        Err(_) => (Vec::new(), "unavailable"),
+    }
 }
 
 /// `conversation-inbox-op`: sets the caller's own pin or "marked unread" of

@@ -19,6 +19,7 @@ public final class HomeInboxRow implements WireValue {
     private final Field<String> lastAuthor;
     private final boolean markedUnread;
     private final String name;
+    private final String owner;
     private final Field<UInt64> pinPosition;
     private final boolean pinned;
     private final Field<String> preview;
@@ -38,6 +39,8 @@ public final class HomeInboxRow implements WireValue {
         this.markedUnread = builder.markedUnread;
         if (!builder.nameSet) throw new IllegalArgumentException("name is required");
         this.name = Wire.nonNull(builder.name, "name");
+        if (!builder.ownerSet) throw new IllegalArgumentException("owner is required");
+        this.owner = Wire.nonNull(builder.owner, "owner");
         this.pinPosition = builder.pinPosition;
         if (!builder.pinnedSet) throw new IllegalArgumentException("pinned is required");
         this.pinned = builder.pinned;
@@ -56,6 +59,7 @@ public final class HomeInboxRow implements WireValue {
     public Field<String> lastAuthor() { return lastAuthor; }
     public boolean markedUnread() { return markedUnread; }
     public String name() { return name; }
+    public String owner() { return owner; }
     public Field<UInt64> pinPosition() { return pinPosition; }
     public boolean pinned() { return pinned; }
     public Field<String> preview() { return preview; }
@@ -86,6 +90,8 @@ public final class HomeInboxRow implements WireValue {
         builder.markedUnread(Wire.bool(rawMarkedUnread, "HomeInboxRow.marked_unread"));
         Object rawName = Wire.required(object, "name");
         builder.name(Wire.string(rawName, "HomeInboxRow.name"));
+        Object rawOwner = Wire.required(object, "owner");
+        builder.owner(Wire.string(rawOwner, "HomeInboxRow.owner"));
         Object rawPinPosition = Wire.optional(object, "pin_position");
         if (!Wire.isMissing(rawPinPosition)) {
             builder.pinPosition(Wire.uint64(rawPinPosition, "HomeInboxRow.pin_position"));
@@ -112,6 +118,7 @@ public final class HomeInboxRow implements WireValue {
         Wire.put(object, "last_author", lastAuthor);
         Wire.put(object, "marked_unread", markedUnread);
         Wire.put(object, "name", name);
+        Wire.put(object, "owner", owner);
         Wire.put(object, "pin_position", pinPosition);
         Wire.put(object, "pinned", pinned);
         Wire.put(object, "preview", preview);
@@ -122,11 +129,11 @@ public final class HomeInboxRow implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof HomeInboxRow that)) return false;
-        return Objects.equals(activityAt, that.activityAt) && Objects.equals(chief, that.chief) && Objects.equals(chiefState, that.chiefState) && Objects.equals(id, that.id) && Objects.equals(kind, that.kind) && Objects.equals(lastAuthor, that.lastAuthor) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(name, that.name) && Objects.equals(pinPosition, that.pinPosition) && Objects.equals(pinned, that.pinned) && Objects.equals(preview, that.preview) && Objects.equals(unread, that.unread);
+        return Objects.equals(activityAt, that.activityAt) && Objects.equals(chief, that.chief) && Objects.equals(chiefState, that.chiefState) && Objects.equals(id, that.id) && Objects.equals(kind, that.kind) && Objects.equals(lastAuthor, that.lastAuthor) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(name, that.name) && Objects.equals(owner, that.owner) && Objects.equals(pinPosition, that.pinPosition) && Objects.equals(pinned, that.pinned) && Objects.equals(preview, that.preview) && Objects.equals(unread, that.unread);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activityAt, chief, chiefState, id, kind, lastAuthor, markedUnread, name, pinPosition, pinned, preview, unread); }
+    public int hashCode() { return Objects.hash(activityAt, chief, chiefState, id, kind, lastAuthor, markedUnread, name, owner, pinPosition, pinned, preview, unread); }
 
     @Override
     public String toString() { return "HomeInboxRow" + toWire(); }
@@ -145,6 +152,8 @@ public final class HomeInboxRow implements WireValue {
         private boolean markedUnreadSet;
         private String name;
         private boolean nameSet;
+        private String owner;
+        private boolean ownerSet;
         private Field<UInt64> pinPosition = Field.omitted();
         private Boolean pinned;
         private boolean pinnedSet;
@@ -187,6 +196,11 @@ public final class HomeInboxRow implements WireValue {
         public Builder name(String value) {
             this.name = value;
             this.nameSet = true;
+            return this;
+        }
+        public Builder owner(String value) {
+            this.owner = value;
+            this.ownerSet = true;
             return this;
         }
         public Builder pinPosition(UInt64 value) {

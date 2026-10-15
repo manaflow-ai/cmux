@@ -7794,6 +7794,14 @@
      "presence": "required",
      "nullable": false
     },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
     "kind": {
      "type": {
       "kind": "ref",
@@ -20846,7 +20854,19 @@
    "capability": "home-inbox-v1",
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "owners": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
     "additional_properties": false
    },
    "result": {
@@ -20867,6 +20887,14 @@
         "kind": "ref",
         "name": "HomeInboxRow"
        }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cloud": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
       },
       "presence": "required",
       "nullable": false

@@ -896,6 +896,7 @@ class HomeInboxRow:
     kind: HomeInboxKind
     marked_unread: bool
     name: str
+    owner: str
     pinned: bool
     unread: int
     chief: Union[str, MissingType] = field(default=MISSING)
@@ -3287,12 +3288,13 @@ class HistorySearchResult:
 @dataclass(frozen=True)
 class HomeInboxRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/home-inbox/request'
-    pass
+    owners: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
 class HomeInboxResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/home-inbox/result'
+    cloud: str
     me: str
     rows: List[HomeInboxRow]
 

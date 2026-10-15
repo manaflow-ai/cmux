@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297. */
+/* cmux-tui mux protocol 12, IR 6ace91cdd3731125872258b93d7ef629e79fac87b0670a4cbfc06f310f563a66. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297" as const;
+export const SDK_IR_SHA256 = "6ace91cdd3731125872258b93d7ef629e79fac87b0670a4cbfc06f310f563a66" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -6830,6 +6830,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "owner": {
         "nullable": false,
         "presence": "required",
         "type": {
@@ -18706,12 +18714,32 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "home-inbox": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "owners": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {
       "additional_properties": false,
       "fields": {
+        "cloud": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "me": {
           "nullable": false,
           "presence": "required",

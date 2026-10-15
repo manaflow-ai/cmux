@@ -592,7 +592,10 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
     let before = page.rpc(json!({"cmd":"home-inbox"}));
     assert_eq!(before["ok"], true, "{before}");
     assert_eq!(before["data"]["cloud"], "signed_out", "{before}");
-    assert!(before["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"), "{before}");
+    assert!(
+        before["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"),
+        "{before}"
+    );
 
     // The app leases the person's session: the page's rows include the Cloud inbox.
     assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
@@ -615,8 +618,11 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
     assert_eq!(row["pinned"], false, "{row}");
     assert!(row.get("chief_state").is_none(), "{row}");
     assert!(
-        cloud.requests().iter().any(|(_, bearer, body)| body["op"] == "inbox.list"
-            && *bearer == format!("Bearer {token}")),
+        cloud
+            .requests()
+            .iter()
+            .any(|(_, bearer, body)| body["op"] == "inbox.list"
+                && *bearer == format!("Bearer {token}")),
         "{:?}",
         cloud.requests()
     );
@@ -624,7 +630,10 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
     // A view that asks this daemon for its local rows only gets no Cloud rows.
     let local = page.rpc(json!({"cmd":"home-inbox","owners":["local"]}));
     assert_eq!(local["data"]["cloud"], "not_asked", "{local}");
-    assert!(local["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] == "local"), "{local}");
+    assert!(
+        local["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] == "local"),
+        "{local}"
+    );
     let cloud_only = page.rpc(json!({"cmd":"home-inbox","owners":["cloud"]}));
     assert_eq!(cloud_only["data"]["rows"].as_array().unwrap().len(), 1, "{cloud_only}");
     let refused = page.rpc(json!({"cmd":"home-inbox","owners":["elsewhere"]}));
@@ -634,5 +643,12 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
     let mut agent = Page::open(&addr, &file_token);
     let other = agent.rpc(json!({"cmd":"home-inbox"}));
     assert_ne!(other["data"]["cloud"], "included", "{other}");
-    assert!(other["data"]["rows"].as_array().unwrap_or(&Vec::new()).iter().all(|row| row["owner"] != "cloud"), "{other}");
+    assert!(
+        other["data"]["rows"]
+            .as_array()
+            .unwrap_or(&Vec::new())
+            .iter()
+            .all(|row| row["owner"] != "cloud"),
+        "{other}"
+    );
 }
