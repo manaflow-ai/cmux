@@ -16,6 +16,11 @@ import Foundation
 ///
 /// The pane's own show or hide during a capture wins.
 extension CEFBrowserPage: BrowserPageHiddenCapturing {
+    public func withRendererActiveForAutomation<T>(_ body: () async throws -> T) async rethrows -> T {
+        // The capture mechanism: Chromium sees the page visible (not throttled), nothing shows.
+        try await withContentVisibleForCapture(body)
+    }
+
     public func withContentVisibleForCapture<T>(_ body: () async throws -> T) async rethrows -> T {
         let host = browser.hostView
         if hiddenCapture.depth == 0 {
