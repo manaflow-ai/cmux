@@ -77,7 +77,7 @@ password_file() {
 }
 
 create_keychain() {
-  local name="${keychain:-build.keychain}" password certificate
+  local name="${keychain:-build.keychain}" password
   if [ -z "$state_dir" ]; then
     echo "error: signing-keychain.sh create runs only in CI (RUNNER_TEMP is not set)" >&2
     exit 2
@@ -94,8 +94,9 @@ create_keychain() {
   umask 077
   mkdir -p "$state_dir"
   chmod 700 "$state_dir"
+  # Global, not local: the EXIT trap runs after this function returns.
   certificate="$(mktemp "$state_dir/certificate.XXXXXX")"
-  trap 'rm -f "$certificate"' EXIT
+  trap 'rm -f "${certificate:-}"' EXIT
   password="$(uuidgen)"
 
   printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"

@@ -26,7 +26,8 @@ TARGETS = {("darwin", "arm64"), ("darwin", "amd64"),
 # Credentials the bundled CLI must never inherit (see
 # scripts/ci/lib/signing-runtime-guard.sh, which the shell checks use).
 SECRET_ENV = re.compile(
-    r"^(APPLE_CERTIFICATE_|ASC_API_|IOS_DISTRIBUTION_|CMUX_RELEASE_APP_|CONTENT_SIGNING_|CF_R2_"
+    r"^(APPLE_CERTIFICATE_|ASC_API_|IOS_|APPLE_.*PROVISIONING_PROFILE|CMUX_RELEASE_APP_|CONTENT_SIGNING_|CF_R2_"
+    r"|ACTIONS_ID_TOKEN_REQUEST_|ACTIONS_RUNTIME_TOKEN$"
     r"|(NIGHTLY_|SHARED_)?SPARKLE_(NEXT_)?PRIVATE_KEY$|AWS_SECRET_ACCESS_KEY$|AWS_ACCESS_KEY_ID$"
     r"|SENTRY_AUTH_TOKEN$|GH_TOKEN$|GITHUB_TOKEN$)"
 )

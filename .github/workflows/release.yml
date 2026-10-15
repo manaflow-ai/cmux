@@ -106,8 +106,9 @@ jobs:
     # below so signing does not depend on mutable runner login-keychain state.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Notarization wait times vary on Apple's side. The standalone Computer Use
-    # helper starts as soon as the unsigned app exists and overlaps the remaining
-    # release preparation; the outer app and final DMG still serialize afterward.
+    # helper starts once the thin variants are cut (the first signing step) and
+    # overlaps the remaining signing work; the outer app and final DMG still
+    # serialize afterward.
     # v0.64.22 took 40 minutes before the Cloud tunnel extension, its Go engine
     # build and the universal diff sidecar joined this job, and the helper's
     # Gatekeeper propagation wait alone can now take twenty minutes, so 60 left
@@ -706,12 +707,8 @@ jobs:
             "$DMG_RELEASE"
           /usr/bin/codesign --verify --verbose=2 "$DMG_RELEASE"
           # That was the last signature for the universal app. Delete the
-          # keychain before the stapled app runs.
+          # keychain before anything runs the stapled app.
           ./scripts/ci/signing-keychain.sh delete
-          CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
-          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
-          ./scripts/verify-app-bundle-channel-metadata.sh "$APP_PATH" stable
-          ./scripts/verify-app-bundle-licenses.sh "$APP_PATH"
           DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
           DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
@@ -722,6 +719,13 @@ jobs:
           fi
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
+          # Apple is done with the universal app. Delete the decoded notary key,
+          # then run the stapled app.
+          notary_auth_forget "$NOTARY_TMP"
+          CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
+          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
+          ./scripts/verify-app-bundle-channel-metadata.sh "$APP_PATH" stable
+          ./scripts/verify-app-bundle-licenses.sh "$APP_PATH"
 
       # The same packaging nightly uses for its thin variants: finish the helper
       # ticket, create-dmg, ULMO, sign, notarize, staple the app and the DMG,

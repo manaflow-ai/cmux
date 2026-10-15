@@ -554,3 +554,49 @@ if [ -z "$sign_line" ] || [ -z "$unlock_line" ] || [ -z "$delete_line" ] || [ -z
   exit 1
 fi
 echo "PASS: the CI signing keychain is deleted after the DMG signature and before any smoke"
+
+# signing-keychain.sh create must finish with exit 0, delete the decoded
+# certificate, and leave state that delete removes again.
+: > "$LOG"
+CREATE_STATE="$TMP_DIR/create-keychain-state"
+CREATE_BIN="$TMP_DIR/create-bin"
+mkdir -p "$CREATE_BIN"
+cat > "$CREATE_BIN/security" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'security %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+if [ "${1:-}" = find-certificate ]; then
+  printf -- '-----END CERTIFICATE-----\n-----END CERTIFICATE-----\n'
+fi
+EOF
+printf '#!/usr/bin/env bash\necho 00000000-0000-4000-8000-000000000000\n' > "$CREATE_BIN/uuidgen"
+chmod +x "$CREATE_BIN/security" "$CREATE_BIN/uuidgen"
+if ! PATH="$CREATE_BIN:$PATH" \
+  CMUX_TEST_CALL_LOG="$LOG" \
+  CMUX_SIGNING_KEYCHAIN_STATE_DIR="$CREATE_STATE" \
+  CMUX_SECURITY_TOOL="$CREATE_BIN/security" \
+  CMUX_KEYCHAIN_DIR="$TMP_DIR/keychains" \
+  APPLE_CERTIFICATE_BASE64="$(printf 'fixture-p12' | base64)" \
+  APPLE_CERTIFICATE_PASSWORD=fixture-password \
+  "$ROOT_DIR/scripts/ci/signing-keychain.sh" create; then
+  echo "FAIL: signing-keychain.sh create must exit 0" >&2
+  exit 1
+fi
+if ! grep -q '^security import .* -k build.keychain ' "$LOG" || ! grep -q '^security set-keychain-settings -lut 600 build.keychain$' "$LOG"; then
+  echo "FAIL: create must import into build.keychain with a 600 s idle lock" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+if compgen -G "$CREATE_STATE/certificate.*" >/dev/null || [ ! -s "$CREATE_STATE/build.keychain.password" ]; then
+  echo "FAIL: create must delete the decoded certificate and keep only the keychain state" >&2
+  exit 1
+fi
+if CMUX_SIGNING_KEYCHAIN_STATE_DIR="$CREATE_STATE" "$ROOT_DIR/scripts/ci/signing-keychain.sh" assert-deleted 2>/dev/null; then
+  echo "FAIL: assert-deleted must fail while the keychain exists" >&2
+  exit 1
+fi
+PATH="$CREATE_BIN:$PATH" CMUX_TEST_CALL_LOG="$LOG" CMUX_SIGNING_KEYCHAIN_STATE_DIR="$CREATE_STATE" \
+  CMUX_SECURITY_TOOL="$CREATE_BIN/security" CMUX_KEYCHAIN_DIR="$TMP_DIR/keychains" \
+  "$ROOT_DIR/scripts/ci/signing-keychain.sh" delete
+CMUX_SIGNING_KEYCHAIN_STATE_DIR="$CREATE_STATE" "$ROOT_DIR/scripts/ci/signing-keychain.sh" assert-deleted
+echo "PASS: signing-keychain.sh create, assert-deleted and delete"
