@@ -11,6 +11,10 @@ public import AppKit
 final class WindowColorFade {
     private static var associationKey: UInt8 = 0
     private var overlays: [CALayer] = []
+    /// Overlays of an earlier fade a new one lies over: they keep fading underneath until the new
+    /// fade ends, so the frame where the new image first reaches the screen never shows the live
+    /// content bare.
+    private var retiring: [CALayer] = []
     private var generation = 0
     /// The frame captured in this run loop turn: one change can fade twice (a workspace's roots,
     /// then its room's whole window); the second call must use the frame from before either, not
@@ -43,7 +47,9 @@ final class WindowColorFade {
         } ?? [CGRect(origin: .zero, size: frame.size)]
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        removeOverlays()
+        retiring += overlays
+        overlays.removeAll()
+        let z = 100_000 + CGFloat(retiring.count)
         for rect in rects where rect.width > 0 && rect.height > 0 {
             let pixels = CGRect(x: rect.minX * scale, y: (frame.height - rect.maxY) * scale,
                                 width: rect.width * scale, height: rect.height * scale).integral
@@ -52,13 +58,17 @@ final class WindowColorFade {
             layer.contents = crop
             layer.contentsGravity = .resize
             layer.frame = host.convert(rect, from: nil)
-            layer.zPosition = 100_000
+            layer.zPosition = z
             layer.opacity = 0
             hostLayer.addSublayer(layer)
             overlays.append(layer)
         }
         CATransaction.commit()
-        guard !overlays.isEmpty else { return }
+        guard !overlays.isEmpty else {
+            overlays = retiring
+            retiring.removeAll()
+            return
+        }
         generation += 1
         let current = generation
         let samples = transition.progressSamples(count: ColorTransition.keyframes)
@@ -78,8 +88,9 @@ final class WindowColorFade {
     private func removeOverlays() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for layer in overlays { layer.removeFromSuperlayer() }
+        for layer in overlays + retiring { layer.removeFromSuperlayer() }
         CATransaction.commit()
         overlays.removeAll()
+        retiring.removeAll()
     }
 }
