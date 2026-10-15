@@ -72,6 +72,13 @@ import Testing
 /// from before the replay. Every save now waits for the frame (0.5 s) and
 /// saves at most every 3 s.
 @Suite struct TerminalFrameSaveScheduleTests {
+    /// Round 8: a 370 ms render every 3 s while output streamed.
+    @Test func noSaveWhileOutputStreamsUntilTheMaxWait() {
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.02, sinceRequested: 3) != nil)
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.6, sinceRequested: 3) == nil)
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.02, sinceRequested: 15) == nil)
+    }
+
     @Test func theFirstSaveWaitsForTheFrameToBePresented() {
         #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: .infinity) == 0.5)
         #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: 10) == 0.5)

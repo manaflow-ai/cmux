@@ -56,7 +56,20 @@ public enum TerminalFrameSaveSchedule {
     public static let settle: Double = 0.5
     public static let interval: Double = 3
 
+    /// Round 8 (rig frame log): the save renders the page on the main
+    /// thread (about 370 ms under load), so while output streams it waits
+    /// for the output to pause, up to `maxWait`: every 3 s it was a 370 ms
+    /// hitch while following.
+    public static let maxWait: Double = 15
+
     public static func delay(sinceLastSave elapsed: Double) -> Double {
         max(settle, interval - elapsed)
+    }
+
+    /// Nil: save now. Otherwise how much longer to wait, given the time
+    /// since the last drawn output and since the save was first wanted.
+    public static func remainingWait(sinceLastOutput quiet: Double, sinceRequested waited: Double) -> Double? {
+        if quiet >= settle || waited >= maxWait { return nil }
+        return min(settle - quiet, maxWait - waited)
     }
 }

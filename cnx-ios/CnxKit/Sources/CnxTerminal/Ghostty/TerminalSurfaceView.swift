@@ -408,14 +408,29 @@ final class TerminalSurfaceView: UIView {
     /// sits in this view. `drawHierarchy` leaves the Metal surface black in a
     /// snapshot taken while the page is live on screen (the active grid card,
     /// V5-6), so the snapshot draws this instead.
-    func presentedImage() -> (image: CGImage, frame: CGRect)? {
+    func presentedImage(clip: CGRect? = nil) -> (image: CGImage, frame: CGRect)? {
         guard let sublayer = layer.sublayers?.first, let contents = sublayer.contents else { return nil }
         let ref = unsafeBitCast(contents as AnyObject, to: IOSurfaceRef.self)
         guard CFGetTypeID(ref) == IOSurfaceGetTypeID() else { return nil }
         let ioSurface = unsafeBitCast(ref, to: IOSurface.self)
         let image = CIImage(ioSurface: ioSurface)
-        guard !image.extent.isEmpty, let cgImage = Self.snapshotContext.createCGImage(image, from: image.extent) else { return nil }
-        return (cgImage, sublayer.frame)
+        guard !image.extent.isEmpty, sublayer.frame.width > 0, sublayer.frame.height > 0 else { return nil }
+        // Only the part `clip` (this view's points) shows: the whole 151-row
+        // surface cost about 370 ms on the main thread (round 8).
+        var frame = sublayer.frame
+        var extent = image.extent
+        if let clip {
+            let visible = frame.intersection(clip)
+            guard !visible.isNull, !visible.isEmpty else { return nil }
+            let sx = image.extent.width / frame.width, sy = image.extent.height / frame.height
+            let top = (visible.minY - frame.minY) * sy
+            // Core Image's origin is at the bottom.
+            extent = CGRect(x: (visible.minX - frame.minX) * sx, y: image.extent.height - top - visible.height * sy,
+                            width: visible.width * sx, height: visible.height * sy).integral.intersection(image.extent)
+            frame = visible
+        }
+        guard let cgImage = Self.snapshotContext.createCGImage(image, from: extent) else { return nil }
+        return (cgImage, frame)
     }
 
     private static let snapshotContext = CIContext(options: [.cacheIntermediates: false])

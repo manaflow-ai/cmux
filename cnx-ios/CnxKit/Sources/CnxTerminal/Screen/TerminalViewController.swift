@@ -700,7 +700,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The frame kept for a cold launch has no cursor block: it is not
         // where typing goes until the live screen is back (R3-4).
         let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
-        let presented = surface.presentedImage()
+        let presented = surface.presentedImage(clip: view.convert(view.bounds, to: surface))
         return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { context in
             if let presented {
                 // The page's layers in order, with the terminal surface drawn
