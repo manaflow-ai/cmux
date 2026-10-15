@@ -396,7 +396,10 @@ def main():
         if a.skip_setup:
             bench = Bench(a, log)
             if a.warmup:
-                bench.run_config(a.configs.split(",")[0], mac, sim, j, out, warmup=a.warmup)
+                try:
+                    bench.run_config(a.configs.split(",")[0], mac, sim, j, out, warmup=a.warmup)
+                except Exception as e:  # a failed warm-up is logged, the measured configurations still run
+                    log(f"    warm-up FAILED: {e}")
             for name in a.configs.split(","):
                 try:
                     results.append(bench.run_config(name, mac, sim, j, out))
@@ -417,7 +420,10 @@ def main():
                 j.step(sid, title, owner, fn)
         bench = Bench(a, log)
         if a.warmup:
-            bench.run_config(a.configs.split(",")[0], mac, sim, j, out, warmup=a.warmup)
+            try:
+                bench.run_config(a.configs.split(",")[0], mac, sim, j, out, warmup=a.warmup)
+            except Exception as e:  # a failed warm-up is logged, the measured configurations still run
+                log(f"    warm-up FAILED: {e}")
         for name in a.configs.split(","):
             try:
                 results.append(bench.run_config(name, mac, sim, j, out))

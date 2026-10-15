@@ -595,11 +595,18 @@ impl HybridUnderlay {
                 self.turn = Some(turn);
                 self.retarget_turn();
             }
-            Control::PeerEndpoints(endpoints) => {
-                tracing::debug!(?endpoints, "WireGuard peer announced new endpoints");
+            Control::PeerEndpoints { endpoints, relayed } => {
+                tracing::debug!(?endpoints, ?relayed, "WireGuard peer announced new endpoints");
                 // An empty list says only that the peer's network changed.
                 if !endpoints.is_empty() {
                     self.set_peer_endpoints(endpoints);
+                    // A roaming relay-only phone announces its new TURN
+                    // address; an older peer lists none, and the old ones stay
+                    // (a stale entry only matters for a datagram from it).
+                    if !relayed.is_empty() {
+                        self.peer_relayed = relayed.iter().filter_map(|text| text.parse().ok()).collect();
+                    }
+                    self.publish_path();
                 }
                 self.spray_until = Some(now + ROAM_SPRAY);
                 self.next_spray = None;

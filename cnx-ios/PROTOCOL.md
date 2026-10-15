@@ -116,7 +116,13 @@ with 4001 `moved`.
   own user; a missing `fromUserId` is refused with `bye {reason:"not_admitted"}`.
   where `P.kind` is one of
   - `webrtc-offer` `{sdp}`, `webrtc-answer` `{sdp}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`
-  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP}`, `wg-resp` `{publicKey, endpoints, overlayIP}`
+  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?}`, `wg-resp` `{publicKey, endpoints, overlayIP, lanes?}`.
+    `relayed` (optional) lists which of the phone's endpoints are its TURN
+    relayed addresses. The Mac sends plain UDP to them like any endpoint,
+    and labels such a route `turn`, not `direct`. A roam's endpoint
+    announcement inside the tunnel (`{"t":"endpoints", generation,
+    endpoints, relayed?}`) carries the new allocation's address the same
+    way. Older peers omit it, and the label stays `direct`.
   - `bye` `{reason}`
 - relay for WireGuard when no direct UDP path: binary frames
   `[16 bytes sessionId][16 bytes to deviceId][wireguard datagram]`; the DO
