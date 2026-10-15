@@ -179,6 +179,7 @@
         "CmuxNextFeed",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
+        "CmuxNextHistoryDaemon",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextIcons",
@@ -201,6 +202,7 @@
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
+        "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminal",
@@ -548,6 +550,15 @@
         "CmuxAgentBrands"
       ]
     },
+    "CmuxNextHistoryDaemon": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistoryDaemon",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextHistory"
+      ],
+      "packages": []
+    },
     "CmuxNextHome": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
@@ -850,6 +861,19 @@
       "packages": [
         "CmuxAgentBrands"
       ]
+    },
+    "CmuxNextStash": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextStash",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextHistory"
+      ],
+      "packages": []
     },
     "CmuxNextTabs": {
       "kind": "regular",
