@@ -200,7 +200,6 @@ extension View {
 
 private struct SidebarImmediateObservationState: Equatable {
     let title: String
-    let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
     let isMuted: Bool
@@ -254,11 +253,12 @@ extension Workspace {
         // Combine exposes up to four-way convenience publishers. Compose the
         // extra fields explicitly so adding a row-affecting property does not
         // require a non-existent ``CombineLatest5`` specialization.
-        let workspaceFields = Publishers.CombineLatest4(
-            // The authoritative display title can change independently of
-            // customTitle during remote reconciliation or automatic naming.
+        // `setCustomTitle` writes customTitle before title. Observing
+        // `$customTitle` here would forward a leading event while title still
+        // has its old value, so the committed title publisher is the single
+        // rename invalidation source.
+        let workspaceFields = Publishers.CombineLatest3(
             sidebarTitleDidChangePublisher,
-            $customTitle,
             $customDescription,
             $isPinned
         )
@@ -284,9 +284,8 @@ extension Workspace {
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
                     title: workspaceFields.0.0.0,
-                    customTitle: workspaceFields.0.0.1,
-                    customDescription: workspaceFields.0.0.2,
-                    isPinned: workspaceFields.0.0.3,
+                    customDescription: workspaceFields.0.0.1,
+                    isPinned: workspaceFields.0.0.2,
                     isMuted: workspaceFields.1,
                     customColor: workspaceFields.0.1,
                     latestConversationMessage: conversationFields.0,

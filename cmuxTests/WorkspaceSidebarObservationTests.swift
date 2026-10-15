@@ -157,7 +157,7 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func directTitleChangeRefreshesTheCachedSidebarRow() throws {
+    @Test func customTitleChangeRefreshesTheCachedSidebarRow() throws {
         let workspace = Workspace()
         let suiteName = "WorkspaceSidebarObservationTests.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -183,7 +183,7 @@ struct WorkspaceSidebarObservationTests {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        workspace.title = "Authoritative rename"
+        #expect(workspace.setCustomTitle("Authoritative rename"))
 
         #expect(cache.value(for: workspace.id)?.title == "Authoritative rename")
     }
