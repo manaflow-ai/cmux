@@ -111,3 +111,22 @@ public enum TerminalFrameSaveSchedule {
         return min(settle - quiet, maxWait - waited)
     }
 }
+
+/// The Mac's screen text on a card (qa11 card-a-grid): TabsKit shows only the
+/// top `width * cardAspect` points of the page-sized card view, so a full
+/// screen drawn from its top lost its last rows and the prompt. The card
+/// shows the last rows that fit (trailing blank rows are the empty screen
+/// below the prompt); a short screen stays at the top like the page.
+struct TerminalCardScreenLines {
+    static func shown(_ text: String, capacity: Int) -> [String] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let last = lines.lastIndex(where: { $0.contains(where: { !$0.isWhitespace }) }) else { return [] }
+        return lines[...last].suffix(max(1, capacity)).map(String.init)
+    }
+
+    /// Rows that fit below `topInset` in the card's visible height (6 pt left at the bottom edge).
+    static func capacity(visibleHeight: CGFloat, topInset: CGFloat, lineHeight: CGFloat) -> Int {
+        guard lineHeight > 0 else { return 1 }
+        return max(1, Int((visibleHeight - topInset - 6) / lineHeight))
+    }
+}
