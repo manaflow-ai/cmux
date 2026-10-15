@@ -168,6 +168,40 @@ final class TerminalSurfaceView: UIView {
         drawNow()
     }
 
+    #if DEBUG
+    /// DEBUG (termqa round 8): reads one row by each Ghostty point tag, to
+    /// pin down which numbering each one uses.
+    func debugReadRow(tag: ghostty_point_tag_e, y: Int, rectangle: Bool = false) -> String? {
+        guard let surface else { return nil }
+        let columns = max(1, grid.columns)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(max(0, y))),
+            bottom_right: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_EXACT, x: UInt32(columns - 1), y: UInt32(max(0, y))),
+            rectangle: rectangle
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    /// DEBUG: the whole screen as a rectangle selection (one line per row?).
+    func debugScreenRectangle() -> String? {
+        guard let surface else { return nil }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            rectangle: true
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+    #endif
+
     // MARK: Metrics
 
     /// Cell size in points (zero before the surface exists).

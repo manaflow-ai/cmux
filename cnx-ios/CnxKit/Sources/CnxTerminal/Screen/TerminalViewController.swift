@@ -1,5 +1,6 @@
 #if os(iOS)
 import CnxDesign
+import GhosttyNextKit
 import SwiftUI
 import UIKit
 import OSLog
@@ -777,6 +778,31 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     #if DEBUG
+    /// DEBUG (termqa round 8): what each Ghostty point tag reads for a few rows.
+    var debugRowProbe: String {
+        func short(_ text: String?) -> String {
+            guard let text else { return "nil" }
+            let line = text.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
+            return "\"" + String(line.prefix(24)) + "\""
+        }
+        let rows = surface.grid.rows
+        let total = scrollbar.total
+        var parts = ["sb=\(total)/\(scrollbar.offset)/\(scrollbar.visible) grid.rows=\(rows) pinned=\(viewportTop) doc=\(originRow)+\(documentRows)"]
+        for y in [0, 1, rows - 1, rows, rows + 1, total - rows, total - 1] where y >= 0 {
+            parts.append("screen[\(y)]=" + short(surface.debugReadRow(tag: GHOSTTY_POINT_SCREEN, y: y)))
+        }
+        for y in [0, 1, rows - 1] { parts.append("viewport[\(y)]=" + short(surface.debugReadRow(tag: GHOSTTY_POINT_VIEWPORT, y: y))) }
+        for y in [0, 1, rows - 1] { parts.append("active[\(y)]=" + short(surface.debugReadRow(tag: GHOSTTY_POINT_ACTIVE, y: y))) }
+        for y in [0, rows - 1] { parts.append("history[\(y)]=" + short(surface.debugReadRow(tag: GHOSTTY_POINT_SURFACE, y: y))) }
+        if let rect = surface.debugScreenRectangle() {
+            let lines = rect.split(separator: "\n", omittingEmptySubsequences: false)
+            parts.append("rect.lines=\(lines.count) rect[0]=\(short(lines.first.map(String.init))) rect[last]=\(short(lines.last.map(String.init)))")
+            if total > 0, total - 1 < lines.count { parts.append("rect[total-1]=" + short(String(lines[total - 1]))) }
+        }
+        if let full = surface.screenText() { parts.append("screenText.lines=\(full.split(separator: "\n", omittingEmptySubsequences: false).count)") }
+        return parts.joined(separator: " | ")
+    }
+
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
