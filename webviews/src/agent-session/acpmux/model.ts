@@ -61,6 +61,9 @@ export type AcpmuxRow = {
   /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
   /// folds under one summary line (conversation/toolRunSummary.ts).
   settled?: boolean;
+  /// A running turn's run of tool calls still in flight, drawn as its newest call alone (Debug toggle,
+  /// conversation/turns.ts `codexRuns`).
+  inFlight?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
