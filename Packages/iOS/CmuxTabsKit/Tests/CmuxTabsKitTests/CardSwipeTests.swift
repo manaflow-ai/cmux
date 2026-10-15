@@ -17,11 +17,16 @@ struct CardSwipeTests {
         }
     }
 
-    /// tabs-parity-reaudit D3a: a slow 100 pt drag (about 100 pt/s at
-    /// release) springs back in Safari, every time.
-    @Test func slowDragSpringsBack() {
-        for v: CGFloat in [0, -50, -100, -150, -200] {
-            #expect(!CardSwipe.commits(offset: -104.6, velocity: v, cardWidth: w))
+    /// Safari on one simulator, same AXe inputs (round 21): the 100 pt
+    /// drag over 1 s that slows to a stop (about −70 pt/s at release)
+    /// springs back; the 100 pt swipe over 1 s that leaves moving (about
+    /// −190 pt/s) closes.
+    @Test func slowStopSpringsBackMovingReleaseCloses() {
+        for v: CGFloat in [0, -50, -66, -76, -100] {
+            #expect(!CardSwipe.commits(offset: -100, velocity: v, cardWidth: w))
+        }
+        for v: CGFloat in [-170, -190, -200] {
+            #expect(CardSwipe.commits(offset: -100, velocity: v, cardWidth: w))
         }
     }
 
@@ -42,5 +47,22 @@ struct CardSwipeTests {
         // Safari: a 100 pt drag to the right (from touch-down) moved the card 44 pt.
         #expect(abs(CardSwipe.offset(translation: 100) - 44) < 1)
         #expect(CardSwipe.offset(translation: 400) < CardSwipe.rubberDimension)
+    }
+
+    /// Re-audit 2, D6b: a long press, then a drag left onto another slot,
+    /// closed the dragged tab on the drop. The swipe never acts on a card
+    /// a long press owns.
+    @Test func longPressOwnsTheTouch() {
+        #expect(!CardGestures.swipeAllowed(card: "a", pressed: "a", reordering: nil))
+        #expect(!CardGestures.swipeAllowed(card: "a", pressed: nil, reordering: "a"))
+        #expect(CardGestures.swipeAllowed(card: "a", pressed: nil, reordering: nil))
+        #expect(CardGestures.swipeAllowed(card: "a", pressed: "b", reordering: nil))
+    }
+
+    /// Re-audit 2: a close tap during a reflow hit a card that had slid
+    /// under the finger. Close taps wait for the grid to settle.
+    @Test func closeTapsWaitForTheReflow() {
+        #expect(!GridTapGuard.accepts(now: 10.2, changedAt: 10.0))
+        #expect(GridTapGuard.accepts(now: 10.5, changedAt: 10.0))
     }
 }

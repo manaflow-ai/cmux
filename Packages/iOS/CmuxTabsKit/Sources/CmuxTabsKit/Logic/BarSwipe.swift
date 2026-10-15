@@ -24,6 +24,11 @@ struct BarSwipe: Equatable, Sendable {
 
     /// Zoom progress (0 page, 1 grid) for an upward translation.
     static func progress(up: CGFloat) -> Double { reach * (1 - exp(-Double(max(0, up) / scale))) }
+    /// The page's speed when the finger lifts: the finger's speed over the
+    /// whole page-to-card travel (the levelled-off tracking curve would
+    /// hand the release almost none, and the page hovered 100–170 ms
+    /// before it sprang, cmux-next re-audit 2 D7).
+    static func releaseVelocity(_ velocity: CGFloat) -> Double { Double(velocity) / 450 }
     /// Progress per second for an upward velocity at `up`.
     static func velocity(up: CGFloat, velocity: CGFloat) -> Double {
         reach / Double(scale) * exp(-Double(max(0, up) / scale)) * Double(velocity)

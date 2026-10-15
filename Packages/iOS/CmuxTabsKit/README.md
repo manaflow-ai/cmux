@@ -59,19 +59,23 @@ transport or models.
   new tab then grows from the screen's centre at 0.7 scale over the blurring
   grid on Safari's new-tab spring (0.34 / 0.97), showing its `card(for:)`
   until the zoom ends (so a web view that is still loading never shows
-  blank). Closing the last tab on the grid opens a fresh one at once (from
-  0.84, sharp, at rest in about 275 ms), never an empty grid.
+  blank). Closing the last tab on the grid opens a fresh one at once,
+  growing sharp from the lone card's slot (0.375 / 0.98, at rest in about
+  500 ms), never an empty grid.
 - **Swipe to close.** Swipe a card left to close it, as in Safari (measured
   on an iPhone 17 Pro Max): horizontal drags only; the card lifts (scale 1.09)
   while dragged, follows the finger from touch-down to the left and resists
   to the right (100 pt gives 44 pt), gliding over the touch slop in 80 ms.
-  It closes past 72% of the card's width or on a left fling faster than
-  225 pt/s; a slow drag under that always springs back (0.56 / 0.92, right
-  0.75 / 0.81, settling to scale 1 with 0.57 / 0.94). A closing card keeps
-  flying left at the release speed, lifted and opaque, until it is off
-  screen; 99 ms in the kit calls your `close(_:)`, so remove the tab at once
-  and the count and reflow follow (false: the card springs back and your
-  `notice` shows). Cards also take swipes while the zoom heads to the grid,
+  It closes when the card, projected 0.2 s ahead at its release velocity,
+  is past 72% of its width, or on a left fling faster than 225 pt/s; a
+  drag that slows to a stop under that springs back (0.56 / 0.92, right
+  0.75 / 0.81, settling to scale 1 with 0.57 / 0.94), as Safari does with
+  the same inputs. A long press owns its touch: a reorder never closes the
+  card. A closing card keeps flying left at the release speed, lifted,
+  opaque and above its neighbours, placed every frame from the release
+  time; one frame after the release the kit calls your `close(_:)`, so
+  remove the tab at once and the count and reflow follow (false: the card
+  springs back and your `notice` shows). Cards also take swipes while the zoom heads to the grid,
   and a card tapped then opens once the grid settles. When one tab is left,
   it opens.
 - **Long press.** A long press lifts the card (× 1.06), dims the others and

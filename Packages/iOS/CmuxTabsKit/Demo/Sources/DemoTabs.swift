@@ -310,7 +310,7 @@ struct DemoStartCard: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 62 + 8 + 20)
+        .padding(.top, 62 + 8 + 20 + 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(red: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF7 / 255))
     }

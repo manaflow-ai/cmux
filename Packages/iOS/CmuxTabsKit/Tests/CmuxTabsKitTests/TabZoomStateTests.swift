@@ -46,24 +46,25 @@ struct TabZoomStateTests {
         return t * 1000
     }
 
-    /// (+): Safari's start page grows on 0.34 / 0.97 from the first frame.
+    /// (+): Safari's start page grows on 0.27 / 1.03 from the first frame.
     @Test func newTabUsesSafarisSpring() {
         var s = TabZoomState(overview: true)
         s.openNewTab()
         #expect(s.phase == .animating && s.spring == .newTab)
-        #expect(s.spring.response == 0.34 && s.spring.damping == 0.97)
+        #expect(s.spring.response == 0.27 && s.spring.damping == 1.03)
         // An existing tab opens on toPage.
         var o = TabZoomState(overview: true)
         o.go(toOverview: false)
         #expect(o.spring == .toPage)
     }
 
-    /// The last tab closed: the fresh start page is at rest (0.5 pt of the
-    /// 0.84 -> 1 growth, about 64 pt) about 275 ms after it starts.
-    @Test func lastTabStartPageSettlesLikeSafari() {
+    /// The last tab closed: Safari's page edge, from the lone card's slot
+    /// (67.3 pt in from each side), is within 1 pt about 340 ms and at
+    /// rest about 500 ms after it starts.
+    @Test func lastTabStartPageFollowsSafari() {
         var s = TabZoomState(overview: true)
         s.openNewTab(spring: .afterLastClose)
-        #expect(abs(timeTo(0.5 / 64, &s) - 275) <= 1000.0 / 60)
+        #expect(abs(timeTo(1 / 67.3, &s) - 340) <= 1000.0 / 60 * 2)
     }
 
     @Test func newTabGrowsFromTheCentre() {
@@ -71,7 +72,7 @@ struct TabZoomStateTests {
         let r = NewTabZoom.plus.rect(in: full)
         #expect(abs(r.midX - 201) < 0.01 && abs(r.midY - 437) < 0.01)
         #expect(abs(r.width / full.width - 0.7) < 0.001)
-        #expect(NewTabZoom.lastTabClosed.scale == 0.84 && !NewTabZoom.lastTabClosed.blurs)
+        #expect(NewTabZoom.lastTabClosed.fromLoneSlot && !NewTabZoom.lastTabClosed.blurs)
     }
 
     /// Safari (browser-springs-verify.md): a one-frame jump toward the new
