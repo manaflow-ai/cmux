@@ -166,7 +166,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .interacting: return "interacting"
             }
         }
-        log.blankProvider = { [weak self] in self?.blankWatch.uncoveredSince != nil }
+        log.blankProvider = { [weak self] in self?.legibleRowsBlank ?? false }
         return log
     }()
 
@@ -556,27 +556,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // (termqa round 2: a one-frame jump of 2 rows while Codex streamed).
         if fromOutput, scroll.isFollowing, target > scrollView.contentOffset.y + 0.5,
            presentedTop != scrollbar.offset, freezeView == nil {
-            followAwaitsPresent = true
-            armFollowFallback()
+            awaitFrame(ticks: 2)
             updateViewport(visibleMinY: scrollView.contentOffset.y)
             return
         }
-        // A move whose rows the frame on screen does not show (Jump to
-        // bottom from deep history, a restore) waits for the frame that
-        // does; moved at once, the page was black for a frame (V5-1).
-        // Only a jump: none of the target's rows are in the frame on screen
-        // (following output moves a row or a few and keeps its own rule).
-        if Self.jumpAwaitsFrame, !forceScroll, !fromOutput, freezeView == nil, let document, surfaceRows > 0, abs(scrollView.contentOffset.y - target) > 0.5,
-           TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows)
-               .isDisjoint(visibleTop: min(document.endRow - 1, originRow + Int(floor(max(0, target) / cell.height))),
-                           visibleBottom: min(document.endRow, originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height)))) {
-            followAwaitsPresent = true
-            armFollowFallback(ticks: 6)
+        // A move whose rows the frame on screen does not all show (Jump to
+        // bottom, a restore, a prune's renumbering) keeps the last good frame
+        // and waits for the frame that does; moved at once, the page was
+        // black for a frame (V5-1; V8 claim 1a: also a target partly in the
+        // frame, and the fallback's forced move under fast output).
+        if Self.jumpAwaitsFrame, !forceScroll, freezeView == nil, abs(scrollView.contentOffset.y - target) > 0.5,
+           !targetCovered(target) {
+            awaitFrame(ticks: 6)
             updateViewport(visibleMinY: target)
             return
         }
         forceScroll = false
         followAwaitsPresent = false
+        awaitStarted = nil
         if abs(scrollView.contentOffset.y - target) > 0.5 {
             settingOffset = true
             scrollView.contentOffset.y = target
@@ -696,49 +693,70 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// what is on screen, so the Metal surface is included). Cheap: no
     /// second Ghostty surface; taken when the grid opens or the page leaves.
     func snapshot(hidingCursor: Bool = false) -> UIImage? {
+        capture(hidingCursor: hidingCursor)?.render()
+    }
+
+    /// The frame for the next cold launch, taken on the main thread and
+    /// rendered off it (V8 claim 7: the render on the main thread was a
+    /// 150-214 ms frame every ~15 s while output streamed). What the main
+    /// thread still spends is the frame log's work (`frame-save`).
+    func captureForSaving() -> TerminalPageCapture? {
+        measured("frame-save") { capture(hidingCursor: true) }
+    }
+
+    /// What a still needs from the main thread: the presented frame's
+    /// visible rows copied out of Ghostty's surface, and the page's other
+    /// layers drawn below and above it (`TerminalPageCapture.render` composes
+    /// them on any thread).
+    func capture(hidingCursor: Bool) -> TerminalPageCapture? {
         guard view.window != nil, view.bounds.width > 0 else { return nil }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
-        format.opaque = true
-        // The frame kept for a cold launch has no cursor block: it is not
-        // where typing goes until the live screen is back (R3-4).
+        // The frame kept for a cold launch has no cursor: it is not where
+        // typing goes until the live screen is back (R3-4). The glyph under
+        // it stays (V8 claim 8).
         let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
-        let presented = surface.presentedImage(clip: view.convert(view.bounds, to: surface))
-        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { context in
-            if let presented {
-                // The page's layers in order, with the terminal surface drawn
-                // from the frame Ghostty presented: the render server's copy
-                // of a live Metal surface came out black on the rig (V5-6).
-                CnxGhosttyApp.background.setFill()
-                context.fill(view.bounds)
-                for sub in view.subviews where !sub.isHidden && sub.alpha > 0.01 {
-                    if surface.isDescendant(of: sub) {
-                        let clip = sub.convert(sub.bounds, to: view)
-                        let frame = surface.convert(presented.frame, to: view)
-                        context.cgContext.saveGState()
-                        context.cgContext.clip(to: clip.intersection(view.bounds))
-                        UIImage(cgImage: presented.image).draw(in: frame)
-                        context.cgContext.restoreGState()
-                    } else {
-                        // `layer.render`, not `drawHierarchy`: the render
-                        // server's copy is opaque black while the grid
-                        // covers the page, and a full-page overlay (the
-                        // joystick thumb's host) then blacked out everything.
-                        context.cgContext.saveGState()
-                        context.cgContext.translateBy(x: sub.frame.minX, y: sub.frame.minY)
-                        sub.layer.render(in: context.cgContext)
-                        context.cgContext.restoreGState()
-                    }
-                }
-            } else {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = Self.snapshotScale
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(bounds: view.bounds, format: format)
+        let visible = view.subviews.filter { !$0.isHidden && $0.alpha > 0.01 }
+        guard let host = visible.first(where: { surface.isDescendant(of: $0) }),
+              let copy = surface.presentedCopy(clip: view.convert(view.bounds, to: surface)) else {
+            let opaque = UIGraphicsImageRendererFormat()
+            opaque.scale = Self.snapshotScale
+            opaque.opaque = true
+            let image = UIGraphicsImageRenderer(bounds: view.bounds, format: opaque).image { _ in
                 view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
             }
-            if let cursor {
-                CnxGhosttyApp.background.setFill()
-                context.fill(cursor.insetBy(dx: -0.5, dy: -0.5))
-            }
+            return TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale, under: image.cgImage, surface: nil,
+                                       surfaceClip: .null, surfaceFrame: .null, over: nil, cursor: cursor,
+                                       background: CnxGhosttyApp.background)
         }
+        // `layer.render`, not `drawHierarchy`: the render server's copy is
+        // opaque black while the grid covers the page, and a full-page
+        // overlay (the joystick thumb's host) then blacked out everything.
+        func layers(_ views: ArraySlice<UIView>) -> CGImage? {
+            guard !views.isEmpty else { return nil }
+            return renderer.image { context in
+                for sub in views {
+                    context.cgContext.saveGState()
+                    context.cgContext.translateBy(x: sub.frame.minX, y: sub.frame.minY)
+                    sub.layer.render(in: context.cgContext)
+                    context.cgContext.restoreGState()
+                }
+            }.cgImage
+        }
+        let index = visible.firstIndex(of: host) ?? 0
+        // The surface drawn from the frame Ghostty presented: the render
+        // server's copy of a live Metal surface came out black on the rig (V5-6).
+        return TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale,
+                                   under: layers(visible[..<index]), surface: copy,
+                                   surfaceClip: host.convert(host.bounds, to: view).intersection(view.bounds),
+                                   surfaceFrame: surface.convert(copy.frame, to: view),
+                                   over: layers(visible[(index + 1)...]), cursor: cursor,
+                                   background: CnxGhosttyApp.background)
     }
+
+    private static let snapshotScale: CGFloat = 2
 
     // MARK: Files and links (embedded)
 
@@ -963,8 +981,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         document = next
         documentTotal = max(0, documentTotal - rows)
         settingOffset = true
-        setContentHeight(next.contentHeight(cellHeight: cell.height))
+        // The offset first: following, the page is at the end, and a shorter
+        // content size set first clamps the offset to the new end, after
+        // which the shift moved it up a second time.
         if shiftY != 0 { scrollView.contentOffset.y += shiftY }
+        setContentHeight(next.contentHeight(cellHeight: cell.height))
         settingOffset = false
         place(atRow: presentedTop)
         selection.shiftRows(by: -rows)
@@ -1122,13 +1143,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func scrollbarReported(total: Int, offset: Int, visible: Int) {
+        let previous = scrollbar
+        // The new report first: the shift below scrolls the page, and the
+        // viewport check it runs must see Ghostty's viewport in the new
+        // numbering (in the old one, a followed end looked far below the
+        // rows on screen and was asked to move into the scrollback).
+        scrollbar = (total, offset, visible)
         if !model.isTUI, !replayGate.isReplaying,
-           let pruned = TerminalHistoryPrune.prunedRows(previousTotal: scrollbar.total, previousOffset: scrollbar.offset,
+           let pruned = TerminalHistoryPrune.prunedRows(previousTotal: previous.total, previousOffset: previous.offset,
                                                          total: total, offset: offset, requestedTop: viewportTop,
                                                          rows: max(1, surfaceRows)) {
             historyPruned(pruned)
         }
-        scrollbar = (total, offset, visible)
         let restoring = readingMarkAwaitsReport
         if restoring { restoreReadingMark() }
         updateDocument()
@@ -1506,6 +1532,26 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The fallback moves the page even if no frame covers it yet.
     private var forceScroll = false
 
+    /// When the current wait for a frame began (`TerminalScrollGate.maxWait`).
+    private var awaitStarted: CFTimeInterval?
+
+    /// The page keeps its frame and waits for Ghostty's next one.
+    private func awaitFrame(ticks: Int) {
+        if !followAwaitsPresent || awaitStarted == nil { awaitStarted = CACurrentMediaTime() }
+        followAwaitsPresent = true
+        armFollowFallback(ticks: ticks)
+    }
+
+    /// The scroll model's target `target` (content y) shows only rows the
+    /// frame on screen covers (`TerminalScrollGate`).
+    private func targetCovered(_ target: CGFloat) -> Bool {
+        guard let document, surfaceRows > 0, cell.height > 0 else { return true }
+        let top = originRow + Int(floor(max(0, target) / cell.height))
+        let bottom = originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height))
+        return TerminalScrollGate.movesNow(cover: TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows),
+                                           visibleTop: top, visibleBottom: bottom, documentRows: document.originRow..<document.endRow)
+    }
+
     private func armFollowFallback(ticks: Int = 2) {
         followFallbackLimit = max(ticks, followFallback == nil ? 0 : followFallbackLimit)
         guard followFallback == nil else { return }
@@ -1514,6 +1560,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             self.followFallbackTicks += 1
             guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
+            if self.followAwaitsPresent, let target = self.pendingTarget,
+               !TerminalScrollGate.fallbackMoves(covered: self.targetCovered(target),
+                                                 waited: CACurrentMediaTime() - (self.awaitStarted ?? 0)) {
+                // The frame for the target is not in yet (fast output, a
+                // busy renderer): the page keeps the frame it has rather
+                // than move to rows it does not cover (V8 claim 1a). Ask
+                // again for the viewport and a frame, and check next frame.
+                if self.followFallbackTicks % 6 == 0 {
+                    self.updateViewport(visibleMinY: target, force: true)
+                    self.surface.setNeedsTerminalDraw()
+                }
+                return
+            }
             self.followFallback?.invalidate()
             self.followFallback = nil
             if self.followAwaitsPresent {
@@ -1524,6 +1583,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }, selector: #selector(DisplayLinkProxy.step))
         link.add(to: .main, forMode: .common)
         followFallback = link
+    }
+
+    /// The scroll model's target now, when the page is not moved by UIKit.
+    private var pendingTarget: CGFloat? {
+        guard !model.isTUI, cell.height > 0 else { return nil }
+        return scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top, bottomOffsetY: maxOffsetY)
     }
 
     // MARK: Blank page watch (V6-2, V6-3, V6-4)
@@ -1563,6 +1628,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                                                 visibleBottom: visible.upperBound, documentRows: document.originRow..<document.endRow)
         guard blankWatch.observe(covered: covered, now: now) else { return }
         recoverBlankPage(visible: visible)
+    }
+
+    /// The frame log's `blank`: the legible band (below the top inset,
+    /// above the composer) shows at least a row's height of background where
+    /// the document has rows (`TerminalBlankWatch.showsBlank`). A held frame
+    /// covers the page by itself.
+    private var legibleRowsBlank: Bool {
+        guard !model.isTUI, cell.height > 0, document != nil, surface.surface != nil, view.window != nil, freezeView == nil else { return false }
+        let offset = scrollView.contentOffset.y
+        let legibleTop = offset + scrollView.contentInset.top
+        let legibleBottom = offset + min(scrollView.bounds.height, bottomStack.frame.minY)
+        guard legibleBottom > legibleTop else { return false }
+        return TerminalBlankWatch.showsBlank(frame: surface.frame.minY..<surface.frame.maxY,
+                                             document: 0..<scrollView.contentSize.height,
+                                             legible: legibleTop..<legibleBottom, cellHeight: cell.height)
     }
 
     /// The page has shown uncovered rows past the deadline: nothing it waits
@@ -1729,6 +1809,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         scroll.began()
         restoredMark = nil
         placesFromReport = false
+        // A finger owns the page: a move waiting for its frame is dropped
+        // (the next one measures its own wait).
+        followAwaitsPresent = false
+        awaitStarted = nil
         fling?.stop()
         fling = nil
     }
@@ -2017,6 +2101,61 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
 /// The row shift's state, owned by the surface's output queue: every
 /// `filter` call runs there, in feed order.
+/// A still of the page taken on the main thread (`TerminalViewController.capture`)
+/// and composed here, on any thread: the terminal background, the layers
+/// below the surface, the presented frame's rows, the layers above, and the
+/// cursor's cell with the cursor hidden and its glyph kept
+/// (`TerminalCursorErase`).
+struct TerminalPageCapture: @unchecked Sendable {
+    let bounds: CGRect
+    let scale: CGFloat
+    let under: CGImage?
+    let surface: TerminalPresentedCopy?
+    let surfaceClip: CGRect
+    let surfaceFrame: CGRect
+    let over: CGImage?
+    let cursor: CGRect?
+    /// The terminal's background (`CnxGhosttyApp.background`).
+    let background: UIColor
+
+    func render() -> UIImage? {
+        let width = Int((bounds.width * scale).rounded()), height = Int((bounds.height * scale).rounded())
+        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+        else { return nil }
+        // UIKit's coordinates (top-left origin, points): memory row 0 is the top.
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: scale, y: -scale)
+        UIGraphicsPushContext(context)
+        background.setFill()
+        UIRectFill(bounds)
+        if let under { UIImage(cgImage: under, scale: scale, orientation: .up).draw(in: bounds) }
+        if let surface, let image = surface.makeImage(), !surfaceClip.isNull {
+            context.saveGState()
+            context.clip(to: surfaceClip)
+            UIImage(cgImage: image).draw(in: surfaceFrame)
+            context.restoreGState()
+        }
+        if let over { UIImage(cgImage: over, scale: scale, orientation: .up).draw(in: bounds) }
+        UIGraphicsPopContext()
+        if let cursor, let data = context.data {
+            let pixels = CGRect(x: cursor.minX * scale, y: cursor.minY * scale, width: cursor.width * scale, height: cursor.height * scale)
+                .integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
+            if !pixels.isEmpty {
+                var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+                background.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+                TerminalCursorErase.erase(pixels: data.assumingMemoryBound(to: UInt8.self), bytesPerRow: context.bytesPerRow,
+                                          rect: .init(x: Int(pixels.minX), y: Int(pixels.minY), width: Int(pixels.width), height: Int(pixels.height)),
+                                          background: (UInt8(max(0, min(255, red * 255)).rounded()), UInt8(max(0, min(255, green * 255)).rounded()),
+                                                       UInt8(max(0, min(255, blue * 255)).rounded())))
+            }
+        }
+        guard let image = context.makeImage() else { return nil }
+        return UIImage(cgImage: image, scale: scale, orientation: .up)
+    }
+}
+
 final class RowShiftBox: @unchecked Sendable {
     private var shift = TerminalRowShift()
 

@@ -36,6 +36,27 @@ import Testing
                                                 requestedTop: 15000, rows: 150) == nil)
     }
 
+    /// VERIFY-round8 claim 1b (T-FOLLOW-04): following at the cap, Ghostty
+    /// pruned 886 rows (17739 -> 16853 + new rows) with its viewport on the
+    /// active area before and after. No prune was counted, so the frame on
+    /// screen kept its top in the old numbering while the document shrank
+    /// under it: the page showed rows the frame did not cover, one black frame.
+    /// The rows the frame on screen moves up by are the total's shrink.
+    @Test func aPruneUnderTheFollowedBottomIsCounted() {
+        let rows = 151
+        // 886 rows pruned, 12 appended meanwhile; the request is stale (following).
+        let total = 17739 - 886 + 12
+        #expect(TerminalHistoryPrune.prunedRows(previousTotal: 17739, previousOffset: 17739 - rows,
+                                                total: total, offset: total - rows,
+                                                requestedTop: 17500, rows: rows) == 874)
+        // Following, output only: the total grew.
+        #expect(TerminalHistoryPrune.prunedRows(previousTotal: 17739, previousOffset: 17739 - rows,
+                                                total: 17750, offset: 17750 - rows, requestedTop: 17500, rows: rows) == nil)
+        // Following, `clear`: the history is gone, nothing to keep.
+        #expect(TerminalHistoryPrune.prunedRows(previousTotal: 17739, previousOffset: 17739 - rows,
+                                                total: rows, offset: 0, requestedTop: 17500, rows: rows) == nil)
+    }
+
     @Test func theReadingAnchorMovesWithThePrune() {
         var model = TerminalScrollModel()
         model.restoreReading(.init(row: 15047, delta: 3))
@@ -100,5 +121,36 @@ extension TerminalFrameCoverTests {
         #expect(!cover.isDisjoint(visibleTop: 16955, visibleBottom: 17003))
         #expect(cover.isDisjoint(visibleTop: 17000, visibleBottom: 17050))
         #expect(TerminalFrameCover(presentedTop: 1000, surfaceRows: 150).isDisjoint(visibleTop: 16950, visibleBottom: 17000))
+    }
+}
+
+/// VERIFY-round8 claim 1a (T-SCROLL-02/09): a one-frame full black on about
+/// 40 % of Jump to bottom taps at the history cap. The jump waited for the
+/// end's frame only when none of its rows were on screen, and only for six
+/// display frames: under fast output Ghostty's frame for the end came later,
+/// the fallback moved the page anyway, and the old frame (the reading rows)
+/// left the end's rows black until the next present. A target only partly
+/// in the frame moved at once with the rest black. The page now moves only
+/// to rows the frame on screen covers, and keeps the last good frame until
+/// the new one is placed (up to `maxWait`, inside T-SCROLL-09's 400 ms).
+@Suite struct TerminalScrollGateTests {
+    @Test func aTargetPartlyOutsideTheFrameWaits() {
+        // The frame shows 16700..<16851; the end shows 16815..<16860.
+        let cover = TerminalFrameCover(presentedTop: 16700, surfaceRows: 151)
+        #expect(!cover.isDisjoint(visibleTop: 16815, visibleBottom: 16860))
+        #expect(!TerminalScrollGate.movesNow(cover: cover, visibleTop: 16815, visibleBottom: 16860, documentRows: 0..<16860))
+        #expect(TerminalScrollGate.movesNow(cover: TerminalFrameCover(presentedTop: 16709, surfaceRows: 151),
+                                            visibleTop: 16815, visibleBottom: 16860, documentRows: 0..<16860))
+        // Rows past the document's end are the page's own background.
+        #expect(TerminalScrollGate.movesNow(cover: cover, visibleTop: 16815, visibleBottom: 16900, documentRows: 0..<16851))
+    }
+
+    @Test func theFallbackNeverMovesToUncoveredRowsBeforeTheMaximumWait() {
+        // Six display frames at 120 Hz: the end's frame is not in yet.
+        #expect(!TerminalScrollGate.fallbackMoves(covered: false, waited: 0.05))
+        #expect(!TerminalScrollGate.fallbackMoves(covered: false, waited: 0.25))
+        #expect(TerminalScrollGate.fallbackMoves(covered: false, waited: TerminalScrollGate.maxWait))
+        #expect(TerminalScrollGate.fallbackMoves(covered: true, waited: 0.02))
+        #expect(TerminalScrollGate.maxWait < 0.4)
     }
 }
