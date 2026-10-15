@@ -33,7 +33,6 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
     private var sequenceStart: CGPoint?
     private var sequenceTravel: CGFloat = 0
     private var sequenceMulti = false
-    private var keyboardDragTravel: CGFloat = 0
 
     private(set) var frameCSS: CGSize?
     private var shownImage: CGImage?
@@ -194,7 +193,6 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
             sequenceStart = first.location(in: self)
             sequenceTravel = 0
             sequenceMulti = touches.count > 1
-            keyboardDragTravel = 0
             onTouchSequenceBegan?()
         } else {
             sequenceMulti = true
@@ -216,7 +214,6 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
             let now = t.location(in: self)
             if let last = touchLocations[primary] {
                 onDrag?(now.y - last.y)
-                dragWhileKeyboard(now.y - last.y)
             }
             if let start = sequenceStart { sequenceTravel = max(sequenceTravel, hypot(now.x - start.x, now.y - start.y)) }
         }
@@ -233,7 +230,22 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         finish(touches, type: .cancel)
     }
 
+    /// The keyboard host's pan took over this one-finger touch (it cancels
+    /// the surface's touches when it starts dragging): the page keeps
+    /// getting the touch, now from the pan.
+    private var panTouch: Int?
+
     private func finish(_ touches: Set<UITouch>, type: TouchEventType) {
+        if type == .cancel, !suppressTouches, touchIds.count == 1, touches.count == 1,
+           let host = superview as? PageKeyboardDismissHost, host.isTracking || host.isDragging,
+           let t = touches.first, let id = touchIds[ObjectIdentifier(t)] {
+            panTouch = id
+            touchIds = [:]
+            touchLocations = [:]
+            primaryTouch = nil
+            sequenceStart = nil
+            return
+        }
         // CDP ends the whole sequence on touchEnd; send the lifted points so
         // hosts that track per-point state (the demo host) see where it ended.
         if !suppressTouches { onTouch?(type, points(touches)) }
@@ -257,15 +269,17 @@ final class PageSurfaceView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    /// Safari lowers the keyboard when the page is dragged down under it
-    /// (finger moving down, toward the keyboard).
-    private func dragWhileKeyboard(_ dy: CGFloat) {
-        guard proxy.isFirstResponder else { keyboardDragTravel = 0; return }
-        keyboardDragTravel = max(0, keyboardDragTravel + dy)
-        if keyboardDragTravel > PageKeyboardPolicy.dragDismissDistance {
-            keyboardDragTravel = 0
-            proxy.resignFirstResponder()
-        }
+    func panMoved(to p: CGPoint) {
+        guard let id = panTouch else { return }
+        let (x, y) = cssPoint(p)
+        onTouch?(.move, [TouchPoint(x: x, y: y, id: id)])
+    }
+
+    func panEnded(at p: CGPoint, cancelled: Bool) {
+        guard let id = panTouch else { return }
+        panTouch = nil
+        let (x, y) = cssPoint(p)
+        onTouch?(cancelled ? .cancel : .end, [TouchPoint(x: x, y: y, id: id)])
     }
 
     // MARK: Zoom pinch
@@ -430,17 +444,19 @@ struct PageSurface: UIViewRepresentable {
     var onKeyboardDismissed: () -> Void
     var zoomPinchActive = false
 
-    func makeUIView(context: Context) -> PageSurfaceView {
-        let view = PageSurfaceView()
+    func makeUIView(context: Context) -> PageKeyboardDismissHost {
+        let host = PageKeyboardDismissHost()
+        let view = host.surface
         view.onTouch = { [model] type, points in model.sendTouch(type, points: points) }
         view.onKey = { [model] in model.sendKey($0) }
         view.onText = { [model] in model.sendText($0) }
         view.onTouchSequenceBegan = { [model] in model.pageTouchBegan() }
         view.onTap = { [model] in model.pageTapped() }
-        return view
+        return host
     }
 
-    func updateUIView(_ view: PageSurfaceView, context: Context) {
+    func updateUIView(_ host: PageKeyboardDismissHost, context: Context) {
+        let view = host.surface
         view.topInset = topInset
         view.viewportCSSWidth = viewportCSSWidth
         view.onDrag = onDrag
@@ -453,6 +469,10 @@ struct PageSurface: UIViewRepresentable {
         } else if view.proxy.isFirstResponder {
             view.proxy.resignFirstResponder()
         }
+        // While the page's keyboard is up, a drag on the page pulls it down
+        // with the finger (the scroll view's interactive dismissal).
+        // (Set only on a change: re-setting it on every frame reset the pan.)
+        if host.isScrollEnabled != keyboardActive { host.isScrollEnabled = keyboardActive }
         // Off the page (the grid, address editing) the surface lets go of
         // the keys: a menu presented over the grid while it was still first
         // responder brought up the software keyboard (re-audit blocker).
@@ -470,6 +490,69 @@ struct PageSurface: UIViewRepresentable {
                 }
             }
         }
+    }
+}
+
+/// Holds the page surface so a drag can dismiss the page's keyboard the way
+/// Safari's does: the keyboard follows the finger once it reaches the
+/// keyboard and goes, or comes back, on release (`keyboardDismissMode =
+/// .interactive`). Only its pan is used: the surface stays put on screen
+/// (the page scrolls on the Mac) and still gets every touch.
+final class PageKeyboardDismissHost: UIScrollView, UIScrollViewDelegate {
+    let surface = PageSurfaceView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        keyboardDismissMode = .interactive
+        alwaysBounceVertical = true
+        showsVerticalScrollIndicator = false
+        showsHorizontalScrollIndicator = false
+        contentInsetAdjustmentBehavior = .never
+        scrollsToTop = false
+        delaysContentTouches = false
+        // The pan takes the touch over from the surface (a scroll view
+        // only drags after cancelling its content's touches); the surface
+        // keeps feeding the page from the pan (`panned`).
+        canCancelContentTouches = true
+        panGestureRecognizer.cancelsTouchesInView = false
+        panGestureRecognizer.addTarget(self, action: #selector(panned(_:)))
+        isScrollEnabled = false
+        delegate = self
+        addSubview(surface)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func panned(_ g: UIPanGestureRecognizer) {
+        let p = g.location(in: surface)
+        switch g.state {
+        case .changed: surface.panMoved(to: p)
+        case .ended: surface.panEnded(at: p, cancelled: false)
+        case .cancelled, .failed: surface.panEnded(at: p, cancelled: true)
+        default: break
+        }
+    }
+
+    /// The pan runs beside the page's own recognizers (long press, the
+    /// screen's zoom pinch) instead of losing to them.
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        g === panGestureRecognizer
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if contentSize != bounds.size { contentSize = bounds.size }
+        pinSurface()
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { pinSurface() }
+
+    /// The page scrolls on the Mac, not here: while the pan drags the
+    /// content (which drives the interactive dismissal), the surface rides
+    /// along so it stays put on screen.
+    private func pinSurface() {
+        let frame = CGRect(origin: contentOffset, size: bounds.size)
+        if surface.frame != frame { surface.frame = frame }
     }
 }
 

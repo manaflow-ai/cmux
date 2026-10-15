@@ -5,14 +5,12 @@ import Foundation
 /// When the page's software keyboard rises and falls, following Safari:
 /// the user's own tap on an editable element raises it, focus leaving the
 /// element lowers it, Return in a single-line field lowers it, and a drag
-/// on the page lowers it.
+/// on the page pulls it down with the finger (PageKeyboardDismissHost).
 struct PageKeyboardPolicy: Equatable {
     enum Decision: Equatable { case raise, lower, keep }
 
     /// A focus report counts as the answer to a tap made this recently.
     static let tapWindow: TimeInterval = 1.5
-    /// Finger travel down the page (points) that lowers the keyboard.
-    static let dragDismissDistance: CGFloat = 40
     /// Finger travel (points) under which a touch is a tap.
     static let tapSlop: CGFloat = 10
 
