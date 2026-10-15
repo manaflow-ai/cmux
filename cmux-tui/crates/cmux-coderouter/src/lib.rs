@@ -3,7 +3,7 @@ use axum::{
     Router,
     body::Body,
     extract::State,
-    http::{HeaderMap, Method, Request, StatusCode},
+    http::{HeaderMap, HeaderValue, Method, Request, StatusCode},
     response::Response,
     routing::any,
 };
@@ -723,11 +723,21 @@ fn json_error(status: StatusCode, code: &str, message: &str) -> Response<Body> {
         .unwrap_or_else(|_| Response::new(Body::empty()))
 }
 
+/// The relay's own refusal that retrying cannot fix within a turn (no upstream, an
+/// expired sign-in): `x-should-retry: false`, the Anthropic API's header that Claude
+/// Code and the provider SDKs read, so the harness ends the turn with this message
+/// at once instead of retrying a 503 for minutes while a phone shows "Working".
+fn final_json_error(status: StatusCode, code: &str, message: &str) -> Response<Body> {
+    let mut response = json_error(status, code, message);
+    response.headers_mut().insert("x-should-retry", HeaderValue::from_static("false"));
+    response
+}
+
 /// Request headers passed upstream; everything else (the client's auth, cookies,
 /// host) stays here.
 const FORWARD_REQUEST_HEADERS: &[&str] = &["content-type", "accept", "anthropic-version"];
 const FORWARD_RESPONSE_HEADERS: &[&str] =
-    &["content-type", "cache-control", "retry-after", "x-cmux-request-id"];
+    &["content-type", "cache-control", "retry-after", "x-should-retry", "x-cmux-request-id"];
 
 #[axum::debug_handler]
 async fn data_request(State(state): State<AppState>, request: Request<Body>) -> Response<Body> {
@@ -757,14 +767,14 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
         match up.as_ref() {
             Some(up) if up.live() => (format!("{}{path}", up.origin), up.bearer.expose().clone()),
             Some(_) => {
-                return json_error(
+                return final_json_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "router.upstream_expired",
                     "the cmux model router sign-in expired; open cmux to renew it",
                 );
             }
             None => {
-                return json_error(
+                return final_json_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "router.no_upstream",
                     "the cmux model router is not connected; open cmux",
@@ -847,4 +857,30 @@ async fn authorize(
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod relay_error_tests {
+    use super::*;
+
+    #[test]
+    fn relay_refusals_that_retrying_cannot_fix_say_so() {
+        let response = final_json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "router.no_upstream",
+            "the cmux model router is not connected; open cmux",
+        );
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers().get("x-should-retry").unwrap(), "false");
+        assert_eq!(response.headers().get("content-type").unwrap(), "application/json");
+        // A plain relay error (the router did not answer) stays retryable.
+        let transient = json_error(
+            StatusCode::BAD_GATEWAY,
+            "router.unreachable",
+            "the cmux model router did not answer",
+        );
+        assert!(transient.headers().get("x-should-retry").is_none());
+        // The hosted router's own retry advice reaches the harness.
+        assert!(FORWARD_RESPONSE_HEADERS.contains(&"x-should-retry"));
+    }
 }

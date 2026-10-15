@@ -57,7 +57,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
         }
         var data = Data()
         do {
-            while let chunk = try await channel.receive() {
+            while let chunk = try await Self.receive(channel, within: idleTimeout, macName: macName) {
                 data.append(chunk)
                 if data.count > maxBytes {
                     await channel.close(code: "cancelled", reason: "preview limit")
@@ -76,14 +76,51 @@ public struct LinkFileArtifactSource: ArtifactSource {
         return data
     }
 
+    /// How long a read may wait for its next bytes before the preview gives up (a Mac that
+    /// went to sleep mid-read left "Loading" up for good).
+    public static let idleTimeout: Duration = .seconds(20)
+
+    /// The channel's next message, or a refusal after `limit` with nothing: the channel is
+    /// closed so the read ends.
+    static func receive(_ channel: any LinkChannel, within limit: Duration, macName: String,
+                        clock: any Clock<Duration> = ContinuousClock()) async throws -> Data? {
+        let stalled = ArtifactUnavailable("\(macName) stopped sending this file. Check that it's awake, then try again.")
+        let timedOut = TimedOut()
+        let next = try await withThrowingTaskGroup(of: Data?.self) { group in
+            group.addTask { try await channel.receive() }
+            group.addTask {
+                try await clock.sleep(for: limit)
+                timedOut.set()
+                await channel.close(code: "cancelled", reason: "timed out")
+                throw stalled
+            }
+            defer { group.cancelAll() }
+            return try await group.next() ?? nil
+        }
+        // Closing the channel ends the receive with nil: that is the timeout, not the end of the file.
+        if timedOut.value { throw stalled }
+        return next
+    }
+
+    private final class TimedOut: @unchecked Sendable {
+        private let lock = NSLock()
+        private var fired = false
+        func set() { lock.withLock { fired = true } }
+        var value: Bool { lock.withLock { fired } }
+    }
+
+    /// Where the person shares a folder: the Mac's Chat Folders setting (cnx-hostd's file roots).
+    static let shareHint = "To open it here, add its project folder in cmux on the Mac: Settings › General › Chats › Chat Folders."
+
     static func unavailable(_ error: LinkError, path: String, macName: String) -> ArtifactUnavailable {
         let name = (path as NSString).lastPathComponent
         return switch error.code {
         case "not_found": ArtifactUnavailable("\(name) isn't on \(macName) anymore.")
         case "forbidden" where error.message.contains("no workspace roots"):
             // cnx-hostd shares no folder at all (CNX_FILE_ROOTS empty).
-            ArtifactUnavailable("\(macName) isn't sharing any folders with this phone yet, so \(name) can't be opened here.")
-        case "forbidden": ArtifactUnavailable("\(name) is outside the folders \(macName) shares with this phone.")
+            // The Mac shares its Chat Folders (Settings › Chats): say where to add one.
+            ArtifactUnavailable("\(macName) isn't sharing any folders with this phone yet, so \(name) can't be opened here. \(Self.shareHint)")
+        case "forbidden": ArtifactUnavailable("\(name) is outside the folders \(macName) shares with this phone. \(Self.shareHint)")
         case "bad_request": ArtifactUnavailable("\(name) isn't a regular file.")
         case "unknown_service": ArtifactUnavailable("\(macName) doesn't serve files yet. Update cmux on the Mac.")
         default: ArtifactUnavailable(error.message.isEmpty ? "Couldn't read \(name) from \(macName)." : error.message)

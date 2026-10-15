@@ -68,6 +68,18 @@ import Testing
         #expect(text.hasSuffix("Then start the chat again."))
     }
 
+    /// The cmux model service down on the Mac (`route.unavailable`): a plain sentence, never
+    /// the Mac's command line (round 3 live: the phone said only "Couldn't open an agent chat").
+    @Test func aModelServiceThatIsDownSaysSo() {
+        let down = LiveWorkspaceCreationBackend.routeUnavailable(
+            "the local CodeRouter is not running (Resource temporarily unavailable (os error 35)); start it with `acpmux router serve`")
+        #expect(down == "cmux's model service isn't running on the Mac. Quit and reopen cmux on the Mac, then try again, or choose another agent.")
+        let signedOut = LiveWorkspaceCreationBackend.routeUnavailable(
+            "the cmux model router is not connected (open cmux to sign the local router in)")
+        #expect(signedOut.hasPrefix("cmux's model service isn't signed in on the Mac."))
+        #expect(!down.contains("acpmux") && !signedOut.contains("router"))
+    }
+
     /// Open Folder… types `cd` with the same rules as Recent Directories.
     @Test func openFolderSharesTheTypedCdRules() {
         #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("~/code/app") == "cd ~/'code/app' && clear\n")
@@ -111,5 +123,34 @@ import Testing
                 == [.queueUpdated(promptId: "p1", text: "new text")])
         #expect(records.map(json(#"{"seq":2,"dir":"mux","kind":"queue_order","msg":{"promptId":"p2","order":["p2","p1"]}}"#))
                 == [.queueOrder(["p2", "p1"])])
+    }
+}
+
+/// Parity round 3: the lines the phone sends for the Mac's workspace groups.
+@Suite struct WorkspaceGroupLiveTests {
+    @Test func placeNamesTheWorkspacesResource() throws {
+        var ws = Workspace(id: "k", macID: "m", title: "w", directory: "~", tabs: [], lastActivityAt: Date())
+        #expect(throws: WorkspaceCreationError.self) { try LiveWorkspaceCreationBackend.placeParams(ws, group: "grp_1") }
+        ws.resourceID = "ws_1"
+        let into = try LiveWorkspaceCreationBackend.placeParams(ws, group: "grp_1")
+        #expect(into["workspace"] as? String == "ws_1" && into["group"] as? String == "grp_1")
+        let out = try LiveWorkspaceCreationBackend.placeParams(ws, group: nil)
+        #expect(out["group"] is NSNull)
+    }
+
+    @Test func createdGroupIDFromTheResponse() {
+        #expect(LiveWorkspaceCreationBackend.createdGroupID(["ok": true, "result": ["value": ["id": "grp_9", "name": "x"]]]) == "grp_9")
+        #expect(LiveWorkspaceCreationBackend.createdGroupID(["ok": true, "result": ["id": "grp_8"]]) == "grp_8")
+        #expect(LiveWorkspaceCreationBackend.createdGroupID(["ok": true]) == nil)
+    }
+
+    /// The tree takes the Mac's groups from `list-personal`.
+    @Test func treeCarriesGroups() throws {
+        var tree = try DaemonTree(reply: WorkspaceArrangementLiveTests.reply, macID: "m")
+        let group = MacWorkspaceGroup(id: "grp_1", name: "Ship", color: "red")
+        tree.apply(SidebarArrangement(rows: [.init(session: "reg_1", key: "k-a", index: 0, group: "grp_1"),
+                                             .init(session: "reg_1", key: "k-b", index: 1)], groups: [group]))
+        #expect(tree.workspaces.map { $0.group?.id } == ["grp_1", nil, nil])
+        #expect(tree.workspaces.map(\.sidebarIndex) == [2, 0, 1])
     }
 }

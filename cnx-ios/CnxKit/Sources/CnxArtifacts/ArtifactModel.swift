@@ -55,9 +55,10 @@ public struct TerminalArtifact: Identifiable, Hashable, Sendable {
 
     public static func kind(forExtension ext: String) -> Kind? {
         switch ext.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "heic", "webp", "svg": .image
+        case "png", "jpg", "jpeg", "gif", "heic", "webp": .image
         case "mp4", "mov", "m4v", "webm": .video
-        case "html", "htm": .html
+        // SVG is markup: UIImage can't decode it, the web preview draws it (scripts off).
+        case "html", "htm", "svg": .html
         case "md", "markdown": .markdown
         case "swift", "rs", "zig", "c", "h", "m", "go", "py", "js", "ts", "tsx", "jsx", "sh", "toml", "json", "yml",
              "yaml", "css", "sql", "rb", "java", "kt": .code
@@ -352,5 +353,16 @@ public struct ArtifactExtractor: Sendable {
         if reference.hasSuffix("/") { return .directory }
         if name.contains(".") { return nil }
         return trimmed.contains("/bin/") || trimmed.contains("/release/") || trimmed.contains("/debug/") ? .binary : .directory
+    }
+}
+
+extension TerminalArtifact {
+    /// An SVG file drawn in a page of its own, centered and fitted to the screen (bare markup
+    /// draws at its own size in the top-left corner).
+    nonisolated static func fittedSVG(_ svg: String) -> String {
+        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            + "<style>html,body{margin:0;height:100%;}body{display:flex;align-items:center;justify-content:center;}"
+            + "svg{width:100%;height:100%;max-width:100vw;max-height:100vh;}</style></head><body>"
+            + svg + "</body></html>"
     }
 }

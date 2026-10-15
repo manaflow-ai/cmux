@@ -447,6 +447,69 @@ v2 failure response (`origin.forbidden`, reason `phone_policy`).
   (`SidebarLayoutService.migrateLegacyPins`), so the phone never adds layout
   items itself.
 
+## Workspace groups (`feat-cnx-ios-parity3`)
+
+Parity round 3 shows the Mac's workspace groups in the phone's Workspaces list
+and adds the Mac's group actions that fit a phone. On a Mac with personal order
+the Mac's sidebar keeps groups as the person's own rows in the home session and
+changes them with `cmux.protocol/2` state operations
+(`StateResourceClient+Groups.swift`); the phone sends the same ones. The legacy
+commands (`create-personal-group`, `set-personal-workspace {group}`) are not
+used, and `set-personal-workspace` still refuses `group`. The shared-group
+commands already on the list (`create-workspace-group` …
+`move-workspace-to-group`) are for a Mac without personal order; the phone does
+not send them. Four resource operations are new, in both `policy.rs` and
+`DaemonLanePolicy.swift` (deny by default; the mirror test checks them and their
+params):
+
+| New entry | What the phone sends | Why |
+| --- | --- | --- |
+| `workspace_group.create` | `params {machine: current, session: current, name, color, room}`, an idempotency key. `name`: 1-256 characters, not blank, no control characters. `color`: one of the Mac's nine group colors. `room`: 1-64 of `[A-Za-z0-9_.:-]` | Move Workspace to New Group (the Mac's `workspace.moveToNewGroup`), in the room of the Mac window that shows the workspace. |
+| `workspace_group.update` | `params {…, workspace_group, name?, color?, collapsed?}` (at least one), and hostd forwards it only when the Mac's own `list-personal` has that group and every row in it is a workspace of this session (`registry_id` from `list-workspaces`) | Rename Group…, Set Workspace Group Color…, Collapse / Expand Workspace Group. |
+| `workspace_group.delete` | `params {…, workspace_group}`, same ownership check | Ungroup Workspaces and Delete Group (both keep the workspaces open; the Mac records the group in its closed history, so Reopen Closed brings it back). |
+| `workspace.place` | `params {…, workspace: "ws_…", group: "<id>" or null}`, and hostd forwards it only when `list-workspaces` lists that `resource_id`, and, for a group, that group passes the same check | Move Workspace to Group… and Remove Workspace from Group (and the second step of Move Workspace to New Group). |
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. None of the four carries a program, a path, a URL, an environment or text that is run. Only the params above pass; `command`, `argv`, `cwd`, `env`, `index`, `icon`, `pinned`, `top_index` and anything else are refused. A group name is stored and drawn as text in the Mac's sidebar (the same field the Mac's own rename writes). |
+| Mutates or destroys objects the session does not own? | Only the person's own sidebar organization, and only objects the Mac itself confirms (`services::owned_check`, on a separate daemon connection, before the line is sent; a Mac that cannot answer refuses). `workspace.place` resolves `workspace` in this session's own state (`machine`/`session` must be `current`), and hostd also requires that `list-workspaces` lists it. Update, delete and place-into-a-group take only a group whose rows are all this session's workspaces (or an empty one), so a phone never renames, recolors, folds or deletes a group that holds another machine's workspaces, and never moves a workspace into one (the Mac's own rule: a group holds one machine's workspaces, `SidebarEdits.canMove`). No workspace is closed: delete removes the group record and leaves its workspaces open and ungrouped. `update` never takes `room`, which would move the group and pin every member to another room. A new group can only go into one of the person's existing rooms (the daemon refuses an unknown room). |
+| Reads local state the remote should not see? | Nothing new: the phone reads groups, rooms and room pins from `list-personal`, already allowed in round 2. The ownership checks read `list-personal` and `list-workspaces` on hostd's own connection; their replies never reach the phone. |
+| Origin | The phone's lane has origin `agent`; none of the four is a user-only operation (`USER_ONLY_OPERATIONS`), and a phone's line carries no origin claim. |
+
+- **Swift lane:** `DaemonLanePolicy` checks the same values (`groupRefusal`),
+  sends `workspace_group.create` on as checked, and refuses update, delete and
+  place (it has no ownership check), as it does Unpin.
+- **Rule 6 (tests):** hostd `policy::tests::allows_the_workspace_group_ops`
+  (the eight lines the phone sends), `refuses_other_workspace_group_shapes`
+  (`workspace_group.list` / `.move`, room operations, `index`, `collapsed` on
+  create, `room` / `top_index` / `pinned` / `icon` on update, `cwd`,
+  `command`, `argv`, `env`, a blank, long or multi-line name, a hex or unknown
+  color, a bad room or group id, a non-`ws_` workspace, a non-Bool
+  `collapsed`, another machine or session, no idempotency key),
+  `group_ownership_is_checked_against_the_macs_state` (a group with another
+  machine's workspace, another machine's group, an unknown group, an unlisted
+  workspace refused; an empty group of the person's allowed),
+  `mirrors_the_swift_allowlist`; Swift `DaemonLanePolicyGroupTests`
+  (`allowedShapesPass`, `otherShapesAreRefused`).
+- **Not on the phone:** Move Workspace Group Up / Down (`workspace_group.move`
+  with `top_index`), group icon and Pin/Unpin Group, New Workspace in Group,
+  Close All Workspaces in Group, Group Selected Workspaces, and moving a group
+  to another room or window. They stay refused until reviewed.
+
+
+Round 3 review notes (accepted, said here):
+
+- **An empty group** passes the ownership check whoever made it (no member to tell), and
+  between the check and the forward the person's other Mac could move one of its workspaces
+  into a group. Either way the effect is limited to the person's own sidebar grouping (a
+  rename, a color, a delete that keeps every workspace open); no program, folder or content
+  is reachable.
+- **On the Swift lane** (a Mac without cnx-hostd's ownership reads) `workspace_group.create`
+  passes and `workspace.place` is refused, so Move Workspace to New Group fails there; the
+  phone then deletes the group it just made, so no empty group stays.
+- Live (round 3, rig `cnx-p3-153f3482`): every group action read back from the Mac's
+  `list-personal` (`verify/parity-mac.md`, `groups`).
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now
@@ -582,6 +645,91 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   ids and the folders the person picked them in on this Mac (up to 50, any folder
   a New Tab chat was started in, not only open workspace folders). Tests: acpmux `the_apps_last_new_chat_picks_reach_a_remote_device`,
   CmuxNext `NewChatPicksTests`.
+
+## Parity round 3 (`feat-cnx-ios-parity3`)
+
+### `daemon`: Reopen Saved Tab Group (`reopen-saved-tab-group`, `delete-saved-tab-group`)
+
+Both commands were already on the allowlist with any params. They now take only
+what the Mac's own palette rows send, in `policy.rs` (`creation_fields`,
+`saved_group_refusal`) and `DaemonLanePolicy.swift` (`creationFields`,
+`savedGroupRefusal`), kept identical:
+
+- `reopen-saved-tab-group {saved, pane, transaction?}`
+- `delete-saved-tab-group {saved}`
+
+`saved` must be a short identifier (`[A-Za-z0-9._:-]`, at most 128 bytes; the
+daemon mints `saved_<hex>`), `pane` a non-negative pane number or a short public
+pane id, `transaction` 1-128 printable ASCII characters (the daemon's own rule).
+Every other field is refused: `command`, `argv`, `cwd`, `env`, `members`,
+`origin`, a terminal host and any field the daemon adds later.
+`list-saved-tab-groups` takes nothing and is unchanged.
+
+What the daemon does (cmux-tui `mux/tab_groups/reopen_saved.rs`,
+`reopen_saved_tab_group_as`):
+
+- It looks the record up by id in this daemon's own presentation state
+  (`presentation_snapshot().saved_tab_groups`). The saved groups are personal
+  state of this Mac's home session (`SavedTabGroupRecord`, one room each); a
+  phone cannot name a record of another Mac or person, and an unknown id is
+  `not found`. A group that is already open is returned unchanged (no spawn).
+- A terminal member whose saved terminal still runs is reattached (a new view of
+  the same terminal). Otherwise it calls `new_tab_as(actor, pane, cwd, None)`:
+  the person's login shell, no command and no environment, in the folder the
+  record holds, on this Mac's terminal host, as New Terminal does. The record
+  holds only `terminal_id`, `cwd` and `title` for a terminal
+  (`SavedTabMember::Terminal`); it has no command field, so nothing but a shell
+  can start.
+- A browser member reopens its saved page (`new_browser_tab_as` or the frontend
+  browser record with its saved engine and profile).
+- Records are written only from a live group by `save-tab-group`
+  (`saved_record_for`: the members' presented folder and page). The phone can
+  pin a group of its own tabs; the folder of a terminal it reopens is a folder that
+  terminal was in, which the phone could already reach by typing `cd`.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | It starts the person's login shell (no command, no env) in each saved terminal's folder, and reopens saved pages, on this Mac. The phone names only the record and a pane. |
+| Mutates or destroys objects the session does not own? | Only this daemon's saved records and panes, the person's own. Delete removes the record; an open group stays, unlinked, as on the Mac. |
+| Reads local state the remote should not see? | `list-saved-tab-groups` returns the saved groups' names, colors, folders and page URLs: the same folders and pages the phone already reads for the open tabs (`list-workspaces`). |
+
+- A browser member may be a page that is not http or https (a page the person had
+  open on the Mac). The phone never sends such a URL itself (`new-browser-tab`
+  stays http/https only); a reopen restores the page the person saved.
+- Tests: hostd `saved_tab_groups_take_only_the_saved_id_and_a_pane`, Swift
+  `DaemonLanePolicySavedGroupTests`; phone CnxLive `SavedTabGroupTests`, CnxWorkspaces
+  `savedTabGroupsFromThePageMenu`.
+- **Live check: passed (round 3, 2026-10-15, rig `cnx-p3-153f3482` on mini-cmux11s).** A
+  saved red group of two terminals (one `cd`'d to `/tmp/p3saved-check`) was closed with
+  `end_terminals` (old shells 25525, 25558). From the phone, page menu > Reopen Saved Tab
+  Group… > P3SAVED: the Mac listed both tabs again in 0.2 s, each a NEW `/bin/zsh` (28056,
+  28066) whose parent is the rig app's own `cmux-tui __terminal-host --owner
+  com.cmuxterm.app.debug.cnx.p3.153f3482`, with working folders
+  `~/cnx-ios-e2e/p3/proj` and `/private/tmp/p3saved-check` (the saved ones, `lsof`). Delete
+  Saved Tab Group… removed the record in 0.2 s; the open group stayed. Refusal of
+  `command`/`argv`/`cwd`/`env` on the line: the hostd and Swift policy tests above (the
+  phone never builds such a line). Video `~/cnx-ios-e2e/p3-raw/reopen-saved-group.mp4`.
+
+### `daemon`: Duplicate Workspace (no allowlist change)
+
+The Mac duplicates a workspace in the app (`WorkspaceBlueprintBuilder`: `new-tab {cwd}`
+per terminal). No daemon command does it, and `apply-layout` takes a `command` per pane,
+so neither is on the lane. The phone composes the copy from lines that are already allowed:
+`new-workspace {name}`, `new-tab {pane}` (hostd adds the pane's folder, as for New
+Terminal), `new-browser-tab {url, pane}` (http/https only) and `send` of
+`cd '<folder>' && clear` into each new shell. A folder that the line editor could act on
+is never typed (`WorkspaceFolderPath.isTypable`). The phone can already type that same
+line into any terminal, so this adds no reach. Tests: CnxLive `duplicatePlanFollowsTheTabs`,
+CnxWorkspaces `duplicateWorkspace`.
+
+### `acpmux`: opencode stays refused (round 3 re-check)
+
+opencode v1.19.0 cannot be forced to ask from outside. Its own config sources (global, org,
+managed, MDM, agent files) merge after anything a launcher sets, or are appended after it,
+and rules match last-wins. Custom tools, plugins, MCP tools and command templates run
+outside the edit/bash/webfetch asks (details and source paths in `verify/parity-mac.md`
+round 3 and `web_modes::REFUSED_FAMILIES`). The remote row's reason now says this:
+"opencode's own settings on this Mac can let it edit and run commands without asking".
 
 ## Test-only pairing seed (DEBUG builds)
 

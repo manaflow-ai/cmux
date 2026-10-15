@@ -41,6 +41,17 @@ struct TabMoveAndGroupSheets: ViewModifier {
                 Button(TabGroupEdit.close.title, role: .destructive) { Task { await source.editGroup(.close, tab.id) } }
                 Button("Cancel", role: .cancel) {}
             }
+            .sheet(item: Binding(get: { source.savedGroupsChooser }, set: { source.savedGroupsChooser = $0 })) { chooser in
+                SavedTabGroupPicker(chooser: chooser) { saved in
+                    Task {
+                        switch chooser.action {
+                        case .reopen: await source.reopenSaved(saved, besides: chooser.tab.id)
+                        case .delete: await source.deleteSaved(saved)
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
+            }
             .alert("Rename Tab Group", isPresented: Binding(
                 get: { source.renamingGroupTab != nil },
                 set: { shown in if !shown { source.renamingGroupTab = nil } }
@@ -104,6 +115,42 @@ struct TabGroupPicker: View {
                 }
             }
             .navigationTitle("Add Tab to Group")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+        }
+    }
+}
+
+/// Reopen Saved Tab Group… / Delete Saved Tab Group…: the Mac's saved groups. A group that
+/// is already open can't be reopened (the Mac refuses it too).
+struct SavedTabGroupPicker: View {
+    let chooser: WorkspaceTabsSource.SavedGroupsChooser
+    let pick: (SavedTabGroup) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(chooser.groups) { group in
+                let blocked = chooser.action == .reopen && group.isOpen
+                Button(role: chooser.action == .delete ? .destructive : nil) {
+                    dismiss()
+                    pick(group)
+                } label: {
+                    HStack {
+                        Circle().fill(TabGroupChip.color(group.color)).frame(width: 10, height: 10)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.displayName).foregroundStyle(chooser.action == .delete ? Color.red : .primary)
+                            Text(group.isOpen ? "Open · \(group.summary)" : group.summary)
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .disabled(blocked)
+                .accessibilityIdentifier("saved-group.\(chooser.action.rawValue).\(group.id)")
+            }
+            .navigationTitle(chooser.action.sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
