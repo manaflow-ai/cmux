@@ -1,6 +1,6 @@
 import type { Env } from "../env.ts"
 import { bedrockBody, eventStreamToSse } from "./bedrock-stream.ts"
-import { claudeRoute, claudeRouteReady, meteredOwner } from "./model-routes.ts"
+import { claudeRoute, claudeRouteReady, meteredOwner, offers, OPUS } from "./model-routes.ts"
 
 /**
  * Sign-in for the metered Claude route (`/api/claude-david/v1/messages` on the Chatmux service,
@@ -67,9 +67,9 @@ export const claudeAllowed = (env: Env, owner: string | null): boolean => claude
 const row = (sql: SqlStorage, k: string) => sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
 const put = (sql: SqlStorage, k: string, v: string) => sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, k, v)
 
-/** The holder counts one Claude turn of `owner` (allow-list and the deployment's daily cap); false when refused. */
-export const holderTurn = (env: Env, sql: SqlStorage, owner: string, now = Date.now()): boolean => {
-  if (!claudeAllowed(env, owner)) return false
+/** The holder counts one metered turn (a Claude or OpenRouter model) of `owner`: allow-list, the model offered here, the deployment's daily cap. */
+export const holderTurn = (env: Env, sql: SqlStorage, owner: string, model: string = OPUS, now = Date.now()): boolean => {
+  if (!meteredOwner(env, owner) || !offers(env, model)) return false
   const key = `claude.turns:${new Date(now).toISOString().slice(0, 10)}`
   const used = Number(row(sql, key) ?? 0)
   if (used >= (Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS) || DEFAULT_DAILY_CLAUDE_TURNS)) return false
@@ -115,14 +115,14 @@ export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): P
  * key is removed and `X-Stack-Auth` set; the body and the answer are converted for Bedrock
  * (bedrock-stream.ts). `auth` throws ClaudeAuthError on failure.
  */
-export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>, route: { readonly auth: "stack" | "bearer"; readonly models: ReadonlyArray<string>; readonly ttl?: string } = { auth: "stack", models: [] }): typeof fetch =>
+export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>, route: { readonly auth: "stack" | "bearer"; readonly models: ReadonlyArray<string>; readonly effortBody?: boolean; readonly ttl?: string } = { auth: "stack", models: [] }): typeof fetch =>
   (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers)
     for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
     headers.set(route.auth === "bearer" ? "authorization" : "X-Stack-Auth", await auth())
     headers.set("x-coderouter-client", "cmux-cloud-chief")
     // A route that serves one model names it in its own Bedrock URL; a multi-model route reads `model`.
-    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: route.models.length > 1, ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
+    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: route.models.length > 1, effort: route.effortBody === true, ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
     const res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
     if (res.status === 401) await refused().catch(() => undefined)
     // The route answers Bedrock's event stream; the Anthropic client reads Messages events.

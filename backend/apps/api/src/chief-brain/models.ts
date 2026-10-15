@@ -10,9 +10,9 @@ import { liveOf } from "./brain-stream.ts"
 import { signedFetch } from "./claude-auth.ts"
 import { DEFAULT_EFFORT } from "./contract.ts"
 import { fakeStreams } from "./fake.ts"
-import { claudeRoute, compactorDefault, compactorModel, isClaude, isOpenRouter, modelRefusal, OPENROUTER_PREFIX, openRouterUrl, OPUS, validModelName } from "./model-routes.ts"
+import { claudeRoute, compactorDefault, compactorModel, isClaude, isMetered, isOpenRouter, modelRefusal, OPENROUTER_PREFIX, openRouterUrl, OPUS, validModelName } from "./model-routes.ts"
 
-export { compactorDefault, compactorModel, isClaude, liveOf, modelRefusal, validModelName }
+export { compactorDefault, compactorModel, isClaude, isMetered, liveOf, modelRefusal, validModelName }
 
 /**
  * The Chief brain's models (routes and their configuration: model-routes.ts). A model name is
@@ -20,7 +20,7 @@ export { compactorDefault, compactorModel, isClaude, liveOf, modelRefusal, valid
  * `@cf/...` run through the Worker's own AI binding, a Claude name (`claude-opus-5-5`,
  * `claude-sonnet-5-5`, `claude-haiku-5-5`) through the configured Bedrock route (default: the
  * Chatmux metered route, Lawrence 2026-10-14), or `openrouter:<vendor>/<model>` through OpenRouter.
- * Effort is the Chief's `effort` setting (default "low") for every model but `fake`.
+ * Effort is the Chief's `effort` setting (default "low") for Claude and OpenRouter models.
  *
  * The turn loop's `streamSimple` calls are tapped for the live frames (brain-stream.ts); the
  * compactor's `completeSimple` calls are not (they run beside a turn and are never shown).
@@ -103,7 +103,7 @@ export const brainModels = (env: Env, sessionId: string, opts: BrainModelOptions
   const route = claudeRoute(env)
   if (opts.claude) {
     const api = anthropicMessagesApi()
-    const fetch = signedFetch(opts.claude.auth, opts.claude.refused, { auth: route.auth, models: route.models, ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
+    const fetch = signedFetch(opts.claude.auth, opts.claude.refused, { auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
     raw.setProvider(
       createProvider({
         id: CLAUDE_PROVIDER,
@@ -156,6 +156,7 @@ export const brainModels = (env: Env, sessionId: string, opts: BrainModelOptions
       const m = cloudflare(name, { sessionAffinity: sessionId }) as unknown as Model<Api>
       return { ...m, provider: CLOUDFLARE_PROVIDER, maxTokens: Math.min(m.maxTokens || MAX_TOKENS, MAX_TOKENS) }
     },
-    thinking: (name) => (name === FAKE ? "off" : ((opts.effort?.() || DEFAULT_EFFORT) as ModelThinkingLevel))
+    // The Chief's effort for Claude and OpenRouter; Workers AI keeps "low" (its models take no higher levels).
+    thinking: (name) => (name === FAKE ? "off" : isMetered(name) ? ((opts.effort?.() || DEFAULT_EFFORT) as ModelThinkingLevel) : "low")
   }
 }

@@ -11,7 +11,7 @@ import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from ".
 import { AUTH_FAILED, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
 import { capText, cutAtMarks, type Kind, Memory, RETRY_MS } from "./memory.ts"
-import { brainModels, compactorDefault, compactorModel, FAKE, isClaude, liveOf, modelRefusal, validModelName } from "./models.ts"
+import { brainModels, compactorDefault, compactorModel, FAKE, isClaude, isMetered, liveOf, modelRefusal, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
 import { memoryTools } from "./brain-tools.ts"
@@ -149,7 +149,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return this.authing
   }
   /** Holder only: one Claude turn of `owner` (allow-list, daily cap for the whole deployment). */
-  async claudeTurn(owner: string): Promise<boolean> { return holderTurn(this.env, this.sql, owner) }
+  async claudeTurn(owner: string, model?: string): Promise<boolean> { return holderTurn(this.env, this.sql, owner, model) }
   /** Holder only: the route answered 401, so the stored access token goes. */
   async claudeInvalidate(): Promise<void> { holderInvalidate(this.sql) }
   private holder = () => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
@@ -293,7 +293,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   private announce(turn: string, steps: ReadonlyArray<Step>): void {
     const agent = this.config().agent
     const run = agent ? readRun(this.sql, agent, turn) : null
-    if (agent && run) this.ctx.waitUntil(runChanged(this.env, run.conversation, agent, run, steps))
+    if (agent && run) this.ctx.waitUntil(liveOf(this.ctx).after(() => runChanged(this.env, run.conversation, agent, run, steps))) // behind the live frames
   }
 
   private onResponse(message: AssistantMessage, taskId: string): void {
@@ -388,7 +388,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         const blocks = JSON.parse(row.input ?? "[]") as Array<string>
         // Claude: an allowed owner, under the deployment's cap, with the route's sign-in; else the fallback model, or no turn.
         const owner = this.config().owner ?? ""
-        if (isClaude(row.model) && !(await this.holder().claudeTurn(owner).then((ok) => ok && this.holder().claudeAuth().then(() => true), () => false).catch(() => false))) {
+        if (isMetered(row.model) && !(await this.holder().claudeTurn(owner, row.model).then((ok) => ok && (!isClaude(row.model) || this.holder().claudeAuth().then(() => true)), () => false).catch(() => false))) {
           console.warn(AUTH_FAILED)
           if (!this.env.CHIEF_BRAIN_FALLBACK_MODEL) throw new Error(AUTH_FAILED)
           row.model = this.env.CHIEF_BRAIN_FALLBACK_MODEL

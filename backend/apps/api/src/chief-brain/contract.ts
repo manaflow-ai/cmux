@@ -134,29 +134,38 @@ export const LiveFrame = Schema.Union([StepDelta, RunActivity])
 export type LiveFrame = typeof LiveFrame.Type
 export const decodeLiveFrame = Schema.decodeUnknownExit(LiveFrame)
 
-/** A message the wake names (the owner's message id and seq). */
-export const MessageRef = Schema.Struct({ id: Schema.String, seq: Seq })
+// ---------------------------------------------------------------------------------------------- Chief Protocol v0
 
-/** One wake of a Chief in one conversation (MuxDO forwards committed `mux.wake` rows). */
-export const Wake = Schema.Struct({
-  agent: Schema.String,
-  owner: Schema.String,
-  conversation: Schema.String,
-  messages: Schema.Array(MessageRef),
-  wake_id: Schema.String
-})
-export type Wake = typeof Wake.Type
+/**
+ * Chief Protocol (CP) v0 messages, named by method (hq-1f PROTOCOL.md). The HOST owns conversations
+ * and fans out; the BRAIN runs the loop. Durable calls carry idempotency (run/step by run + step id,
+ * conversation/post by client_msg_id); run/delta and run/activity are ephemeral and the host projects
+ * them to clients as `step.delta` and `run.activity` above.
+ */
+export const WakeReason = Schema.Literals(["dm", "mention", "reply", "channel"])
+/** host -> brain (notification). The brain pulls messages with conversation/read after `cursor`. */
+export const ChiefWake = Schema.Struct({ wake_id: Schema.String, conversation: Schema.String, cursor: Seq, reason: WakeReason })
+/** brain -> host: the wake's outcome; unacked wakes are sent again after a reconnect. */
+export const ChiefAck = Schema.Struct({ wake_id: Schema.String, outcome: Schema.Literals(["answered", "skipped", "failed"]) })
+export const RunStartParams = Schema.Struct({ run: Run })
+export const RunStepParams = Schema.Struct({ run: RunId, step: Step })
+export const RunDeltaParams = Schema.Struct({ run: RunId, step: StepId, kind: LiveKind, seq: Seq, text: DeltaText, final: Schema.optionalKey(Schema.Literal(true)) })
+export const RunActivityParams = Schema.Struct({ run: RunId, line: ActivityLine, since: Ms })
+export const RunEndParams = Schema.Struct({ run: Run })
+export const ConversationPostParams = Schema.Struct({ conversation: Schema.String, client_msg_id: Schema.String, body: Schema.String, thread_root: Schema.optionalKey(Schema.String), run: Schema.optionalKey(RunId) })
 
-/** Everything one wake emits, in order: run.start, then steps/deltas/activity, run.end, message.send. */
-export const BrainEvent = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("run.start"), run: Run }),
-  Schema.Struct({ type: Schema.Literal("step.upsert"), run: RunId, step: Step }),
-  StepDelta,
-  RunActivity,
-  Schema.Struct({ type: Schema.Literal("run.end"), run: Run }),
-  Schema.Struct({ type: Schema.Literal("message.send"), conversation: Schema.String, body: Schema.String, client_msg_id: Schema.String })
+/** One brain output call: `{method, params}`; the order of one wake is run/start, run/step|delta|activity..., run/end, conversation/post. */
+export const BrainCall = Schema.Union([
+  Schema.Struct({ method: Schema.Literal("run/start"), params: RunStartParams }),
+  Schema.Struct({ method: Schema.Literal("run/step"), params: RunStepParams }),
+  Schema.Struct({ method: Schema.Literal("run/delta"), params: RunDeltaParams }),
+  Schema.Struct({ method: Schema.Literal("run/activity"), params: RunActivityParams }),
+  Schema.Struct({ method: Schema.Literal("run/end"), params: RunEndParams }),
+  Schema.Struct({ method: Schema.Literal("conversation/post"), params: ConversationPostParams }),
+  Schema.Struct({ method: Schema.Literal("chief/ack"), params: ChiefAck })
 ])
-export type BrainEvent = typeof BrainEvent.Type
+export type BrainCall = typeof BrainCall.Type
+export type ChiefWake = typeof ChiefWake.Type
 
 export const BrainErrorCode = Schema.Literals(["disabled", "chief_archived", "chief_placed", "daily_turn_limit", "credits_exhausted", "model_unavailable", "model_failed", "timeout", "owner.unreachable"])
 export class BrainError extends Schema.TaggedError<BrainError>()("BrainError", { code: BrainErrorCode, message: Schema.String }) {}
@@ -178,17 +187,20 @@ export const ChiefModelSettings = Schema.Struct({ model: ModelName, effort: Effo
 
 // ---------------------------------------------------------------------------------------------- services
 
-/** One brain implementation. `Providers`, `Hands` and `Credits` are what it may use. */
+/** One brain implementation: a wake in, its CP calls out. `ModelGateway`, `Hands` and `Credits` are what it may use. */
 export interface BrainShape {
-  readonly wake: (wake: Wake) => Stream.Stream<BrainEvent, BrainError, Providers | Hands | Credits>
+  readonly wake: (wake: ChiefWake) => Stream.Stream<BrainCall, BrainError, ModelGateway | Hands | Credits>
 }
 export class Brain extends Context.Service<Brain, BrainShape>()("cmux/chief/Brain") {}
 
-/** Model routes: resolves a model name to a streaming provider (Bedrock route, OpenRouter, fake). */
-export interface ProvidersShape {
+/**
+ * CP `model/stream` (host capability `model_gateway`): Cloud brains reach models only through the
+ * host, which owns keys, routes, caps and credits. Slice 2 fills the stream; today `offers` only.
+ */
+export interface ModelGatewayShape {
   readonly offers: (model: string) => boolean
 }
-export class Providers extends Context.Service<Providers, ProvidersShape>()("cmux/chief/Providers") {}
+export class ModelGateway extends Context.Service<ModelGateway, ModelGatewayShape>()("cmux/chief/ModelGateway") {}
 
 /**
  * Placeholder for worker H (HandDO): typed requests to one installed hand. H fills the request and

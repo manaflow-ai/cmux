@@ -11,8 +11,9 @@ export { LIVE_CAPABILITY } from "./chief-brain/contract.ts"
  *
  * Keys: a run id is unique per Chief, not per conversation (two Chiefs both have `run_1`), so runs
  * are keyed by author + id, and every frame the owner sends carries `author` (owner-stamped).
- * Bounds: 64 KiB of tail text per step, 64 steps per run, 32 live runs per conversation, a run with
- * no frame for an hour is dropped (a brain that died mid-run).
+ * Bounds: 64 KiB of tail text per step, 32 steps per run (the oldest step goes first), 8 live runs
+ * per conversation (the least recently touched goes first), a run with no frame for an hour is
+ * dropped (a brain that died mid-run). A thought step ends at its `final` delta (it has no Step row).
  */
 interface LiveStep {
   kind: "talk" | "thought"
@@ -29,8 +30,8 @@ interface LiveRun {
   touched: number
 }
 
-const MAX_STEPS = 64
-const MAX_RUNS = 32
+const MAX_STEPS = 32
+const MAX_RUNS = 8
 const MAX_ENDED = 256
 const STALE_MS = 60 * 60_000
 
@@ -71,7 +72,7 @@ export class LiveBuffer {
       if (r.done.has(f.step)) return null
       const s = r.steps.get(f.step)
       if (!s || f.seq === 0) {
-        if (!s && r.steps.size >= MAX_STEPS) return null
+        if (!s && r.steps.size >= MAX_STEPS) r.steps.delete(r.steps.keys().next().value!)
         reset = s !== undefined
         r.steps.set(f.step, { kind: f.kind, seq: f.seq, text: tail(f.text) })
       } else {
@@ -79,6 +80,8 @@ export class LiveBuffer {
         s.seq = f.seq
         s.text = tail(s.text + f.text)
       }
+      // A thought has no Step row: its final delta ends it (a talk step ends at its row).
+      if (f.final && f.kind === "thought") [r.steps.delete(f.step), r.done.add(f.step)]
     }
     return { frame: JSON.stringify({ t: f.type, ...f, author }), reset }
   }
@@ -94,11 +97,13 @@ export class LiveBuffer {
       if (this.ended.size > MAX_ENDED) this.ended.delete(this.ended.values().next().value!)
       return
     }
-    const r = this.runs.get(key)
+    // A row can overtake the first live frame: remember it so a late delta cannot open the step again.
+    let r = this.runs.get(key)
+    if (!r && steps.length > 0) this.runs.set(key, (r = { author, run: r0.id, steps: new Map(), done: new Set(), touched: this.now() }))
     if (!r) return
     for (const s of steps) {
       const id = (s as { id?: unknown; kind?: unknown } | null)?.id
-      if (typeof id === "string" && r.steps.delete(id)) r.done.add(id)
+      if (typeof id === "string" && (id.startsWith("talk:") || id.startsWith("thought:"))) [r.steps.delete(id), r.done.add(id)]
     }
   }
 

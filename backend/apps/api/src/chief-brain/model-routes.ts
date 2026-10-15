@@ -27,21 +27,28 @@ export const CLAUDE_NAMES = [OPUS, SONNET, HAIKU] as const
 const DEFAULT_CLAUDE_URL = "https://chatmux.dev/api/claude-david"
 export const OPENROUTER_PREFIX = "openrouter:"
 const DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1"
-/** Claude models the background compactor may use (never Opus: it runs often and bills a person's route). */
-const COMPACTOR_CLAUDE = new Set<string>([HAIKU])
 
 export const isClaude = (name: string | undefined | null): name is string => typeof name === "string" && (CLAUDE_NAMES as ReadonlyArray<string>).includes(name)
 export const isOpenRouter = (name: string | undefined | null): name is string => typeof name === "string" && name.startsWith(OPENROUTER_PREFIX)
+/** A model billed to a deployment account (Claude route or OpenRouter): allow-list, holder cap, never the compactor. */
+export const isMetered = (name: string | undefined | null): name is string => isClaude(name) || isOpenRouter(name)
 
 export interface ClaudeRoute {
   readonly url: string
   readonly auth: "stack" | "bearer"
   readonly models: ReadonlyArray<string>
+  /**
+   * Send effort (`output_config`) and `thinking.display` in the Bedrock body. Off by default on the
+   * `stack` route: the Chatmux route drops `output_config` and the extended body is not yet proven
+   * there; on by default for a `bearer` route; CHIEF_BRAIN_CLAUDE_EFFORT_BODY "1"/"0" overrides.
+   */
+  readonly effortBody: boolean
 }
 export const claudeRoute = (env: Env): ClaudeRoute => ({
   url: env.CHIEF_BRAIN_CLAUDE_URL || DEFAULT_CLAUDE_URL,
   auth: env.CHIEF_BRAIN_CLAUDE_AUTH === "bearer" ? "bearer" : "stack",
-  models: (env.CHIEF_BRAIN_CLAUDE_MODELS || OPUS).split(",").map((s) => s.trim()).filter(isClaude)
+  models: (env.CHIEF_BRAIN_CLAUDE_MODELS || OPUS).split(",").map((s) => s.trim()).filter(isClaude),
+  effortBody: env.CHIEF_BRAIN_CLAUDE_EFFORT_BODY ? env.CHIEF_BRAIN_CLAUDE_EFFORT_BODY === "1" : env.CHIEF_BRAIN_CLAUDE_AUTH === "bearer"
 })
 export const openRouterUrl = (env: Env): string => env.OPENROUTER_BASE_URL || DEFAULT_OPENROUTER_URL
 
@@ -74,9 +81,10 @@ export type Refusal = { readonly ok: false; readonly code: string; readonly mess
 
 /** Why an owner's patch may not use its models here, or null (names are already valid). */
 export const modelRefusal = (env: Env, owner: string, patch: { readonly model?: unknown; readonly compactor_model?: unknown }): Refusal | null => {
+  // The compactor runs in the background with no per-call cap: never on a metered model until the
+  // model gateway with prepaid credits meters it (then Haiku is its default where the route serves it).
   const c = patch.compactor_model
-  if (typeof c === "string" && (isClaude(c) || isOpenRouter(c)) && !(COMPACTOR_CLAUDE.has(c) && offers(env, c) && meteredOwner(env, owner)))
-    return { ok: false, code: "validation.invalid", message: `the compactor cannot run on ${c} here` }
+  if (typeof c === "string" && isMetered(c)) return { ok: false, code: "validation.invalid", message: `the compactor cannot run on ${c} here` }
   const m = patch.model
   if (typeof m !== "string" || (!isClaude(m) && !isOpenRouter(m))) return null
   if (!offers(env, m) || !meteredOwner(env, owner))
@@ -84,9 +92,8 @@ export const modelRefusal = (env: Env, owner: string, patch: { readonly model?: 
   return null
 }
 
-/** The compactor's default: CHIEF_BRAIN_COMPACTOR_MODEL, else Haiku when the Claude route serves it, else the fallback. */
-export const compactorDefault = (env: Env, turnModel: string, fallback: string): string =>
-  env.CHIEF_BRAIN_COMPACTOR_MODEL || (isClaude(turnModel) || isOpenRouter(turnModel) ? (offers(env, HAIKU) ? HAIKU : fallback) : turnModel) || "fake"
+/** The compactor's default: CHIEF_BRAIN_COMPACTOR_MODEL (never metered), else the turn model when it is not metered, else the fallback. */
+export const compactorDefault = (env: Env, turnModel: string, fallback: string): string => compactorModel(env, env.CHIEF_BRAIN_COMPACTOR_MODEL || turnModel, fallback) || "fake"
 
-/** The compactor's model at run time: a metered model the route stopped serving falls back. */
-export const compactorModel = (env: Env, set: string, fallback: string): string => ((isClaude(set) || isOpenRouter(set)) && !(COMPACTOR_CLAUDE.has(set) && offers(env, set)) ? fallback : set)
+/** The compactor's model at run time: a metered model becomes the fallback (see modelRefusal). */
+export const compactorModel = (_env: Env, set: string, fallback: string): string => (isMetered(set) ? fallback : set)

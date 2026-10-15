@@ -19,6 +19,8 @@ type Msg = { role: string; content: string | Array<Block>; output_config?: unkno
 export interface BedrockBodyOptions {
   /** Keep the body's `model` (a route that serves more than one model reads it). */
   readonly keepModel?: boolean
+  /** Send the turn's effort (`output_config`) and `thinking.display`; else Bedrock's proven minimal body. */
+  readonly effort?: boolean
   /** Prompt cache TTL for every cache mark (default "1h"; "5m" keeps Bedrock's default). */
   readonly ttl?: string
 }
@@ -29,8 +31,9 @@ const MAX_MARKS = 4
  * The Messages request body as Bedrock takes it (JSON in, JSON out); a body that is not JSON is
  * passed through. The client's newer shape (system as a `system` role message with
  * `output_config`, adaptive thinking with extra fields) becomes the shape Bedrock validates:
- * top-level `system` blocks, plain messages, `thinking: {type: "adaptive", display?}`, and the turn's
- * effort as top-level `output_config: {effort}` (Bedrock's field for adaptive Claude; a route may drop it).
+ * top-level `system` blocks, plain messages, `thinking: {type: "adaptive"}`; with `effort`, also
+ * `thinking.display` and the turn's effort as top-level `output_config: {effort}` (Bedrock's field for
+ * adaptive Claude; the Chatmux route drops it).
  *
  * Cache: every cache mark gets the TTL (default 1 h, so the system prompt and the memory prefix
  * survive between turns), and the first user message gets one more mark at the end of its last
@@ -51,8 +54,8 @@ export const bedrockBody = (raw: string, opts: BedrockBodyOptions = {}): string 
     if (system.length > 0) out.system = system
     else delete out.system
     const thinking = body.thinking as { type?: string; display?: unknown } | undefined
-    if (thinking?.type === "adaptive") out.thinking = { type: "adaptive", ...(typeof thinking.display === "string" ? { display: thinking.display } : {}) }
-    if (typeof effort?.effort === "string" && out.thinking) out.output_config = { effort: effort.effort }
+    if (thinking?.type === "adaptive") out.thinking = { type: "adaptive", ...(opts.effort === true && typeof thinking.display === "string" ? { display: thinking.display } : {}) }
+    if (opts.effort === true && typeof effort?.effort === "string" && out.thinking) out.output_config = { effort: effort.effort }
     markCache(out, opts.ttl ?? "1h")
     return JSON.stringify(out)
   } catch {

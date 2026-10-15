@@ -220,6 +220,8 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_TOKEN?: string
   /** Claude names the route serves, comma separated (default "claude-opus-5-5"). */
   readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
+  /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */
+  readonly CHIEF_BRAIN_CLAUDE_EFFORT_BODY?: string
   /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
   readonly CHIEF_BRAIN_CACHE_TTL?: string
   /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */

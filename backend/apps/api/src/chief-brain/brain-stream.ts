@@ -97,6 +97,18 @@ export class BrainStream {
     this.setActivity("Thinking")
   }
 
+  /** Runs `send` after every live frame queued so far (run changes go out behind the deltas they end). */
+  after(send: () => Promise<void>): Promise<void> {
+    const next = this.chain.then(send).catch(() => undefined)
+    this.chain = next
+    return next
+  }
+
+  /** A "working on" line from outside the model stream (Hands tools: "Editing src/app.ts in sb-3"). */
+  activity(line: string): void {
+    if (this.target().run === this.run) this.setActivity(line)
+  }
+
   /** Every event of the turn's model stream (models.ts taps `streamSimple`). */
   event(e: AssistantMessageEvent): void {
     if (!this.run || !this.generation || this.target().run !== this.run) return
