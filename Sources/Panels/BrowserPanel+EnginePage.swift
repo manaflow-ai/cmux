@@ -285,6 +285,7 @@ extension BrowserPanel {
 
     /// Closes the non-WebKit page and stops mirroring it. Idempotent.
     func closeEnginePage() {
+        cancelChromiumHangRecovery()
         enginePageEventsTask?.cancel()
         enginePageEventsTask = nil
         enginePage?.close()

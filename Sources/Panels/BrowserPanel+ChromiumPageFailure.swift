@@ -19,8 +19,13 @@ extension BrowserPanel {
             BrowserCrashLog.app.append(BrowserCrashRecord(
                 processType: "renderer", kind: exit.kind, status: exit.status, panelID: id, source: .engine
             ))
-        case .navigationCommitted:
+        case .navigationStarted, .navigationCommitted:
+            // A new main-frame document: CEF reports its commit as
+            // navigationStarted (OnLoadStart, which runs after the commit).
             enginePageCommitCount &+= 1
+            chromiumPageFailure.apply(.navigationCommitted(nil), at: now, paneVisible: isEnginePageVisible)
+            finishChromiumHangRecoveryIfNeeded(after: event)
+            return
         case .unresponsiveChanged:
             break
         default:
@@ -65,10 +70,11 @@ extension BrowserPanel {
             enginePage.reload()
         case .unresponsive?:
             chromiumPageFailure.answeredUnresponsive(terminate: false)
+            pendingChromiumHangRecovery = nil
             enginePage.answerUnresponsive(terminate: false)
             // A hang cmux found itself (no input, so no Chromium callback to
             // restart): check again, so the card returns if the page still spins.
-            probeChromiumResponsiveness(recovering: nil)
+            probeChromiumResponsiveness()
         case nil:
             break
         }
