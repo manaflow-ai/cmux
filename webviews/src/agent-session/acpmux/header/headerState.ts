@@ -35,6 +35,9 @@ export interface HeaderState {
   readonly lit: readonly string[];
   /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
   readonly floatingChat: boolean;
+  /// Debug Settings' Side sessions (/btw) is on (`agentPane.debug.sideSessions`): the composer offers `/btw`
+  /// (aside/sideSessions.ts). Anything but `true` is off, so an app that never sends it keeps it off.
+  readonly sideSessions: boolean;
   /// The header offers the session side rail (Debug Settings `agent.sessionRail`, cx-ncc.101).
   readonly sessionRail: boolean;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
@@ -48,6 +51,7 @@ let current: HeaderState = {
   sideTabs: false,
   lit: [],
   floatingChat: false,
+  sideSessions: false,
   sessionRail: false,
   version: 0,
 };
@@ -60,6 +64,7 @@ export function setHeaderState(value: unknown): void {
     sideTabs?: unknown;
     lit?: unknown;
     floatingChat?: unknown;
+    sideSessions?: unknown;
     sessionRail?: unknown;
     pullRequest?: unknown;
     version?: unknown;
@@ -71,6 +76,7 @@ export function setHeaderState(value: unknown): void {
     sideTabs: typeof raw.sideTabs === "boolean" ? raw.sideTabs : current.sideTabs,
     lit: Array.isArray(raw.lit) ? raw.lit.filter((id): id is string => typeof id === "string") : current.lit,
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
+    sideSessions: raw.sideSessions === true,
     sessionRail: typeof raw.sessionRail === "boolean" ? raw.sessionRail : current.sessionRail,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     version,

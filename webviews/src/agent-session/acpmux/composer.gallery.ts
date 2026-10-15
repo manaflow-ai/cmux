@@ -28,6 +28,18 @@ const finished = [
   summary(9, { status: "completed" }),
 ];
 
+// A side session `/btw` opened: the question and its answer, its composer replying in it.
+const sideSession = (() => {
+  const side = chat(
+    [
+      user("Why did the retry test flake?", 2),
+      assistant("The backoff timer raced the mocked clock: the first retry waited 0 ms.", 1),
+    ],
+    { title: "Why did the retry test flake?", model: "claude-haiku-4-5" },
+  );
+  return { ...side, sessions: side.sessions.map((entry) => ({ ...entry, side: true })) };
+})();
+
 const composerControls = {
   configOptions: [
     {
@@ -115,6 +127,10 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    "side-session": {
+      note: "A side session (/btw): the empty prompt reads Reply in this session…, and /btw is not offered in it.",
+      snapshot: sideSession,
     },
     "new-chat-reasoning": {
       note: "Play: a new chat on a harness no chat has shown here yet names the level acpmux starts it on (Medium) before its session reports, never nothing.",
