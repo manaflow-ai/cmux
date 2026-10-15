@@ -286,6 +286,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The history page size and the most records to keep on attach.
     static let pageSize = 400
     static let maxHistory = 2000
+    /// The records a chat shows: acpmux's `transcript`, and by name the queue changes
+    /// (Edit queued prompt, Move up / down, a held queue) that an older Mac's
+    /// `transcript` leaves out, so the queue rows follow the Mac's queue.
+    static let chatKinds: JSONValue = .array(
+        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed"].map { .string($0) })
 
     init(hub: AcpmuxHub, sessionID: String, summary: AgentSessionSummary) {
         self.hub = hub
@@ -560,7 +565,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             var params: [String: JSONValue] = [
                 "sessionId": .string(sessionID),
                 "limit": .number(Double(Self.pageSize)),
-                "kinds": .array([.string("transcript")]),
+                "kinds": Self.chatKinds,
                 "eventStream": .bool(true),
             ]
             if lastSeq > 0 { params["afterSeq"] = .number(Double(lastSeq)) }
@@ -571,7 +576,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 while page.count < Self.maxHistory, let oldest = page.first?["seq"]?.numberValue {
                     let older = try await hub.request("_acpmux/events", .object([
                         "sessionId": .string(sessionID), "beforeSeq": .number(oldest),
-                        "limit": .number(Double(Self.pageSize)), "kinds": .array([.string("transcript")]),
+                        "limit": .number(Double(Self.pageSize)), "kinds": Self.chatKinds,
                     ]))
                     let events = older["events"]?.arrayValue ?? []
                     page = events + page

@@ -85,7 +85,7 @@ def type_send(j, text):
     """The chat composer (also while a turn runs), then Send."""
     s = j.sim
     f = (s.wait(kind="TextView", timeout=4) or s.wait(kind="TextField", timeout=2)
-         or s.wait(prefix="Reply to", kind="Button", timeout=8))
+         or s.wait(contains="Reply to", kind="Button", timeout=8))
     # While a reply streams the accessibility tree can come back empty: the composer is
     # where it always is (above the toolbar).
     # Never a blind tap: the permission bar takes the composer's place (its Deny is there).
@@ -101,10 +101,14 @@ def type_send(j, text):
 
 
 def queued_row(j, word):
+    """A queued prompt's row: its text beside a "Remove queued message" button (the
+    workspace page's identifier covers the row's own `chat.queued`)."""
     s = j.sim
-    rows = s.find(ident="chat.queued")
-    for e in s.find(contains=word):
-        if e.ident == "chat.queued" or any(r.frame[1] <= e.center[1] <= r.frame[1] + r.frame[3] for r in rows):
+    els = s.find()
+    xs = [e for e in els if e.label == "Remove queued message"]
+    for e in els:
+        if word in (e.label or "") and e.kind == "StaticText" and \
+                any(abs(x.center[1] - e.center[1]) < 16 for x in xs):
             return e
     return None
 
@@ -157,10 +161,7 @@ def flow_queue():
                     face_id(True)
                     time.sleep(2)
                     continue
-            elif x.get("turn") and "wait90" in json.dumps(x.get("turn")) + json.dumps(x.get("lastMessage")) and \
-                    s.find(prefix="Reply to", kind="Button"):
-                break
-            elif x.get("turn") and s.find(prefix="Reply to", kind="Button") and time.time() - t0 > 20:
+            elif x.get("turn") and s.find(label="Running, ./wait90.sh") and s.find(contains="Reply to", kind="Button"):
                 break
             time.sleep(1)
         check((session(sid) or {}).get("turn"), "the turn ended before the second prompt (the command did not wait)")
@@ -179,8 +180,11 @@ def flow_queue():
         hold_menu(j, queued_row(j, "QUEUED-ALPHA"), "Edit queued prompt")
         field = s.wait(kind="TextField", timeout=5) or s.wait(kind="TextView", timeout=3)
         check(field, "no edit field")
-        s.tap_el(field)
+        # The caret at the end of the old text (a tap in the middle puts it there).
+        fx, fy, fw, fh = field.frame
+        s.tap(fx + fw - 6, fy + fh / 2)
         time.sleep(0.5)
+        pq.subprocess.run(["axe", "key", "77", "--udid", pq.load()["udid"]], capture_output=True, timeout=20)
         for _ in range(len("ALPHA")):
             pq.subprocess.run(["axe", "key", "42", "--udid", pq.load()["udid"]], capture_output=True, timeout=20)
         pq.type_text("BRAVO")
