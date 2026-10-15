@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBookmarks
 import CmuxNextDaemon
+@testable import CmuxNextDaemonRecovery
 @testable import CmuxNextDesign
 @testable import CmuxNextHistory
 @testable import CmuxNextTerminal

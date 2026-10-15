@@ -53,6 +53,10 @@ public final class AppStoreModel {
     /// Called after every page navigation (the titlebar arrows re-read
     /// ``canGoBack`` and ``canGoForward``).
     @ObservationIgnored public var onNavigate: (() -> Void)?
+    /// The App's recovery controls for the disconnected banner while
+    /// cmux-tui is not connected (Retry Now, Restart cmux-tui); read in the
+    /// banner's body, so it follows what they observe. Nil offers none.
+    @ObservationIgnored public var recovery: (() -> AppsRecovery)?
     @ObservationIgnored private let removalTimer = DemandTimer(owner: "AppStoreModel.removal")
     @ObservationIgnored private var removalWasEnabled = true
     /// How long a Remove can be undone before it is committed.
