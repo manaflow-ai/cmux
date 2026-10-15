@@ -54,7 +54,7 @@ ${css}
   <span class="acpmux-picker acpmux-composer-plus"><button class="acpmux-picker-button" style="width:28px">+</button></span>
   <div class="acpmux-chips">
   <span class="acpmux-picker acpmux-model" style="position:relative">
-    <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
+    <button class="acpmux-picker-button"><span class="acpmux-model-name" data-fit-part="model" data-fit-forms="full">GPT-6-Astra</span></button>
     <div class="ui-popup ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
       <div class="acpmux-mp-rail-scroll w-11 flex-none">
         <div class="acpmux-mp-rail-viewport" style="overflow:scroll">
@@ -80,7 +80,7 @@ ${css}
   <span class="acpmux-mode acpmux-access">
     <button class="acpmux-picker-button acpmux-access-trigger">
       <span class="acpmux-icon" style="width:16px;height:16px"></span>
-      <span class="acpmux-mode-text">Ask before edits</span>
+      <span class="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">Ask before edits</span>
       <span class="acpmux-icon" style="width:12px;height:12px"></span>
     </button>
   </span>
