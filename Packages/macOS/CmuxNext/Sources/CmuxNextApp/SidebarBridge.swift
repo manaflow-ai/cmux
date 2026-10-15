@@ -229,12 +229,12 @@ final class SidebarBridge {
     private func showProfiles(_ profiles: [SidebarProfile], active: SidebarProfileKey?, launching: Bool) {
         if launching, profiles.isEmpty, let seededProfiles {
             if model.profiles != seededProfiles.profiles { model.profiles = seededProfiles.profiles }
-            if model.activeProfileID != seededProfiles.active { model.activeProfileID = seededProfiles.active }
+            model.restoreActiveProfile(seededProfiles.active)
             return
         }
-        seededProfiles = nil
         if model.profiles != profiles { model.profiles = profiles }
-        if model.activeProfileID != active { model.activeProfileID = active }
+        if seededProfiles != nil { model.restoreActiveProfile(active) } else if model.activeProfileID != active { model.activeProfileID = active }
+        seededProfiles = nil
         // `show` records the snapshot right after, with the new space's rows.
     }
 

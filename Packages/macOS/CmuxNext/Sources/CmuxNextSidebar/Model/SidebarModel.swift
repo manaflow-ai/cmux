@@ -55,11 +55,11 @@ public final class SidebarModel {
         get { if case .workspace(let id)? = selectedItem { id } else { nil } }
         set { selectedItem = newValue.map(SidebarItem.workspace) }
     }
-    /// Profiles in order (the bar at the bottom center). The bar hides
-    /// while there is at most one.
+    /// Profiles in order (the bar at the bottom center; it hides while there is at most one).
     public var profiles: [SidebarProfile] = []
     /// The profile this window shows.
     public var activeProfileID: ProfileKey?
+    @ObservationIgnored var restoresActiveProfile = false // SidebarModel+Restore.swift
     /// The section layout to draw (plans/cmux-next/sidebar-sections.md):
     /// the App fills it with the store's document plus pending intents.
     public var layout: SidebarLayoutDocument = .defaults
