@@ -48,12 +48,31 @@ def test_open_params_are_scoped_per_engine() -> None:
     assert parsed == {"chromium": {"engine": "chromium", "focus": True}, "webkit": {"profile": "Work"}}
 
 
-def test_untagged_bundle_is_refused() -> None:
-    try:
-        bench.TaggedApp(Path("/Applications/cmux.app"), "x", Path(tempfile.gettempdir()))
-    except bench.BenchFailure:
-        return
-    raise AssertionError("an untagged bundle must be refused")
+def test_open_params_fall_back_to_plain_strings() -> None:
+    parsed = bench.parse_open_params(["webkit:profile=team", "webkit:name=", "webkit:id=1abc"])
+    assert parsed == {"webkit": {"profile": "team", "name": "", "id": "1abc"}}
+
+
+def test_only_the_matching_tagged_bundle_is_accepted() -> None:
+    workdir = Path(tempfile.gettempdir())
+    for app, tag in [
+        ("/Applications/cmux.app", "x"),
+        ("/tmp/cmux DEV perf.app", "p"),
+        ("/tmp/cmux DEV perf.app", ""),
+    ]:
+        try:
+            bench.TaggedApp(Path(app), tag, workdir)
+        except bench.BenchFailure:
+            continue
+        raise AssertionError(f"{app} with tag {tag!r} must be refused")
+    app = bench.TaggedApp(Path("/tmp/cmux DEV cef-perf.app"), "CEF Perf", workdir)
+    assert app.tag == "cef-perf"
+    assert str(app.socket_path) == "/tmp/cmux-debug-cef-perf.sock"
+    assert app.bundle_id == "com.cmuxterm.app.debug.cef.perf"
+
+
+def test_sibling_bundle_paths_are_not_inside_the_app() -> None:
+    assert bench.classify("/tmp/apps/cmux DEV perf.app2/Contents/MacOS/x Helper", APP) == "other"
 
 
 def test_compare_renders_every_engine_row() -> None:
@@ -64,7 +83,7 @@ def test_compare_renders_every_engine_row() -> None:
                                                                "chromium_processes": 0,
                                                                "chromium_framework_mapped": False}},
         "key_latency_ms_no_browser": {"p50": 1.0, "p95": 2.0},
-        "engines": {"webkit": {"first_page_load_ms": 500.0, "memory_per_tab_bytes": 1048576,
+        "engines": {"webkit": {"first_page_load_ms": 500.0, "memory_per_tab_bytes": {"engine_processes": 1048576, "app": -1048576},
                                "snapshot": {"webkit_processes": 2}}},
     }
     with tempfile.TemporaryDirectory() as tmp:
@@ -78,12 +97,16 @@ def test_compare_renders_every_engine_row() -> None:
     assert "| Idle Chromium helper processes | 0 |" in table
     assert "| webkit: first page load (ms) | 500.0 |" in table
     assert "| webkit: engine processes | 2 |" in table
+    assert "| webkit: memory per tab, engine processes | 1.0 MB |" in table
+    assert "| webkit: memory per tab, app process | -1.0 MB |" in table
 
 
 if __name__ == "__main__":
     test_classify_separates_engines_from_app_processes()
     test_stats_percentiles_interpolate()
     test_open_params_are_scoped_per_engine()
-    test_untagged_bundle_is_refused()
+    test_open_params_fall_back_to_plain_strings()
+    test_only_the_matching_tagged_bundle_is_accepted()
+    test_sibling_bundle_paths_are_not_inside_the_app()
     test_compare_renders_every_engine_row()
     print("ok")

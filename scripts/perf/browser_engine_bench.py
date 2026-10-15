@@ -132,15 +132,16 @@ def list_processes() -> list[tuple[int, int, str]]:
 def classify(path: str, app_path: str) -> str:
     if any(marker in path for marker in WEBKIT_PROCESS_MARKERS):
         return "webkit"
-    if path.startswith(app_path) and "Helper" in os.path.basename(path):
+    inside = path.startswith(app_path.rstrip("/") + "/")
+    if inside and "Helper" in os.path.basename(path):
         return "chromium"
-    if path.startswith(app_path):
+    if inside:
         return "app_aux"
     return "other"
 
 
-def process_tree(app_pid: int, app_path: str) -> dict[str, list[dict[str, Any]]]:
-    """Every process the app is responsible for (children and XPC services)."""
+def app_processes(app_pid: int, app_path: str) -> list[tuple[int, str]]:
+    """Every process the app is responsible for (children and XPC services), with its group."""
     rows = list_processes()
     children: dict[int, list[int]] = {}
     for pid, ppid, _ in rows:
@@ -152,18 +153,23 @@ def process_tree(app_pid: int, app_path: str) -> dict[str, list[dict[str, Any]]]
             if child not in descendants:
                 descendants.add(child)
                 stack.append(child)
-    groups: dict[str, list[dict[str, Any]]] = {"webkit": [], "chromium": [], "app_aux": [], "other": []}
+    found = []
     for pid, _ppid, path in rows:
         if pid == app_pid:
             continue
-        if pid not in descendants and responsible_pid(pid) != app_pid:
-            continue
+        if pid in descendants or responsible_pid(pid) == app_pid:
+            found.append((pid, path))
+    return found
+
+
+def process_tree(app_pid: int, app_path: str) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {"webkit": [], "chromium": [], "app_aux": [], "other": []}
+    for pid, path in app_processes(app_pid, app_path):
         info = rusage(pid)
         groups[classify(path, app_path)].append({
             "pid": pid,
             "name": os.path.basename(path),
             "footprint_bytes": int(info.ri_phys_footprint) if info else 0,
-            "cpu_ns": cpu_ns(info) if info else 0.0,
         })
     return groups
 
@@ -173,33 +179,54 @@ def chromium_framework_mapped(pid: int) -> bool:
     return CHROMIUM_FRAMEWORK in out
 
 
+def app_footprint_median(app_pid: int, samples: int = 5, interval_s: float = 0.4) -> int:
+    """The app's footprint as the median of a few reads: Debug builds allocate and free
+    hundreds of MB in background work, so one read is too noisy to diff."""
+    reads = []
+    for index in range(samples):
+        info = rusage(app_pid)
+        reads.append(int(info.ri_phys_footprint) if info else 0)
+        if index < samples - 1:
+            time.sleep(interval_s)
+    return int(statistics.median(reads))
+
+
 def engine_snapshot(app_pid: int, app_path: str) -> dict[str, Any]:
-    info = rusage(app_pid)
     groups = process_tree(app_pid, app_path)
     return {
-        "app_footprint_bytes": int(info.ri_phys_footprint) if info else 0,
-        "app_cpu_ns": cpu_ns(info) if info else 0.0,
+        "app_footprint_bytes": app_footprint_median(app_pid),
         "webkit_processes": len(groups["webkit"]),
         "webkit_footprint_bytes": sum(p["footprint_bytes"] for p in groups["webkit"]),
-        "webkit_cpu_ns": sum(p["cpu_ns"] for p in groups["webkit"]),
         "chromium_processes": len(groups["chromium"]),
         "chromium_footprint_bytes": sum(p["footprint_bytes"] for p in groups["chromium"]),
-        "chromium_cpu_ns": sum(p["cpu_ns"] for p in groups["chromium"]),
         "chromium_process_names": sorted({p["name"] for p in groups["chromium"]}),
         "chromium_framework_mapped": chromium_framework_mapped(app_pid),
     }
 
 
+def cpu_sample(processes: list[tuple[int, str]]) -> tuple[float, dict[int, tuple[str, float]]]:
+    """CPU time per pid, read in one tight pass and stamped at its midpoint."""
+    start = time.perf_counter()
+    sample = {}
+    for pid, group in processes:
+        info = rusage(pid)
+        if info is not None:
+            sample[pid] = (group, cpu_ns(info))
+    return (start + time.perf_counter()) / 2, sample
+
+
 def cpu_percent_over(app_pid: int, app_path: str, seconds: float) -> dict[str, float]:
-    before = engine_snapshot(app_pid, app_path)
+    """CPU use per group over a window, counting only processes alive at both ends."""
+    processes = [(app_pid, "app")] + [(pid, classify(path, app_path)) for pid, path in app_processes(app_pid, app_path)]
+    t0, before = cpu_sample(processes)
     time.sleep(seconds)
-    after = engine_snapshot(app_pid, app_path)
-    window_ns = seconds * 1e9
-
-    def pct(key: str) -> float:
-        return round(max(0.0, after[key] - before[key]) / window_ns * 100.0, 2)
-
-    return {"app": pct("app_cpu_ns"), "webkit": pct("webkit_cpu_ns"), "chromium": pct("chromium_cpu_ns")}
+    t1, after = cpu_sample(processes)
+    window_ns = (t1 - t0) * 1e9
+    totals = {"app": 0.0, "webkit": 0.0, "chromium": 0.0}
+    for pid, (group, used) in after.items():
+        if pid in before and group in totals:
+            totals[group] += max(0.0, used - before[pid][1])
+    return {group: round(value / window_ns * 100.0, 2) for group, value in totals.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +306,7 @@ class FixtureServer:
 
     def __exit__(self, *_exc: Any) -> None:
         self.httpd.shutdown()
+        self.httpd.server_close()
 
     def url(self, name: str) -> str:
         return f"http://127.0.0.1:{self.httpd.server_address[1]}/{name}"
@@ -320,12 +348,13 @@ class BenchFailure(RuntimeError):
 
 class TaggedApp:
     def __init__(self, app: pathlib.Path, tag: str, workdir: pathlib.Path) -> None:
-        if not tag.strip() or not app.name.startswith("cmux DEV ") or tag not in app.name:
-            raise BenchFailure(f"refusing to bench an untagged bundle: {app}")
+        slug = sanitize(tag, "-") if tag.strip() else ""
+        if not slug or app.name != f"cmux DEV {slug}.app":
+            raise BenchFailure(f"refusing to bench {app}: expected a tagged 'cmux DEV {slug or '<tag>'}.app'")
         self.app = app
-        self.tag = tag
-        slug = sanitize(tag, "-")
+        self.tag = slug
         self.bundle_id = f"com.cmuxterm.app.debug.{sanitize(tag, '.')}"
+        self.executable = app / "Contents/MacOS/cmux DEV"
         # Tagged Debug builds bind this path (scripts/reload.sh, perf-activation-session.py).
         self.socket_path = pathlib.Path(f"/tmp/cmux-debug-{slug}.sock")
         self.debug_log = workdir / f"bench-{slug}.log"
@@ -342,7 +371,15 @@ class TaggedApp:
             "CMUX_BUNDLE_ID": self.bundle_id,
         }
 
+    def running_pids(self) -> set[int]:
+        # `comm` is the executable path; resolve /tmp -> /private/tmp before comparing.
+        target = os.path.realpath(self.executable)
+        return {pid for pid, _ppid, path in list_processes() if os.path.realpath(path) == target}
+
     def launch(self, timeout: float) -> float:
+        # Never touch an instance someone else launched from this bundle.
+        if self.running_pids():
+            raise BenchFailure(f"{self.app.name} is already running; quit it before benchmarking")
         self.socket_path.unlink(missing_ok=True)
         cmd = ["open", "-g", "-n", "-F", "-a", str(self.app)]
         for key, value in self.env().items():
@@ -350,24 +387,24 @@ class TaggedApp:
         start = time.perf_counter()
         subprocess.run(cmd, check=True)
         deadline = start + timeout
-        while time.perf_counter() < deadline:
-            if self.socket_path.exists():
-                try:
-                    self.cli_json(["list-workspaces"], timeout=5)
-                    elapsed = (time.perf_counter() - start) * 1000
-                    self.pid = self.find_pid()
-                    return elapsed
-                except BenchFailure:
-                    pass
-            time.sleep(0.05)
-        raise BenchFailure(f"socket {self.socket_path} not ready after {timeout}s")
-
-    def find_pid(self) -> int:
-        out = subprocess.run(["lsof", "-t", str(self.socket_path)], capture_output=True, text=True).stdout
-        for line in out.split():
-            if int(line) != os.getpid():
-                return int(line)
-        raise BenchFailure("could not resolve the tagged app pid from its socket")
+        try:
+            while time.perf_counter() < deadline:
+                if self.pid is None:
+                    started = self.running_pids()
+                    if len(started) > 1:
+                        raise BenchFailure(f"more than one {self.app.name} process: {sorted(started)}")
+                    self.pid = next(iter(started), None)
+                elif self.socket_path.exists():
+                    try:
+                        self.cli_json(["list-workspaces"], timeout=5)
+                        return (time.perf_counter() - start) * 1000
+                    except BenchFailure:
+                        pass
+                time.sleep(0.05)
+            raise BenchFailure(f"socket {self.socket_path} not ready after {timeout}s")
+        except BaseException:
+            self.quit()
+            raise
 
     def quit(self) -> None:
         pid, self.pid = self.pid, None
@@ -375,17 +412,13 @@ class TaggedApp:
             return
         try:
             os.kill(pid, 15)
-        except ProcessLookupError:
-            return
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            try:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
                 os.kill(pid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.1)
-        else:
+                time.sleep(0.1)
             os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
         self.socket_path.unlink(missing_ok=True)
 
     def cli_env(self) -> dict[str, str]:
@@ -473,17 +506,20 @@ def parse_open_params(raw: list[str]) -> dict[str, dict[str, Any]]:
         key, _, value = pair.partition("=")
         if not engine or not key:
             raise SystemExit(f"--open-param expects <engine>:<key>=<value>, got {item!r}")
-        result.setdefault(engine, {})[key] = json.loads(value) if value[:1] in "[{\"0123456789tfn" else value
+        try:
+            parsed: Any = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = value
+        result.setdefault(engine, {})[key] = parsed
     return result
 
 
 def key_latency(app: TaggedApp, args: argparse.Namespace) -> dict[str, Any]:
-    best: dict[str, float] | None = None
+    """Every repeat's samples pooled, so one quiet or noisy burst cannot pick the result."""
+    samples: list[float] = []
     for _ in range(args.key_repeats):
-        run = stats(app.raw_command_burst(f"simulate_shortcut {args.key_combo}", args.key_events))
-        if best is None or run["p95"] < best["p95"]:
-            best = run
-    return best or {}
+        samples += app.raw_command_burst(f"simulate_shortcut {args.key_combo}", args.key_events)
+    return stats(samples)
 
 
 def open_tab(app: TaggedApp, workspace: str, url: str, params: dict[str, Any], timeout_ms: int) -> tuple[str, float, float]:
@@ -515,18 +551,27 @@ def run_engine(app: TaggedApp, engine: str, params: dict[str, Any], server: Fixt
     result["open_rpc_ms"] = stats(opens)
     time.sleep(args.settle_s)
     after = engine_snapshot(app.pid, str(app.app))
-    engine_bytes = (after["webkit_footprint_bytes"] + after["chromium_footprint_bytes"]
-                    - before["webkit_footprint_bytes"] - before["chromium_footprint_bytes"])
+    # Only the engine under test: a previous engine's processes are closed but may still be exiting.
+    key = f"{engine}_footprint_bytes"
+    engine_bytes = after.get(key, 0) - before.get(key, 0)
     app_bytes = after["app_footprint_bytes"] - before["app_footprint_bytes"]
     result["tabs"] = args.tabs
     result["snapshot"] = after
     result["memory_delta_bytes"] = {"app": app_bytes, "engine_processes": engine_bytes, "total": app_bytes + engine_bytes}
-    result["memory_per_tab_bytes"] = (app_bytes + engine_bytes) // max(1, args.tabs)
-    # One tab in the pane is visible (the last opened) and animating; the rest are hidden.
+    # Engine processes are the stable signal; the app delta matters for Chromium (its browser
+    # process is the app) but carries Debug-build background noise.
+    result["memory_per_tab_bytes"] = {
+        "engine_processes": engine_bytes // max(1, args.tabs),
+        "app": app_bytes // max(1, args.tabs),
+        "total": (app_bytes + engine_bytes) // max(1, args.tabs),
+    }
+    # The browser pane shows one of its tabs (animating); the others are hidden tabs.
     result["cpu_percent_one_visible"] = cpu_percent_over(app.pid, str(app.app), args.cpu_window_s)
-    # Typing next to a visible, animating page of this engine.
+    # Typing in the terminal next to a visible, animating page of this engine.
     app.rpc("workspace.select", {"workspace_id": ws})
     result["key_latency_ms_with_visible_page"] = key_latency(app, args)
+    # Close this engine's pages so the next engine is measured alone.
+    app.rpc("workspace.close", {"workspace_id": ws})
     return result
 
 
@@ -534,6 +579,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     app_path = pathlib.Path(args.app).expanduser().resolve()
     workdir = pathlib.Path(tempfile.mkdtemp(prefix="cmux-engine-bench-"))
     app = TaggedApp(app_path, args.tag, workdir)
+    if args.launches < 1:
+        raise BenchFailure("--launches must be at least 1")
     open_params = parse_open_params(args.open_param)
     engines = [e for e in args.engines.split(",") if e]
     result: dict[str, Any] = {
@@ -610,8 +657,11 @@ def cmd_compare(args: argparse.Namespace) -> int:
         rows += [
             (f"{engine}: first page load (ms)", [str(get(r, "engines", engine, "first_page_load_ms")) for _, r in runs]),
             (f"{engine}: warm page load p50 (ms)", [str(get(r, "engines", engine, "warm_page_load_ms", "p50")) for _, r in runs]),
-            (f"{engine}: memory per tab", [mb(get(r, "engines", engine, "memory_per_tab_bytes")) for _, r in runs]),
-            (f"{engine}: engine processes", [str((get(r, "engines", engine, "snapshot", f"{engine}_processes"))) for _, r in runs]),
+            (f"{engine}: memory per tab, engine processes",
+             [mb(get(r, "engines", engine, "memory_per_tab_bytes", "engine_processes")) for _, r in runs]),
+            (f"{engine}: memory per tab, app process",
+             [mb(get(r, "engines", engine, "memory_per_tab_bytes", "app")) for _, r in runs]),
+            (f"{engine}: engine processes", [str(get(r, "engines", engine, "snapshot", f"{engine}_processes") or 0) for _, r in runs]),
             (f"{engine}: CPU% engine, 1 visible", [str(get(r, "engines", engine, "cpu_percent_one_visible", engine)) for _, r in runs]),
             (f"{engine}: key latency p50/p95 (ms)", [f"{get(r, 'engines', engine, 'key_latency_ms_with_visible_page', 'p50')}/"
                                                      f"{get(r, 'engines', engine, 'key_latency_ms_with_visible_page', 'p95')}"
