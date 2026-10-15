@@ -137,7 +137,8 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             [
                 ConfiguredShortcutBinding(
                     shortcut: StoredShortcut(key: "l", command: true, shift: false, option: false, control: false),
-                    whenClause: .atom(.terminalFocus)
+                    whenClause: .atom(.terminalFocus),
+                    hasExplicitWhenClause: true
                 ),
                 ConfiguredShortcutBinding(
                     shortcut: StoredShortcut(key: "l", command: true, shift: true, option: false, control: false),
@@ -153,6 +154,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             store.configuredBindings(for: .newSurface)?.first?.whenClause,
             .not(.atom(.sidebarFocus))
         )
+        XCTAssertFalse(store.configuredBindings(for: .focusRightSidebar)?[1].hasExplicitWhenClause ?? true)
         XCTAssertEqual(
             store.override(for: .focusRightSidebar),
             StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)

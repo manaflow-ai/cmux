@@ -147,7 +147,9 @@ extension KeyboardShortcutSettings {
     /// Whether `action` has an explicit `shortcuts.when` override that restricts focus.
     static func hasRestrictingConfiguredWhenClause(for action: Action) -> Bool {
         if let configuredBindings = settingsFileStore.configuredBindings(for: action) {
-            return configuredBindings.contains { $0.whenClause != .always }
+            return configuredBindings.contains {
+                $0.hasExplicitWhenClause && $0.whenClause != .always
+            }
         }
         guard let clause = settingsFileStore.whenClause(for: action) else {
             return false

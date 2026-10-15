@@ -1107,6 +1107,7 @@ final class CmuxSettingsFileStore {
             }
 
             let whenClause: ShortcutWhenClause
+            let hasExplicitWhenClause: Bool
             if let rawWhen = entry["when"] {
                 guard let expression = jsonString(rawWhen),
                       let parsed = ShortcutWhenClause.parse(expression) else {
@@ -1114,11 +1115,17 @@ final class CmuxSettingsFileStore {
                     continue
                 }
                 whenClause = parsed
+                hasExplicitWhenClause = true
             } else {
                 whenClause = action.shortcutContext.defaultWhenClause
+                hasExplicitWhenClause = false
             }
             parsedByAction[action, default: []].append(
-                ConfiguredShortcutBinding(shortcut: shortcut, whenClause: whenClause)
+                ConfiguredShortcutBinding(
+                    shortcut: shortcut,
+                    whenClause: whenClause,
+                    hasExplicitWhenClause: hasExplicitWhenClause
+                )
             )
         }
 
@@ -1995,6 +2002,17 @@ typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 struct ConfiguredShortcutBinding: Equatable {
     let shortcut: StoredShortcut
     let whenClause: ShortcutWhenClause
+    let hasExplicitWhenClause: Bool
+
+    init(
+        shortcut: StoredShortcut,
+        whenClause: ShortcutWhenClause,
+        hasExplicitWhenClause: Bool = false
+    ) {
+        self.shortcut = shortcut
+        self.whenClause = whenClause
+        self.hasExplicitWhenClause = hasExplicitWhenClause
+    }
 }
 
 struct ResolvedSettingsSnapshot {
