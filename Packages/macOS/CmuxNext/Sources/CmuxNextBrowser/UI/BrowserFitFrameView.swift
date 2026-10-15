@@ -42,13 +42,16 @@ public final class BrowserFitFrameView: NSView {
         for field in [label, note] {
             field.font = .systemFont(ofSize: 11)
             field.lineBreakMode = .byTruncatingTail
-            field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
+        // In a narrow pane the explanation truncates first, then the status; the controls keep their size.
+        note.setContentCompressionResistancePriority(.defaultLow - 100, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.toolTip = Strings.explain
         for button in [choose, off] {
             button.isBordered = false
             button.target = self
             button.font = .systemFont(ofSize: 11, weight: .medium)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
         choose.action = #selector(showChoices)
         choose.imagePosition = .imageTrailing
