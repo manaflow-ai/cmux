@@ -355,12 +355,14 @@ fn script(path: &Path, body: &str) {
 }
 
 /// A stand-in agent CLI: prints `version` for `--version`, logs every call.
+/// Shell builtins only: the check may run it with a PATH of its own.
 fn cli(path: &Path, version: &str, calls: &Path) {
     let calls = daemon_env::sh_quote(calls.display());
+    let name = path.file_name().unwrap().to_str().unwrap();
     script(
         path,
         &format!(
-            "#!/bin/sh\necho \"$(basename \"$0\") $*\" >> {calls}\n[ \"$1\" = --version ] && echo '{version}'\nexit 0\n"
+            "#!/bin/sh\necho \"{name} $*\" >> {calls}\n[ \"$1\" = --version ] && echo '{version}'\nexit 0\n"
         ),
     );
 }
