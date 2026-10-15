@@ -103,7 +103,10 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   function stream(text: string): void {
     const msg = {
       method: "session/update",
-      params: { sessionId: "agent-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
+      params: {
+        sessionId: "agent-1",
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+      },
     };
     const event = { sessionId: MAIN, seq: ++seq, at: Date.now(), dir: "in", kind: "agent_message_chunk", msg };
     mainSocket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
@@ -271,11 +274,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       await page.waitForFunction(
         () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent === "/btw ",
       );
-      expect(
-        await page.evaluate(() =>
-          Boolean(document.activeElement?.closest(".acpmux-composer-prompt")),
-        ),
-      ).toBe(true);
+      expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".acpmux-composer-prompt")))).toBe(true);
       await page.keyboard.type(QUESTION);
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
