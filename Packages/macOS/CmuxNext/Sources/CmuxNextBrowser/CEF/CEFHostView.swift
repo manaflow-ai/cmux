@@ -191,19 +191,39 @@ final class CEFTabContentView: NSView {
         let frames = tab?.devToolsController.frames(in: bounds)
             ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
         let devToolsHost = tab?.devToolsController.views?.host
+        // A fit (cx-qby5j) shows the page in its presented rect inside the frame view.
+        let emulation = tab?.deviceEmulation
+        let fitPage = emulation?.presentedRect(in: pageViewportFrame)
         for subview in subviews {
             let frame: CGRect
-            if subview is SidePanelHeaderView {
+            if let fitFrame = subview as? BrowserFitFrameView {
+                frame = pageViewportFrame
+                if let fitPage, let viewport = emulation.flatMap({ $0.viewport(in: $0.layoutArea(in: pageViewportFrame).size) }) {
+                    let presented = fitPage.offsetBy(dx: -frame.minX, dy: -frame.minY)
+                    fitFrame.update(emulation: emulation, presented: presented, layout: viewport.size, scale: viewport.scale)
+                }
+            } else if subview is SidePanelHeaderView {
                 frame = tab?.sidePanel.headerFrame ?? .zero
             } else if subview === devToolsHost {
                 frame = frames.devTools
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
             } else {
-                frame = frames.page
+                frame = fitPage ?? frames.page
             }
             if subview.frame != frame { subview.frame = frame }
         }
         tab?.applyOcclusion()
+    }
+
+    /// Adds the fit frame under the page for a fit and removes it otherwise.
+    func updateFitFrame() {
+        let current = subviews.first { $0 is BrowserFitFrameView }
+        if tab?.deviceEmulation?.fit != nil, current == nil {
+            addSubview(BrowserFitFrameView(), positioned: .below, relativeTo: subviews.first)
+        } else if tab?.deviceEmulation?.fit == nil, let current {
+            current.removeFromSuperview()
+        }
+        needsLayout = true
     }
 }

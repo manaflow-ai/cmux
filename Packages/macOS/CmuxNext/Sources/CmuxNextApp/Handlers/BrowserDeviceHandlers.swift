@@ -12,17 +12,34 @@ enum BrowserDeviceHandlers {
     @MainActor static weak var presentedMenu: NSMenu?
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let fits: [(ActionID, String, String)] = [("browserFitDesktop", "16:9", DaemonCapabilities.shared.browserFit), ("browserFitDesktop1280", "1280", DaemonCapabilities.shared.browserFitWidth)]
-        for (id, fit, capability) in fits {
+        // browserFitDesktop / browserFitDesktop1280 toggle one fit; browserFit sets the fit its argument names ("off" clears).
+        let fits: [(ActionID, String?)] = [("browserFitDesktop", "16:9"), ("browserFitDesktop1280", "1280"), ("browserFit", nil)]
+        for (id, fixed) in fits {
             registry.bind(id, run: { invocation in
                 _ = try context.page(invocation)
                 guard let (tab, pane) = context.daemonTab(invocation), let resource = tab.resourceID else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
-                let (daemon, next) = (context.services.daemon(for: pane), tab.fitValue == fit ? nil : fit)
+                let asked = fixed ?? invocation["fit"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? "off"
+                let next: String? = asked.lowercased() == "off" || (fixed != nil && tab.fitValue == fixed) ? nil : asked
+                let (daemon, capability) = (context.services.daemon(for: pane), next.flatMap { Int($0) } != nil ? DaemonCapabilities.shared.browserFitWidth : DaemonCapabilities.shared.browserFit)
                 guard daemon.supports(capability) else { throw ActionFailure(message: daemon.missingCapabilityMessage(capability)) }
                 daemon.send("browser.tab.emulate") { try await $0.state.setTabFit(resource, fit: next) }
             })
-            ActionTargetTitles.setState(id, in: registry) { context.daemonTab($0).map { $0.tab.fitValue == fit } }
-            ActionTargetTitles.setPaletteState(id, in: registry) { context.services.windows.active?.focusedPane?.selectedTab?.fitValue == fit }
+            guard let fixed else {
+                ActionTargetTitles.setChoiceState(id, in: registry) { context.daemonTab(ActionInvocation(target: $0))?.tab.fitValue ?? "off" }
+                continue
+            }
+            ActionTargetTitles.setState(id, in: registry) { context.daemonTab($0).map { $0.tab.fitValue == fixed } }
+            ActionTargetTitles.setPaletteState(id, in: registry) { context.services.windows.active?.focusedPane?.selectedTab?.fitValue == fixed }
+        }
+        // The fit bar under a fitted page (cx-qby5j) runs these actions on its tab's pane.
+        BrowserFitFrameView.perform = { tab, command in
+            guard let pane = context.services.locateTab(tab)?.1 else { return }
+            let target = ActionTargetRef(kind: .pane, id: pane.id)
+            switch command {
+            case .fit(let value): _ = registry.perform("browserFit", invocation: ActionInvocation(target: target, arguments: ["fit": .string(value ?? "off")]))
+            case .custom: _ = registry.perform("browserFit", invocation: ActionInvocation(target: target))
+            case .zoom(let step): _ = registry.perform(step > 0 ? "browserZoomIn" : step < 0 ? "browserZoomOut" : "browserZoomReset", invocation: ActionInvocation(target: target))
+            }
         }
         registry.bind("browserDevice", run: { invocation in
             let entry = try context.page(invocation)

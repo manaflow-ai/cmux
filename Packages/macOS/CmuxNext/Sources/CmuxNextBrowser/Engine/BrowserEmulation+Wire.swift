@@ -14,7 +14,8 @@ extension BrowserEmulation {
                   let minWidth = (fit["min_width"] as? NSNumber)?.intValue, let maxWidth = (fit["max_width"] as? NSNumber)?.intValue
             else { return nil }
             self.init(width: 0, height: 0, deviceScaleFactor: 0, userAgent: "", chromiumCallsJSON: callsJSON,
-                      fit: Fit(aspectWidth: aspectWidth, aspectHeight: aspectHeight, minWidth: minWidth, maxWidth: maxWidth))
+                      fit: Fit(aspectWidth: aspectWidth, aspectHeight: aspectHeight, minWidth: minWidth, maxWidth: maxWidth,
+                               value: fit["value"] as? String ?? "\(aspectWidth):\(aspectHeight)"))
             return
         }
         guard let width = (fields["width"] as? NSNumber)?.intValue, let height = (fields["height"] as? NSNumber)?.intValue,
