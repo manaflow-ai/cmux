@@ -397,7 +397,6 @@ struct TabOverview: View {
                                                 tabs: tabs.browser.tabs, pageSize: layout.size, safeTop: layout.safeTop,
                                                 card: r.size, radius: layout.cardRadius, scale: scale))
                     },
-                    previewScale: CardMenuPreview.scale,
                     dragKey: selecting ? nil : tab.id,
                     onMenu: { open in swipes.menuChanged(tab.id, open) },
                     onTap: {
@@ -464,7 +463,7 @@ struct TabOverview: View {
                     preview: { scale in
                         AnyView(PinnedCard(item: tab, width: r.width * scale, height: r.height * scale, selected: nil))
                     },
-                    previewScale: 1.15, dragKey: nil,
+                    dragKey: nil,
                     onMenu: { open in swipes.menuChanged(tab.id, open) },
                     onTap: { if selecting { tabs.toggleSelected(tab.id) } else if gridInteractive { onSelect(tab.id) } },
                     onPan: { _ in }, onDragStart: {}, onDragEnd: {})
@@ -695,9 +694,8 @@ struct CardMenuPreview: View {
     var safeTop: CGFloat
     var card: CGSize
     var radius: CGFloat
-    /// 1 for the card as it lifts; `scale` for the expanded preview.
+    /// 1 for the card as it lifts (UIKit grows it to Safari's 195.7 x 275).
     var scale: CGFloat = 1
-    static let scale: CGFloat = 195.7 / 177
 
     var body: some View {
         let w = card.width * scale, h = card.height * scale
