@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
-@@ -720,6 +720,18 @@
+@@ -860,6 +860,18 @@
          if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
              releaseCrisp { $0 == id }
          }
@@ -19,9 +19,9 @@
          // this view's width (several Home tabs), not the process-wide `Metrics.current`.
          if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
          // Rows configured in this transaction draw now (RowCell.transitionDepth).
-@@ -963,6 +975,7 @@
+@@ -1113,6 +1125,7 @@
              if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i); idx.append(max(0, i - 1)) }
-         case .typing: idx.append(max(0, msgs.count - 1))
+         case .typing, .setNotice: idx.append(max(0, msgs.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
 +        case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
          case let .react(ref, _, _):

@@ -9,6 +9,7 @@ mod launch_codec;
 mod parser_failure;
 mod parser_order;
 mod smart_viewer_exit;
+mod terminal_queries;
 use super::super::shared::control_responses::ControlResponseWaiter;
 use super::super::shared::host_serve::*;
 use super::super::sys::process_definitely_gone as process_definitely_absent;

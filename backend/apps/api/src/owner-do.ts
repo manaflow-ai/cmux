@@ -382,6 +382,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return this.bind(entity).debugDump()
   }
 
+  /** Capabilities this owner's socket announces in `welcome.capabilities` (e.g. ConversationDO: chief-live-v1). */
+  protected readonly welcomeCapabilities: ReadonlyArray<string> = []
   /** WebSocket gateway (cmux.wire/1 subset). The Worker sets the principal headers after authentication. */
   override async fetch(request: Request): Promise<Response> {
     const entity = request.headers.get("x-cmux-entity")
@@ -398,7 +400,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
     this.gate.seed(server, principal, { cls: this.constructor.name, name: entity })
     this.afterCommit()
-    safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
+    safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream], ...(this.welcomeCapabilities.length > 0 ? { capabilities: this.welcomeCapabilities } : {}) }))
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
   }
 
@@ -461,9 +463,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   override async webSocketClose(ws: WebSocket, code: number) {
     this.gate.closed(ws)
     // 1005/1006 are reserved: they report "no code" and "abnormal" and cannot be sent.
-    try {
-      ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing")
-    } catch {}
+    try { ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing") } catch {}
   }
 
   /**

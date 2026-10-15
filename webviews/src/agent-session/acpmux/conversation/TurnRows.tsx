@@ -70,13 +70,16 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
 
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
 /// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each.
+/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each,
+/// unless the Codex-style runs (Debug toggle) settle it (`settled`) or show its newest entry (`inFlight`).
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  const nodes = groups.map((group, index) =>
-    groupNode(group, index, row.id, row.live === true && index === groups.length - 1),
-  );
+  // A run in flight (Debug toggle) shows its newest entry alone: one line that replaces itself.
+  const first = row.inFlight ? Math.max(0, groups.length - 1) : 0;
+  const nodes = groups
+    .slice(first)
+    .map((group, at) => groupNode(group, first + at, row.id, row.live === true && first + at === groups.length - 1));
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   return (
