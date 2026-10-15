@@ -293,6 +293,27 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == resizesBefore + 1 }
     }
 
+    /// The terminal channel says it is a phone before it attaches, so the
+    /// Mac's daemon holds the grid when the phone's link drops (termqa V2-5:
+    /// no resize away and back, so Codex keeps its scrollback).
+    @Test func theTerminalChannelSaysItIsAPhoneBeforeAttaching() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(
+            surface: 7,
+            clientInfo: ["name": "Test iPhone", "kind": "ios", "device_kind": "iphone", "device_id": "d1"]
+        ) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        var attached = false
+        session.start { if $0 == .connection(.attached) { attached = true } }
+        try await waitUntil { attached }
+        let order = daemon.recorded.compactMap { $0["cmd"] as? String }
+        let info = try #require(daemon.recorded.first { $0["cmd"] as? String == "set-client-info" })
+        #expect(info["device_kind"] as? String == "iphone")
+        #expect(order.firstIndex(of: "set-client-info")! < order.firstIndex(of: "attach-surface")!)
+    }
+
     @Test func detachedEventEndsTheTerminal() async throws {
         let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
         var events: [TerminalSessionEvent] = []
