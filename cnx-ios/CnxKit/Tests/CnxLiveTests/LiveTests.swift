@@ -549,13 +549,14 @@ private struct LinkOf: MacLinkDialer {
     @Test func tapCreatesOnTheDaemonAndFollowsTheRealWorkspace() async throws {
         let log = CommandLog()
         let (store, creator, _) = try await connected(false, log)
-        // Only what the phone lane allows: no directories, no agent tabs.
-        #expect(creator.options(on: "m") == WorkspaceCreationOptions(browser: true))
-        #expect(creator.recentDirectories(on: "m").isEmpty)
+        // Recent Directories (the Mac's workspace folders, opened with cd); no agent workspaces.
+        #expect(creator.options(on: "m") == WorkspaceCreationOptions(directories: true, browser: true))
         let placeholder = try #require(creator.create())
         #expect(store.isPending(placeholder.id))
         await creator.settle()
         #expect(log.names["new-workspace"] == "New Workspace")
+        // A plain tap opens at the Mac's default folder: nothing typed.
+        #expect(!log.contains("send"))
         #expect(creator.phases[placeholder.id] == .created("wk2"))
         #expect(store.workspace(id: placeholder.id)?.id == "wk2")
         #expect(store.workspaces.filter { $0.macID == "m" }.map(\.id) == ["wk1", "wk2"])
