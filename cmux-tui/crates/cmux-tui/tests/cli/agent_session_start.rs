@@ -20,6 +20,8 @@ mod agent_chat_notices;
 mod agent_home_reopen;
 #[path = "agents_cli_receipt.rs"]
 mod agents_cli_receipt;
+#[path = "agents_events_cli.rs"]
+mod agents_events_cli;
 #[path = "agents_wait_cli.rs"]
 mod agents_wait_cli;
 
