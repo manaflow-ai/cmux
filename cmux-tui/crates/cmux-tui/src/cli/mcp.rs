@@ -135,11 +135,13 @@ pub(super) trait Backend {
     ) -> Result<Value, CallFailure>;
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
-    /// first), and with `None` after each `tick` without one, until it
-    /// returns `true`. An error means no stream opened.
+    /// first, or with `cursor` the journal batches after it), and with
+    /// `None` after each `tick` without one, until it returns `true`. An
+    /// error means no stream opened.
     fn session_events(
         &self,
         session: Option<&str>,
+        cursor: Option<&Value>,
         deadline: Instant,
         tick: Duration,
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
@@ -184,11 +186,12 @@ impl Backend for LiveBackend {
     fn session_events(
         &self,
         session: Option<&str>,
+        cursor: Option<&Value>,
         deadline: Instant,
         tick: Duration,
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure> {
-        transport::session_events(&self.routed(session)?, deadline, tick, on_wake)
+        transport::session_events(&self.routed(session)?, cursor, deadline, tick, on_wake)
     }
 
     fn app(
