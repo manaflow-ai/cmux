@@ -491,7 +491,7 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         try await settle()
-        WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: tab.kind, title: tab.title,
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: tab.kind, title: tab.title,
                      subtitle: tab.subtitle, harness: tab.harness, url: tab.url)
     }
 
