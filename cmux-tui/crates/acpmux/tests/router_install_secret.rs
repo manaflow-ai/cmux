@@ -7,11 +7,14 @@
 //! login keychain.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 fn scratch() -> PathBuf {
@@ -37,12 +40,11 @@ impl Drop for Router {
 /// `acpmux router serve` on `home` (no owner FIFO: it runs until `shutdown`).
 fn start_router(home: &Path, stderr: &Path) -> Router {
     let _ = std::fs::remove_file(home.join("router").join("router.sock"));
-    let child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let child = daemon_env::acpmux(home)
         .args(["router", "serve"])
         .env("ACPMUX_HOME", home)
         .env("CMUX_CODEROUTER_TEST_NO_KEYCHAIN", "1")
         .env("RUST_LOG", "warn")
-        .env_remove("CMUX_ROUTER_OWNER_FIFO")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(std::fs::OpenOptions::new().create(true).append(true).open(stderr).unwrap())
