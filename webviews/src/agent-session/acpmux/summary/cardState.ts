@@ -1,87 +1,105 @@
-// The summary card's place per chat (summary/SummaryCard.tsx): shown or not, and folded to its
-// header or open. This is the pane's own UI state, kept in localStorage by session id, so a chat
-// comes back as the user left it, in this pane and in a pane opened on it later.
+// Where the chat's summary (summary/SummaryCard.tsx) shows, as in the ChatGPT desktop app (Leo
+// 2026-10-14): always a card pinned under the header's summary button. A press elsewhere never
+// closes it; only that button, its close button or Escape does. A pane with room makes room for it:
+// the chat's column moves left so the card sits beside the transcript (`push`). A narrow pane lays
+// it over the transcript and the chat keeps its width. Resizing between the two moves the chat, not
+// the card (summary.css), and an open card stays open.
 //
-// A chat the user has not touched yet shows the card, open, once it has subagents: they are what
-// the card follows while a turn runs. Any choice the user makes (show, hide, fold) is stored and
-// wins from then on.
-import { useCallback, useState, useSyncExternalStore } from "react";
+// Closing it is one choice for every chat (localStorage, shared by the panes, which follow each
+// other's change), so closing it once is enough. A pane that starts narrow starts with it closed,
+// though, so it does not cover a prompt's buttons or an agent's offer until its button opens it.
+import { useCallback, useEffect, useId, useState, useSyncExternalStore } from "react";
 
-export type SummaryCardState = { shown: boolean; collapsed: boolean };
+/// The room the card takes from the chat in a wide pane: its 300px width, 10px from the pane's edge
+/// and a 12px gap (summary.css `--acpmux-summary-room`: change both), and the narrowest chat beside it.
+export const CARD_ROOM = 322;
+const CHAT_MIN_WIDTH = 660;
 
-const KEY = "cmux.acpmux.summaryCard";
-/// Chats remembered; the oldest choice goes first.
-const LIMIT = 200;
-
-let choices: Map<string, SummaryCardState> | undefined;
+const KEY = "cmux.acpmux.summaryPanel";
 const listeners = new Set<() => void>();
+let hidden: boolean | undefined;
 
-function load(): Map<string, SummaryCardState> {
-  if (choices) return choices;
-  choices = new Map();
+function readHidden(): boolean {
+  if (hidden !== undefined) return hidden;
   try {
-    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(KEY) ?? "null");
-    if (value && typeof value === "object")
-      for (const [id, state] of Object.entries(value as Record<string, unknown>)) {
-        const raw = state as Partial<SummaryCardState> | null;
-        if (raw && typeof raw.shown === "boolean" && typeof raw.collapsed === "boolean")
-          choices.set(id, { shown: raw.shown, collapsed: raw.collapsed });
-      }
+    hidden = globalThis.localStorage?.getItem(KEY) === "hidden";
   } catch {
-    // An unreadable value is a chat with no choice yet.
+    hidden = false;
   }
-  return choices;
+  return hidden;
 }
 
-function save(sessionId: string, state: SummaryCardState) {
-  const map = load();
-  map.delete(sessionId);
-  map.set(sessionId, state);
-  while (map.size > LIMIT) map.delete(map.keys().next().value!);
+function setHidden(next: boolean) {
+  hidden = next;
   try {
-    globalThis.localStorage?.setItem(KEY, JSON.stringify(Object.fromEntries(map)));
+    if (next) globalThis.localStorage?.setItem(KEY, "hidden");
+    else globalThis.localStorage?.removeItem(KEY);
   } catch {
-    // Storage may be full or absent (tests, private windows): the choice holds for this page.
+    // Storage may be absent (tests, private windows): the choice holds for this page.
   }
   for (const listener of listeners) listener();
 }
 
-/// Forgets every chat's choice: the gallery mounts each variant on a clean slate, as all its chats
-/// share one session id.
+/// Forgets the closed choice: the gallery mounts each variant on a clean slate.
 export function resetSummaryCards() {
-  choices = new Map();
-  try {
-    globalThis.localStorage?.removeItem(KEY);
-  } catch {
-    // Nothing stored.
-  }
-  for (const listener of listeners) listener();
+  setHidden(false);
 }
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  // Another pane's choice.
+  const storage = (event: StorageEvent) => {
+    if (event.key !== KEY && event.key !== null) return;
+    hidden = undefined;
+    listener();
+  };
+  globalThis.addEventListener?.("storage", storage);
+  return () => {
+    listeners.delete(listener);
+    globalThis.removeEventListener?.("storage", storage);
+  };
 };
 
-/// The card of chat `sessionId`. `hasSubagents` shows it for a chat with no stored choice. A pane
-/// with no session id yet keeps its choice in memory until it has one.
-export function useSummaryCard(sessionId: string | undefined, hasSubagents: boolean) {
-  const stored = useSyncExternalStore(subscribe, () => (sessionId ? load().get(sessionId) : undefined));
-  const [local, setLocal] = useState<SummaryCardState>();
-  const state: SummaryCardState = (sessionId ? stored : local) ?? { shown: hasSubagents, collapsed: false };
-  const { shown, collapsed } = state;
-  const set = useCallback(
-    (next: SummaryCardState) => (sessionId ? save(sessionId, next) : setLocal(next)),
-    [sessionId],
-  );
-  const toggle = useCallback(
-    () => set({ shown: !shown, collapsed: shown ? collapsed : false }),
-    [set, shown, collapsed],
-  );
-  const show = useCallback(() => set({ shown: true, collapsed: false }), [set]);
-  const close = useCallback(() => set({ shown: false, collapsed }), [set, collapsed]);
-  const fold = useCallback((next: boolean) => set({ shown: true, collapsed: next }), [set]);
-  return { shown, collapsed, toggle, show, close, fold };
+/// Whether the pane (the page: the chat fills its webview) has room for the card beside a chat
+/// column of CHAT_MIN_WIDTH. `blocked` (a side panel already takes the right) gives no room.
+/// It measures the page, not the chat's element: a ref that set state as the chat mounted
+/// re-rendered the pane then, and a relaunched new chat lost its kept draft.
+export function useSummaryRoom(blocked: boolean): boolean {
+  const [room, setRoom] = useState(false);
+  useEffect(() => {
+    if (blocked) return setRoom(false);
+    const page = document.documentElement;
+    const measure = () => setRoom(page.clientWidth >= CHAT_MIN_WIDTH + CARD_ROOM);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(page);
+    return () => observer.disconnect();
+  }, [blocked]);
+  return room;
+}
+
+/// The summary of a pane with (`push`) or without room beside the chat for the card. It stays open
+/// as the pane changes between the two.
+export function useSummaryCard(push: boolean) {
+  const closed = useSyncExternalStore(subscribe, readHidden, () => false);
+  // Open in this pane without room: it was open beside the chat, or its button opened it here.
+  const [kept, setKept] = useState(false);
+  useEffect(() => {
+    if (push && !closed) setKept(true);
+  }, [push, closed]);
+  const shown = !closed && (push || kept);
+  const show = useCallback(() => {
+    setKept(true);
+    setHidden(false);
+  }, []);
+  const close = useCallback(() => {
+    setKept(false);
+    setHidden(true);
+  }, []);
+  const toggle = useCallback(() => (shown ? close() : show()), [shown, close, show]);
+  // The card's id, for the header's button (aria-controls).
+  const id = useId();
+  return { id, shown, push, toggle, show, close };
 }
 
 export type SummaryCardControl = ReturnType<typeof useSummaryCard>;

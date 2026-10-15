@@ -1344,7 +1344,7 @@ function AttachmentChip({
   }
   return menu(
     undefined,
-    <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
+    <div className="acpmux-attachment acpmux-attachment-file" title={attachment.path ?? attachment.name}>
       <span>{attachment.name}</span>
       {remove}
     </div>,
