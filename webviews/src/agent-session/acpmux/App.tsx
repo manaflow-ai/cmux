@@ -2580,6 +2580,8 @@ function AcpmuxPane() {
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
+  // Labs preview features (applyPreview); among them Codex-style runs in a running turn (cx-ncc.108).
+  const [preview, setPreview] = useState(false);
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
@@ -2590,14 +2592,14 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs },
+        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: preview },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
       return withShellRows(subagents.rows, chatShellRuns);
     });
-  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns]);
+  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, preview, chatShellRuns]);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
@@ -3035,7 +3037,6 @@ function AcpmuxPane() {
   // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
-  const [preview, setPreview] = useState(false);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";

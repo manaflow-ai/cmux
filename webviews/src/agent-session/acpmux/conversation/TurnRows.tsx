@@ -69,11 +69,13 @@ function groupNode(group: ToolGroup, index: number): ReactNode {
 
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
 /// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each.
+/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each,
+/// unless Labs' Codex-style runs settle it (`settled`) or show its newest entry (`inFlight`).
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  const nodes = groups.map(groupNode);
+  // A run in flight (Labs) shows its newest entry alone: one line that replaces itself.
+  const nodes = (row.inFlight ? groups.slice(-1) : groups).map(groupNode);
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   return (
