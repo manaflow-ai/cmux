@@ -9,14 +9,18 @@ import Foundation
 /// on screen, then hides it again.
 ///
 /// ```swift
-/// let png = try await (page as? any BrowserPageHiddenCapturing)?
-///     .withContentVisibleForCapture { try await page.takeSnapshot(rect: nil) }
+/// let capture = { try await page.takeSnapshot(rect: nil) }
+/// let image = try await (page as? any BrowserPageHiddenCapturing)?
+///     .withContentVisibleForCapture(capture) ?? capture()
 /// ```
 @MainActor
 public protocol BrowserPageHiddenCapturing: AnyObject {
     /// Runs `body` with the page visible to its engine but not on screen.
     /// Calls may nest; the page is hidden again when the outermost one ends.
-    /// A page that is already on screen runs `body` unchanged.
+    /// A page that is already on screen, or whose view is in no window,
+    /// runs `body` unchanged. A page that was never created starts loading
+    /// when hidden, so a capture right after opening it may still fail until
+    /// its first load.
     /// - Parameter body: The capture.
     /// - Returns: What `body` returns.
     /// - Throws: What `body` throws.
