@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextSettings
 
 /// `agentPane.showContextUsage` and `agentPane.showDictation` (``AgentPaneComposerSetting``) reach
@@ -14,10 +15,10 @@ extension AgentPageEvent {
 /// Pushing to a pane's page lives here, off ``AgentPaneView``, whose type is at its size limit;
 /// the pane's model keeps the value a new page subscriber reads.
 extension AgentPaneComposerSetting {
-    /// Gives `view`'s page these settings (a change only), or, with `lookChanged`, again after
-    /// Debug Settings' plain footer look changed.
-    @MainActor public func push(to view: AgentPaneView, lookChanged: Bool = false) {
-        guard lookChanged || self != view.model.composer else { return }
+    /// Gives `view`'s page these settings (a change only, or every page while Debug Settings' plain
+    /// footer look changes).
+    @MainActor public func push(to view: AgentPaneView) {
+        guard Self.lookChanging || self != view.model.composer else { return }
         view.model.composer = self
         view.deliver([.composer(self)], scripts: [pageScript])
     }
@@ -31,4 +32,26 @@ extension AgentPaneComposerSetting {
 
     /// The script that gives a loaded old-host page the composer's settings.
     var pageScript: String { "window.cmuxAcpmuxComposer?.(\(pageValueWithLook.compactText));" }
+
+    /// Debug Settings' plain footer look as the pages last got it, and whether its change is being
+    /// pushed (``push(to:)`` then sends every page the event again).
+    @MainActor private static var lookShown = false
+    @MainActor private static var lookChanging = false
+    @MainActor private static var lookObservation: Task<Void, Never>?
+
+    /// Follows Debug Settings' plain footer look for the agent tabs: `push` (the tabs' push of their
+    /// page settings to every view) runs on each change.
+    @MainActor public static func followLook(_ push: @escaping @MainActor () -> Void) {
+        lookObservation?.cancel()
+        // task-owner: lives as long as the agent tabs (one per app); event-driven (Observation)
+        lookObservation = Task {
+            for await on in ObservationStream({ AgentPaneTunables.composerPlainFooter.value }) {
+                guard on != lookShown else { continue }
+                lookShown = on
+                lookChanging = true
+                push()
+                lookChanging = false
+            }
+        }
+    }
 }
