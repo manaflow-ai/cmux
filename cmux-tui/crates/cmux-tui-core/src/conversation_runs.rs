@@ -574,9 +574,10 @@ impl ConversationStore {
         now_ms: u64,
     ) -> anyhow::Result<std::collections::HashMap<String, Vec<String>>> {
         let since = to_i64(now_ms.saturating_sub(RUNNING_WINDOW_MS))?;
-        let mut statement = self
-            .connection
-            .prepare("SELECT run_json FROM conversation_run WHERE started_at >= ?1")?;
+        let mut statement = self.connection.prepare(
+            "SELECT run_json FROM conversation_run
+                 WHERE started_at >= ?1 AND json_extract(run_json, '$.status') = 'running'",
+        )?;
         let mut authors: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
         for json in statement.query_map(params![since], |row| row.get::<_, String>(0))? {

@@ -63,8 +63,11 @@ impl Mux {
             // drops it on the message; the owner's state follows, so the Home
             // rows never show a Chief working after it answered).
             if let MuxEvent::Conversation(change) = &event
-                && let crate::conversation_store::ConversationEvent::Changed { conversation, change, .. } =
-                    change.as_ref()
+                && let crate::conversation_store::ConversationEvent::Changed {
+                    conversation,
+                    change,
+                    ..
+                } = change.as_ref()
                 && change["kind"] == "message"
                 && let Some(author) = change["message"]["author"].as_str()
             {
@@ -164,7 +167,10 @@ impl Mux {
     /// Everyone typing now, by conversation (one lock for the Home rows).
     pub(crate) fn conversation_typing_all(&self) -> std::collections::HashMap<String, Vec<String>> {
         let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
-        typing.iter().map(|(conversation, set)| (conversation.clone(), set.iter().cloned().collect())).collect()
+        typing
+            .iter()
+            .map(|(conversation, set)| (conversation.clone(), set.iter().cloned().collect()))
+            .collect()
     }
 
     /// The participants typing in `conversation` now, sorted.
