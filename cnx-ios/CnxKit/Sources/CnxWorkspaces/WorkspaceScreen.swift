@@ -119,7 +119,8 @@ public struct WorkspaceScreen: View {
                 get: { source.pendingClose != nil },
                 set: { shown in if !shown { source.resolvePendingClose(false) } }
             )) {
-                Button("Close Tab", role: .destructive) { source.resolvePendingClose(true) }
+                // The Mac's close question's button ("Close").
+                Button("Close", role: .destructive) { source.resolvePendingClose(true) }
                 Button("Cancel", role: .cancel) { source.resolvePendingClose(false) }
             } message: {
                 Text(source.pendingClose?.message ?? "")

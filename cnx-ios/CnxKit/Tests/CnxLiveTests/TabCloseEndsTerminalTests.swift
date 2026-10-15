@@ -35,8 +35,8 @@ import Testing
       {"id":3,"key":"wk3","name":"grouped","screens":[{"active":true,"active_pane":3,"panes":[{"id":3,"active_tab":0,
         "tab_groups":[{"id":"tgrp_9","name":"Jobs","color":"green","collapsed":false,"start":0,"count":2,"surfaces":[20,21]}],
         "tabs":[
-        {"surface":20,"kind":"pty","title":"one","dead":false,"terminal_id":"term_c"},
-        {"surface":21,"kind":"pty","title":"two","dead":false,"terminal_id":"term_d"},
+        {"surface":20,"kind":"pty","title":"one","dead":false,"terminal_id":"term_c","group":"tgrp_9"},
+        {"surface":21,"kind":"pty","title":"two","dead":false,"terminal_id":"term_d","group":"tgrp_9"},
         {"surface":22,"kind":"pty","title":"three","dead":false,"terminal_id":"term_d"}]}]}]}
     ]}
     """#
