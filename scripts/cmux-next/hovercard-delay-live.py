@@ -343,9 +343,9 @@ try:
             shot("tab-card")
         warm(kind, points[1][1], first)
         cancel(kind, points[0][1], 1300)
-        # Away from the card: left of a row (the card opens right of the sidebar), above a tab
-        # (its card opens below it), both still inside the window.
-        away = [3, points[0][1][1]] if kind == "rows" else [points[0][1][0], 2]
+        # Away from the card (it opens right of a row and below a tab): up and left, to the
+        # titlebar over the sidebar, which is no row and no tab.
+        away = [60, 8]
         quick_return(kind, points[0][1], points[1][1], 1300, away)
     if rows:
         held_button(rows[0][1])
