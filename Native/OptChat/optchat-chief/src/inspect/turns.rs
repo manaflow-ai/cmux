@@ -197,8 +197,8 @@ pub fn system_parts(system_text: &str) -> Vec<Value> {
     let user = rest.trim_matches('\n');
     if !user.is_empty() {
         out.push(part(
-            "Your instructions (AGENTS.md)",
-            "Your own file, optchat/AGENTS.md, read when the host starts.",
+            "Your profile and instructions",
+            "Your own files, optchat/person.md then optchat/AGENTS.md, read when the host starts.",
             user,
         ));
     }

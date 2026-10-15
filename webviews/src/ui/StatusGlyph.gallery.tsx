@@ -2,26 +2,41 @@
 import { useEffect, useRef } from "react";
 import { componentEntry } from "../gallery/format";
 import { StatusGlyph } from "./StatusGlyph";
-import {
-  DEFAULT_STATUS_GLYPH_SET,
-  STATUS_GLYPH_SETS,
-  STATUS_GLYPHS,
-  type StatusGlyphName,
-  type StatusGlyphSetName,
-} from "./statusGlyphs.generated";
+import { STATUS_GLYPHS, STATUS_GLYPH_SETS, type StatusGlyphName } from "./statusGlyphs.generated";
 
-const NAMES = Object.keys(STATUS_GLYPHS) as StatusGlyphName[];
-// The default set first, then its competitors (hq#1957 status glyph thunderdome).
-const SETS = Object.keys(STATUS_GLYPH_SETS) as StatusGlyphSetName[];
-const SET_TITLES: Record<StatusGlyphSetName, string> = { still: "Static", dots: "Dots", pictograms: "Pictograms" };
-// A row of the sidebar for each state, to read the glyphs beside text.
-const ROW_TEXT: Record<StatusGlyphName, string> = {
-  idle: "Notes",
-  working: "Fix the sidebar hover card",
-  waiting: "Which branch should I use?",
-  permission: "Allow git push?",
-  done: "Release notes drafted",
-  error: "Build failed",
+/** One row of a sheet: a state, the glyph it draws and the color it is tinted with. */
+type Row = { state: string; note: string; name: StatusGlyphName; tint: string };
+
+type SetName = "static" | "codex" | "dots" | "pictograms";
+
+/** A set that draws every state with its own glyph, idle first (the Static set and its hq#1957
+ * competitors, Dots and Pictograms): each row is named for the Static state it stands in for. */
+const ownGlyphs = (set: "static" | "dots" | "pictograms"): Row[] => {
+  const names = (Object.keys(STATUS_GLYPHS) as StatusGlyphName[]).filter((name) => STATUS_GLYPHS[name].set === set);
+  const states = (Object.keys(STATUS_GLYPHS) as StatusGlyphName[]).filter(
+    (name) => STATUS_GLYPHS[name].set === "static",
+  );
+  return names.map((name, index) => ({
+    state: states[index]!,
+    note: STATUS_GLYPHS[name].for,
+    name,
+    tint: STATUS_GLYPHS[name].tint,
+  }));
+};
+
+const SETS: Record<SetName, Row[]> = {
+  static: ownGlyphs("static"),
+  dots: ownGlyphs("dots"),
+  pictograms: ownGlyphs("pictograms"),
+  codex: Object.entries(STATUS_GLYPH_SETS.codex).map(([state, pick]) => ({
+    state,
+    note:
+      state === "working"
+        ? "work: the app's shared spinner in this grey; this still ring under Reduce Motion or Static"
+        : STATUS_GLYPHS[pick.glyph].for,
+    name: pick.glyph,
+    tint: pick.tint,
+  })),
 };
 
 // A stand-in wallpaper: a busy photo-like gradient, as the update surfaces' sheet uses.
@@ -29,93 +44,79 @@ const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%,
 
 /** One drawing at its own pixel size, blown up so its pixels show: `pixels` 10 is the 1x pixel art,
  * 20 the 2x master. */
-function Pixels({
-  set,
-  name,
-  pixels,
-  zoom,
-}: {
-  set: StatusGlyphSetName;
-  name: StatusGlyphName;
-  pixels: 10 | 20;
-  zoom: number;
-}) {
+function Pixels({ row, pixels, zoom }: { row: Row; pixels: 10 | 20; zoom: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const art = STATUS_GLYPH_SETS[set].glyphs[name];
   useEffect(() => {
     const element = canvas.current;
     const context = element?.getContext("2d");
     if (!element || !context) return;
     context.clearRect(0, 0, pixels, pixels);
     context.fillStyle = getComputedStyle(element).color;
+    const art = STATUS_GLYPHS[row.name];
     context.fill(new Path2D(pixels === 10 ? art.x1 : art.master), "evenodd");
-  }, [art, pixels]);
+  }, [row, pixels]);
   return (
     <canvas
       ref={canvas}
       className="status-glyphs-pixels"
       width={pixels}
       height={pixels}
-      style={{ color: art.tint, width: pixels * zoom, height: pixels * zoom }}
+      style={{ color: row.tint, width: pixels * zoom, height: pixels * zoom }}
       aria-hidden="true"
     />
   );
 }
 
-function StatusGlyphSheet({ onWallpaper = false }: { onWallpaper?: boolean }) {
+function StatusGlyphSheet({
+  onWallpaper = false,
+  set = "static",
+}: {
+  onWallpaper?: boolean;
+  set?: SetName;
+}) {
   return (
     <div className="status-glyphs-stage" style={onWallpaper ? { backgroundImage: wallpaper } : undefined}>
-      <table className="status-glyphs-sheet">
+      <table className="status-glyphs-sheet" data-set={set}>
         <thead>
           <tr>
             <th scope="col">State</th>
-            {SETS.map((set) => (
-              <th key={set} scope="col" data-status-glyph-set-title={set}>
-                {SET_TITLES[set]}
-                {set === DEFAULT_STATUS_GLYPH_SET ? " (default)" : ""}
-                <span className="status-glyphs-legend">10 pt · 1x · 2x</span>
-              </th>
-            ))}
+            <th scope="col">10 pt</th>
+            <th scope="col">In a row</th>
+            <th scope="col">1x pixels</th>
+            <th scope="col">2x pixels</th>
           </tr>
         </thead>
         <tbody>
-          {NAMES.map((name) => (
-            <tr key={name}>
+          {SETS[set].map((row) => (
+            <tr key={row.state}>
               <th scope="row">
-                <strong>{name}</strong>
+                <strong>{row.state}</strong>
+                <span>{row.note}</span>
               </th>
-              {SETS.map((set) => (
-                <td key={set}>
-                  <span className="status-glyphs-cell" title={STATUS_GLYPH_SETS[set].glyphs[name].for}>
-                    <span className="status-glyphs-live">
-                      <StatusGlyph set={set} name={name} label={`${SET_TITLES[set]} ${name}`} />
-                    </span>
-                    <Pixels set={set} name={name} pixels={10} zoom={4} />
-                    <Pixels set={set} name={name} pixels={20} zoom={2} />
-                  </span>
-                </td>
-              ))}
+              <td className="status-glyphs-live">
+                <StatusGlyph name={row.name} tint={row.tint} label={row.state} />
+              </td>
+              <td>
+                <span className="status-glyphs-row">
+                  <StatusGlyph name={row.name} tint={row.tint} />
+                  <span>Fix the sidebar hover card</span>
+                </span>
+              </td>
+              <td>
+                <Pixels row={row} pixels={10} zoom={6} />
+              </td>
+              <td>
+                <Pixels row={row} pixels={20} zoom={3} />
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <div className="status-glyphs-sidebars">
-        {SETS.map((set) => (
-          <ul key={set} className="status-glyphs-sidebar" aria-label={SET_TITLES[set]}>
-            {NAMES.map((name) => (
-              <li key={name} className="status-glyphs-row">
-                <StatusGlyph set={set} name={name} />
-                <span>{ROW_TEXT[name]}</span>
-              </li>
-            ))}
-          </ul>
-        ))}
-      </div>
     </div>
   );
 }
 
-export default componentEntry<{ onWallpaper?: boolean }>({
+export default componentEntry<{ onWallpaper?: boolean; set?: SetName }>({
   id: "ui.status-glyphs",
   title: "Static status glyphs",
   area: "UI primitives",
@@ -125,12 +126,36 @@ export default componentEntry<{ onWallpaper?: boolean }>({
   styles: () => Promise.all([import("./ui.css"), import("./StatusGlyph.gallery.css")]),
   variants: {
     sheet: {
-      note: "The six static glyphs for the Static status mode (Reduce Motion) in each competing set (Static, the default; Dots; Pictograms), side by side: live at 10 pt with the 1x pixel art and 2x drawing blown up, then each set in sidebar rows. Switch the gallery to light or dark for each appearance.",
+      note: "The six static glyphs for the Static status mode (Reduce Motion): live at 10 pt, in a row, and their 1x pixel art and 2x drawing blown up. Switch the gallery to light or dark for each appearance.",
       props: {},
     },
     wallpaper: {
       note: "The same sheet on a wallpaper.",
       props: { onWallpaper: true },
+    },
+    codex: {
+      note: "The Codex-like set (Leo's team, 2026-10-14): a neutral grey spinner (its still ring here), Codex's blue done dot, muted line bubble and shield, and a red line i for an error.",
+      props: { set: "codex" },
+    },
+    "codex-wallpaper": {
+      note: "The Codex-like set on a wallpaper.",
+      props: { set: "codex", onWallpaper: true },
+    },
+    dots: {
+      note: "The Dots set (hq#1957 status glyph thunderdome, Debug only): one small dot per state, hollow while nothing needs you, solid with a bar, check or x cut out when something does. Same theme colors as the Static set.",
+      props: { set: "dots" },
+    },
+    "dots-wallpaper": {
+      note: "The Dots set on a wallpaper.",
+      props: { set: "dots", onWallpaper: true },
+    },
+    pictograms: {
+      note: "The Pictograms set (hq#1957 status glyph thunderdome, Debug only): a moon, an hourglass, a chat bubble, a padlock, a check and a warning triangle. Same theme colors as the Static set.",
+      props: { set: "pictograms" },
+    },
+    "pictograms-wallpaper": {
+      note: "The Pictograms set on a wallpaper.",
+      props: { set: "pictograms", onWallpaper: true },
     },
   },
 });

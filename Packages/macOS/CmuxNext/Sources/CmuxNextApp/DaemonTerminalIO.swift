@@ -26,7 +26,7 @@ import os
 ///   a visible view claims on each settled resize and, after another client
 ///   sized the terminal, on its next key press or focus.
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only
-///   after the view stops resizing.
+///   after the view stops resizing, or the next frame in a live resize.
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
 ///   a capped backoff (500 ms doubling to 30 s, about a minute in all,
@@ -45,12 +45,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
+    private let creatingInput: CreatingTerminalInput?
 
     /// - Parameter policyBlocked: true while an administrator turned off the
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
-    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil,
+    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil, creatingInput: CreatingTerminalInput? = nil,
          policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
@@ -86,6 +87,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
         )
         self.driver = driver
+        self.creatingInput = creatingInput
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
@@ -100,6 +102,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         },
                              onCancel: { driver.cancelSteps() })
         driver.start()
+        #if DEBUG
+        // The view of a traced new terminal's tab: its session is matched by this IO.
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.watch(io: ObjectIdentifier(self), surface: surface) }
+        #endif
     }
 
     deinit {
@@ -112,6 +118,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     var answersTerminalQueries: Bool { true }
 
     func write(_ data: Data) async {
+        if let creatingInput, await creatingInput.write(data) { return }
         driver.input(data)
     }
 
@@ -144,6 +151,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     @MainActor func applySettled(_ size: CellSize) {
         driver.resize(size)
     }
+
+    @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
 
     /// Hidden views release canonical geometry so another client (or the
     /// next visible view) owns it; shown views claim it again.
@@ -256,3 +265,5 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         ))
     }
 }
+
+extension DaemonTerminalIO: ResizeTarget {}

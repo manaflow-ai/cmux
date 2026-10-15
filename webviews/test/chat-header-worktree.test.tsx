@@ -73,8 +73,8 @@ test("a worktree chat's header names its branch, the checkout it belongs to and 
   // The read names the folder: a new chat's worktree has no session yet to name it by.
   expect(asked).toEqual([WORKTREE]);
   expect(branch()).toBe("cmux/fix-login");
-  expect(pill()?.getAttribute("title")).toBe("Worktree of /Users/me/app, branched from main");
-  // A screen reader hears what the tooltip says, not the branch alone.
+  // The pill's own text names the checkout, so it has no tooltip (test/tooltip-rules.ts).
+  expect(pill()?.hasAttribute("title")).toBe(false);
   expect(pill()?.textContent).toContain("Worktree of /Users/me/app, branched from main");
   // Another chat in a plain checkout drops it.
   await draw({ folder: "/Users/me/app", readStatus: async () => plainStatus });

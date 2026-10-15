@@ -51,11 +51,6 @@ enum WorkspaceVerbHandlers {
             try sidebar(showing: workspace, context).groupFlow.newGroup(of: [SidebarWorkspaceID(workspace.id)], name: invocation["name"]?.stringValue ?? "",
                                                               byUser: invocation.origin == .user)
         })
-        registry.bind("workspace.closeOthersInGroup", run: { invocation in
-            let workspace = try context.workspace(invocation).model
-            guard let group = try group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
-            close(group.workspaces.map(\.id.rawValue).filter { $0 != workspace.id }, context)
-        })
 
         registry.bind("workspace.selectFirst", run: { _ in try select(context) { $0.first } })
         registry.bind("workspace.selectLast", run: { _ in try select(context) { $0.last } })
@@ -87,7 +82,7 @@ enum WorkspaceVerbHandlers {
 
     /// New workspace in the target workspace's window (else the active
     /// one) at an anchor-free `slot`; `then` runs once it is listed.
-    private static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
+    static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
                                then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
         try spawn(context, anchor: try? context.workspace(invocation).model, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
                   then: then)
@@ -181,14 +176,6 @@ enum WorkspaceVerbHandlers {
     }
 
     // MARK: Close, select, sort, collapse
-
-    static func close(_ ids: [String], _ context: AppActionContext) {
-        for id in ids {
-            guard let (workspace, daemon) = context.services.machines.workspace(id: id), let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
-        }
-    }
 
     private static func select(_ context: AppActionContext, _ pick: ([SidebarWorkspaceID]) -> SidebarWorkspaceID?) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }

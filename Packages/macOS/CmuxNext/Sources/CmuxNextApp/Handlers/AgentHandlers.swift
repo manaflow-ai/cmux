@@ -70,7 +70,7 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in
             if let pane = context.scope(invocation).pane,
-               openNewAgentChatWorkspace(from: pane, invocation: invocation, context: context) { return }
+               DockedAgentChat.open(from: pane, invocation: invocation, services: context.services) { return }
             withAgentPane(invocation, context: context, seed: AgentPaneSeed()) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
@@ -229,45 +229,6 @@ enum AgentHandlers {
         view.zoom = AgentPaneZoomSetting.fallback
         context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
         SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
-    }
-
-    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
-    /// workspace whose only tab is the chat, like a new thread in the Codex
-    /// and Claude apps (lawrence-call-1006 D): always that one screen, never
-    /// the New Tab page (Leo 2026-10-10, cx-9z3j; Cmd-T and Cmd-N open the
-    /// page). The chat inherits the focused tab's cwd and draft as a tab
-    /// would. Scripts, an explicit target and a daemon that cannot hold a chat
-    /// get a tab in `pane`: false.
-    private static func openNewAgentChatWorkspace(from pane: PaneController, invocation: ActionInvocation,
-                                                  context: AppActionContext) -> Bool {
-        let services = context.services
-        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
-              let windowID = context.activeWindow?.state.id else { return false }
-        // Cmd-I again on a chat that has not started yet (loaded, untouched, no prompt sent):
-        // that chat is the one target, already on screen. It takes the keyboard; no second
-        // workspace, page load, loading mark or repaint (cx-vurv).
-        if let model = pane.currentTabKey.flatMap({ services.agentTabs.existingView($0) })?.model, model.sessionId == nil, model.newTab == nil,
-           model.hasHandshake, !model.userTouched, model.transport.sessions.isUnstarted {
-            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
-            return true
-        }
-        let folder = pane.selectedTab?.cwd
-        let source = pane.agentSeedFromSelectedTab()
-        let daemon = pane.daemon
-        context.registry.track(Task { @MainActor in
-            var seed = await source?.take() ?? AgentPaneSeed()
-            seed.cwd = seed.cwd ?? folder
-            var spawn = WorkspaceSpawn(cwd: seed.cwd)
-            spawn.firstChat = seed
-            do {
-                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
-                return nil
-            } catch {
-                daemon.logger.error("new agent chat workspace failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new agent chat: \(error)")
-            }
-        })
-        return true
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {

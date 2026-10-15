@@ -7,10 +7,11 @@ keep printing and --browsers Chromium tabs, and samples every --sample seconds:
   - CPU share, memory footprint and wakeups/s per process kind (app, cmux-tui daemon, terminal
     hosts, acpmux, agents, Chromium helpers or WebKit processes), from proc_pid_rusage
     (bench_idle.usage), and open file descriptors (proc_pidinfo PROC_PIDLISTFDS). Browser tabs are Chromium when the build has it, else WebKit; WebKit's
-    processes are launchd's children, so every one that started after the app is counted (run
-    the soak on a host where nothing else uses WebKit);
+    processes are launchd's children, so a WebKit process counts when the app is responsible for
+    it (responsibility_get_pid_responsible_for_pid), not other apps' or iOS simulators';
   - control-socket round trips (system.ping, snapshot.get): a reply slower than --hang-after
-    seconds is a hang;
+    seconds is a hang; an instant failure (a missing socket file, a refused connect, an error
+    reply) is a control-error event that names the error;
   - crashes: a new DiagnosticReports .ips of this app copy (its bundle ID), of a process of it
     the soak saw (every kind but WebKit, launchd's children) or of a child of the app, or the
     app, daemon or acpmux PID changing.
@@ -26,7 +27,7 @@ network, no credential on the host. The app runs with its own ACPMUX_HOME and co
 folder; the soak never touches the host's ~/.acpmux or settings.
 
 At the end it writes report.json and report.md to --out and exits 1 when a criterion failed:
-no crash, no hang, no stuck turn, memory growth (median of the last hour of load against an hour mid-load,
+no crash, no hang, no control error, no stuck turn, memory growth (median of the last hour of load against an hour mid-load,
 or quarters of a shorter load phase) within --max-growth-percent and --max-growth-mb per kind, open fds of the
 app, daemon and acpmux growing by at most --max-fd-growth, the mean CPU of the app and the daemon
 under --max-app-cpu and --max-daemon-cpu. Idle CPU over --max-idle-*-cpu (app, daemon,
@@ -94,6 +95,27 @@ def open_fds(pid):
     buffer = ctypes.create_string_buffer(size + 64 * PROC_FDINFO_SIZE)
     used = libproc().proc_pidinfo(ctypes.c_int(pid), PROC_PIDLISTFDS, ctypes.c_uint64(0), buffer, len(buffer))
     return used // PROC_FDINFO_SIZE if used > 0 else None
+
+
+@functools.lru_cache(None)
+def responsibility_call():
+    """libSystem's responsibility_get_pid_responsible_for_pid, or None where it does not exist."""
+    try:
+        call = ctypes.CDLL("/usr/lib/libSystem.B.dylib").responsibility_get_pid_responsible_for_pid
+    except (OSError, AttributeError):
+        return None
+    call.argtypes, call.restype = [ctypes.c_int], ctypes.c_int
+    return call
+
+
+def responsible_pid(pid):
+    """The process macOS holds responsible for pid (an XPC service's host app); -1 when the call has no
+    answer for pid (it exited), None when the call does not exist on this host."""
+    call = responsibility_call()
+    if call is None:
+        return None
+    owner = call(pid)
+    return owner if owner > 0 else -1
 
 
 def now_iso():
@@ -234,18 +256,24 @@ class Soak:
             self.bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
         self.binary = os.path.join(self.app, "Contents/MacOS", executable)
         self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
-        self.socket = self.args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
+        # The app's own rule (ControlSocketPath.resolve): the state folder, or the old /tmp name when that
+        # path would not fit sun_path. The app also keeps a /tmp symlink, so the soak uses the real path.
+        # A build from before the move listens on the /tmp name only; connect() settles on the one that answers.
+        moved, old = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{self.tag}.sock"), f"/tmp/cmux-debug-{self.tag}.sock"
+        self.sockets = [self.args.socket] if self.args.socket else [moved, old] if len(moved.encode()) <= 103 else [old]
+        self.socket = self.sockets[0]
         self.setup["tag"] = self.tag
 
     def preflight(self):
         if run("launchctl", "print", f"gui/{os.getuid()}").returncode != 0:
             raise SystemExit("readiness-soak: no Aqua GUI session for this user")
-        if os.path.exists(self.socket):
-            try:
-                Client(self.socket, timeout=3).call("system.ping")
-                raise SystemExit(f"readiness-soak: something already answers on {self.socket}")
-            except OSError:
-                pass
+        for path in self.sockets:
+            if os.path.exists(path):
+                try:
+                    Client(path, timeout=3).call("system.ping")
+                    raise SystemExit(f"readiness-soak: something already answers on {path}")
+                except OSError:
+                    pass
         table = process_table()
         # Two soaks on one host would measure each other.
         parents, mine, pid = {p: pp for p, pp, _ in table}, set(), os.getpid()
@@ -311,11 +339,15 @@ class Soak:
         say(f"app up: {self.setup['identity']}")
 
     def connect(self):
-        try:
-            client = Client(self.socket, timeout=10)
-            return client if "error" not in client.call("system.ping") else None
-        except OSError:
-            return None
+        for path in self.sockets:
+            try:
+                client = Client(path, timeout=10)
+                if "error" not in client.call("system.ping"):
+                    self.socket = path
+                    return client
+            except OSError:
+                continue
+        return None
 
     def start_terminals(self):
         status = wait(lambda: daemon_status(self.tui, self.tag), 60, 2)
@@ -399,7 +431,7 @@ class Soak:
                 found[pid] = "acpmux-helper"  # its router and per-agent hosts come and go with turns
             elif self.work in cmd and "fake_agent.py" in cmd:
                 found[pid] = "agent"
-            elif "com.apple.WebKit." in cmd and pid not in self.webkit_before:
+            elif "com.apple.WebKit." in cmd and self.owns_webkit(pid, app_pid):
                 found[pid] = "webkit"
         # A host's command line names neither the tag nor the bundle: the daemon's children and
         # the host records in the tag's state folder find them.
@@ -408,14 +440,47 @@ class Soak:
                 found[host] = "terminal-host"
         return found
 
+    def owns_webkit(self, pid, app_pid):
+        """Whether the app is responsible for a WebKit process (launchd's child, so not by parent). Other
+        apps' and iOS simulators' WebKit processes on the host do not count. Without the responsibility
+        call on the host, every WebKit process started after the app counts (the old rule); a process the
+        call has no answer for is not counted."""
+        owner = responsible_pid(pid)
+        return owner == app_pid if owner is not None else pid not in self.webkit_before
+
     def round_trip(self, method):
+        """(milliseconds, None) on a good reply, else (milliseconds, (kind, text)): kind "slow" when no reply
+        came within --hang-after, "error" for an instant failure (connect refused, a missing socket file, an
+        error reply, a closed connection), with the error class and message. A good reply that took --hang-after
+        or longer is slow too. An app that stops accepting fills its listen backlog, and macOS then refuses
+        a connect at once, so that hang shows as an error (ConnectionRefusedError); it still fails the run."""
         started = time.monotonic()
         try:
             reply = Client(self.socket, timeout=self.args.hang_after).call(method)
-            ok = "error" not in reply
-        except (OSError, ValueError):
-            ok = False
-        return round((time.monotonic() - started) * 1000, 1), ok
+            failure = ("error", f"{method}: error reply {json.dumps(reply['error'])[:300]}") if "error" in reply else None
+        except (socket.timeout, TimeoutError) as error:
+            failure = ("slow", f"{method}: no reply within {self.args.hang_after} s ({type(error).__name__})")
+        except (OSError, ValueError) as error:
+            failure = ("error", f"{method}: {type(error).__name__}: {error}")
+        ms = round((time.monotonic() - started) * 1000, 1)
+        if failure is None and ms >= self.args.hang_after * 1000:
+            failure = ("slow", f"{method}: reply after {ms} ms")
+        return ms, failure
+
+    def check_control(self):
+        """One system.ping and one snapshot.get. An instant failure is a control-error event with its text;
+        only a reply slower than --hang-after (or none within it) is a hang."""
+        ping_ms, ping_failure = self.round_trip("system.ping")
+        snapshot_ms, snapshot_failure = self.round_trip("snapshot.get")
+        failures = [f for f in (ping_failure, snapshot_failure) if f]
+        timing = f"ping {ping_ms} ms, snapshot {snapshot_ms} ms"
+        errors = [text for kind, text in failures if kind == "error"]
+        if errors:
+            self.event("control-error", f"control error: {'; '.join(errors)} ({timing})")
+        slow = [text for kind, text in failures if kind == "slow"]
+        if slow:
+            self.event("hang", f"control round trip slow: {'; '.join(slow)} ({timing})")
+        return ping_ms, snapshot_ms
 
     def crash_reports(self):
         """This copy's crash reports since the soak started (other builds' reports do not count)."""
@@ -494,10 +559,7 @@ class Soak:
             for path in sorted(reports - seen_reports):
                 self.event("crash", f"crash report {os.path.basename(path)}")
             seen_reports = reports
-            ping_ms, ping_ok = self.round_trip("system.ping")
-            snapshot_ms, snapshot_ok = self.round_trip("snapshot.get")
-            if not (ping_ok and snapshot_ok) or max(ping_ms, snapshot_ms) >= self.args.hang_after * 1000:
-                self.event("hang", f"control round trip ping {ping_ms} ms ({ping_ok}), snapshot {snapshot_ms} ms ({snapshot_ok})")
+            ping_ms, snapshot_ms = self.check_control()
             statuses = self.acp.sessions()
             for session, entry in self.agents.items():
                 running = statuses.get(session) == "running"
@@ -597,7 +659,7 @@ class Soak:
                 value = (summary.get(kind) or {}).get("idle_cpu_percent")
                 if value is not None and value > limit:
                     (failures if self.args.idle_cpu_gate == "fail" else warnings).append(f"{kind} idle CPU {value}% over {limit}%")
-        for kind in ("crash", "hang", "stuck-turn"):
+        for kind in ("crash", "hang", "control-error", "stuck-turn"):
             count = sum(1 for e in self.events if e["kind"] == kind)
             if count:
                 failures.append(f"{count} {kind} event(s)")
@@ -664,7 +726,7 @@ class Soak:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="a copy of a tagged cmux-next app (bundle com.cmuxterm.app.debug.<tag>)")
-    parser.add_argument("--socket", help="the app's control socket (default /tmp/cmux-debug-<tag>.sock)")
+    parser.add_argument("--socket", help="the app's control socket (default ~/.local/state/cmux/cmux-debug-<tag>.sock)")
     parser.add_argument("--same-tag", action="store_true",
                         help="run --app as it is instead of a copy with its own bundle id and tag")
     parser.add_argument("--hours", type=float, default=24)

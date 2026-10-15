@@ -5,13 +5,17 @@ import Foundation
 /// The daemon history module (`history-v1`; plans/cmux-next/react-pages.md 2.2-2.3): the owner of
 /// page visits, the hidden-history document and the merged read model. The app reports each visit
 /// and title, and reads entries for the palette pages and `history.open`. Every mutation carries a
-/// fresh idempotency key. The app keeps owning the location trail (client view state).
+/// fresh idempotency key. The daemon also owns the location trail (DaemonTrailLocation.swift); the app
+/// keeps only its Back/Forward cursor.
 struct DaemonHistoryClient: Sendable {
     static let capability = "history-v1"
 
     let relay: ResourceRelayClient
+    /// The connection itself, for the trail document (``trail()``).
+    let connection: DaemonConnection
 
     init(connection: DaemonConnection) {
+        self.connection = connection
         relay = ResourceRelayClient(connection: connection)
     }
 

@@ -371,6 +371,7 @@ pub struct Terminal {
     c1_normalizer: C1Normalizer,
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
+    empty_kitty_probe_filter: EmptyKittyProbeFilter,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -478,6 +479,7 @@ impl Terminal {
             color_overrides: ColorOverrideTracker::default(),
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
+            empty_kitty_probe_filter: EmptyKittyProbeFilter,
         };
         // SAFETY: `callbacks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -554,6 +556,7 @@ impl Terminal {
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
+        let normalized = self.empty_kitty_probe_filter.write(normalized);
         self.kitty_inflight.write(&normalized);
         self.vt_boundary.feed(&normalized);
         self.prompt_semantic.feed(&normalized);
@@ -599,6 +602,31 @@ impl Terminal {
     /// fresh attachment at a later boundary.
     pub fn vt_replay_resumes_stream(&self) -> bool {
         self.pending_sequence_replay().is_some()
+    }
+
+    /// Abandon a pending VT control sequence that exceeded its replay budget.
+    ///
+    /// Checkpoint capture can continue from the rendered terminal state when
+    /// a client leaves an unbounded control string (most often a Kitty upload)
+    /// open forever. CAN has no screen effect and returns the parser to ground;
+    /// callers must publish the returned bytes to every attached parser before
+    /// resuming the live stream.
+    pub fn discard_unreplayable_replay(&mut self) -> Option<Vec<u8>> {
+        // CAN cannot undo completed multipart chunks. Reject recovery even
+        // when a later control string also exceeds the generic replay budget.
+        if self.kitty_inflight.has_unreplayable_prefix() {
+            return None;
+        }
+        // The generic VT boundary can still retain a complete replay for an
+        // APC while the Kitty-specific tracker has already overflowed its
+        // smaller upload budget. In that case the generic result is not a
+        // usable replay, so CAN recovery is still required.
+        if self.vt_replay_resumes_stream() && !self.kitty_inflight.has_unreplayable_command() {
+            return None;
+        }
+        let normalized = self.vt_write_with_normalized(b"\x18").into_owned();
+        self.kitty_inflight.discard_unreplayable();
+        self.vt_stream_is_ground().then_some(normalized)
     }
 
     /// How the replay reproduces the parser's incomplete sequence, if it can.

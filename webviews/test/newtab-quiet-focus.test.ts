@@ -1,0 +1,268 @@
+// The New Tab composer box's focus is quiet (Lawrence 10-14, "don't like this focus thing"): focus
+// keeps the box's one-device-pixel rim (--cmux-hairline) at its own width, takes at most a slight
+// step in tone, never the accent, and still clears with appearance.borders none. The composer's
+// fill, the New Tab box's and the chat composer's alike, is no longer a gray slab darker than the
+// page ("same bg kinda weird"; Leo 10-14): in a light theme it is the page lifted toward white,
+// lighter than the page; in a dark theme a small step lighter than the page. Both are solid. Their
+// drop shadow is the shared --elevation-1 in a light theme and none in a dark one, where it shows
+// nothing (cg-design-judge, 10-14).
+//
+// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
+
+type Rim = { spread: number; rgba: [number, number, number, number] };
+
+await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("newtab-quiet-focus: skipping (run `bunx playwright install chromium`)");
+    describe.skip("newtab quiet focus", () => test("chromium", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  beforeAll(async () => {
+    vite = await createServer({
+      root: webviews,
+      configFile: path.join(webviews, "vite.config.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: () => true } },
+      logLevel: "error",
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/test/browser/composer-rim.html");
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  // The themes' opaque page colors: a dark gray, and a warm off-white so "lighter" can show.
+  const pages = { dark: [30, 30, 30], light: [240, 236, 226] } as const;
+
+  /** The composer-rim harness with a known dark theme and a blue accent, so a ring in the accent shows. */
+  async function open(scale: number, theme: "dark" | "light" = "dark"): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width: 420, height: 480 }, deviceScaleFactor: scale });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/test/browser/composer-rim.html`);
+    await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+    await page.evaluate(
+      ({ page, theme }) => {
+        const root = document.documentElement.style;
+        root.colorScheme = theme;
+        document.documentElement.dataset.theme = theme;
+        root.setProperty("--cmux-surface-solid", `rgb(${page.join(", ")})`);
+        const shell = (document.querySelector(".acpmux-shell") as HTMLElement).style;
+        shell.setProperty("--agent-text", theme === "dark" ? "rgb(236, 236, 236)" : "rgb(20, 20, 20)");
+        shell.setProperty("--agent-page-bg", "transparent");
+        shell.setProperty("--agent-accent", "rgb(0, 122, 255)");
+      },
+      { page: pages[theme], theme },
+    );
+    return page;
+  }
+
+  /** A box's inset rims: spread in CSS px and color as 0...1 channels. */
+  function rims(page: Page, id = "newtab"): Promise<Rim[]> {
+    return page.evaluate((id) => {
+      const shadow = getComputedStyle(document.getElementById(id)!).boxShadow;
+      const entries: string[] = [];
+      let depth = 0;
+      let start = 0;
+      for (let index = 0; index < shadow.length; index++) {
+        const char = shadow[index];
+        if (char === "(") depth++;
+        else if (char === ")") depth--;
+        else if (char === "," && depth === 0) {
+          entries.push(shadow.slice(start, index));
+          start = index + 1;
+        }
+      }
+      entries.push(shadow.slice(start));
+      return entries
+        .filter((entry) => /\binset\b/.test(entry))
+        .map((entry) => {
+          const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) =>
+            Number(match[1]),
+          );
+          const color = entry.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? "transparent";
+          const numbers = [...color.matchAll(/-?[\d.]+(?:e-?\d+)?/g)].map((match) => Number(match[0]));
+          let rgba: [number, number, number, number] = [0, 0, 0, 0];
+          if (color.startsWith("color(")) rgba = [numbers[0], numbers[1], numbers[2], numbers[3] ?? 1];
+          else if (color.startsWith("rgb"))
+            rgba = [numbers[0] / 255, numbers[1] / 255, numbers[2] / 255, numbers[3] ?? 1];
+          return { spread: lengths[3] ?? 0, rgba };
+        });
+    }, id);
+  }
+
+  /** A computed color as 0...1 channels (`rgb()` or `color(srgb ...)`); null when unparsed. */
+  function parse(color: string): Rim["rgba"] | null {
+    const numbers = [...color.matchAll(/-?[\d.]+(?:e-?\d+)?/g)].map((match) => Number(match[0]));
+    if (color.startsWith("color(srgb")) return [numbers[0], numbers[1], numbers[2], numbers[3] ?? 1];
+    if (color.startsWith("rgb")) return [numbers[0] / 255, numbers[1] / 255, numbers[2] / 255, numbers[3] ?? 1];
+    return null;
+  }
+
+  /** An element's fill: its computed background color and image. */
+  async function fill(page: Page, id: string): Promise<{ rgba: Rim["rgba"] | null; image: string }> {
+    const style = await page.evaluate((id) => {
+      const computed = getComputedStyle(document.getElementById(id)!);
+      return { color: computed.backgroundColor, image: computed.backgroundImage };
+    }, id);
+    return { rgba: parse(style.color), image: style.image };
+  }
+
+  /** A rim as it shows: its color over the box's own fill. */
+  function ink([r, g, b, a]: Rim["rgba"], ground: Rim["rgba"]): number[] {
+    return [r, g, b].map((channel, index) => channel * a + ground[index] * (1 - a));
+  }
+
+  function luminance([r, g, b]: Rim["rgba"] | number[]): number {
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  // The New Tab box and the chat composer (Leo 10-14: the chat composer's focus is as quiet).
+  const boxes = [
+    ["newtab", "newtab-field"],
+    ["composer", "composer-field"],
+  ] as const;
+
+  for (const [box, field] of boxes)
+    for (const theme of ["dark", "light"] as const) {
+      for (const scale of [1, 2]) {
+        test(`${box}, ${theme} at ${scale}x: focus keeps the one-device-pixel rim, a slight step in tone, no accent`, async () => {
+          const page = await open(scale, theme);
+          const rest = await rims(page, box);
+          expect(rest.length, "the box draws a rim").toBe(1);
+          expect(rest[0].spread * scale, "rest rim in device px").toBe(1);
+          expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
+          await page.focus(`#${field}`);
+          const focused = await rims(page, box);
+          expect(focused.length, "focus draws one rim, no extra ring").toBe(1);
+          expect(focused[0].spread, "focus keeps the rim's width").toBe(rest[0].spread);
+          const ground = (await fill(page, box)).rgba!;
+          const [r, g, b] = focused[0].rgba;
+          expect(Math.max(Math.abs(r - g), Math.abs(g - b)), "the focused rim is neutral, not the accent").toBeLessThan(
+            0.02,
+          );
+          const lift = Math.max(
+            ...ink(focused[0].rgba, ground).map((value, index) => Math.abs(value - ink(rest[0].rgba, ground)[index])),
+          );
+          expect(lift, "focus lifts the rim's tone at most slightly").toBeLessThan(0.08);
+          await page.close();
+        });
+      }
+    }
+
+  for (const [box, field] of boxes)
+    test(`${box}: focused, the rim still clears with appearance.borders none`, async () => {
+      const page = await open(2);
+      await page.evaluate(() => document.documentElement.setAttribute("data-borders", "none"));
+      await page.focus(`#${field}`);
+      for (const { rgba } of await rims(page, box))
+        expect(rgba[3], `${box} focused rim alpha with borders none`).toBe(0);
+      await page.close();
+    });
+
+  for (const [box, field] of boxes)
+    test(`${box}: under Increase Contrast focus takes the shared, wider focus ring`, async () => {
+      const page = await open(2);
+      await page.emulateMedia({ contrast: "more" });
+      const rest = await rims(page, box);
+      await page.focus(`#${field}`);
+      const focused = await rims(page, box);
+      const width = await page.evaluate(() =>
+        parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-focus-ring-width")),
+      );
+      expect(
+        focused.map(({ spread }) => spread),
+        `${box} focus ring`,
+      ).toEqual([width]);
+      expect(width, "wider than the rim").toBeGreaterThan(rest[0]?.spread ?? 0);
+      await page.close();
+    });
+
+  test("the New Tab suggestions popover is the popup surface, as every pane popup", async () => {
+    const page = await open(2, "light");
+    await page.evaluate(() => document.documentElement.style.setProperty("--cmux-popup-surface", "rgb(201, 202, 203)"));
+    const { rgba, image } = await fill(page, "popover");
+    expect(image, "no composer tint over it").toBe("none");
+    expect(rgba, "the popup surface").toEqual([201 / 255, 202 / 255, 203 / 255, 1]);
+    await page.close();
+  });
+
+  for (const theme of ["dark", "light"] as const) {
+    test(`${theme}: the New Tab box and the chat composer are a solid surface lighter than the page`, async () => {
+      const page = await open(2, theme);
+      const ground = pages[theme].map((channel) => channel / 255);
+      for (const id of ["newtab", "composer"]) {
+        const { rgba, image } = await fill(page, id);
+        // At rest any layer over the surface (the New Tab box's hover lift) is clear.
+        const layers = [...image.matchAll(/(?:rgba?|color)\([^)]*\)/g)].map((match) => parse(match[0]));
+        for (const layer of layers) expect(layer?.[3], `${id} paints one flat color at rest`).toBe(0);
+        expect(rgba, `${id} fill parsed`).not.toBeNull();
+        expect(rgba![3], `${id} is solid over a wallpaper`).toBe(1);
+        const step = luminance(rgba!) - luminance(ground);
+        if (theme === "light") {
+          // The page lifted toward white: lighter than the page, near white, keeping the page's hue.
+          expect(step, `${id} is lighter than the page`).toBeGreaterThan(0.03);
+          expect(luminance(rgba!), `${id} is near white`).toBeGreaterThan(0.95);
+          expect(rgba![2], `${id} keeps the page's warmth`).toBeLessThan(rgba![0]);
+        } else {
+          // One small step lighter than the page.
+          expect(step, `${id} is a step lighter than the page`).toBeGreaterThan(0.02);
+          expect(step, `${id} is only a small step`).toBeLessThan(0.12);
+        }
+      }
+      await page.close();
+    });
+  }
+  for (const theme of ["dark", "light"] as const) {
+    test(`${theme}: the composers cast ${theme === "light" ? "--elevation-1" : "no shadow"}`, async () => {
+      const page = await open(2, theme);
+      const result = await page.evaluate(() => {
+        // The drop layers of a computed box-shadow (inset rims left out), and --elevation-1's own.
+        const drops = (shadow: string) => {
+          const entries: string[] = [];
+          let depth = 0;
+          let start = 0;
+          for (let index = 0; index < shadow.length; index++) {
+            const char = shadow[index];
+            if (char === "(") depth++;
+            else if (char === ")") depth--;
+            else if (char === "," && depth === 0) {
+              entries.push(shadow.slice(start, index).trim());
+              start = index + 1;
+            }
+          }
+          entries.push(shadow.slice(start).trim());
+          return entries.filter((entry) => entry !== "none" && !/\binset\b/.test(entry));
+        };
+        const probe = document.createElement("div");
+        probe.style.boxShadow = "var(--elevation-1)";
+        document.body.append(probe);
+        const elevation = drops(getComputedStyle(probe).boxShadow);
+        probe.remove();
+        const of = (id: string) => drops(getComputedStyle(document.getElementById(id)!).boxShadow);
+        return { elevation, newtab: of("newtab"), composer: of("composer") };
+      });
+      expect(result.elevation.length, "--elevation-1 resolves").toBe(1);
+      for (const id of ["newtab", "composer"] as const) {
+        if (theme === "light") expect(result[id], `${id} casts --elevation-1`).toEqual(result.elevation);
+        else
+          for (const layer of result[id])
+            expect(layer, `${id} casts no visible shadow`).toMatch(/^(?:rgba\(0, 0, 0, 0\)|transparent)|0px 0px 0px/);
+      }
+      await page.close();
+    });
+  }
+});

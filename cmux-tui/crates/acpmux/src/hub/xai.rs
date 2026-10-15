@@ -229,13 +229,13 @@ impl Hub {
                 }
                 let request = question_request(&params);
                 let outcome =
-                    self.handle_permission_for(session, request, epoch, turn_id, None).await;
+                    self.handle_permission_for(session, request, epoch, turn_id, None, None).await;
                 question_reply(&params, &outcome)
             }
             XaiRequest::ExitPlanMode => {
                 let request = plan_request(&params);
                 let outcome =
-                    self.handle_permission_for(session, request, epoch, turn_id, None).await;
+                    self.handle_permission_for(session, request, epoch, turn_id, None, None).await;
                 plan_reply(&outcome)
             }
         })

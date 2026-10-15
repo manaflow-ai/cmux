@@ -171,8 +171,8 @@ final class HomeComposeButton: NSButton {
     override func menu(for event: NSEvent) -> NSMenu? { owner?.composeMenu() }
 }
 
-/// Empty header space that drags the window (AppKit's own window drag).
+/// Empty header space that is titlebar: it drags the window, and a double-click runs the user's titlebar action.
 final class HomeWindowDragStrip: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
-    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    override func mouseDown(with event: NSEvent) { WindowTitlebar.handleMouseDown(event, in: window) }
 }

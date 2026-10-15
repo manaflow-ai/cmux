@@ -152,7 +152,9 @@ Więcej informacji o konfiguracji cmux znajdziesz w [naszej dokumentacji](https:
 
 | Skrót | Akcja |
 |----------|--------|
-| ⌘ N | Nowa przestrzeń robocza |
+| ⌘ N | Nowy lokalny obszar roboczy |
+| ⌘ Y | Nowy obszar roboczy Cloud w ostatnim dostępnym kontekście Cloud; otwiera New Cloud Machine, gdy żaden nie jest dostępny |
+| ⌘ ⇧ Y | Nowa maszyna Cloud |
 | ⌘ 1–8 | Przejdź do przestrzeni roboczej 1–8 |
 | ⌘ 9 | Przejdź do ostatniej przestrzeni roboczej |
 | ⌃ ⌘ ] | Następna przestrzeń robocza |

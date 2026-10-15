@@ -226,6 +226,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
+        updateMainPaneTopInset()
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
@@ -303,6 +304,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
+        mainPaneShade.paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         onContentChange?()
     }
 

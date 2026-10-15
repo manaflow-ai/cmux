@@ -382,17 +382,47 @@ fn read_profile_file(path: &Path, source: ProfileSource) -> Result<String, Diagn
     std::fs::read_to_string(path)
         .map_err(|e| Diagnostic::error(&shown, None, format!("cannot read the file: {e}"), None))
 }
-/// Windows port: the owner check reads the file's ACL there (a later
-/// landing); until then no profile file is read (fail closed).
-#[cfg(not(unix))]
+/// Windows: the owner and access list say whether another user can change
+/// the file (`owner_only.rs`; SYSTEM and Administrators count as root does).
+#[cfg(windows)]
 fn read_profile_file(path: &Path, _source: ProfileSource) -> Result<String, Diagnostic> {
     let shown = path.to_string_lossy().into_owned();
-    Err(Diagnostic::error(
-        &shown,
-        None,
-        crate::platform::unsupported("harness profile files").to_string(),
-        None,
-    ))
+    let meta = std::fs::metadata(path)
+        .map_err(|e| Diagnostic::error(&shown, None, format!("cannot read the file: {e}"), None))?;
+    if !meta.is_file() {
+        return Err(Diagnostic::error(&shown, None, "not a regular file".into(), None));
+    }
+    if meta.len() > MAX_PROFILE_BYTES {
+        return Err(Diagnostic::error(
+            &shown,
+            None,
+            format!("the file is larger than {MAX_PROFILE_BYTES} bytes"),
+            None,
+        ));
+    }
+    match crate::owner_only::changer_other_than_us(path) {
+        Ok(None) => {}
+        Ok(Some(sid)) => {
+            return Err(Diagnostic::error(
+                &shown,
+                None,
+                format!(
+                    "another user ({sid}) can change this file, and a profile runs a program with your rights"
+                ),
+                Some(format!("icacls \"{shown}\" /inheritance:r /grant:r \"%USERNAME%:F\"")),
+            ));
+        }
+        Err(e) => {
+            return Err(Diagnostic::error(
+                &shown,
+                None,
+                format!("cannot read the file's access list: {e}"),
+                None,
+            ));
+        }
+    }
+    std::fs::read_to_string(path)
+        .map_err(|e| Diagnostic::error(&shown, None, format!("cannot read the file: {e}"), None))
 }
 
 fn load_cmux_json(path: &Path, out: &mut LoadedProfiles) {

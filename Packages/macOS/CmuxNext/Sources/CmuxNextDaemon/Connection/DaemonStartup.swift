@@ -42,6 +42,17 @@ public struct DaemonStartup: Sendable {
         }
     }
 
+    /// The session owner is alive and still restoring (`server.restore_timeout`).
+    /// Such a failure does not spend the timed retry budget: the next `server
+    /// ensure` waits for that owner again (the daemon bounds each wait), and
+    /// past the budget the loop would wait for an event only, while a restore
+    /// that ends behind the same socket fires none, so a page stayed "not
+    /// connected" next to a ready daemon (cx-4bd8m).
+    public func ownerIsRestoring(_ error: DaemonError) -> Bool {
+        if case .sessionRestoreTimedOut = error { return true }
+        return false
+    }
+
     /// Makes a fresh connection per attempt and starts it until one
     /// succeeds. Calls `onFailure` after each failed attempt (the failed
     /// connection is already closed). Returns nil when the task is cancelled
@@ -66,24 +77,29 @@ public struct DaemonStartup: Sendable {
                 if Task.isCancelled { return nil }
                 await onFailure(failure)
                 if isPermanent(failure) { return nil }
+                if ownerIsRestoring(failure) { pacer.reset() }
                 guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
             }
         }
         // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only)
         while !Task.isCancelled {
             let connection = makeConnection()
+            // The tuple is built after the do/catch: Swift -O drops tuple elements returned
+            // from an awaiting do (swiftlang/swift#92698, cx-21wc5).
+            var identity: DaemonIdentity?
             do {
                 DaemonLaunchTimings.shared.mark("daemon.connect_start")
-                let identity = try await connection.start()
+                identity = try await connection.start()
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
-                return (connection, identity)
             } catch {
                 await connection.close()
                 if Task.isCancelled { return nil }
                 let failure = (error as? DaemonError) ?? .launchFailed(String(describing: error))
                 await onFailure(failure)
                 if isPermanent(failure) { return nil }
+                if ownerIsRestoring(failure) { pacer.reset() }
             }
+            if let identity { return (connection, identity) }
             guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
         }
         return nil

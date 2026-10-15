@@ -23,6 +23,9 @@ final class PaneHostView: NSView {
     private let clipView = PaneClipView()
     private(set) var padding: CGFloat = 0
     private(set) var cornerRadius: CGFloat = 0
+    /// Floating panes: the whole padded rect, header included, is the
+    /// rounded card the clip, border and ring trace (`LayoutStyle.floatingPanes`).
+    private(set) var wholeCard = false
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
 
@@ -74,21 +77,31 @@ final class PaneHostView: NSView {
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
     /// Height of the content's footer (a tab strip at the bottom); 0 without one.
     var footerHeight: CGFloat { reporter?.paneFooterHeight ?? 0 }
+    /// The header and footer the rounding leaves out: none for a whole card.
+    private var roundedBands: (header: CGFloat, footer: CGFloat) { wholeCard ? (0, 0) : (headerHeight, footerHeight) }
 
     /// The padded rect the content view fills, in this view's coordinates.
     var contentRect: CGRect { clipView.frame }
 
+    /// The card a floating pane shows, in window coordinates: the padded
+    /// rect cut to the part a docked column leaves (`setStripClip`).
+    var cardInWindow: CGRect {
+        let visible = layer?.mask.map { contentRect.intersection($0.frame) } ?? contentRect
+        return convert(visible, to: nil)
+    }
+
     /// The rounded area the border and ring trace: between the content's
     /// header and footer, or the whole padded rect for content without them.
     var roundedRect: CGRect {
-        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: headerHeight, footerHeight: footerHeight)
+        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: roundedBands.header, footerHeight: roundedBands.footer)
     }
 
     /// Applies the pane padding and corner radius (live style values).
-    func applyShape(padding: CGFloat, cornerRadius: CGFloat) {
-        guard padding != self.padding || cornerRadius != self.cornerRadius else { return }
+    func applyShape(padding: CGFloat, cornerRadius: CGFloat, wholeCard: Bool = false) {
+        guard padding != self.padding || cornerRadius != self.cornerRadius || wholeCard != self.wholeCard else { return }
         self.padding = padding
         self.cornerRadius = cornerRadius
+        self.wholeCard = wholeCard
         layoutClip()
     }
 
@@ -118,13 +131,14 @@ final class PaneHostView: NSView {
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
         let rect = clipView.frame
-        let header = headerHeight, footer = footerHeight
+        let (header, footer) = roundedBands
         let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
         let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)
-        if let reporter {
+        if let reporter, !wholeCard {
             clipView.setCornerRadius(0)
             reporter.setPaneContentCornerRadius(radius)
         } else {
+            reporter?.setPaneContentCornerRadius(0)
             clipView.setCornerRadius(radius)
         }
         chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header, footerHeight: footer)
@@ -141,30 +155,37 @@ final class PaneHostView: NSView {
 
     /// Clips the host to `rect` (its own coordinates) where a docked docked
     /// column covers it; nil removes the clip.
-    func setStripClip(_ rect: CGRect?) {
-        guard let layer else { return }
+    /// Returns true when the clip changed: a Chromium page in this pane then
+    /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
+    @discardableResult
+    func setStripClip(_ rect: CGRect?, cornerRadius: CGFloat = 0) -> Bool {
+        guard let layer else { return false }
         guard let rect else {
-            if layer.mask != nil { layer.mask = nil }
-            return
+            guard layer.mask != nil else { return false }
+            layer.mask = nil
+            return true
         }
         let mask = layer.mask ?? {
             let mask = CALayer()
+            mask.name = CALayer.cmuxStripClipName
             mask.backgroundColor = NSColor.black.cgColor
             layer.mask = mask
             return mask
         }()
-        guard mask.frame != rect else { return }
+        guard mask.frame != rect || mask.cornerRadius != cornerRadius else { return false }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         mask.frame = rect
+        mask.cornerRadius = cornerRadius
         CATransaction.commit()
+        return true
     }
 
-    func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
-                   tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border, attention: AttentionMark?,
-                   attentionSettings: AttentionSettings, animated: Bool) {
+    func setChrome(showsRing: Bool, dim: CGFloat, dimFill: PaneOverlayView.DimFill = .pane, focusRing: FocusRingSettings,
+                   ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
+                   attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
         reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
-        chrome.update(showsRing: showsRing, dim: dim, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
+        chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, animated: animated)
     }
 }

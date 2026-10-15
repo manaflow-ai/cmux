@@ -95,6 +95,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
+    "agent-session/acpmux/newtab/ChatFilterMenu.tsx#ChatFilterMenu",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
@@ -107,13 +108,35 @@ export default agentPaneEntry({
   ],
   variants: withAllChats({
     empty: {
-      note: "No chats yet. A harness is installed, so nothing offers Integrate a harness.",
+      note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
       ready: newTab(),
       snapshot: noChat(),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        if (ctx.document.querySelector(".nt-no-agent, .nt-add-harness"))
-          throw new Error("Integrate a harness shows with a harness installed");
+        if (ctx.document.querySelector(".nt-no-agent, .acpmux-add-harness"))
+          throw new Error("Add harness shows on the page with a harness installed");
+      },
+    },
+    // The chip's model picker opens whole: the card does not clip it to its search field
+    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the picker, not the page.
+    "model-picker-open": {
+      note: "The New Tab chip's model picker, open: at least its search field and about six rows, never cut by the card. Its list ends on Add harness….",
+      ready: newTab(),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+          if (!menu || menu.style.visibility !== "visible") return false;
+          const box = menu.getBoundingClientRect();
+          if (box.height < 219) return false;
+          const x = box.left + box.width / 2;
+          return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
+        });
+        const options = ctx.document.querySelectorAll(".acpmux-mp-models [role=option]");
+        if (!options[options.length - 1]?.classList.contains("acpmux-mp-add-harness"))
+          throw new Error("the model picker's list does not end on Add harness…");
       },
     },
     "chats-unavailable": {
@@ -136,24 +159,25 @@ export default agentPaneEntry({
       },
     },
     "no-harness-installed": {
-      note: "No harness installed (Leo 2026-10-12): one quiet line under the field, No agent to ask, Integrate a harness and a dismiss that holds for later pages. With any harness installed (every other state) the page never offers it.",
+      note: "No harness installed (Leo 2026-10-14): the composer's chip says Add harness and opens the Harnesses page. No line under the field, no grey placeholder pills.",
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
       snapshot: { ...noChat(), catalog: [] },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-no-agent [data-dismiss-hint]") !== null);
-        const line = ctx.document.querySelector(".nt-no-agent")!.getBoundingClientRect();
-        if (line.height > 32) throw new Error(`the Integrate a harness line is ${line.height}px tall, not one line`);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-add-harness") !== null);
+        if (ctx.document.querySelector(".nt-no-agent")) throw new Error("a No agent to ask line shows under the field");
+        const chip = ctx.document.querySelector(".nt-pickers .acpmux-add-harness")!.getBoundingClientRect();
+        if (chip.height > 32) throw new Error(`the Add harness chip is ${chip.height}px tall, not one chip`);
       },
     },
     "typed-over-note": {
-      note: "hq#1925 12: suggestions open over No agent to ask and the New terminal / browser / chat row cover them; no text under the popover shows through.",
+      note: "hq#1925 12: suggestions open over the New terminal / browser / chat row and cover it; no text under the popover shows through.",
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
       snapshot: { ...noChat(), catalog: [] },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-no-agent") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-create") !== null);
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
         const popover = ctx.document.querySelector<HTMLElement>(".nt-popover")!;
@@ -166,16 +190,13 @@ export default agentPaneEntry({
             `the suggestions show the page through them (${style.backgroundColor}, opacity ${style.opacity})`,
           );
         const cover = popover.getBoundingClientRect();
-        const under = [...ctx.document.querySelectorAll<HTMLElement>(".nt-no-agent > *, .nt-create > *")].filter(
-          (item) => {
-            const rect = item.getBoundingClientRect();
-            return (
-              rect.width > 0 && rect.top < cover.bottom - 2 && rect.bottom > cover.top && rect.left < cover.right - 8
-            );
-          },
-        );
-        if (!under.some((item) => item.closest(".nt-no-agent")))
-          throw new Error("the suggestions do not reach No agent to ask under the field");
+        const under = [...ctx.document.querySelectorAll<HTMLElement>(".nt-create > *")].filter((item) => {
+          const rect = item.getBoundingClientRect();
+          return (
+            rect.width > 0 && rect.top < cover.bottom - 2 && rect.bottom > cover.top && rect.left < cover.right - 8
+          );
+        });
+        if (!under.length) throw new Error("the suggestions do not reach the create row under the field");
         for (const item of under) {
           const rect = item.getBoundingClientRect();
           const y = Math.min((rect.top + rect.bottom) / 2, cover.bottom - 2);
@@ -193,6 +214,17 @@ export default agentPaneEntry({
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);
         page.cmuxAcpmuxBridge?.command?.("showHarnesses");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harnesses") !== null);
+      },
+    },
+    "chats-filter-open": {
+      note: "Threads template with the All chats Filter open (cx-htpk0): All, Working, Needs input, Done, in the pane's own menu style, over the list.",
+      ready: newTab({ template: "threads" }),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Filter" });
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll('.nt-chats-filter-list [role="menuitemradio"]').length === 4,
+        );
       },
     },
     "many-chats": {
@@ -561,7 +593,7 @@ export default agentPaneEntry({
       },
     },
     "style-switch": {
-      note: "The New Tab style switch (Leo 2026-10-13): the five style names in one quiet row under the page, the current one on a small fill that slides to a pick. A pick shows in place and is saved as tabs.newTabTemplate.",
+      note: "The New Tab style dots (Leo 2026-10-14): one small round dot per style under the page, the current one in the accent and the accent dot sliding to a pick. A pointer over a dot shows its name; a pick shows the picked name for a moment, then fades it, and is saved as tabs.newTabTemplate.",
       ready: newTab({ template: "default" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {

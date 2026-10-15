@@ -28,7 +28,7 @@ public nonisolated enum SidebarTunables {
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
         help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
-        default: .besideTitle, code: "SidebarTunables.agentMark")
+        default: .off, code: "SidebarTunables.agentMark")
 
     /// Multiplayer agent presence (cx-gg84): off until the dots are styled
     /// into the row; the daemon feed (`agent-presence-v1`) runs either way.
@@ -37,7 +37,13 @@ public nonisolated enum SidebarTunables {
         help: "A round dot per agent acting right now, in the agent's theme color: on its workspace row (hover lists what each one touches) and on its tab chip (prototype).",
         default: false, code: "SidebarTunables.presenceDots")
 
+    /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
+    public static let rowBadgePreview = Tunable<Bool>.toggle(
+        "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
+        help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
+        default: false, code: "SidebarTunables.rowBadgePreview")
+
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
     }
 }

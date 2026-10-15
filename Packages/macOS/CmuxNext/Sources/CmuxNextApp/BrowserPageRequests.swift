@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextNowPlaying
 import CmuxNextTabs
 
 /// Tabs a page asks for: a link opened in a new tab (Cmd-click, middle
@@ -20,6 +21,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     weak var services: AppServices? {
         didSet {
             nowPlaying.follow(services)
+            sidebarNowPlaying.follow(sessions: { [weak self] in self?.services.map { s in s.cache.pageRequests.media.sessions(in: s.cache).map { NowPlayingSession(tab: $0.entry.tab.id, media: $0.media) } } ?? [] },
+                                     tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A reopened tab restores one history, not two (cx-d0d.11).
@@ -49,6 +52,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let media = BrowserMediaHub()
     /// The playing tab in macOS Now Playing and on the media keys.
     let nowPlaying = BrowserNowPlaying()
+    /// The playing tab for the sidebar's Now Playing card (cx-ouoxo).
+    let sidebarNowPlaying = BrowserTabsNowPlaying()
+    /// cmux's own music player (cx-imt2i, a preview feature).
+    let music = MusicPlayer()
+    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab.
+    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying)
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).

@@ -91,9 +91,14 @@ extension SettingsSchema {
         "appearance.metrics.chromeFontSize",
         "appearance.borders",
         "appearance.sidebarSurface",
+        "appearance.chromeStyle",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
+        "ui.animations.newTab",
+        "ui.animations.newWorkspace",
+        "ui.animations.bounce",
+        "ui.paneAnimations",
         "layout.panePadding",
         "layout.paneCornerRadius",
         "layout.paneBorder",
@@ -155,6 +160,7 @@ extension SettingsSchema {
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
+        "labs.classicHome",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -166,6 +172,8 @@ extension SettingsSchema {
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
+        // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
+        "freeModel.enabled": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
@@ -184,6 +192,8 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Off, Chromium tabs load ads and trackers again.
+        "browser.builtInAdBlocker": .privacy,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,

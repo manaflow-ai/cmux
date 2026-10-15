@@ -105,6 +105,7 @@ mod topology_test_hooks;
 mod unpublished_creation;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
+pub(crate) use pane_browser::PANE_BROWSER_URL_FIELD;
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;
@@ -249,6 +250,15 @@ pub(super) struct TerminalExitDetachEffects {
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
     empty_revision: Option<u64>,
+    /// The typed end each `SurfaceExited` carries.
+    end: Option<Arc<Value>>,
+}
+
+impl TerminalExitDetachEffects {
+    pub(super) fn with_end(mut self, end: Option<Arc<Value>>) -> Self {
+        self.end = end;
+        self
+    }
 }
 
 impl TerminalExitDetachProjection {
@@ -272,6 +282,7 @@ impl TerminalExitDetachProjection {
             changed_screens: self.changed_screens,
             selection_resync: self.selection_resync,
             empty_revision,
+            end: None,
         }
     }
 }

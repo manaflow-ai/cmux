@@ -61,6 +61,14 @@ public nonisolated struct PaneChromeMetrics: Equatable, Sendable {
         pillTop(scale: scale) + tabHeight + tabGap(scale: scale)
     }
 
+    /// The card top, from the window's top edge, that puts the top row's
+    /// pill center on `centerY` (the traffic lights' center line), so the
+    /// tabs, the window buttons and the toolbar band share one line. Never
+    /// negative.
+    public func cardTop(centeringPillOn centerY: CGFloat, scale: CGFloat) -> CGFloat {
+        max(0, Self.snapDown(centerY - Self.snap(panePadding, scale) - pillTop(scale: scale) - tabHeight / 2, scale))
+    }
+
     /// The live tokens.
     @MainActor public static var current: PaneChromeMetrics {
         PaneChromeMetrics(stripHeight: Metrics.tabStripHeight, tabHeight: Metrics.tabHeight, panePadding: Metrics.panePadding)

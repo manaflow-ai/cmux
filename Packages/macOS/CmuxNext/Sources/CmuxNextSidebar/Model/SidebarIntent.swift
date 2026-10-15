@@ -83,6 +83,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case openWhatsNew
     /// The "cmux Updated!" card's x: this version is seen.
     case dismissUpdated
+    /// A Now Playing card control (cx-ouoxo), for the App's Now Playing source.
+    case nowPlaying(SidebarNowPlayingCommand)
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top

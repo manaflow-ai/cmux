@@ -14,6 +14,9 @@ public struct AgentPaneHeaderHooks {
     /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue in…), so
     /// the chat keeps its own tab and session; false when no tab opened.
     public var openTab: @MainActor (String) -> Bool
+    /// Shows subagent `agent` of session `session` in an agent pane right of the chat
+    /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
+    public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
     /// A started chat's New Chat Here: a New Tab page in folder `cwd`, in a tab beside the chat's;
     /// false when none opened.
     public var newChat: @MainActor (String) -> Bool
@@ -36,6 +39,7 @@ public struct AgentPaneHeaderHooks {
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String) -> Void = { _ in },
                 openTab: @escaping @MainActor (String) -> Bool = { _ in false },
+                openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
@@ -47,6 +51,7 @@ public struct AgentPaneHeaderHooks {
         self.tabState = tabState
         self.openSide = openSide
         self.openTab = openTab
+        self.openSubagent = openSubagent
         self.newChat = newChat
         self.sideTabs = sideTabs
         self.preview = preview
@@ -116,7 +121,9 @@ extension AgentPaneModel {
             // The Terminal split names the chat's folder; agent-home is the chat's only.
             let folder = folderForOtherTabs(cwd)
             if toggle { header.toggle(id, folder) } else { header.run(id, folder) }
-            return AgentPaneReply.success()
+            // `ran`: the page knows the App took the action (a host without panes, such as the
+            // gallery, answers null), so its diff link opens the diff beside the chat, not in place.
+            return AgentPaneReply.success(["ran": true])
         case .tabState(let refresh):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
@@ -124,6 +131,13 @@ extension AgentPaneModel {
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
         case .sideChat(let fork):
             return await openSideChat(fork)
+        case .subagentPane(let agent, let focus):
+            // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
+            // answers `opened: false`, and the page shows the subagent in this pane instead.
+            guard let sessionId, newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
+            }
+            return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
         case .chatTab(let chat):
             // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page. A refusal (another

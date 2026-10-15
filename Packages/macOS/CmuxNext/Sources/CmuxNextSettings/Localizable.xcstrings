@@ -1,6 +1,531 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.freeModel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Models"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نماذج الذكاء الاصطناعي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Modelle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos de IA"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèles d’IA"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI モデル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 모델"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 模型"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI modeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI-modeller"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelli di IA"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គំរូ AI"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI-modeller"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modele AI"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos de IA"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модели ИИ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล AI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yapay zekâ modelleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моделі ШІ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình AI"
+          }
+        }
+      }
+    },
+    "settings.freeModel.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free AI Model Without Sign-In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نموذج ذكاء اصطناعي مجاني دون تسجيل الدخول"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kostenloses KI-Modell ohne Anmeldung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo de IA gratuito sin iniciar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle d’IA gratuit sans connexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン不要の無料 AI モデル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 없이 무료 AI 모델"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免登录的免费 AI 模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免登入的免費 AI 模型"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besplatni AI model bez prijave"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratis AI-model uden login"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modello di IA gratuito senza accesso"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គំរូ AI ឥតគិតថ្លៃ ដោយមិនចាំបាច់ចូលគណនី"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratis AI-modell uten pålogging"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darmowy model AI bez logowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo de IA gratuito sem login"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бесплатная модель ИИ без входа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล AI ฟรีโดยไม่ต้องลงชื่อเข้าใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum açmadan ücretsiz yapay zekâ modeli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Безплатна модель ШІ без входу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình AI miễn phí không cần đăng nhập"
+          }
+        }
+      }
+    },
+    "settings.freeModel.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح للوكلاء استخدام نموذج الذكاء الاصطناعي المجاني من cmux أثناء تسجيل خروجك. في أول مرة يستخدمه فيها وكيل، يثبت cmux لخدمة السحابة أن هذا جهاز Mac حقيقي. سجّل الدخول للحصول على مزيد من النماذج وحدود أعلى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können das kostenlose cmux-KI-Modell nutzen, während du abgemeldet bist. Wenn ein Agent es zum ersten Mal nutzt, weist cmux dem Cloud-Dienst nach, dass dies ein echter Mac ist. Melde dich an, um mehr Modelle und höhere Limits zu erhalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que los agentes usen el modelo de IA gratuito de cmux mientras no has iniciado sesión. La primera vez que un agente lo usa, cmux demuestra al servicio en la nube que este es un Mac real. Inicia sesión para obtener más modelos y límites más altos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet aux agents d’utiliser le modèle d’IA gratuit de cmux lorsque vous n’êtes pas connecté. La première fois qu’un agent l’utilise, cmux prouve au service Cloud qu’il s’agit d’un vrai Mac. Connectez-vous pour plus de modèles et des limites plus élevées."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト中でもエージェントが cmux の無料 AI モデルを使えるようにします。エージェントが初めて使うとき、cmux はこの Mac が本物の Mac であることをクラウドサービスに証明します。サインインすると、より多くのモデルとより高い上限を使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃 상태에서도 에이전트가 cmux 무료 AI 모델을 사용할 수 있습니다. 에이전트가 처음 사용할 때 cmux가 클라우드 서비스에 이 Mac이 실제 Mac임을 증명합니다. 로그인하면 더 많은 모델과 더 높은 한도를 사용할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让代理在你未登录时使用 cmux 免费 AI 模型。代理第一次使用时，cmux 会向云服务证明这是一台真正的 Mac。登录即可使用更多模型和更高的额度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓代理在你未登入時使用 cmux 免費 AI 模型。代理第一次使用時，cmux 會向雲端服務證明這是一台真正的 Mac。登入即可使用更多模型和更高的額度。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogućava agentima da koriste besplatni cmux AI model dok ste odjavljeni. Kada ga agent prvi put koristi, cmux dokazuje Cloud usluzi da je ovo pravi Mac. Prijavite se za više modela i veća ograničenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lader agenter bruge den gratis cmux AI-model, mens du er logget ud. Første gang en agent bruger den, beviser cmux over for Cloud-tjenesten, at dette er en rigtig Mac. Log ind for flere modeller og højere grænser."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente agli agenti di usare il modello di IA gratuito di cmux mentre non hai effettuato l’accesso. La prima volta che un agente lo usa, cmux dimostra al servizio Cloud che questo è un vero Mac. Accedi per avere più modelli e limiti più alti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យភ្នាក់ងារប្រើគំរូ AI ឥតគិតថ្លៃរបស់ cmux ពេលអ្នកចាកចេញពីគណនី។ នៅពេលភ្នាក់ងារប្រើវាលើកដំបូង cmux បង្ហាញដល់សេវាពពកថា នេះជា Mac ពិតប្រាកដ។ ចូលគណនីដើម្បីទទួលបានគំរូច្រើនទៀត និងដែនកំណត់ខ្ពស់ជាងនេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lar agenter bruke den gratis cmux AI-modellen mens du er logget ut. Første gang en agent bruker den, beviser cmux overfor Cloud-tjenesten at dette er en ekte Mac. Logg på for flere modeller og høyere grenser."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwala agentom używać darmowego modelu AI cmux, gdy nie jesteś zalogowany. Gdy agent użyje go po raz pierwszy, cmux potwierdzi usłudze Cloud, że to prawdziwy Mac. Zaloguj się, aby mieć więcej modeli i wyższe limity."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que os agentes usem o modelo de IA gratuito do cmux enquanto você não está conectado. Na primeira vez que um agente o usa, o cmux prova ao serviço de nuvem que este é um Mac real. Entre para ter mais modelos e limites maiores."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позволяет агентам использовать бесплатную модель ИИ cmux, когда вы не вошли в аккаунт. Когда агент впервые её использует, cmux подтверждает облачному сервису, что это настоящий Mac. Войдите, чтобы получить больше моделей и более высокие лимиты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้เอเจนต์ใช้โมเดล AI ฟรีของ cmux ได้ขณะที่คุณออกจากระบบ ครั้งแรกที่เอเจนต์ใช้งาน cmux จะพิสูจน์กับบริการคลาวด์ว่านี่คือ Mac จริง ลงชื่อเข้าใช้เพื่อใช้โมเดลได้มากขึ้นและขีดจำกัดที่สูงขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum kapalıyken ajanların cmux’un ücretsiz yapay zekâ modelini kullanmasına izin verir. Bir ajan bunu ilk kez kullandığında cmux, bunun gerçek bir Mac olduğunu Bulut hizmetine kanıtlar. Daha fazla model ve daha yüksek sınırlar için oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволяє агентам користуватися безплатною моделлю ШІ cmux, коли ви не ввійшли. Коли агент уперше нею користується, cmux доводить хмарному сервісу, що це справжній Mac. Увійдіть, щоб отримати більше моделей і вищі ліміти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép tác nhân dùng mô hình AI miễn phí của cmux khi bạn chưa đăng nhập. Lần đầu tác nhân dùng nó, cmux chứng minh với dịch vụ Đám mây rằng đây là một chiếc Mac thật. Đăng nhập để có thêm mô hình và giới hạn cao hơn."
+          }
+        }
+      }
+    },
+    "settings.freeModel.enabled.summary": {
+      "comment": "Settings row summary: one short line under the setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free AI model while signed out"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نموذج ذكاء اصطناعي مجاني أثناء تسجيل الخروج"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kostenloses KI-Modell im abgemeldeten Zustand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo de IA gratuito sin sesión iniciada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle d’IA gratuit hors connexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト中の無料 AI モデル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃 상태의 무료 AI 모델"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未登录时的免费 AI 模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未登入時的免費 AI 模型"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besplatni AI model dok ste odjavljeni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratis AI-model, når du er logget ud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modello di IA gratuito senza accesso"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គំរូ AI ឥតគិតថ្លៃ ពេលចាកចេញពីគណនី"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratis AI-modell når du er logget ut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darmowy model AI po wylogowaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo de IA gratuito sem sessão iniciada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бесплатная модель ИИ без входа в аккаунт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล AI ฟรีขณะออกจากระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum kapalıyken ücretsiz yapay zekâ modeli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Безплатна модель ШІ, коли ви не ввійшли"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình AI miễn phí khi chưa đăng nhập"
+          }
+        }
+      }
+    },
     "settings.choice.transparent": {
       "extractionState": "manual",
       "localizations": {
@@ -76980,127 +77505,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعرض الصفوف الموسَّعة حالة كل مساحة عمل أو مجلدها تحت اسمها، ومتى تغيّرت آخر مرة، وطلب السحب والكمبيوتر."
+            "value": "تبقى الصفوف المريحة في سطر واحد، لكنها أطول وحولها مساحة أكبر. تعرض الصفوف الموسَّعة حالة كل مساحة عمل أو مجلدها تحت اسمها، ومتى تغيّرت آخر مرة، وطلب السحب والكمبيوتر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prošireni redovi prikazuju status ili mapu svakog radnog prostora ispod naziva, prije koliko vremena se promijenio te pull request i računar."
+            "value": "Prostrani redovi ostaju u jednom redu, ali su viši i imaju više prostora oko sebe. Prošireni redovi prikazuju status ili mapu svakog radnog prostora ispod naziva, prije koliko vremena se promijenio te pull request i računar."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Udvidede rækker viser hvert arbejdsområdes status eller mappe under navnet, hvor længe siden det blev ændret, samt pull request og computer."
+            "value": "Luftige rækker holder sig på én linje, men er højere og har mere plads omkring sig. Udvidede rækker viser hvert arbejdsområdes status eller mappe under navnet, hvor længe siden det blev ændret, samt pull request og computer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erweiterte Zeilen zeigen unter dem Namen den Status oder Ordner jedes Arbeitsbereichs, wie lange die letzte Änderung her ist, sowie Pull Request und Computer."
+            "value": "Großzügige Zeilen bleiben einzeilig, sind aber höher und haben mehr Abstand. Erweiterte Zeilen zeigen unter dem Namen den Status oder Ordner jedes Arbeitsbereichs, wie lange die letzte Änderung her ist, sowie Pull Request und Computer."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+            "value": "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las filas ampliadas muestran bajo el nombre el estado o la carpeta de cada espacio de trabajo, cuánto hace que cambió, y su pull request y ordenador."
+            "value": "Las filas cómodas siguen en una línea, pero son más altas y tienen más espacio alrededor. Las filas ampliadas muestran bajo el nombre el estado o la carpeta de cada espacio de trabajo, cuánto hace que cambió, y su pull request y ordenador."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les lignes étendues affichent sous le nom l’état ou le dossier de chaque espace de travail, depuis quand il a changé, ainsi que sa pull request et son ordinateur."
+            "value": "Les lignes confortables restent sur une ligne, mais sont plus hautes et plus aérées. Les lignes étendues affichent sous le nom l’état ou le dossier de chaque espace de travail, depuis quand il a changé, ainsi que sa pull request et son ordinateur."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le righe estese mostrano sotto il nome lo stato o la cartella di ogni area di lavoro, da quanto tempo è cambiata, la pull request e il computer."
+            "value": "Le righe comode restano su una riga, ma sono più alte e con più spazio intorno. Le righe estese mostrano sotto il nome lo stato o la cartella di ogni area di lavoro, da quanto tempo è cambiata, la pull request e il computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拡張表示では、各ワークスペースの名前の下にステータスまたはフォルダ、最終変更からの経過時間、プルリクエストとコンピュータを表示します。"
+            "value": "ゆったり表示では、1 行のまま行の高さと余白を広げます。拡張表示では、各ワークスペースの名前の下にステータスまたはフォルダ、最終変更からの経過時間、プルリクエストとコンピュータを表示します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរដែលពង្រីកបង្ហាញស្ថានភាព ឬថតនៃកន្លែងធ្វើការនីមួយៗនៅក្រោមឈ្មោះ រយៈពេលតាំងពីវាផ្លាស់ប្តូរ និង pull request និងកុំព្យូទ័រ។"
+            "value": "ជួរធូរនៅតែមួយបន្ទាត់ ប៉ុន្តែខ្ពស់ជាង និងមានចន្លោះច្រើនជាងនៅជុំវិញ។ ជួរដែលពង្រីកបង្ហាញស្ថានភាព ឬថតនៃកន្លែងធ្វើការនីមួយៗនៅក្រោមឈ្មោះ រយៈពេលតាំងពីវាផ្លាស់ប្តូរ និង pull request និងកុំព្យូទ័រ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "확장 행은 각 작업 공간의 이름 아래에 상태 또는 폴더, 마지막 변경 이후 경과 시간, 풀 리퀘스트와 컴퓨터를 표시합니다."
+            "value": "넉넉한 행은 한 줄을 유지하면서 높이와 주변 여백이 더 큽니다. 확장 행은 각 작업 공간의 이름 아래에 상태 또는 폴더, 마지막 변경 이후 경과 시간, 풀 리퀘스트와 컴퓨터를 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Utvidede rader viser status eller mappe for hvert arbeidsområde under navnet, hvor lenge siden det ble endret, og pull request og datamaskin."
+            "value": "Luftige rader holder seg på én linje, men er høyere og har mer plass rundt seg. Utvidede rader viser status eller mappe for hvert arbeidsområde under navnet, hvor lenge siden det ble endret, og pull request og datamaskin."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rozszerzone wiersze pokazują pod nazwą stan lub folder każdego obszaru roboczego, jak dawno się zmienił oraz pull request i komputer."
+            "value": "Przestronne wiersze zostają w jednej linii, ale są wyższe i mają więcej miejsca wokół. Rozszerzone wiersze pokazują pod nazwą stan lub folder każdego obszaru roboczego, jak dawno się zmienił oraz pull request i komputer."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Linhas expandidas mostram abaixo do nome o status ou a pasta de cada espaço de trabalho, há quanto tempo mudou, e o pull request e o computador."
+            "value": "Linhas confortáveis continuam em uma linha, mas são mais altas e têm mais espaço ao redor. Linhas expandidas mostram abaixo do nome o status ou a pasta de cada espaço de trabalho, há quanto tempo mudou, e o pull request e o computador."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Развёрнутые строки показывают под названием статус или папку каждого рабочего пространства, как давно оно менялось, а также pull request и компьютер."
+            "value": "Свободные строки остаются в одну строку, но они выше и с большими отступами. Развёрнутые строки показывают под названием статус или папку каждого рабочего пространства, как давно оно менялось, а также pull request и компьютер."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แถวแบบขยายจะแสดงสถานะหรือโฟลเดอร์ของแต่ละพื้นที่ทำงานใต้ชื่อ เวลาที่เปลี่ยนแปลงล่าสุด รวมถึงพูลรีเควสต์และคอมพิวเตอร์"
+            "value": "แถวแบบกว้างขวางยังคงเป็นบรรทัดเดียว แต่สูงขึ้นและมีระยะห่างรอบๆ มากขึ้น แถวแบบขยายจะแสดงสถานะหรือโฟลเดอร์ของแต่ละพื้นที่ทำงานใต้ชื่อ เวลาที่เปลี่ยนแปลงล่าสุด รวมถึงพูลรีเควสต์และคอมพิวเตอร์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Genişletilmiş satırlar, her çalışma alanının adının altında durumunu veya klasörünü, ne kadar önce değiştiğini, pull request'ini ve bilgisayarını gösterir."
+            "value": "Rahat satırlar tek satırda kalır, ancak daha yüksektir ve çevrelerinde daha fazla boşluk vardır. Genişletilmiş satırlar, her çalışma alanının adının altında durumunu veya klasörünü, ne kadar önce değiştiğini, pull request'ini ve bilgisayarını gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Розгорнуті рядки показують під назвою стан або теку кожного робочого простору, як давно він змінювався, а також pull request і комп’ютер."
+            "value": "Просторі рядки залишаються в один рядок, але вищі й мають більше місця навколо. Розгорнуті рядки показують під назвою стан або теку кожного робочого простору, як давно він змінювався, а також pull request і комп’ютер."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hàng mở rộng hiển thị dưới tên trạng thái hoặc thư mục của mỗi không gian làm việc, thời gian kể từ lần thay đổi gần nhất, cùng pull request và máy tính."
+            "value": "Hàng thoáng vẫn giữ một dòng nhưng cao hơn và có nhiều khoảng trống xung quanh hơn. Hàng mở rộng hiển thị dưới tên trạng thái hoặc thư mục của mỗi không gian làm việc, thời gian kể từ lần thay đổi gần nhất, cùng pull request và máy tính."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "展开的行会在名称下方显示每个工作区的状态或文件夹、距上次更改的时间，以及拉取请求和电脑。"
+            "value": "宽松的行仍为单行，但行高更高、四周留白更多。展开的行会在名称下方显示每个工作区的状态或文件夹、距上次更改的时间，以及拉取请求和电脑。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "展開的列會在名稱下方顯示每個工作區的狀態或資料夾、距上次變更的時間，以及提取要求和電腦。"
+            "value": "寬鬆的列仍為單行，但列高更高、四周留白更多。展開的列會在名稱下方顯示每個工作區的狀態或資料夾、距上次變更的時間，以及提取要求和電腦。"
           }
         }
       }
@@ -89197,6 +89722,3281 @@
           "stringUnit": {
             "state": "translated",
             "value": "在標籤列「更多」按鈕旁顯示為按鈕的動作。其餘動作位於「更多」選單中，可透過「在標籤列中顯示」重新固定。"
+          }
+        }
+      }
+    },
+    "settings.appearance.chromeStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesstil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fensterstil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style de fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウスタイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vindusstil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styl okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo da janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สไตล์หน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere Stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗樣式"
+          }
+        }
+      }
+    },
+    "settings.appearance.chromeStyle.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مظهر النافذة: هل تكون الأجزاء داخل بطاقة واحدة مستديرة الحواف، وأين تُرسم الخطوط. تبقى الأولوية للفصل وخلفية الشريط الجانبي وحد الشريط الجانبي عند ضبطها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izgled prozora: da li su okna u jednoj zaobljenoj kartici i gdje se crtaju linije. Razdvajanje, Pozadina bočne trake i obrub bočne trake i dalje imaju prednost kada ih postavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduets udseende: om ruderne ligger i ét afrundet kort, og hvor der tegnes streger. Adskillelse, Sidepanelets baggrund og sidepanelets kant vinder stadig, når du angiver dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Aussehen des Fensters: ob die Bereiche in einer abgerundeten Karte liegen und wo Linien gezeichnet werden. Trennung, Hintergrund der Seitenleiste und der Rand der Seitenleiste haben weiterhin Vorrang, wenn du sie festlegst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El aspecto de la ventana: si los paneles están en una sola tarjeta redondeada y dónde se dibujan líneas. Separación, Fondo de la barra lateral y el borde de la barra lateral siguen teniendo prioridad cuando los configuras."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’aspect de la fenêtre : si les panneaux sont dans une seule carte arrondie, et où les lignes sont tracées. Séparation, Arrière-plan de la barre latérale et la bordure de la barre latérale l’emportent toujours lorsque vous les définissez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’aspetto della finestra: se i riquadri stanno in un’unica scheda arrotondata e dove vengono tracciate le linee. Separazione, Sfondo della barra laterale e il bordo della barra laterale hanno comunque la precedenza quando li imposti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウの見た目です。ペインを1枚の角丸カードに収めるか、どこに線を描くかを決めます。区切り、サイドバーの背景、サイドバーの境界線を設定した場合は、そちらが優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបរាងបង្អួច៖ ថាតើផ្ទាំងស្ថិតក្នុងកាតមូលតែមួយ និងកន្លែងដែលគូរបន្ទាត់។ ការបំបែក ផ្ទៃខាងក្រោយរបារចំហៀង និងគែមរបារចំហៀង នៅតែមានអាទិភាពនៅពេលអ្នកកំណត់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창의 모양입니다. 창 분할이 하나의 둥근 카드 안에 놓이는지, 어디에 선을 그릴지 정합니다. 구분, 사이드바 배경, 사이드바 테두리를 설정하면 그 값이 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduets utseende: om rutene ligger i ett avrundet kort, og hvor linjer tegnes. Atskillelse, Bakgrunn for sidepanelet og kanten på sidepanelet vinner fortsatt når du angir dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wygląd okna: czy panele leżą na jednej zaokrąglonej karcie i gdzie są rysowane linie. Oddzielenie, Tło paska bocznego i obramowanie paska bocznego nadal mają pierwszeństwo, gdy je ustawisz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A aparência da janela: se os painéis ficam em um único cartão arredondado e onde as linhas são desenhadas. Separação, Fundo da barra lateral e a borda da barra lateral continuam valendo quando você os define."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вид окна: лежат ли панели в одной скруглённой карточке и где рисуются линии. Разделение, Фон боковой панели и граница боковой панели по-прежнему главнее, если вы их задали."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปลักษณ์ของหน้าต่าง: บานหน้าต่างอยู่ในการ์ดมุมโค้งใบเดียวหรือไม่ และวาดเส้นที่ใด การแบ่ง พื้นหลังแถบด้านข้าง และเส้นขอบแถบด้านข้างยังมีผลเหนือกว่าเมื่อคุณตั้งค่าไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencerenin görünümü: bölmelerin tek bir yuvarlatılmış kartta durup durmadığı ve çizgilerin nereye çizildiği. Ayırma, Kenar çubuğu arka planı ve kenar çubuğu kenarlığı ayarlandığında yine önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вигляд вікна: чи лежать панелі в одній заокругленій картці і де малюються лінії. Розділення, Тло бічної панелі та межа бічної панелі все одно мають перевагу, якщо ви їх задали."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giao diện cửa sổ: các ngăn có nằm trong một thẻ bo tròn hay không, và đường kẻ được vẽ ở đâu. Phân tách, Nền thanh bên và viền thanh bên vẫn được ưu tiên khi bạn đặt chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口的外观：窗格是否位于一张圆角卡片中，以及在哪里绘制线条。设置了分隔、边栏背景和边栏边框时，仍以它们为准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗的外觀：窗格是否位於一張圓角卡片中，以及在哪裡繪製線條。設定了分隔、側邊欄背景和側邊欄邊框時，仍以它們為準。"
+          }
+        }
+      }
+    },
+    "settings.appearance.chromeStyle.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card, lines and sidebar background"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البطاقة والخطوط وخلفية الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica, linije i pozadina bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort, streger og sidepanelets baggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karte, Linien und Hintergrund der Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjeta, líneas y fondo de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte, lignes et arrière-plan de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda, linee e sfondo della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カード、線、サイドバーの背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាត បន្ទាត់ និងផ្ទៃខាងក្រោយរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드, 선, 사이드바 배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort, linjer og bakgrunn for sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta, linie i tło paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartão, linhas e fundo da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточка, линии и фон боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ด เส้น และพื้นหลังแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kart, çizgiler ve kenar çubuğu arka planı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картка, лінії та тло бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ, đường kẻ và nền thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片、线条和边栏背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片、線條和側邊欄背景"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Типовий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.card": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بطاقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.cardOutlined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card with Outlines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بطاقة بحدود"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica s obrubima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort med konturer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karte mit Umrissen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjeta con contornos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte avec contours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda con contorni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カード（枠線あり）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាតមានគែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윤곽선 있는 카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort med omriss"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta z obramowaniem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartão com contornos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточка с контурами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ดมีเส้นขอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çerçeveli kart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картка з контурами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ có viền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "带轮廓的卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帶輪廓的卡片"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.flat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ravno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flad"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Piatto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フラット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាបស្មើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플랫"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Płaski"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плоский"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Düz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плаский"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phẳng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扁平"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扁平"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.flatSidebarLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flat with Sidebar Line"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسطح مع خط الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ravno s linijom bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flad med sidepanelstreg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flach mit Seitenleistenlinie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plano con línea de barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plat avec ligne de barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Piatto con linea della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フラット（サイドバー線あり）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាបស្មើមានបន្ទាត់របារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 선 있는 플랫"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flat med sidepanellinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Płaski z linią paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plano com linha da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плоский с линией боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบนมีเส้นแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu çizgili düz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плаский з лінією бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phẳng có đường thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扁平（带边栏线）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扁平（帶側邊欄線）"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.bare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجرد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez linija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uden streger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Linien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin líneas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sans lignes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senza linee"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "線なし"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានបន្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uten linjer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez linii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem linhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без линий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเส้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çizgisiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без ліній"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không đường kẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无线条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無線條"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.panes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riquadri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.twoTone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two-Tone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لونان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dvobojno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Totonet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zweifarbig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bicolor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bicolore"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bicolore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツートーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពីរពណ៌"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투톤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tofarget"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dwukolorowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duas cores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Двухцветный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สองโทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İki tonlu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Двоколірний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hai tông màu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雙色"
+          }
+        }
+      }
+    },
+    "settings.ui.paneAnimations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animate Panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペインをアニメーション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحريك الأجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj panele"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animér paneler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereiche animieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les volets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima i riquadri"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចលនាផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "창 애니메이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer ruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj panele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคลื่อนไหวบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölmeleri canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiệu ứng ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格动画"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格動畫"
+          }
+        }
+      }
+    },
+    "settings.ui.paneAnimations.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分割、閉じる、移動、ズーム、列のスクロール、画面の切り替えがスライドして収まります。オフにすると即座に切り替わります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنزلق عمليات التقسيم والإغلاق والنقل والتكبير وتمرير الأعمدة وتبديل الشاشات إلى أماكنها. عند الإيقاف: تتغير فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dijeljenja, zatvaranja, premještanja, zumiranja, pomicanja kolona i promjene ekrana klize na mjesto. Isključeno: mijenjaju se odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdelinger, lukninger, flytninger, zoom, kolonnerulning og skærmskift glider på plads. Fra: de skifter med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teilen, Schließen, Verschieben, Zoomen, Spaltenscrollen und Bildschirmwechsel gleiten an ihren Platz. Aus: Sie wechseln sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las divisiones, cierres, movimientos, zooms, desplazamientos de columnas y cambios de pantalla se deslizan a su sitio. Desactivado: cambian al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les divisions, fermetures, déplacements, zooms, défilements de colonnes et changements d'écran glissent en place. Désactivé : ils changent immédiatement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Divisioni, chiusure, spostamenti, zoom, scorrimenti delle colonne e cambi di schermata scorrono in posizione. Disattivato: cambiano subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបំបែក ការបិទ ការផ្លាស់ទី ការពង្រីក ការរំកិលជួរឈរ និងការប្តូរអេក្រង់ រអិលចូលកន្លែង។ បិទ៖ ពួកវាប្តូរភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "분할, 닫기, 이동, 확대/축소, 열 스크롤, 화면 전환이 미끄러지듯 자리를 잡습니다. 끄면 즉시 바뀝니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delinger, lukkinger, flyttinger, zoom, kolonnerulling og skjermbytter glir på plass. Av: de endres med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podziały, zamknięcia, przeniesienia, powiększenia, przewijanie kolumn i zmiany ekranów wsuwają się na miejsce. Wyłączone: zmieniają się od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Divisões, fechamentos, movimentos, zooms, rolagens de colunas e trocas de tela deslizam até o lugar. Desativado: mudam na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделение, закрытие, перемещение, масштабирование, прокрутка колонок и смена экранов плавно встают на место. Выкл.: меняются сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแบ่ง การปิด การย้าย การซูม การเลื่อนคอลัมน์ และการสลับหน้าจอจะเลื่อนเข้าที่ ปิด: เปลี่ยนทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölme, kapatma, taşıma, yakınlaştırma, sütun kaydırma ve ekran geçişleri kayarak yerine oturur. Kapalı: hemen değişir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розділення, закриття, переміщення, масштабування, прокручування колонок і зміна екранів плавно стають на місце. Вимк.: змінюються одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia, đóng, di chuyển, phóng to, cuộn cột và chuyển màn hình trượt vào chỗ. Tắt: thay đổi ngay lập tức."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拆分、关闭、移动、缩放、列滚动和屏幕切换会滑动到位。关闭后立即切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分割、關閉、移動、縮放、欄捲動和螢幕切換會滑動到位。關閉後立即切換。"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.newTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animate New Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいタブをアニメーション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحريك علامات التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj nove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer nye faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Tabs animieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar pestañas nuevas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les nouveaux onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima le nuove schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើចលនាផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 애니메이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer nye faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj nowe karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar novas abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать новые вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคลื่อนไหวแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni sekmeleri canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати нові вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo hiệu ứng tab mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "动画显示新标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "動畫顯示新分頁"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.newTab.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new tab grows into its place in the tab bar. Off shows it there at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいタブはタブバーの位置で広がります。オフにするとすぐに表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنمو علامة التبويب الجديدة في مكانها في شريط علامات التبويب. عند الإيقاف تظهر فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova kartica raste na svom mjestu u traci kartica. Isključeno je odmah prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny fane vokser frem på sin plads i fanelinjen. Fra viser den der med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein neuer Tab wächst an seinem Platz in der Tableiste. Aus zeigt ihn dort sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una pestaña nueva crece en su lugar de la barra de pestañas. Desactivado la muestra al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nouvel onglet s’ouvre à sa place dans la barre d’onglets. Désactivé l’affiche aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una nuova scheda cresce al suo posto nella barra delle schede. Disattivato la mostra subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងថ្មីលូតលាស់នៅកន្លែងរបស់វាក្នុងរបារផ្ទាំង។ បិទ បង្ហាញវាភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭은 탭 막대의 자기 자리에서 자라납니다. 끄면 즉시 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny fane vokser inn på plassen sin i fanelinjen. Av viser den der med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowa karta wyrasta na swoim miejscu na pasku kart. Wyłączone pokazuje ją od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma nova aba cresce no seu lugar na barra de abas. Desativado a mostra na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая вкладка вырастает на своём месте в панели вкладок. Выключено показывает её сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บใหม่จะขยายในตำแหน่งของมันบนแถบแท็บ ปิดจะแสดงทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni sekme sekme çubuğundaki yerinde büyür. Kapalı olduğunda hemen gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова вкладка виростає на своєму місці на панелі вкладок. Вимкнено показує її одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab mới mở ra tại vị trí của nó trên thanh tab. Tắt sẽ hiện ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新标签页在标签栏中的位置展开。关闭后立即显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分頁在分頁列中的位置展開。關閉後立即顯示。"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.newWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animate New Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいワークスペースをアニメーション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحريك مساحات العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj nove radne prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer nye arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Arbeitsbereiche animieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar espacios de trabajo nuevos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les nouveaux espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima i nuovi spazi di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើចលនាកន្លែងធ្វើការថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 작업 공간 애니메이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer nye arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj nowe obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar novos espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать новые рабочие пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคลื่อนไหวพื้นที่ทำงานใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma alanlarını canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати нові робочі простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo hiệu ứng không gian làm việc mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "动画显示新工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "動畫顯示新工作區"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.newWorkspace.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new workspace row opens in the sidebar. Off shows it there at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいワークスペースの行がサイドバーで開きます。オフにするとすぐに表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينفتح صف مساحة العمل الجديدة في الشريط الجانبي. عند الإيقاف يظهر فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi red radnog prostora otvara se u bočnoj traci. Isključeno ga odmah prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny række for arbejdsområdet åbner i sidepanelet. Fra viser den der med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine neue Arbeitsbereichszeile öffnet sich in der Seitenleiste. Aus zeigt sie dort sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una fila de espacio de trabajo nueva se abre en la barra lateral. Desactivado la muestra al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une nouvelle ligne d’espace de travail s’ouvre dans la barre latérale. Désactivé l’affiche aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una nuova riga dello spazio di lavoro si apre nella barra laterale. Disattivato la mostra subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរកន្លែងធ្វើការថ្មីបើកនៅក្នុងរបារចំហៀង។ បិទ បង្ហាញវាភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 작업 공간 행이 사이드바에서 열립니다. 끄면 즉시 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny rad for arbeidsområdet åpner seg i sidepanelet. Av viser den der med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy wiersz obszaru roboczego otwiera się na pasku bocznym. Wyłączone pokazuje go od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma nova linha de espaço de trabalho se abre na barra lateral. Desativado a mostra na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая строка рабочего пространства раскрывается на боковой панели. Выключено показывает её сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถวพื้นที่ทำงานใหม่จะเปิดในแถบด้านข้าง ปิดจะแสดงทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma alanı satırı kenar çubuğunda açılır. Kapalı olduğunda hemen gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новий рядок робочого простору розкривається на бічній панелі. Вимкнено показує його одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hàng không gian làm việc mới mở ra trong thanh bên. Tắt sẽ hiện ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作区行在侧边栏中展开。关闭后立即显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作區列在側邊欄中展開。關閉後立即顯示。"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.bounce": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animation Bounce"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アニメーションの弾み"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ارتداد الحركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odskok animacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animationsfjedring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animationsfederung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rebote de animación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rebond des animations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimbalzo delle animazioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការលោតនៃចលនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "애니메이션 바운스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animasjonsfjæring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbicie animacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quique das animações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пружинистость анимации"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเด้งของภาพเคลื่อนไหว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animasyon sekmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пружність анімації"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ nảy của hiệu ứng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "动画弹跳"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "動畫彈跳"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.bounce.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "なしではタブ、行、ペインがその位置でぴたりと止まります。控えめでは小さく弾んで落ち着きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء يوقف علامات التبويب والصفوف والأجزاء في مكانها تمامًا. خفيف يتركها تستقر بارتداد صغير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ništa zaustavlja kartice, redove i okna tačno na mjestu. Suptilno ih pušta da se smire uz mali odskok."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen stopper faner, rækker og ruder præcis på deres plads. Diskret lader dem falde på plads med et lille fjed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine hält Tabs, Zeilen und Bereiche genau an ihrem Platz an. Dezent lässt sie mit einem kleinen Federn einrasten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguno detiene pestañas, filas y paneles justo en su sitio. Sutil los deja asentarse con un pequeño rebote."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun arrête onglets, lignes et sous-fenêtres exactement à leur place. Discret les laisse se poser avec un petit rebond."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuno ferma schede, righe e riquadri esattamente al loro posto. Leggero li fa assestare con un piccolo rimbalzo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន បញ្ឈប់ផ្ទាំង ជួរ និងផ្ទាំងបន្ទះនៅកន្លែងរបស់វាត្រឹមត្រូវ។ ស្រាល ឱ្យវាស្ងប់ដោយលោតបន្តិច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "없음은 탭, 행, 창을 정확히 제자리에 멈춥니다. 은은하게는 작게 튕기며 자리 잡습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen stopper faner, rader og ruter nøyaktig på plassen sin. Diskret lar dem falle på plass med en liten fjæring."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak zatrzymuje karty, wiersze i panele dokładnie na miejscu. Subtelne pozwala im osiąść z lekkim odbiciem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum para abas, linhas e painéis exatamente no lugar. Sutil os deixa assentar com um pequeno quique."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет останавливает вкладки, строки и панели точно на месте. Слегка даёт им встать на место с небольшим отскоком."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี จะหยุดแท็บ แถว และบานหน้าต่างตรงตำแหน่งพอดี เล็กน้อย จะให้เด้งเล็กน้อยก่อนเข้าที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yok sekmeleri, satırları ve bölmeleri tam yerinde durdurur. Hafif, küçük bir sekmeyle yerleşmelerini sağlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає зупиняє вкладки, рядки й панелі точно на місці. Легко дає їм стати на місце з невеликим відскоком."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không dừng tab, hàng và khung đúng vị trí. Nhẹ cho chúng nảy nhẹ trước khi dừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无：标签页、行和窗格精确停在原位。轻微：以轻微弹跳落定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無：分頁、列與窗格精確停在原位。輕微：以輕微彈跳落定。"
+          }
+        }
+      }
+    },
+    "settings.choice.chromeStyle.floating": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Floating Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجزاء عائمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plutajuća okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svævende ruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schwebende Bereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paneles flotantes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panneaux flottants"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riquadri flottanti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フローティングペイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងអណ្ដែត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "떠 있는 창 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytende ruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pływające panele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painéis flutuantes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плавающие панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างลอย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzen Bölmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плаваючі панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngăn nổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮动窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮動窗格"
+          }
+        }
+      }
+    },
+    "settings.labs.classicHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic Home"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفحة الرئيسية الكلاسيكية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasična početna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisk Hjem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisches Home"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio clásico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accueil classique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home classica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシックホーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រដើមបុរាណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 홈"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisk Hjem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasyczny Start"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Início clássico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Классическая главная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าหลักแบบคลาสสิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasik Ana Sayfa"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Класична головна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang chủ cổ điển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典主页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典主頁"
+          }
+        }
+      }
+    },
+    "settings.labs.classicHome.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الصفحة الرئيسية كصفحة كاملة بدلًا من مساحة عمل يكون فيها Chief مثبتًا على اليسار. يسري التغيير بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži početnu kao cijelu stranicu umjesto radnog prostora s Chiefom usidrenim lijevo. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Hjem som en hel side i stedet for et arbejdsområde med Chief fastgjort til venstre. Træder i kraft, når cmux genstartes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home als ganze Seite statt als Arbeitsbereich mit links angedocktem Chief anzeigen. Wirkt nach dem Neustart von cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra Inicio como una página completa en lugar de un espacio de trabajo con Chief acoplado a la izquierda. Se aplica después de reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l'Accueil en pleine page plutôt que comme un espace de travail avec Chief ancré à gauche. Prend effet après le redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra la Home come pagina intera invece che come spazio di lavoro con Chief agganciato a sinistra. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームを、Chief を左にドッキングしたワークスペースではなく、全画面のページとして表示します。cmux の再起動後に反映されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញទំព័រដើមជាទំព័រពេញ ជំនួសឱ្យកន្លែងធ្វើការដែលមាន Chief ភ្ជាប់នៅខាងឆ្វេង។ មានប្រសិទ្ធភាពបន្ទាប់ពីចាប់ផ្ដើម cmux ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 왼쪽에 고정된 작업 공간 대신 홈을 전체 페이지로 표시합니다. cmux를 다시 시작한 후 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Hjem som en hel side i stedet for et arbeidsområde med Chief festet til venstre. Trer i kraft når cmux startes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj Start jako pełną stronę zamiast obszaru roboczego z Chiefem zadokowanym po lewej. Zmiana działa po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o Início como uma página inteira em vez de um espaço de trabalho com o Chief encaixado à esquerda. Vale depois que o cmux for reiniciado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать главную как целую страницу, а не рабочее пространство с Chief, закреплённым слева. Применяется после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงหน้าหลักเป็นหน้าเต็มแทนพื้นที่ทำงานที่มี Chief ปักหมุดอยู่ทางซ้าย มีผลหลังจากเริ่ม cmux ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana Sayfa'yı, Chief'in solda sabitlendiği bir çalışma alanı yerine tam sayfa olarak göster. cmux yeniden başlatıldıktan sonra geçerli olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати головну як цілу сторінку, а не робочий простір із Chief, закріпленим ліворуч. Застосовується після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị Trang chủ dạng trang đầy đủ thay vì không gian làm việc có Chief neo bên trái. Có hiệu lực sau khi khởi động lại cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将主页显示为完整页面，而不是左侧停靠 Chief 的工作区。重新启动 cmux 后生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將主頁顯示為完整頁面，而非左側停駐 Chief 的工作區。重新啟動 cmux 後生效。"
+          }
+        }
+      }
+    },
+    "settings.group.extensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extensions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإضافات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proširenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udvidelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erweiterungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estensioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拡張機能"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីបន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확장 프로그램"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utvidelser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozszerzenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Расширения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนขยาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzantılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розширення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiện ích mở rộng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "扩展程序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "擴充功能"
+          }
+        }
+      }
+    },
+    "settings.browser.builtInAdBlocker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built-in uBlock Origin"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin المدمج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ugrađeni uBlock Origin"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indbygget uBlock Origin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integriertes uBlock Origin"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin integrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin intégré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin integrato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内蔵の uBlock Origin"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin ដែលភ្ជាប់មកជាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내장 uBlock Origin"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Innebygd uBlock Origin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wbudowany uBlock Origin"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin integrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Встроенный uBlock Origin"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin ในตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yerleşik uBlock Origin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вбудований uBlock Origin"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin tích hợp sẵn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内置 uBlock Origin"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "內建 uBlock Origin"
+          }
+        }
+      }
+    },
+    "settings.browser.builtInAdBlocker.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحظر uBlock Origin الكامل الإعلانات وأدوات التتبع في علامات تبويب Chromium. يسري بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puni uBlock Origin blokira oglase i praćenje u Chromium karticama. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det fulde uBlock Origin blokerer annoncer og sporing i Chromium-faner. Træder i kraft, når cmux genstarter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das vollständige uBlock Origin blockiert Werbung und Tracker in Chromium-Tabs. Wirkt nach einem Neustart von cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin completo bloquea anuncios y rastreadores en las pestañas de Chromium. Se aplica al reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin complet bloque les publicités et les traqueurs dans les onglets Chromium. Prend effet au redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin completo blocca annunci e tracker nelle schede Chromium. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フル版の uBlock Origin が Chromium タブの広告とトラッカーをブロックします。cmux の再起動後に反映されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin ពេញលេញ រារាំងការផ្សាយពាណិជ្ជកម្ម និងកម្មវិធីតាមដាន ក្នុងផ្ទាំង Chromium។ មានប្រសិទ្ធភាពបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 버전 uBlock Origin이 Chromium 탭의 광고와 추적기를 차단합니다. cmux를 다시 시작하면 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fullversjonen av uBlock Origin blokkerer annonser og sporere i Chromium-faner. Trer i kraft når cmux startes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełny uBlock Origin blokuje reklamy i elementy śledzące w kartach Chromium. Działa po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O uBlock Origin completo bloqueia anúncios e rastreadores nas abas do Chromium. Entra em vigor após reiniciar o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Полный uBlock Origin блокирует рекламу и трекеры во вкладках Chromium. Вступает в силу после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin ฉบับเต็มบล็อกโฆษณาและตัวติดตามในแท็บ Chromium มีผลหลังจากรีสตาร์ต cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tam uBlock Origin, Chromium sekmelerindeki reklamları ve izleyicileri engeller. cmux yeniden başlatıldıktan sonra geçerli olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повний uBlock Origin блокує рекламу й трекери у вкладках Chromium. Набуває чинності після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uBlock Origin bản đầy đủ chặn quảng cáo và trình theo dõi trong các thẻ Chromium. Có hiệu lực sau khi cmux khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整版 uBlock Origin 会拦截 Chromium 标签页中的广告和跟踪器。重启 cmux 后生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整版 uBlock Origin 會封鎖 Chromium 分頁中的廣告和追蹤器。重新啟動 cmux 後生效。"
           }
         }
       }

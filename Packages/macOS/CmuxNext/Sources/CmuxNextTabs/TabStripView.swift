@@ -66,6 +66,7 @@ public final class TabStripView: NSView {
     /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
     var cells: [TabID: TabCell] = [:]
     let windowMain = WindowMainObserver()
+    let windowVisibility = WindowVisibilityObserver()
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
     var motion: [TabID: TabMotion] = [:]
@@ -81,10 +82,10 @@ public final class TabStripView: NSView {
     var lastModelOrder: [TabID] = []
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
-    /// Springs and drag autoscroll tick on the window's FrameScheduler.
-    lazy var animationClient = FrameClient(owner: "TabStrip.animation", view: self) { [weak self] tick in
-        self?.advance(CGFloat(tick.elapsed)) ?? false
-    }
+    /// Springs and drag autoscroll step on the window's one `MotionClock`,
+    /// with the window's other chrome springs.
+    weak var motionClock: MotionClock?
+    var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
 
@@ -162,6 +163,7 @@ public final class TabStripView: NSView {
         }
         reveal.install()
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
+        groupEditor.onMore = { [weak self] id in self?.showGroupMenu(for: id) }
 
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
@@ -225,6 +227,7 @@ public final class TabStripView: NSView {
         // A move to another window (or none) ends this strip's card only.
         hoverCards.unregister(hoverCard)
         windowMain.observe(window) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
+        windowVisibility.observe(window) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
         if window != nil {
             hoverCards.register(hoverCard)
             applyTokens(animated: false)
@@ -236,7 +239,8 @@ public final class TabStripView: NSView {
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
-            animationClient.deactivate()
+            motionClock?.stop(self)
+            motionClock = nil
             groupEditor.hide()
             groups.holdTask?.cancel()
             removeEscapeMonitor()

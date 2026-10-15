@@ -243,21 +243,31 @@ describe("claude proxy auth", () => {
     expect((await response.json()).error.message).toContain("different Cloud VM");
   });
 
-  test("returns 503 when the team has no Claude upstream", async () => {
+  test("answers a team with no Claude upstream with a terminal 403", async () => {
     upstream = null;
+    authResult = ok(null);
     const { response, outcome } = await routed(messagesRequest());
-    expect(response.status).toBe(503);
+    // Claude Code retries 408/409/429/5xx; a 403 permission_error surfaces once.
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
     expect(await response.json()).toEqual({
       type: "error",
       error: {
-        type: "api_error",
-        message: "No Claude upstream account is configured for this team. Add one with `cmux coderouter claude add` or at coderouter.dev.",
+        type: "permission_error",
+        message: "No Claude upstream account is configured for this team or shared with this caller. Add one with `cmux coderouter claude add` or at coderouter.dev.",
       },
     });
     expect(outcome).toMatchObject({
       outcome: "no_usable_account",
       failureStage: "provider_config",
     });
+  });
+
+  test("tells a Cloud machine that private Claude accounts must be shared with its team", async () => {
+    upstream = null;
+    const { response } = await routed(messagesRequest());
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe("No Claude upstream account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add claude` (accounts added on a Cloud machine are shared with its team). Or use your own Claude account on this machine: run `cr use own claude` (on older machines, `unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL` in the terminal instead), then restart claude and sign in with /login.");
   });
 });
 
@@ -631,6 +641,30 @@ describe("claude proxy failover across accounts", () => {
     await response.text();
     expect(touched).toEqual(["acct-api-2"]);
     expect(outcome).toMatchObject({ outcome: "success", attempts: 2, upstreamAccountId: "acct-api-2" });
+  });
+
+  test("fails over retryable Claude 408 and 409 responses", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+
+    for (const status of [408, 409]) {
+      fetchCalls = [];
+      cooldowns = [];
+      touched = [];
+      const responses = [
+        () => new Response("{}", { status }),
+        () => Response.json({ id: `msg-${status}`, model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+      ];
+      upstreamResponse = () => responses.shift()!();
+
+      const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+      expect(response.status).toBe(200);
+      expect(fetchCalls).toHaveLength(2);
+      expect(requestHeaders(fetchCalls[0]!).get("x-api-key")).toBe("sk-ant-api03-real-secret-key-value-1234");
+      expect(requestHeaders(fetchCalls[1]!).get("x-api-key")).toBe("sk-ant-api03-second-key-value-5678");
+      expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+      expect((await response.json()).id).toBe(`msg-${status}`);
+    }
   });
 
   test("a rejected credential cools the account down for fifteen minutes", async () => {

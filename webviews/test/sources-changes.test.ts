@@ -1,12 +1,13 @@
-// The chat's Sources popover holds the last turn's diffs (cx-ncc.43). In Chromium on the gallery
+// The chat's summary card holds the last turn's diffs (cx-ncc.43). In Chromium on the gallery
 // stage, a turn that edited fourteen files:
-// - the popover's Changes section lists the turn's files under its totals row, each with its own
+// - the card's Changes section lists the turn's files under its totals row, each with its own
 //   counts, five at first and every one after View all;
-// - a file there opens the turn's diff at that file, and the popover closes.
+// - a file there opens the turn's diff at that file, and the card hides behind the diff review.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("sources-changes.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -47,6 +48,7 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -54,10 +56,10 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
     await vite?.close();
   });
 
-  test("the Sources popover lists the turn's changed files and opens each one's diff", async () => {
+  test("the summary card lists the turn's changed files and opens each one's diff", async () => {
     const page = await stage("agent-pane.edited-files", "fourteen-files");
     await page.click(".acpmux-summary-button");
-    const section = page.locator(".acpmux-summary-popover section", { has: page.locator(".acpmux-summary-file") });
+    const section = page.locator(".acpmux-summary-card section", { has: page.locator(".acpmux-summary-file") });
     await section.waitFor();
     const files = section.locator(".acpmux-summary-file");
     expect(await files.count()).toBe(5);
@@ -68,7 +70,8 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
     expect(await pick.count()).toBe(1);
     expect((await pick.innerText()).replace(/\s+/g, " ")).toMatch(/\+\d+/);
     await pick.click();
-    await page.waitForSelector(".acpmux-summary-popover", { state: "detached" });
+    // The card is not a popover: it stays, hidden only while the diff review covers the stage.
+    await page.waitForSelector(".acpmux-summary-card", { state: "hidden" });
     await page.waitForSelector(".acpmux-diff-panel");
     // The diff opens at that file: its section is the one at the top of the diff body.
     await page.waitForFunction(() => {

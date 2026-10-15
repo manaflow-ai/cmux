@@ -23,6 +23,8 @@ const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_CAUSATION_DEPTH: u16 = 32;
 const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+/// Result arrays are capped by the embedded resource-operation catalog.
+pub(crate) const JOURNAL_LIST_MAX_ITEMS: usize = 4096;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
     if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -321,6 +323,7 @@ struct PreparedJournalSegment {
     metadata: JournalSegment,
     compressed: Vec<u8>,
     digest: [u8; 32],
+    kinds: Vec<String>,
 }
 
 pub(super) fn create_journal_extensions_schema(
@@ -412,6 +415,12 @@ pub(super) fn create_journal_extensions_schema(
            sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0),
            actors_json TEXT
          );
+         CREATE TABLE IF NOT EXISTS journal_segment_kinds (
+           segment_id TEXT NOT NULL,
+           kind TEXT NOT NULL,
+           PRIMARY KEY(segment_id, kind),
+           FOREIGN KEY(segment_id) REFERENCES journal_segments(segment_id)
+         ) WITHOUT ROWID;
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
          BEGIN
@@ -1828,10 +1837,11 @@ impl WorkspaceRegistry {
             "SELECT checkpoint_id, source_sequence, reducer_version, content_refs_json,
                     sha256, created_at_ms
              FROM journal_checkpoints
-             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC",
+             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC
+             LIMIT ?1",
         )?;
         let rows = statement
-            .query_map([], |row| {
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
@@ -1897,15 +1907,27 @@ impl WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<AutoVacuumMigration> {
+        migrate_journal_auto_vacuum(&self.connection.get())
+    }
+
+    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
+        // Fresh registries opt into SQLite's incremental auto-vacuum. This is
+        // intentionally a small step: journal sealing must release the
+        // registry writer quickly even when a busy VM has many free pages.
+        self.connection.get().execute_batch("PRAGMA incremental_vacuum(256);")?;
+        Ok(())
+    }
+
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                     uncompressed_bytes, sha256, sealed_at_ms
-             FROM journal_segments ORDER BY start_sequence ASC",
+             FROM journal_segments ORDER BY start_sequence ASC LIMIT ?1",
         )?;
         statement
-            .query_map([], |row| {
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
@@ -1931,6 +1953,15 @@ impl WorkspaceRegistry {
                 })
             })
             .collect()
+    }
+
+    pub(crate) fn journal_segments_end(&self) -> anyhow::Result<u64> {
+        let end = self.connection.get().query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(u64::try_from(end)?)
     }
 
     pub(crate) fn begin_journal_segment_seal(
@@ -1967,7 +1998,7 @@ impl WorkspaceRegistry {
             requested_through <= head,
             "segment through sequence is ahead of the journal"
         );
-        let through_sequence = tx
+        let checkpoint_sequence = tx
             .query_row(
                 "SELECT MAX(source_sequence) FROM journal_checkpoints
                  WHERE source_sequence <= ?1",
@@ -1984,9 +2015,15 @@ impl WorkspaceRegistry {
         )?;
         let archived_end = u64::try_from(archived_end)?;
         anyhow::ensure!(
-            through_sequence > archived_end,
+            checkpoint_sequence > archived_end,
             "requested journal range is already sealed"
         );
+        // A checkpoint can cover a very large prefix. Prepare and commit at
+        // most one storage segment per call so terminal writers only wait for
+        // a bounded delete/insert transaction; the caller can continue with
+        // the same checkpoint on its next maintenance tick.
+        let through_sequence = checkpoint_sequence
+            .min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64));
         tx.commit()?;
         Ok(JournalSegmentSealStart::Prepare(JournalSegmentSealPlan {
             requested_through,
@@ -2014,7 +2051,7 @@ impl WorkspaceRegistry {
         )? {
             return Ok(Some(journal_segment_receipt(&tx, origin, idempotency_key, journal)?));
         }
-        let through_sequence = tx
+        let checkpoint_sequence = tx
             .query_row(
                 "SELECT MAX(source_sequence) FROM journal_checkpoints
                  WHERE source_sequence <= ?1",
@@ -2028,6 +2065,9 @@ impl WorkspaceRegistry {
             [],
             |row| row.get::<_, i64>(0),
         )?)?;
+        let through_sequence = checkpoint_sequence.map(|checkpoint| {
+            checkpoint.min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64))
+        });
         if through_sequence != Some(plan.through_sequence) || archived_end != plan.archived_end {
             return Ok(None);
         }
@@ -2035,6 +2075,7 @@ impl WorkspaceRegistry {
         let segments =
             prepared_segments.iter().map(|segment| segment.metadata.clone()).collect::<Vec<_>>();
         for segment in prepared_segments {
+            let kinds = segment.kinds.clone();
             tx.execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -2056,6 +2097,12 @@ impl WorkspaceRegistry {
                     )?,
                 ],
             )?;
+            for kind in kinds {
+                tx.execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                    params![segment.metadata.segment_id, kind],
+                )?;
+            }
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = tx.execute(
@@ -2141,6 +2188,7 @@ impl JournalSegmentSealPlan {
             uncompressed.push(b'[');
             let mut start_sequence = None;
             let mut record_count = 0_u64;
+            let mut kinds = BTreeSet::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -2157,6 +2205,7 @@ impl JournalSegmentSealPlan {
                         record.sequence
                     );
                     let sequence = record.sequence;
+                    let kind = record.kind.clone();
                     let record = session_journal::journal_record_for_archive(&record);
                     let record_bytes = serde_json::to_vec(&record)?;
                     anyhow::ensure!(
@@ -2174,6 +2223,7 @@ impl JournalSegmentSealPlan {
                     {
                         break 'segment;
                     }
+                    kinds.insert(kind);
                     if separator != 0 {
                         uncompressed.push(b',');
                     }
@@ -2214,6 +2264,7 @@ impl JournalSegmentSealPlan {
                 },
                 compressed,
                 digest,
+                kinds: kinds.into_iter().collect(),
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;

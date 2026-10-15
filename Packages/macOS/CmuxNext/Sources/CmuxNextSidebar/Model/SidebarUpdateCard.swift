@@ -4,7 +4,9 @@ public import Foundation
 /// from the updater only while an update is staged or installing. The
 /// button sends `SidebarIntent.installUpdate`, the checkbox
 /// `setAutomaticUpdates`, its accessibility action "See all changes"
-/// `openUpdateChanges`. The full build, the highlights and "See all
+/// `openUpdateChanges`; its Hide button (UPDATE-CARD-CLOSE: one click hides
+/// this version until a newer one) and its right-click menu (hide, Remind Me
+/// in 1 Day / 3 Days / 1 Week) `noticeAction(card: id, action:)`. The full build, the highlights and "See all
 /// changes" are the hover popover's (Leo 2026-10-13: the card and the
 /// popover never repeat a fact). All text arrives localized.
 public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
@@ -24,9 +26,27 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     public var automaticUpdates: Bool
     /// The hover popover.
     public var notes: Notes
+    /// The card id its Hide button and menu items are sent with (`noticeAction(card:action:)`).
+    public var id: String
+    /// The default ``id`` (UPDATE-CARD-CLOSE).
+    public static let cardID = "update-ready"
+    /// The Hide button: its text ("Hide"), its tooltip and VoiceOver label
+    /// ("Hide Until a Newer Version") and the action id one click sends; a nil
+    /// title shows no button (while installing).
+    public var closeTitle: String?
+    public var closeLabel: String?
+    public var closeAction: String?
+    /// The card's right-click menu: each item sends `noticeAction(card: id, action: item.id)`.
+    public var closeMenu: [SidebarNoticeCard.Action]
 
     public init(title: String, detail: String? = nil, seeAllTitle: String? = nil, buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
-                automaticUpdates: Bool, notes: Notes) {
+                automaticUpdates: Bool, notes: Notes, id: String = SidebarUpdateCard.cardID, closeTitle: String? = nil,
+                closeLabel: String? = nil, closeAction: String? = nil, closeMenu: [SidebarNoticeCard.Action] = []) {
+        self.id = id
+        self.closeTitle = closeTitle
+        self.closeLabel = closeLabel
+        self.closeAction = closeAction
+        self.closeMenu = closeMenu
         self.title = title
         self.detail = detail
         self.seeAllTitle = seeAllTitle

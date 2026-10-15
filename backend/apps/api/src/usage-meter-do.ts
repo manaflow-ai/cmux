@@ -4,7 +4,9 @@ import { Schema } from "effect"
 import { ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { addUserSpend, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
+import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
+import type { IncludedMode } from "./billing-catalog.ts"
+import { currentBillable, ensureBillingTables, markBillable, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
@@ -74,41 +76,84 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       })
     }
     ensureUserTables(ctx.storage.sql)
-    // The last level the usage sync sent to the payment service, per subscription and period (cx-y79zh S4).
-    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_push (subscription TEXT NOT NULL, period_start INTEGER NOT NULL, period_end INTEGER NOT NULL, identifier TEXT NOT NULL, micros INTEGER NOT NULL, pushed_at INTEGER NOT NULL, PRIMARY KEY (subscription, period_start))`)
-    // Billable subscriptions the usage sync saw for this team (the included-amount stop, cx-y79zh S5).
-    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_billable (subscription TEXT PRIMARY KEY, period_end INTEGER NOT NULL, seen_at INTEGER NOT NULL)`)
-    // An object made with the first usage_push shape (no period_end) gets the column; 0 = unknown, never a final push (review P2).
-    if (!ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_push)`).toArray().some((c) => c.name === "period_end")) ctx.storage.sql.exec(`ALTER TABLE usage_push ADD COLUMN period_end INTEGER NOT NULL DEFAULT 0`)
+    ensureBillingTables(ctx.storage.sql)
   }
 
-  /** The usage sync saw this team on a billable subscription (a usage item) whose period ends at `periodEnd` (s). */
-  async markBillable(entity: string, subscription: string, periodEnd: number): Promise<void> {
+  /** The usage sync saw this team on a billable subscription (a usage item) whose period ends at `periodEnd` (s), with its included amount. */
+  async markBillable(entity: string, subscription: string, periodEnd: number, info?: BillableInfo): Promise<void> {
     this.bind(entity)
-    this.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at) VALUES (?, ?, ?) ON CONFLICT (subscription) DO UPDATE SET period_end = excluded.period_end, seen_at = excluded.seen_at`, subscription, periodEnd, Date.now())
+    markBillable(this.ctx.storage.sql, subscription, periodEnd, Date.now(), info)
   }
 
   /** The usage sync's last sent identifier for a subscription period, or null (never sent, or the team never used the meter). */
   async pushedLevel(entity: string, subscription: string, periodStart: number): Promise<string | null> {
+    return (await this.pushState(entity, subscription, periodStart))?.identifier ?? null
+  }
+
+  /** The usage sync's last push for a subscription period: its identifier, mode and seats (S5 included modes). */
+  async pushState(entity: string, subscription: string, periodStart: number): Promise<{ identifier: string; mode: IncludedMode; seats: number; event_ts: number | null } | null> {
     if (!this.isBound(entity)) return null
-    const row = this.ctx.storage.sql.exec<{ identifier: string }>(`SELECT identifier FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
-    return row?.identifier ?? null
+    return pushState(this.ctx.storage.sql, subscription, periodStart)
   }
 
   /** The usage sync sent `identifier` (level `micros`) for this subscription period [start, end) (seconds). */
-  async recordPush(entity: string, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number): Promise<void> {
+  async recordPush(entity: string, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number, info?: PushInfo): Promise<void> {
     this.bind(entity)
-    this.ctx.storage.sql.exec(
-      `INSERT INTO usage_push (subscription, period_start, period_end, identifier, micros, pushed_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET period_end = excluded.period_end, identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at`,
-      subscription, periodStart, periodEnd, identifier, micros, Date.now()
-    )
+    recordPush(this.ctx.storage.sql, subscription, periodStart, periodEnd, identifier, micros, Date.now(), info)
   }
 
   /** The latest period before `beforeStart` that the sync sent for this subscription (its final push after renewal). */
-  async previousPush(entity: string, subscription: string, beforeStart: number): Promise<{ period_start: number; period_end: number } | null> {
+  async previousPush(entity: string, subscription: string, beforeStart: number): Promise<{ period_start: number; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null } | null> {
     if (!this.isBound(entity)) return null
-    const row = this.ctx.storage.sql.exec<{ period_start: number; period_end: number }>(`SELECT period_start, period_end FROM usage_push WHERE subscription = ? AND period_start < ? AND period_end > 0 ORDER BY period_start DESC LIMIT 1`, subscription, beforeStart).toArray()[0]
-    return row ? { period_start: Number(row.period_start), period_end: Number(row.period_end) } : null
+    return previousPush(this.ctx.storage.sql, subscription, beforeStart)
+  }
+
+  /** The included mode of this subscription period (start in s): the mode it was pushed in, else the setting in force at its start. */
+  async periodMode(entity: string, subscription: string, periodStart: number): Promise<IncludedMode> {
+    if (!this.isBound(entity)) return "per_team"
+    return pushState(this.ctx.storage.sql, subscription, periodStart)?.mode ?? teamModeAt(this.ctx.storage.sql, periodStart * 1000)
+  }
+
+  /** The operator's included-mode setting (POST /v1/internal/billing/team-mode): recorded now, in force from the next period start. */
+  async setIncludedMode(entity: string, mode: IncludedMode, actor: string, reason: string | null): Promise<{ before: IncludedMode; changed: boolean }> {
+    this.bind(entity)
+    return setTeamMode(this.ctx.storage.sql, mode, actor, reason, Date.now())
+  }
+
+  /** The setting history and the mode in force now (for the operator read). Never binds. */
+  async includedModes(entity: string): Promise<{ requested: IncludedMode; in_force_now: IncludedMode; changes: ReadonlyArray<ModeChange> }> {
+    if (!this.isBound(entity)) return { requested: "per_team", in_force_now: "per_team", changes: [] }
+    const h = teamModeHistory(this.ctx.storage.sql)
+    const mark = currentBillable(this.ctx.storage.sql, Date.now(), BILLABLE_GRACE_MS)
+    const start = mark?.period_start !== undefined ? mark.period_start * 1000 : Date.parse(`${utcMonth(Date.now())}-01T00:00:00Z`)
+    return { ...h, in_force_now: mark?.mode ?? teamModeAt(this.ctx.storage.sql, start) }
+  }
+
+  /**
+   * team.ai_limit.get, the team line (S5 console): with a billable mark in force, the billing period's
+   * settled level against the included amount the sync saw (x seats per seat); otherwise this UTC
+   * month's model spend (settled plus open, what the included-amount stop counts). Never binds.
+   */
+  async teamUsage(entity: string): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
+    if (!this.isBound(entity)) return { billable: null, month_spent_usd: 0, unbilled: { mode: "per_team", seats: 1 } }
+    const sql = this.ctx.storage.sql
+    const now = Date.now()
+    const month = utcMonth(now)
+    const spent = Number(sql.exec<{ m: number | null }>(`SELECT usd_micros AS m FROM usage_month WHERE month = ? AND meter = 'model.spend_usd'`, month).toArray()[0]?.m ?? 0)
+    const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM user_reservation WHERE month = ?`, month).toArray()[0]?.m ?? 0)
+    const month_spent_usd = Math.round(spent + open) / 1_000_000
+    const mark = currentBillable(sql, now, BILLABLE_GRACE_MS)
+    // As the stop counts it (usage-user.ts includedRefusal): the mode in force at the month start, the last billable seats.
+    const unbilled = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`)) === "per_seat" ? { mode: "per_seat" as const, seats: lastSeenSeats(sql, now) } : { mode: "per_team" as const, seats: 1 }
+    if (!mark) return { billable: null, month_spent_usd, unbilled }
+    const mode = mark.mode ?? "per_team"
+    const seats = mark.seats ?? 1
+    const level = mark.period_start !== undefined ? await this.level(entity, mark.period_start * 1000, mark.period_end * 1000) : null
+    return {
+      billable: { period_start: mark.period_start ?? null, period_end: mark.period_end, mode, seats, included_usd: mark.included_usd === undefined ? null : mode === "per_seat" ? mark.included_usd * seats : mark.included_usd, spent_usd: level ? level.micros / 1_000_000 : month_spent_usd },
+      month_spent_usd,
+      unbilled
+    }
   }
 
   /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */

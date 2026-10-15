@@ -19,7 +19,8 @@ public struct SidebarDebugRow: Sendable {
     /// The workspace row's merged status (`StatusIndicatorState`), e.g.
     /// `success` for an unseen done, nil for other rows.
     public var activity: String? = nil
-    /// The workspace row's icon kind (`symbol`, `swatch`, `emoji`, `favicon`), nil without one.
+    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
+    /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
     /// The view's frame as drawn now (its presentation, mid-animation), and
     /// whether it clips its content (an opening or closing row).
@@ -38,6 +39,11 @@ public struct SidebarDebugRow: Sendable {
     public var disclosureShown: Bool = false
     /// The row's second line as its content draws it (`WorkspaceRowContent.detail`).
     public var detail: String? = nil
+    /// The workspace's unread badge (`UnreadState`: `none`, `dot`, `count(n)`), nil for other rows.
+    public var unread: String? = nil
+    /// The row draws a progress bar (`WorkspaceRowContent.progress`), and the agent-working slot.
+    public var progress: Bool = false
+    public var showsWorking: Bool = false
 
     /// The row with what its view draws now: its fill, hover and disclosure.
     func drawn(by view: SidebarRowView?) -> SidebarDebugRow {
@@ -113,35 +119,33 @@ extension SidebarView {
     public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
 
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
+        // One lookup table: a per-row `model.workspace` scan is O(rows²) (seconds at 1,000 rows, a watchdog trip).
+        var byID: [WorkspaceID: SidebarWorkspace] = [:]
+        for ws in model.sections.flatMap(\.workspaces) where byID[ws.id] == nil { byID[ws.id] = ws }
         let rows = list.displayed.rows.map { row -> SidebarDebugRow in
             let view = list.rowViews[row.key]
             var title: String?
             var muted = false
             var activity: String?
-            var icon: String?
-            if case let .workspace(id) = row.key, let workspace = model.workspace(id) {
+            if case let .workspace(id) = row.key, let workspace = byID[id] {
                 title = workspace.title
                 muted = workspace.muted
                 activity = String(describing: workspace.activity)
-                icon = workspace.icon.map { icon in
-                    switch icon {
-                    case .symbol: "symbol"
-                    case .swatch: "swatch"
-                    case .emoji: "emoji"
-                    case .favicon: "favicon"
-                    }
-                }
             }
             let inWindow = list.convert(list.frame(for: row), to: nil)
             let height = window?.contentView?.bounds.height ?? 0
             let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
-            return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
+            let debugRow = SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
-                                   detail: row.content?.detail).drawn(by: view)
+                                   activity: activity, icon: view?.debugIcon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
+                                   detail: row.content?.detail)
+            var drawn = debugRow.drawn(by: view)
+            if case let .workspace(id) = row.key { drawn.unread = byID[id].map { String(describing: $0.unread) } }
+            (drawn.progress, drawn.showsWorking) = (row.content?.progress != nil, row.content?.showsWorking == true)
+            return drawn
         }
-        let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
+        let selection = model.orderedSelection.map { byID[$0]?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []
         return (rows, selection, dragging)
     }

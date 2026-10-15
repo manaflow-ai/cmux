@@ -7,12 +7,18 @@ import AppKit
 /// Measured style metrics. Geometry is in points of a 628x1041 pt window.
 enum Fixture {
     static let windowSize = CGSize(width: 628, height: 1041)
-    /// The screen scale every bitmap is rasterized at (row bitmaps, the
-    /// compose glass, the morph, canvases). Set from the window's screen and
-    /// on every display change (`MessagesWindowView.setRenderScale`); a change
-    /// bumps `paletteGeneration`, which drops every cached row bitmap. Test
-    /// renders (capture, live grab) keep 2, the reference's scale.
-    static var renderScale: CGFloat = 2 { didSet { if renderScale != oldValue { paletteGeneration += 1 } } }
+    /// The scale bitmaps and device pixel snaps use now: inside `withRenderScale` (a window view's own work, its
+    /// cells, its bitmap jobs) the view's scale (MessagesWindowView.renderScale), else `fallbackRenderScale`.
+    /// Setting it sets the fallback. Test renders (capture, live grab) set 2, the reference's scale.
+    static var renderScale: CGFloat {
+        get { RenderScaleScope.scoped ?? fallbackRenderScale }
+        set { fallbackRenderScale = newValue }
+    }
+    /// The process value for code with no view: set from the first window's screen at launch and by every
+    /// `MessagesWindowView.setRenderScale` (the last display change). A change does not bump `paletteGeneration`:
+    /// every scale-dependent cache is keyed by its scale (row bitmaps, tiles, badges, masks, decoded assets), and a
+    /// cell redraws when its own scale changes, so one window's scale change does not redraw another window's rows.
+    static var fallbackRenderScale: CGFloat = 2
 
     // MARK: Style
 

@@ -35,6 +35,13 @@
   font-weight: var(--weight-emphasis);
 }
 
+.status-glyphs-sheet tbody th span {
+  max-width: 220px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cmux-app-text-secondary, GrayText);
+}
+
 .status-glyphs-row {
   display: inline-flex;
   align-items: center;
@@ -45,41 +52,4 @@
 .status-glyphs-pixels {
   display: block;
   image-rendering: pixelated;
-}
-
-.status-glyphs-legend {
-  display: block;
-  color: var(--cmux-app-text-secondary, GrayText);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-}
-
-.status-glyphs-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.status-glyphs-live {
-  display: inline-flex;
-  width: 14px;
-  justify-content: center;
-}
-
-.status-glyphs-sidebars {
-  display: flex;
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.status-glyphs-sidebar {
-  display: grid;
-  gap: 2px;
-  margin: 0;
-  padding: 6px 8px;
-  list-style: none;
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
-  background: var(--cmux-app-content, Canvas);
-  border-radius: 8px;
 }

@@ -24,7 +24,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
+             workspaceContext
     }
 
     public var protocolVersion: Int
@@ -52,6 +53,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// ticket (`_meta.cmuxGesture`), as a prompt held for the trust answer. Nil for a prompt the
     /// CLI, MCP or a script seeded: the relay refuses it and it waits in the composer.
     public var promptTicket: PromptTicket?
+    /// True for a chat opened for its workspace (Cmd-I's chat dock, cx-ihyx2): the page adds the
+    /// workspace context to the chat's first prompt (`_meta.acpmux.context`), hidden from the
+    /// transcript. Pages that predate it send the prompt without it.
+    public var workspaceContext: Bool?
     public nonisolated struct PromptTicket: Codable, Sendable, Equatable {
         public var promptId: String
         public var ticket: String

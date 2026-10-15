@@ -41,8 +41,11 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
-    /// The found update whose notice the user dismissed ("" without a version).
-    public internal(set) var dismissedAvailableVersion: String?
+    /// UPDATE-CARD-CLOSE: the update version whose card the person closed and the end of a
+    /// "Remind Me Later" (``UpdateSnooze``, kept in `defaults`).
+    public internal(set) var updateSnooze = UpdateSnooze()
+    /// The pending reminder's end, on the injected clock (one-shot; re-armed at launch).
+    @ObservationIgnored let snoozeTimer: DemandTimer
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
@@ -167,6 +170,7 @@ public final class UpdaterService {
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
+        snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -203,6 +207,7 @@ public final class UpdaterService {
         restorePinnedTestFeed()
         restoreRollbackSkip()
         tipState = TipState(defaults: defaults)
+        updateSnooze = UpdateSnooze(defaults: defaults)
     }
 
     /// Why Sparkle does not run right now, or nil.
@@ -221,6 +226,7 @@ public final class UpdaterService {
         observeFlowPhase()
         refreshAnnouncements()
         refreshTip()
+        refreshUpdateSnooze()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -244,6 +250,8 @@ public final class UpdaterService {
     @discardableResult
     public func checkForUpdates() -> Task<String?, Never>? {
         if needsSheet { presentUpdateUI?() }
+        // The person asked: a closed or snoozed update card shows again.
+        clearUpdateSnooze()
         send(.checkRequested)
         switch disabledReason {
         case .managedPolicy:
@@ -310,6 +318,7 @@ public final class UpdaterService {
         UpdateHarness.mark("install_clicked")
         #endif
         if needsSheet { presentUpdateUI?() }
+        clearUpdateSnooze()
         controller.model.setOverrideState(nil)
         syncFlowPhase()
         switch flow.phase {

@@ -2,6 +2,8 @@
 //! default, is the session order; `personal` is the personal sidebar order
 //! (loose workspaces and each group's members at the group's slot), then
 //! this session's workspaces without a personal row, in session order.
+//! With the sidebar document (`sidebar-doc-v1`) the personal order is the
+//! document's order of this machine's workspaces.
 
 use super::*;
 
@@ -20,7 +22,7 @@ pub(super) fn list_workspaces(
         None | Some("session") => Ok(listed),
         Some("personal") => {
             let order =
-                mux.personal_state_read(crate::state::personal_order::sidebar_workspace_ids)?;
+                mux.personal_state_read(crate::state::sidebar_doc_legacy::workspace_order)?;
             let rank = order
                 .iter()
                 .enumerate()

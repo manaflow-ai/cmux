@@ -9,12 +9,12 @@ public import Foundation
 /// marks working, blocked (with the OSC 7501 kind: permission, question,
 /// auth), done and error; idle draws nothing. Loading (busy, paused) and
 /// known progress keep the loading style's marks. Colors are theme roles
-/// only. The default is `symbols` (Lawrence, 2026-10-09); `current` keeps the
-/// original drawing.
+/// only. The default is `codex` (Leo 2026-10-14, a team decision; was
+/// `symbols`, Lawrence 2026-10-09); `current` keeps the original drawing.
 public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableChoice {
     /// Today's marks: working dots, a still attention dot, a danger dot, a check.
     case current
-    /// Pictures: a sparkle, a raised hand, a speech bubble with ?, a key, a check, x in a circle.
+    /// Pictures: a raised hand, a speech bubble with ?, a key, a check, x in a circle.
     case shapes
     /// Outlined rings with a small mark inside; done is a filled disc.
     case rings
@@ -30,25 +30,29 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     case letters
     /// Filled SF Symbols: hand.raised, questionmark.bubble, key, checkmark.circle, xmark.octagon.
     case symbols
-    /// Outlined SF Symbols of the same names, with a sparkle for work.
+    /// Outlined SF Symbols of the same names.
     case symbolsOutline
     /// The static glyphs (`StaticStatusGlyph`, Leo 2026-10-14): one still shape per state, drawn for
     /// the Static status mode (Reduce Motion): a half-filled ring for work, an empty bubble, a shield,
     /// a check disc, a ! diamond.
     case still
-    /// The quiet static glyphs (`StaticStatusGlyph.Style.dots`, hq#1957 status glyph thunderdome): one
-    /// small dot, hollow (idle, half-filled working, a ringed dot waiting) or solid with a bar, check or
-    /// x cut out (permission, done, error).
+    /// Codex-like (Leo's team, 2026-10-14: "they like Codex's sidebar"): work spins in a neutral grey
+    /// (the shared spinner, re-tinted; a still ring when nothing may move), done is Codex's blue
+    /// dot, waiting is a muted line bubble or shield, and only an error is red (a line i in a ring).
+    case codex
+    /// The quiet static glyphs (`sets.dots` in static-status.json, hq#1957 status glyph thunderdome):
+    /// one small dot, hollow (half-filled working, a ringed dot waiting) or solid with a bar, check or
+    /// x cut out (permission, done, error). Debug only; never the default.
     case stillDots
-    /// The bold static glyphs (`StaticStatusGlyph.Style.pictograms`, hq#1957 status glyph thunderdome):
-    /// an hourglass, a chat bubble with dots, a padlock, a check, a warning triangle.
+    /// The bold static glyphs (`sets.pictograms`, hq#1957 status glyph thunderdome): an hourglass, a
+    /// chat bubble with dots, a padlock, a check, a warning triangle. Debug only; never the default.
     case stillPictograms
 
     /// The Debug Settings switch (the Debug menu writes the same value).
     public static let tunable = Tunable<StatusIconSet>.choice(
         "status.iconSet", .status, "Status icons",
-        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Symbols is the default; Dots is the original drawing.",
-        default: .symbols, code: "StatusIconSet.tunable")
+        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Codex-like is the default; Dots is the original drawing.",
+        default: .codex, code: "StatusIconSet.tunable")
 
     public var tunableTitle: String {
         switch self {
@@ -63,6 +67,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: String(localized: "statusIconSet.symbols", defaultValue: "Symbols", bundle: .module)
         case .symbolsOutline: String(localized: "statusIconSet.symbolsOutline", defaultValue: "Outlined Symbols", bundle: .module)
         case .still: String(localized: "statusIconSet.still", defaultValue: "Static", bundle: .module)
+        case .codex: String(localized: "statusIconSet.codex", defaultValue: "Codex-like", bundle: .module)
         case .stillDots: String(localized: "statusIconSet.stillDots", defaultValue: "Static Dots", bundle: .module)
         case .stillPictograms: String(localized: "statusIconSet.stillPictograms", defaultValue: "Static Pictograms", bundle: .module)
         }
@@ -72,16 +77,17 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     public var summary: String {
         switch self {
         case .current: "Working dots, still attention dot for every blocked kind, danger dot, check."
-        case .shapes: "Sparkle, raised hand, ? bubble, key, ! for plain blocked, check, x in a ring."
+        case .shapes: "Raised hand, ? bubble, key, ! for plain blocked, check, x in a ring; a spinner for work."
         case .rings: "Outlined rings with !, ?, key inside; empty ring for plain blocked; filled disc for done."
-        case .badges: "Filled discs with !, ?, key, check, x cut out; a pulsing sparkle disc for work."
+        case .badges: "Filled discs with !, ?, key, check, x cut out; a spinner for work."
         case .bars: "Three waving bars for work; bare !, ?, key, dot, check, x."
-        case .pips: "Small pips: filled for permission, hollow for question, a diamond for auth."
+        case .pips: "Small pips: filled for permission, hollow for question, a diamond for auth; a spinner for work."
         case .signs: "Warning triangles with !, ?, key; outlined for plain blocked; an x octagon for error."
         case .letters: "P, Q, A and ! cut out of rounded squares; check and x squares."
-        case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon."
-        case .symbolsOutline: "SF Symbols, outlined, and a pulsing sparkle for work."
+        case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon; a spinner for work."
+        case .symbolsOutline: "SF Symbols, outlined, and a spinner for work."
         case .still: "Static glyphs, never animated: half-filled ring, empty bubble, shield, check disc, ! diamond."
+        case .codex: "Codex's sidebar: a grey spinner (a still ring under Reduce Motion), blue done dot, muted line bubble and shield, red line i."
         case .stillDots: "Static dots, never animated: half-filled dot, ringed dot, dot with a bar, check or x cut out."
         case .stillPictograms: "Static pictograms, never animated: hourglass, chat bubble, padlock, check, warning triangle."
         }
@@ -93,15 +99,19 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         guard self != .current else { return nil }
         // Idle draws nothing in every set; the idle glyph is for hosts that show a still idle mark.
         // Known progress keeps its ring, which never moves and says how far along the work is.
-        if let style = staticStyle {
+        if isStatic {
             if state == .idle || (state.isWorking && state.progress != nil) { return nil }
-            return StaticStatusGlyph(state)?.plan(style: style)
+            return staticGlyph(for: state)?.plan
         }
+        if self == .codex { return codexPlan(for: state) }
         switch state {
         case .working where state.progress == nil:
             if self == .bars { return StatusIndicatorPlan(glyph: .bars, animation: .wave, tint: .accent) }
             if self == .signs { return StatusIndicatorPlan(glyph: .dots, animation: .wave, tint: .accent) }
-            return StatusIndicatorPlan(glyph: .mark(workingMark), animation: .pulse, tint: .accent)
+            // A small rotating arc in the muted loading color, not a pulsing mark (Lawrence
+            // 2026-10-14: "left sidebar needs to be a spinner instead of flash", cx-qtgj2).
+            // Still under Reduce Motion, occlusion or loops off (`StatusIndicatorPlan.make`).
+            return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
         case .waiting(let kind):
             if self == .bars, kind == nil { return StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .attention) }
             return StatusIndicatorPlan(glyph: .mark(blockedMark(kind)), animation: nil, tint: .attention)
@@ -112,29 +122,6 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             return StatusIndicatorPlan(glyph: .mark(errorMark), animation: nil, tint: .danger)
         case .idle, .busy, .paused, .working:
             return nil
-        }
-    }
-
-    /// The static glyph style of the static sets (`still`, `stillDots`, `stillPictograms`), nil for the others.
-    var staticStyle: StaticStatusGlyph.Style? {
-        switch self {
-        case .still: .still
-        case .stillDots: .dots
-        case .stillPictograms: .pictograms
-        case .current, .shapes, .rings, .badges, .bars, .pips, .signs, .letters, .symbols, .symbolsOutline: nil
-        }
-    }
-
-    private var workingMark: StatusMark {
-        switch self {
-        case .current, .bars, .signs, .shapes: .glyph(.sparkle)
-        case .rings: .outline(.circle, .dot)
-        case .badges: .badge(.circle, .sparkle)
-        case .pips: .glyph(.pip)
-        case .letters: .outline(.roundedSquare, .dot)
-        case .symbols: .symbol("ellipsis.circle.fill")
-        case .symbolsOutline: .symbol("sparkle")
-        case .still, .stillDots, .stillPictograms: .vector(.working, staticStyle ?? .still)
         }
     }
 
@@ -179,7 +166,8 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             case nil: .symbol("exclamationmark.circle")
             }
         case .still, .stillDots, .stillPictograms:
-            .vector(kind == .permission || kind == .auth ? .permission : .waiting, staticStyle ?? .still)
+            .vector(staticGlyph(for: .waiting(kind: kind)) ?? .waiting)
+        case .codex: .vector(kind == .permission || kind == .auth ? .shieldLine : .waiting)
         }
     }
 
@@ -202,7 +190,8 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: .badge(.roundedSquare, .check)
         case .symbols: .symbol("checkmark.circle.fill")
         case .symbolsOutline: .symbol("checkmark.circle")
-        case .still, .stillDots, .stillPictograms: .vector(.done, staticStyle ?? .still)
+        case .still, .stillDots, .stillPictograms: .vector(staticGlyph(for: .success) ?? .done)
+        case .codex: .vector(.dot)
         }
     }
 
@@ -216,7 +205,42 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: .badge(.roundedSquare, .cross)
         case .symbols: .symbol("xmark.octagon.fill")
         case .symbolsOutline: .symbol("xmark.octagon")
-        case .still, .stillDots, .stillPictograms: .vector(.error, staticStyle ?? .still)
+        case .still, .stillDots, .stillPictograms: .vector(staticGlyph(for: .error) ?? .error)
+        case .codex: .vector(.info)
+        }
+    }
+
+    /// Whether the set draws only the static glyphs (`still`, `stillDots`, `stillPictograms`).
+    var isStatic: Bool { self == .still || self == .stillDots || self == .stillPictograms }
+
+    /// The static glyph a static set draws for `state` (`sets` in static-status.json names the Dots
+    /// and Pictograms picks; each keeps the Static set's theme role per state), nil for loading and
+    /// for the other sets.
+    func staticGlyph(for state: StatusIndicatorState) -> StaticStatusGlyph? {
+        guard let glyph = StaticStatusGlyph(state) else { return nil }
+        switch self {
+        case .still: return glyph
+        case .stillDots: return glyph.dots
+        case .stillPictograms: return glyph.pictograms
+        case .current, .shapes, .rings, .badges, .bars, .pips, .signs, .letters, .symbols, .symbolsOutline, .codex:
+            return nil
+        }
+    }
+
+    /// The Codex-like set (`sets.codex` in schemas/status-glyphs/static-status.json, which the web
+    /// copy follows): Lawrence's shared spinner re-tinted for work, line glyphs for the rest.
+    private func codexPlan(for state: StatusIndicatorState) -> StatusIndicatorPlan? {
+        switch state {
+        case .working where state.progress == nil:
+            return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner)
+        case .waiting(let kind):
+            return StatusIndicatorPlan(glyph: .mark(blockedMark(kind)), animation: nil, tint: .loading)
+        case .success:
+            return StatusIndicatorPlan(glyph: .mark(doneMark), animation: nil, tint: .unread)
+        case .error:
+            return StatusIndicatorPlan(glyph: .mark(errorMark), animation: nil, tint: .danger)
+        case .idle, .busy, .paused, .working:
+            return nil
         }
     }
 }

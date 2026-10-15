@@ -43,7 +43,7 @@ final class WindowShortcutHints {
             guard KeyRouter.allows(registry.keyTier(for: action), id: action, focus: controller.focus.state) else { return nil }
             // Use the resolved table, including keybindings.json removals and rebindings.
             for entry in table.entries.reversed() where entry.command == action && entry.keys.count == 1 {
-                guard let shortcut = entry.keys.first, shortcut.modifiers.contains(held),
+                guard let shortcut = entry.keys.first, shortcut.modifiers.contains(held), KeyRouter.isChord(shortcut.modifiers),
                       digit.map({ entry.argument == String($0) }) ?? (entry.argument == nil),
                       table.resolve(entry.keys, in: context, isRunnable: { bindings.canPerform($0, in: context.bits) }).winner == entry else { continue }
                 return shortcut.displayString

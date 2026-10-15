@@ -105,7 +105,9 @@ func runClaudeHookRelay(socketPath string, args []string, refreshAddr func() str
 		return 0
 	}
 	// Delivery is best effort: a slow or missing relay must not hold the agent.
-	_, _ = socketRoundTripV2Until(delivery.socketPath, "agent.hook.enqueue", params, delivery.refreshAddr, deadline)
+	if _, err := socketRoundTripV2Until(delivery.socketPath, "agent.hook.enqueue", params, delivery.refreshAddr, deadline); err != nil {
+		logClaudeHookDrop("%s: relay %s did not accept the event: %v", args[0], delivery.socketPath, err)
+	}
 	return 0
 }
 
@@ -279,11 +281,8 @@ func claudeHookCallerTTY(claudePID string) string {
 	}
 	pids = append(pids, strconv.Itoa(os.Getppid()))
 	for _, pid := range pids {
-		for _, fd := range []string{"0", "1", "2"} {
-			target, err := os.Readlink(filepath.Join("/proc", pid, "fd", fd))
-			if err == nil && (strings.HasPrefix(target, "/dev/pts/") || strings.HasPrefix(target, "/dev/tty")) {
-				return target
-			}
+		if tty := claudeHookProcessTTY(pid); tty != "" {
+			return tty
 		}
 	}
 	return strings.TrimSpace(os.Getenv("CMUX_TTY_NAME"))

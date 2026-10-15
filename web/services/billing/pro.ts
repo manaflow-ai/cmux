@@ -26,11 +26,12 @@ import {
 } from
   "../account/metadataMutation";
 import { activeApplePlanForUser } from "./apple/entitlement";
+import { planTierRank } from "./planTier";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
-// Max is Pro plus the 16, 24, and 32 GB machine sizes. It is a personal
+// Max is Pro plus the 24, 32, and 64 GB machine sizes. It is a personal
 // subscription like Pro: same Stripe customer scope, same metadata mirror
 // (`cmuxPlan: "max"`), and it satisfies every "is Pro" check.
 export const MAX_PLAN_ID = "max";
@@ -78,8 +79,6 @@ export const PAID_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID
  */
 export const PERSONAL_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID] as const;
 export type PersonalPlanId = (typeof PERSONAL_PLAN_IDS)[number];
-/** Higher index wins when an account has more than one active personal row. */
-const PERSONAL_PLAN_RANK: Record<PersonalPlanId, number> = { go: 1, pro: 2, max: 3 };
 
 export function isPersonalPlanId(planId: string | null | undefined): planId is PersonalPlanId {
   return typeof planId === "string" &&
@@ -94,7 +93,7 @@ export function highestPersonalPlanId(
   for (const candidate of planIds) {
     if (!isPersonalPlanId(candidate)) continue;
     const normalized = candidate.trim().toLowerCase() as PersonalPlanId;
-    if (!best || PERSONAL_PLAN_RANK[normalized] > PERSONAL_PLAN_RANK[best]) best = normalized;
+    if (!best || planTierRank(normalized) > planTierRank(best)) best = normalized;
   }
   return best;
 }
@@ -243,6 +242,11 @@ export type ProPlanStatus = {
   readonly metadataPlanId: string | null;
   readonly hasManualVmPlanOverride: boolean;
   readonly metadataChanged: boolean;
+  /**
+   * The Stripe subscription that grants the plan is set to end at period
+   * end, so pricing offers Resume instead of a new purchase.
+   */
+  readonly cancelScheduled?: boolean;
 };
 
 /**
@@ -374,6 +378,9 @@ export async function resolveProPlanStatus(
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
+    ...(billingSource === "stripe" && hasActiveStripePro && stripeBillingStatus?.cancelAtPeriodEnd
+      ? { cancelScheduled: true }
+      : {}),
   };
 }
 

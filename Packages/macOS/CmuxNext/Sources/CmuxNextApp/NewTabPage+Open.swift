@@ -80,7 +80,7 @@ extension NewTabPage {
         // budget (cx-98s). Cold pages still need the immediate strip sync because their content
         // is presented by the normal scheduler on a later frame.
         if !showedSpare {
-            BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
+            BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))

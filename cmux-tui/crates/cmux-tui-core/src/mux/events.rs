@@ -41,8 +41,10 @@ pub enum MuxEvent {
     },
     /// A surface's child exited. Hosted terminal views have been atomically
     /// detached while their durable exit receipt remains queryable; local
-    /// terminals have already been reaped when this arrives.
-    SurfaceExited(SurfaceId),
+    /// terminals have already been reaped when this arrives. The second
+    /// field is the tab's typed `end` (R41), when known: the views are gone
+    /// by the time a client reads this, so the event carries it (cx-6so.19).
+    SurfaceExited(SurfaceId, Option<Arc<Value>>),
     /// The OSC 7501 status a surface's tab shows changed (state or
     /// progress); `None` when it shows none. Raw clients get
     /// `program-status-changed` with the tab's new `program_status`.
@@ -64,6 +66,8 @@ pub enum MuxEvent {
         updated_at_ms: u64,
         /// When the agent entered `state` (Unix ms).
         since_ms: u64,
+        /// The agent's last prompt (at most 200 characters), memory only.
+        last_prompt: Option<Arc<str>>,
     },
     /// What the agent in one surface's terminal is touching now; `None`
     /// clears it (`agent-presence-v1`).

@@ -57,6 +57,8 @@ public final class TabModel: Identifiable {
     /// The device a browser tab emulates, as the daemon resolved it
     /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
     public internal(set) var emulation: JSONValue?
+    /// Whether the tab fits a 16:9 desktop layout (`extra.emulation.mode == "fit"`, browser-fit-v1).
+    public var fitsDesktop: Bool { emulation?["mode"]?.stringValue == "fit" }
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -150,6 +152,12 @@ public final class TabModel: Identifiable {
         remote = s.remote
         conversation = s.conversation
         app = s.app
+        #if DEBUG
+        // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
+        if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
+        }
+        #endif
     }
 
     static func identity(_ s: TabSnapshot) -> String {

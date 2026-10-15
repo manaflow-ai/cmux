@@ -59,6 +59,7 @@ impl Mux {
         record: ConversationTabRecord,
         mutation: Option<&WorkspaceMutation>,
         size: Option<(u16, u16)>,
+        transaction: Option<&str>,
     ) -> anyhow::Result<ConversationTabOutcome> {
         record.validate()?;
         let key = mutation.map(|mutation| (mutation.origin.as_str(), mutation.id.as_str()));
@@ -121,10 +122,18 @@ impl Mux {
             self.reload_presentation(&registry)?;
         }
         mark_conversation_tabs_present();
-        let fields = Map::from_iter([(
+        let mut fields = Map::from_iter([(
             "frontend_browser_id".to_string(),
             Value::String(browser_id.as_str().to_string()),
         )]);
+        // The created tab's one `tab-added` carries the client's transaction
+        // (`conversation-tab-transaction-v1`); a replay above emits nothing.
+        if let Some(transaction) = transaction {
+            fields.insert(
+                FRONTEND_BROWSER_TRANSACTION_FIELD.to_string(),
+                Value::String(transaction.to_string()),
+            );
+        }
         let created = match target {
             ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields_as(
                 actor,
@@ -196,15 +205,17 @@ impl Mux {
     }
 
     /// `bind-conversation-tab-session`: set an agent tab's acpmux session
-    /// to `session` when its current session is `expected` (None: unbound).
+    /// to `session` when its current session is `expected` (None: unbound),
+    /// and its harness to `harness` when given ([`swap_agent_session`]).
     /// Returns the record and whether the call was a replay (the tab already
-    /// had `session`).
+    /// had `session` and that harness).
     pub(crate) fn bind_conversation_tab_session_as(
         &self,
         actor: &Actor,
         surface: SurfaceId,
         session: &str,
         expected: Option<&str>,
+        harness: Option<&str>,
     ) -> anyhow::Result<(ConversationTabRecord, bool)> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
@@ -218,6 +229,7 @@ impl Mux {
         let operation = "tab.conversation.bind_session";
         let fingerprint = serde_json::json!({
             "operation": operation, "browser": browser_id, "session": session, "expected": expected,
+            "harness": harness,
         });
         let committed = self.commit_state(
             &WorkspaceMutation::local("cmux-tui-conversation-tab", actor.clone()),
@@ -226,7 +238,7 @@ impl Mux {
             None,
             StateEffects { presentation: true, tree: false },
             |transaction, _| {
-                swap_agent_session(transaction, &browser_id, session, expected)?;
+                swap_agent_session(transaction, &browser_id, session, expected, harness)?;
                 let changes = fresh_upserts(transaction, &[], &[], std::slice::from_ref(&tab_id))?;
                 Ok(StateChanges::new(serde_json::json!({}), changes))
             },
@@ -323,6 +335,6 @@ impl Mux {
         mutation: Option<&WorkspaceMutation>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<ConversationTabOutcome> {
-        self.new_conversation_tab_as(&Actor::Daemon, target, record, mutation, size)
+        self.new_conversation_tab_as(&Actor::Daemon, target, record, mutation, size, None)
     }
 }

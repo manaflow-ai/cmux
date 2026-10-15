@@ -65,6 +65,16 @@ class PublicationError(RuntimeError):
     pass
 
 
+class PublicationConflict(PublicationError):
+    """Another publisher wrote this tree's source.json first, with other bytes.
+
+    Raised only with --conflict-exit-code, and only for source.json, which a
+    publication writes first: the caller then waits for that publication to
+    complete and keeps it (two runs of one tree key at once). A conflict on
+    any later object stays a hard failure.
+    """
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -99,6 +109,7 @@ def _upload(
     bucket: str,
     key: str,
     cache_control: str,
+    conflict_exit_code: int | None = None,
 ) -> None:
     command = [
         sys.executable,
@@ -115,10 +126,17 @@ def _upload(
         "--cache-control",
         cache_control,
     ]
+    if conflict_exit_code is not None:
+        command += ["--conflict-exit-code", str(conflict_exit_code)]
     try:
         result = subprocess.run(command, check=False, text=True, capture_output=True)
     except OSError as error:
         raise PublicationError(f"could not execute trusted uploader {uploader}: {error}") from error
+    if conflict_exit_code is not None and result.returncode == conflict_exit_code:
+        raise PublicationConflict(
+            f"another publisher wrote {key} first with other bytes: "
+            f"{(result.stderr or result.stdout).strip() or 'no output'}"
+        )
     if result.returncode:
         detail = (result.stderr or result.stdout).strip()
         raise PublicationError(
@@ -141,6 +159,7 @@ def publish_tree(
     publish_source: bool = False,
     windows_manifest_file: Path | None = None,
     windows_source_commit: str | None = None,
+    conflict_exit_code: int | None = None,
 ) -> dict[str, str]:
     """Validate and publish all tree companions (COMPANION_NAMES).
 
@@ -260,6 +279,7 @@ def publish_tree(
             bucket=bucket,
             key=f"{prefix}/source.json",
             cache_control=cache,
+            conflict_exit_code=conflict_exit_code,
         )
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-tree-") as temporary:
@@ -346,6 +366,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--uploader", type=Path, required=True)
     parser.add_argument("--endpoint-url", required=True)
     parser.add_argument("--bucket", required=True)
+    parser.add_argument("--conflict-exit-code", type=int,
+                        help="exit with this code, with no immutable-r2-conflict annotation, when another "
+                             "publisher wrote source.json first; the caller waits for that publication")
     args = parser.parse_args(argv)
     try:
         digests = publish_tree(
@@ -360,7 +383,11 @@ def main(argv: list[str] | None = None) -> int:
             publish_source=args.publish_source,
             windows_manifest_file=args.windows_manifest_file,
             windows_source_commit=args.windows_source_commit,
+            conflict_exit_code=args.conflict_exit_code,
         )
+    except PublicationConflict as error:
+        print(f"cmux-tui tree {args.key}: {error}", file=sys.stderr)
+        return args.conflict_exit_code
     except (OSError, PublicationError, ValueError) as error:
         print(f"cmux-tui tree publication failed: {error}; see {REPAIR_POINTER}", file=sys.stderr)
         return 1

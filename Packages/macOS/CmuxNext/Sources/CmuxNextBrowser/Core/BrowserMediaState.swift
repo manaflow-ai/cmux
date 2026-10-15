@@ -18,9 +18,19 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
     public var isTabMuted: Bool
     /// The `mediaSession` actions the page handles (`nexttrack`, ...).
     public var actions: Set<BrowserMediaAction>
+    /// The element's position in seconds when reported (`positionDate`);
+    /// nil from a page that did not say.
+    public var position: TimeInterval?
+    /// The element's length in seconds; nil while unknown or for a live stream.
+    public var duration: TimeInterval?
+    /// The element's playback rate (1 is normal speed).
+    public var rate: Double
+    /// When `position` was read.
+    public var positionDate: Date
 
     public init(title: String, artist: String = "", album: String = "", artworkURL: URL? = nil, isPlaying: Bool,
-                isMuted: Bool = false, isVideo: Bool = false, isTabMuted: Bool = false, actions: Set<BrowserMediaAction> = []) {
+                isMuted: Bool = false, isVideo: Bool = false, isTabMuted: Bool = false, actions: Set<BrowserMediaAction> = [],
+                position: TimeInterval? = nil, duration: TimeInterval? = nil, rate: Double = 1, positionDate: Date = Date()) {
         self.title = title
         self.artist = artist
         self.album = album
@@ -30,10 +40,39 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
         self.isVideo = isVideo
         self.isTabMuted = isTabMuted
         self.actions = actions
+        self.position = position
+        self.duration = duration
+        self.rate = rate
+        self.positionDate = positionDate
     }
 
     /// Sound is coming out of the tab (the tab's speaker indicator).
     public var isAudible: Bool { isPlaying && !isMuted }
+
+    /// The position at `date`: it moves on while playing, kept inside the length.
+    public func position(at date: Date) -> TimeInterval? {
+        guard let position else { return nil }
+        let moved = isPlaying ? position + max(0, date.timeIntervalSince(positionDate)) * rate : position
+        return min(max(0, moved), duration ?? .infinity)
+    }
+
+    /// The state a tab keeps after `report`: the earlier one when the report
+    /// changes nothing but a position that moved on as expected (the page's
+    /// heartbeat), so a playing tab does not change state every few seconds;
+    /// else the report, whole (a pause, a resume or a speed change takes its
+    /// own position and time).
+    public static func settled(_ earlier: BrowserMediaState?, _ report: BrowserMediaState?) -> BrowserMediaState? {
+        guard let earlier, let report else { return report }
+        let onCourse = switch (earlier.position(at: report.positionDate), report.position) {
+        case (nil, nil): true
+        case let (expected?, reported?): abs(reported - expected) < 1.5
+        default: false
+        }
+        var same = report
+        same.position = earlier.position
+        same.positionDate = earlier.positionDate
+        return onCourse && same == earlier ? earlier : report
+    }
 
     /// The script's report: an object, or null when the page stopped
     /// playing. Nil for anything else.
@@ -47,10 +86,15 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
             url.scheme == "https" || url.scheme == "http" ? url : nil
         }
         let actions = (object["actions"] as? String ?? "").split(separator: ",").compactMap { BrowserMediaAction(rawValue: String($0)) }
+        func seconds(_ key: String) -> TimeInterval? {
+            (object[key] as? NSNumber).map(\.doubleValue).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        }
         return .some(BrowserMediaState(
             title: text("title"), artist: text("artist"), album: text("album"), artworkURL: artwork,
             isPlaying: object["playing"] as? Bool ?? false, isMuted: object["muted"] as? Bool ?? false,
-            isVideo: object["video"] as? Bool ?? false, isTabMuted: object["tabMuted"] as? Bool ?? false, actions: Set(actions)))
+            isVideo: object["video"] as? Bool ?? false, isTabMuted: object["tabMuted"] as? Bool ?? false, actions: Set(actions),
+            position: seconds("position"), duration: seconds("duration").flatMap { $0 > 0 ? $0 : nil },
+            rate: seconds("rate").flatMap { $0 > 0 ? $0 : nil } ?? 1))
     }
 
     /// The Chromium binding's payload: the same report as JSON text.
@@ -80,6 +124,8 @@ public nonisolated enum BrowserMediaCommand: Hashable, Sendable {
     case previousTrack
     case nextTrack
     case toggleMute
+    /// Moves the playing element to this many seconds in.
+    case seek(TimeInterval)
     /// Mutes (true) or unmutes every media element of the page and its
     /// frames, now and as they play (the tab's mute).
     case muteTab(Bool)

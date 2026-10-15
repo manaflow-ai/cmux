@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 import { REPLAY_SESSION, replayFixtureEvents } from "../src/agent-session/acpmux/replay/replayFixture";
 
 await requireBrowserLane("agent-pane-replay.test.ts", async () => {
@@ -97,6 +98,7 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // In CI the first load of a cold dev server never showed the chat, while every later load
     // did within seconds. Load it here, again if it stalls, so the tests time only the replay;

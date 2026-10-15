@@ -4,6 +4,7 @@ import type * as W from "../../generated/wire";
 import type * as M0 from "./common";
 import type * as M1 from "./requests";
 import type * as M2 from "./responses";
+import type * as M3 from "./account";
 type Assert<T extends true> = T;
 // JSON omits undefined object properties. Array cardinality remains a server
 // validation constraint; Swift arrays and Zod inference represent element types.
@@ -92,3 +93,21 @@ export type V2RevokedResponseServerToWire = Assert<WireShape<z.infer<typeof M2.R
 export type V2RevokedResponseWireToServer = Assert<WireShape<W.V2RevokedResponse> extends WireShape<z.infer<typeof M2.RevokedResponseSchema>> ? true : false>;
 export type V2TicketResponseServerToWire = Assert<WireShape<z.infer<typeof M2.TicketResponseSchema>> extends WireShape<W.V2TicketResponse> ? true : false>;
 export type V2TicketResponseWireToServer = Assert<WireShape<W.V2TicketResponse> extends WireShape<z.infer<typeof M2.TicketResponseSchema>> ? true : false>;
+export type V2AccountChangedResponseServerToWire = Assert<WireShape<z.infer<typeof M3.AccountChangedResponseSchema>> extends WireShape<W.V2AccountChangedResponse> ? true : false>;
+export type V2AccountChangedResponseWireToServer = Assert<WireShape<W.V2AccountChangedResponse> extends WireShape<z.infer<typeof M3.AccountChangedResponseSchema>> ? true : false>;
+export type V2AccountDirectoryRequestServerToWire = Assert<WireShape<z.infer<typeof M3.AccountDirectoryRequestSchema>> extends WireShape<W.V2AccountDirectoryRequest> ? true : false>;
+export type V2AccountDirectoryRequestWireToServer = Assert<WireShape<W.V2AccountDirectoryRequest> extends WireShape<z.infer<typeof M3.AccountDirectoryRequestSchema>> ? true : false>;
+export type V2AccountDirectoryResponseServerToWire = Assert<WireShape<z.infer<typeof M3.AccountDirectoryResponseSchema>> extends WireShape<W.V2AccountDirectoryResponse> ? true : false>;
+export type V2AccountDirectoryResponseWireToServer = Assert<WireShape<W.V2AccountDirectoryResponse> extends WireShape<z.infer<typeof M3.AccountDirectoryResponseSchema>> ? true : false>;
+export type V2AccountDirectoryServerToWire = Assert<WireShape<z.infer<typeof M3.AccountDirectorySchema>> extends WireShape<W.V2AccountDirectory> ? true : false>;
+export type V2AccountDirectoryWireToServer = Assert<WireShape<W.V2AccountDirectory> extends WireShape<z.infer<typeof M3.AccountDirectorySchema>> ? true : false>;
+export type V2AccountPublishRequestServerToWire = Assert<WireShape<z.infer<typeof M3.AccountPublishRequestSchema>> extends WireShape<W.V2AccountPublishRequest> ? true : false>;
+export type V2AccountPublishRequestWireToServer = Assert<WireShape<W.V2AccountPublishRequest> extends WireShape<z.infer<typeof M3.AccountPublishRequestSchema>> ? true : false>;
+export type V2AccountPublishedResponseServerToWire = Assert<WireShape<z.infer<typeof M3.AccountPublishedResponseSchema>> extends WireShape<W.V2AccountPublishedResponse> ? true : false>;
+export type V2AccountPublishedResponseWireToServer = Assert<WireShape<W.V2AccountPublishedResponse> extends WireShape<z.infer<typeof M3.AccountPublishedResponseSchema>> ? true : false>;
+export type V2AccountReadyResponseServerToWire = Assert<WireShape<z.infer<typeof M3.AccountReadyResponseSchema>> extends WireShape<W.V2AccountReadyResponse> ? true : false>;
+export type V2AccountReadyResponseWireToServer = Assert<WireShape<W.V2AccountReadyResponse> extends WireShape<z.infer<typeof M3.AccountReadyResponseSchema>> ? true : false>;
+export type V2AccountWithdrawRequestServerToWire = Assert<WireShape<z.infer<typeof M3.AccountWithdrawRequestSchema>> extends WireShape<W.V2AccountWithdrawRequest> ? true : false>;
+export type V2AccountWithdrawRequestWireToServer = Assert<WireShape<W.V2AccountWithdrawRequest> extends WireShape<z.infer<typeof M3.AccountWithdrawRequestSchema>> ? true : false>;
+export type V2AccountWithdrawnResponseServerToWire = Assert<WireShape<z.infer<typeof M3.AccountWithdrawnResponseSchema>> extends WireShape<W.V2AccountWithdrawnResponse> ? true : false>;
+export type V2AccountWithdrawnResponseWireToServer = Assert<WireShape<W.V2AccountWithdrawnResponse> extends WireShape<z.infer<typeof M3.AccountWithdrawnResponseSchema>> ? true : false>;

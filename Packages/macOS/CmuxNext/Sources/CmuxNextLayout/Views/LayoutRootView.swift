@@ -82,6 +82,10 @@ public final class LayoutRootView: NSView {
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
+        context.stripClipsDidChange = { [weak self] in
+            guard let self else { return }
+            planeHost?.paneShapesDidChange(overlayPlane)
+        }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
@@ -200,7 +204,10 @@ public final class LayoutRootView: NSView {
     private func sync(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         lastSnapshot = snapshot
-        let animated = previous != nil && canAnimate && !snapshot.gestureActive
+        // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
+        // reveal and the screen slide move only with `ui.paneAnimations` (motion.md rule 9).
+        let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive
+        let animated = chromeAnimated && context.animatesPaneLayout
         var needsFrames = false
 
         context.livePanes = Set(snapshot.screens.flatMap(\.layout.panes))
@@ -234,7 +241,7 @@ public final class LayoutRootView: NSView {
             if view.update(layout: screen.layout, zoomed: screen.zoomed, animated: animated) { needsFrames = true }
             // The focus ring of a split's new pane appears with the pane.
             view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                              animated: animated && !structureChanged)
+                              animated: chromeAnimated && !structureChanged)
             // Every snapshot reaches the scroll reducer: it anchors the camera
             // on layout changes, reveals focus, and springs back after a close.
             let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
@@ -242,7 +249,7 @@ public final class LayoutRootView: NSView {
             // Only a snap that stands in for Reduce Motion's spring shows the
             // scrollbar, not one at launch or while out of the window.
             if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive,
+                               animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
                                showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                 needsFrames = true
             }

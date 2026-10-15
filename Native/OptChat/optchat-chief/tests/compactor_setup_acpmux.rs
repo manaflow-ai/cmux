@@ -1,4 +1,4 @@
-//! Chief 2026-10-10: a user turn never waits more than 10 s on compaction.
+//! A user turn never waits more than SETTLE_BOUND (1 s) on compaction.
 //! The compactor runs over the real acpmux daemon (`ACPMUX_BIN`, started in
 //! a home of its own), first with a harness that daemon does not have, then
 //! with a slot preset it never installed. No compactor session can ever

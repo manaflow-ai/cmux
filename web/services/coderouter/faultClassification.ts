@@ -31,6 +31,9 @@ export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterF
   const { status } = outcome;
   if (status < 400) return "none";
   if (outcome.outcome === "client_cancelled") return "caller";
+  // A team with no account configured at all gets a terminal 4xx so clients
+  // stop retrying; it is still the tenant's state to fix.
+  if (outcome.outcome === "no_usable_account" && outcome.failureStage === "provider_config") return "tenant";
   if (outcome.outcome === "unauthorized" || (status < 500 && status !== 429)) return "caller";
   switch (outcome.outcome) {
     case "route_crash":

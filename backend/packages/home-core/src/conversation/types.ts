@@ -143,8 +143,10 @@ export interface Message {
   readonly author: string
   readonly parts: ReadonlyArray<Part>
   readonly reply_to?: PartRef
-  /** The root of the thread this message replies in; a root has none (one level). */
+  /** The top root of the thread this message replies in (any depth; the parent is `reply_to`); a root has none. */
   readonly thread_root?: string
+  /** The thread object a root carries (`thread.update`, conversation-thread-objects-v1); absent when empty. */
+  readonly thread?: ThreadState
   readonly created_at: string
   readonly edited_at?: string
   readonly retracted_at?: string
@@ -152,6 +154,29 @@ export interface Message {
   /** Set by a local owner for a message a paired install sent. */
   readonly origin?: Origin
 }
+
+export type ThreadStatus = "open" | "resolved"
+
+/** Who resolved a thread, when, and the conversation's last seq then. */
+export interface ThreadResolution {
+  readonly by: string
+  readonly at: string
+  readonly seq: number
+}
+
+/**
+ * The thread object of a root message (Rust `ThreadState`). The thread reads as resolved only
+ * while no live reply has a seq above `resolved.seq`: a new reply reopens it.
+ */
+export interface ThreadState {
+  readonly title?: string
+  readonly owner?: string
+  readonly resolved?: ThreadResolution
+}
+
+/** The status readers show, given the seq of the thread's newest live reply (Rust `ThreadState::status`). */
+export const threadStatus = (thread: ThreadState | undefined, lastReplySeq: number | null | undefined): ThreadStatus =>
+  thread?.resolved !== undefined && (lastReplySeq === null || lastReplySeq === undefined || lastReplySeq <= thread.resolved.seq) ? "resolved" : "open"
 
 export type InviteChannel = "email" | "sms"
 /**
@@ -245,6 +270,12 @@ export interface ConversationHead {
    */
   readonly agent_text_streak?: number
   readonly last_agent_text_at?: string
+  /**
+   * The same streak per thread (key: the root message id; the top level is
+   * `agent_text_streak`). Only threads whose streak is above 0; absent when
+   * none is. Agents in two threads do not spend each other's budget.
+   */
+  readonly thread_agent_streaks?: Readonly<Record<string, number>>
   /** Provenance of a conversation promoted from a Mac (`conversation.import`). */
   readonly import?: ImportSource & { readonly by: string }
 }
@@ -290,6 +321,8 @@ export type LocalOp =
   | { readonly kind: "title.set"; readonly title: string }
   /** A person answers the question part at `part_index`; only `answer.selections` is read. */
   | { readonly kind: "question.answer"; readonly message_id: string; readonly part_index: number; readonly answer: QuestionAnswer }
+  /** Sets the thread object of root `root`; an empty title or owner clears it (conversation-thread-objects-v1). */
+  | { readonly kind: "thread.update"; readonly root: string; readonly title?: string; readonly status?: ThreadStatus; readonly owner?: string }
 
 export interface InviteCreateParams {
   readonly kind: "invite.create"
@@ -363,6 +396,6 @@ export const INVITE_TTL_MS = 14 * 24 * 3600_000
 
 export const DEFAULT_SETTINGS: ConversationSettings = {
   wake_policy: "auto",
-  agent_budget: { turns: 4, gap_ms: 2_000 },
+  agent_budget: { turns: 6, gap_ms: 2_000 }, // budget.ts MAX_AGENT_TURNS (per thread), MIN_AGENT_GAP_MS
   history_visible: "all"
 }

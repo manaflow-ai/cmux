@@ -25,14 +25,14 @@ public nonisolated enum DropOverlayTunables {
         "drop.overlay.spring", .dropOverlay, "Spring", help: "Motion token for the overlay moving between targets (morph always uses settle).",
         default: .track, code: "DropOverlayTunables.spring")
     public static let animated = toggle("animated", "Animate between targets", help: "Off snaps to each target in one frame.", true, property: "animated")
-    public static let appearInset = number("appearInset", "Appear inset", help: "On first show the overlay grows from this share smaller than the target.",
-                                           0.03, range: 0...0.3, step: 0.01, unit: .fraction, property: "appearInset")
+    public static let appearInset = number("appearInset", "Appear inset", help: "On first show the overlay grows from this share smaller than the target (0: classic, it fades in at its rect).",
+                                           0, range: 0...0.3, step: 0.01, unit: .fraction, property: "appearInset")
     public static let opacity = number("opacity", "Opacity", help: "Opacity of the whole overlay.", 1, range: 0.1...1, step: 0.05, unit: .fraction, property: "opacity")
     public static let floatingInset = DerivedTunable<CGFloat>.number(
         "drop.overlay.floatingInset", .dropOverlay, "Floating inset", help: "Inset of the overlay inside a pane without pane chrome, and in column gaps. Default: Space 2.",
         range: 0...24, step: 0.5, unit: .points, code: "DropOverlayTunables.floatingInset") { Metrics.space2 }
-    public static let cornerRadius = number("cornerRadius", "Corner radius", help: "-1 follows the pane (or panel) corner radius.",
-                                            -1, range: -1...40, step: 0.5, unit: .points, property: "cornerRadius")
+    public static let cornerRadius = number("cornerRadius", "Corner radius", help: "8 is classic cmux; -1 follows the pane (or panel) corner radius.",
+                                            8, range: -1...40, step: 0.5, unit: .points, property: "cornerRadius")
     public static let showLabel = toggle("showLabel", "Label", help: "Show the drop label (Split Right, Move Here).", true, property: "showLabel")
     public static let labelMinWidth = number("labelMinWidth", "Label minimum width", help: "Targets narrower than this hide the label.",
                                              90, range: 0...400, step: 1, unit: .points, property: "labelMinWidth")
@@ -93,15 +93,15 @@ public nonisolated enum DropOverlayTunables {
 public nonisolated enum LayoutTunables {
     public static let dropEdgeFraction = Tunable<CGFloat>.number(
         "drop.edgeFraction", .tabDrag, "Edge zone share", help: "Share of a pane's extent that counts as an edge (split) drop zone.",
-        default: 0.28, range: 0.05...0.5, step: 0.01, unit: .fraction, code: "LayoutTunables.dropEdgeFraction")
+        default: 0.25, range: 0.05...0.5, step: 0.01, unit: .fraction, code: "LayoutTunables.dropEdgeFraction")
     public static let dropEdgeMinimum = Tunable<CGFloat>.number(
-        "drop.edgeMinimum", .tabDrag, "Edge zone minimum", help: "The edge band is at least this wide.", default: 28, range: 4...200, step: 1,
+        "drop.edgeMinimum", .tabDrag, "Edge zone minimum", help: "The edge band is at least this wide (classic: 80).", default: 40, range: 4...200, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMinimum")
     public static let dropEdgeMaximum = Tunable<CGFloat>.number(
-        "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide.", default: 180, range: 20...600, step: 1,
+        "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide; 0 sets no maximum (classic).", default: 120, range: 0...600, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMaximum")
     public static let dropZoneHysteresis = Tunable<CGFloat>.number(
-        "drop.zoneHysteresis", .tabDrag, "Zone hysteresis", help: "How far past a zone line the pointer goes before the preview changes zone.",
+        "drop.zoneHysteresis", .tabDrag, "Zone hysteresis", help: "How far past a zone line the pointer goes before the preview changes zone (classic: 0).",
         default: 12, range: 0...60, step: 1, unit: .points, code: "LayoutTunables.dropZoneHysteresis")
     public static let newColumnDropWidth = Tunable<CGFloat>.number(
         "drop.newColumnWidth", .tabDrag, "New column zone width", help: "Width of the new-column drop zone centered on each column gap.",

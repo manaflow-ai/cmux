@@ -11,6 +11,9 @@ final class UnreadBadgeView: NSView {
     private(set) var state: UnreadState = .none
     /// The look painted last.
     private(set) var look = NotificationBadgeLook.classic
+    /// A fixed look instead of the Debug Settings one: tab rows draw the quiet
+    /// (muted) dot under their workspace's badge (Lawrence 2026-10-14).
+    var fixedLook: NotificationBadgeLook? { didSet { if fixedLook != oldValue { needsDisplay = true } } }
     private let label = NSTextField(labelWithString: "")
 
     override init(frame: NSRect) {
@@ -76,7 +79,7 @@ final class UnreadBadgeView: NSView {
 
     override func updateLayer() {
         guard let layer else { return }
-        look = observedLook()
+        look = fixedLook ?? observedLook()
         performWithTheme {
             let colors = self.paint(look, dot: state == .dot)
             label.textColor = colors.text

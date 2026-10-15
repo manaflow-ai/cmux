@@ -26,8 +26,11 @@ final class TabCell {
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true, showing: isCloseHovered) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
-    /// The strip's window is main (in front); off, the selected tab has no fill.
-    var isWindowMain = true { didSet { if oldValue != isWindowMain { updateColors(animated: false) } } }
+    /// The strip's window is main (in front); off, the selected tab has no fill, so only it repaints.
+    var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
+    /// The strip's window is on screen and not fully covered: a busy indicator spins only then
+    /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
+    var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
     /// The selected (or lifted) tab's fill shows.
     var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
     /// Hover may start the title marquee (off while a drag or rename runs).
@@ -38,7 +41,6 @@ final class TabCell {
     var closingVisibility: TabChromeVisibility?
     /// Created on the first occlusion (`occlude(by:)`).
     lazy var occlusionMask = CALayer()
-    var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
     var metrics: TabStripMetrics = .standard {
         didSet {
@@ -81,10 +83,10 @@ final class TabCell {
     let backgroundLayer = CALayer()
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
+    let separatorLayer = TabCell.makeSeparatorLayer()
     /// Fades the clipped title and runs its hover marquee (one mask layer,
     /// present only while the title is clipped).
     private(set) lazy var titleFade = TitleFade(textLayer: titleLayer)
-    private let separatorLayer = CALayer()
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
@@ -142,15 +144,12 @@ final class TabCell {
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        separatorLayer.opacity = 0
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
         }
         // Fills fade; geometry never implicitly animates.
         backgroundLayer.actions = ["backgroundColor": Self.fade, "shadowOpacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
-        // Separators switch at once (Chrome): no fade lag behind hover.
-        separatorLayer.actions = ["opacity": NSNull(), "bounds": NSNull(), "position": NSNull()]
     }
 
     static let noActions: [String: any CAAction] = [
@@ -208,10 +207,11 @@ final class TabCell {
 
     private func updateLift() {
         themeScope.perform { backgroundLayer.shadowColor = Palette.shadow.cgColor }
-        // The one popover shadow (PopupStyle), not a darker drag shadow.
-        backgroundLayer.shadowRadius = PopupStyle.standard.shadowBlur
-        backgroundLayer.shadowOffset = CGSize(width: 0, height: PopupStyle.standard.shadowOffset)
-        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? PopupStyle.standard.shadowAlpha : 0), fade: .lift)
+        // The raised elevation step (PopupStyle.elevation2), not a darker drag shadow.
+        let elevation = PopupStyle.elevation2
+        backgroundLayer.shadowRadius = elevation.layerRadius
+        backgroundLayer.shadowOffset = elevation.layerOffset(flipped: true)
+        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? elevation.alpha : 0), fade: .lift)
         updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
         // The lifted fill reads as solid from the first frame, so nothing it
@@ -248,8 +248,8 @@ final class TabCell {
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
-            separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
+            applySeparatorColor()
         }
         applyCloseColors()
         applyBadgeColor()
@@ -290,16 +290,9 @@ final class TabCell {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        let hairline = 1 / scale
         backgroundLayer.frame = bounds
+        layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
-        // The separator sits in the middle of the gap after the pill.
-        separatorLayer.frame = CGRect(
-            x: pixel(bounds.maxX + (slot.width - bounds.maxX - hairline) / 2),
-            y: pixel((slot.height - m.separatorHeight) / 2),
-            width: hairline,
-            height: m.separatorHeight
-        )
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize

@@ -7,8 +7,7 @@ import { TeamForbidden, teamLabel } from "../lib/team-picker"
 import { isNotTeamMember } from "../lib/team-scope"
 import { callerRole, type TeamRole } from "../lib/team-vm"
 import { TeamVmSection } from "./-team-vm"
-import { AiSpendingSection, MemberAiCells, useAiLimits } from "./-ai-spending"
-import { aiLimitText } from "../lib/ai-limit-strings"
+import { AiSpendingSection, useAiLimits } from "./-ai-spending"
 
 export const Route = createFileRoute("/team")({ component: Team })
 
@@ -79,17 +78,6 @@ function Team() {
       <h3>Members</h3>
       <div className="card">
         <table>
-          {ai.admin ? (
-            <thead>
-              <tr>
-                <th />
-                <th />
-                <th />
-                <th>{aiLimitText(locale, "col.spend")}</th>
-                <th>{aiLimitText(locale, "col.limit")}</th>
-              </tr>
-            </thead>
-          ) : null}
           <tbody>
             {(d?.members ?? []).map((m) => (
               <tr key={m.user}>
@@ -98,7 +86,6 @@ function Team() {
                 <td>
                   <code className="muted">{m.user}</code>
                 </td>
-                <MemberAiCells ai={ai} user={m.user} />
               </tr>
             ))}
           </tbody>

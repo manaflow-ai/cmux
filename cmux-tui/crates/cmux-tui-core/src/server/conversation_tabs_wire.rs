@@ -210,16 +210,19 @@ pub(super) fn create(
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(mux, conversation, owner, agent_session, page, route)?;
-    let outcome =
-        mux.new_conversation_tab_as(&actor, target, record.clone(), mutation.as_ref(), size)?;
+    // The creation's own `tab-added` carries `transaction`: one delta per
+    // tab. A replay emits nothing and echoes it in the result only.
+    let outcome = mux.new_conversation_tab_as(
+        &actor,
+        target,
+        record.clone(),
+        mutation.as_ref(),
+        size,
+        transaction.as_deref(),
+    )?;
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
-    if let Some(transaction) = transaction.as_deref()
-        && !outcome.replayed
-    {
-        mux.emit_tab_added_for_transaction(outcome.surface.id, Arc::from(transaction));
-    }
     let mut result = json!({
         "surface": outcome.surface.id,
         "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
@@ -234,7 +237,8 @@ pub(super) fn create(
 }
 
 /// `bind-conversation-tab-session`: set an agent tab's session to `session`
-/// when its current session is `expected_session` (null: unbound).
+/// when its current session is `expected_session` (null: unbound), and its
+/// harness to `harness` when given.
 #[derive(Deserialize)]
 pub(super) struct BindSessionParams {
     surface: SurfaceId,
@@ -242,6 +246,11 @@ pub(super) struct BindSessionParams {
     /// Required; JSON null names an unbound tab.
     #[serde(deserialize_with = "required_nullable")]
     expected_session: Option<String>,
+    /// The agent the session runs, as its machine's acpmux reports it; set
+    /// in the same commit (a bind of the tab's own session with another
+    /// harness updates the harness alone).
+    #[serde(default)]
+    harness: Option<String>,
 }
 
 /// A field that must be present and may be null (serde treats a missing
@@ -257,7 +266,7 @@ pub(super) fn bind(
     actor: &Actor,
     params: BindSessionParams,
 ) -> anyhow::Result<Value> {
-    let BindSessionParams { surface, session, expected_session } = params;
+    let BindSessionParams { surface, session, expected_session, harness } = params;
     // A machine's own tab binds only through agent-session-start (which
     // binds in the store directly, never through this command).
     let machine_tab = mux.surface(surface).and_then(|runtime| mux.conversation_tab_of(&runtime));
@@ -267,8 +276,13 @@ pub(super) fn bind(
         return Err(MachineMismatch.into());
     }
     let expected = expected_session.as_deref();
-    let (record, replayed) =
-        mux.bind_conversation_tab_session_as(actor, surface, &session, expected)?;
+    let (record, replayed) = mux.bind_conversation_tab_session_as(
+        actor,
+        surface,
+        &session,
+        expected,
+        harness.as_deref(),
+    )?;
     Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
 }
 

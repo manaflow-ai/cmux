@@ -28,7 +28,15 @@ public nonisolated enum ChromeTunables {
     public static let tabBackgroundInset = points("tabBackgroundInset", .tabs, "Tab background inset",
                                                   help: "Inset of a tab's rounded background inside its slot.", 1, range: 0...8)
     public static let tabContentLeadingInset = points("tabContentLeadingInset", .tabs, "Tab content inset",
-                                                      help: "Inset of a tab's icon from its slot's leading edge (the pane content line).", 6, range: 0...24)
+                                                      help: "Inset of a tab's icon from its slot's leading edge (the pane content line).", 8, range: 0...24)
+    // @intent familiar first (Lawrence 2026-10-14): the cx-ag5.12 tight strip (26 pt strip, 22 pt
+    // tabs, icon 6 pt in and 4 pt from its title) is opt-in, off by default; it moves to Labs.
+    public static let compactTabs = Tunable<Bool>.toggle(
+        "chrome.tabs.compact", .tabs, "Compact tabs",
+        help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 6 pt in and 4 pt from its title. Off: 28, 24, 8 and 6.",
+        default: false, code: "ChromeTunables.compactTabs")
+    public static let compactTabContentLeadingInset = points("compactTabContentLeadingInset", .tabs, "Compact tab content inset",
+                                                             help: "Tab content inset under Compact tabs.", 6, range: 0...24)
     public static let dividerThickness = points("dividerThickness", .panes, "Divider thickness", help: "Visible line between split panes.", 1, range: 0...6)
     public static let dividerHitWidth = points("dividerHitWidth", .panes, "Divider hit width", help: "Draggable width centered on a divider.", 7, range: 1...24)
     public static let panePadding = DerivedTunable<CGFloat>.number(
@@ -53,6 +61,7 @@ public nonisolated enum ChromeTunables {
     static var fixed: [TunableDescriptor] {
         [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
          tabContentLeadingInset, dividerThickness, dividerHitWidth].map(\.descriptor)
+            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor]
             + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }

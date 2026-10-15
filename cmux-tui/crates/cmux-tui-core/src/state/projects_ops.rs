@@ -63,8 +63,8 @@ fn rejected(reject: ProjectReject) -> anyhow::Error {
 /// This machine's editor sources, under `HOME` (and the XDG folders on
 /// Linux). `CMUX_PROJECT_SOURCES=off` turns them off for a daemon that must
 /// not read them.
-fn editor_scans() -> Vec<SourceScan> {
-    if std::env::var_os("CMUX_PROJECT_SOURCES").is_some_and(|value| value == "off") {
+pub(crate) fn editor_scans() -> Vec<SourceScan> {
+    if !project_sources::enabled() {
         return Vec::new();
     }
     project_sources::Layout::current()
@@ -102,6 +102,7 @@ impl Mux {
                 let mut projects = store::load(transaction)?;
                 let changed = apply(&mut projects)?;
                 store::write(transaction, &projects, &changed)?;
+                store::write_disabled(transaction, &projects)?;
                 Ok(changes(&projects, &changed))
             },
         )
@@ -178,6 +179,56 @@ impl Mux {
         self.commit_projects(mutation, "project.remove", &fingerprint, |projects| {
             projects.remove(path).map_err(rejected)?;
             Ok(vec![path.to_string()])
+        })
+    }
+
+    /// `project.source.update`: the user turns a source on or off. Turning
+    /// an editor or app source on reads it again at once.
+    pub(crate) fn state_project_source_update(
+        &self,
+        mutation: &WorkspaceMutation,
+        source: &str,
+        enabled: bool,
+    ) -> anyhow::Result<StateCommit> {
+        let fingerprint =
+            json!({"operation": "project.source.update", "source": source, "enabled": enabled});
+        let scans: Vec<SourceScan> = if enabled {
+            editor_scans().into_iter().filter(|scan| scan.source == source).collect()
+        } else {
+            Vec::new()
+        };
+        let refusals = store::refusals();
+        let now = now_ms();
+        self.commit_projects(mutation, "project.source.update", &fingerprint, |projects| {
+            let mut changed: std::collections::BTreeSet<String> = projects
+                .set_source_enabled(source, enabled)
+                .map_err(rejected)?
+                .into_iter()
+                .collect();
+            for scan in &scans {
+                let observed = projects.observe(scan.source, &scan.entries, true, now, &refusals);
+                changed.extend(observed.map_err(rejected)?);
+            }
+            Ok(changed.into_iter().collect())
+        })
+    }
+
+    /// The daemon's own import of `scans` (startup, a source file changed):
+    /// each list is complete, under the same rules as `project.observe`.
+    pub(crate) fn state_project_import(&self, scans: &[SourceScan]) -> anyhow::Result<StateCommit> {
+        let mutation = WorkspaceMutation::daemon_local("project-sources");
+        let sources: Vec<&str> = scans.iter().map(|scan| scan.source).collect();
+        let fingerprint =
+            json!({"operation": "project.import", "sources": sources, "id": mutation.id});
+        let refusals = store::refusals();
+        let now = now_ms();
+        self.commit_projects(&mutation, "project.import", &fingerprint, |projects| {
+            let mut changed = std::collections::BTreeSet::new();
+            for scan in scans {
+                let observed = projects.observe(scan.source, &scan.entries, true, now, &refusals);
+                changed.extend(observed.map_err(rejected)?);
+            }
+            Ok(changed.into_iter().collect())
         })
     }
 

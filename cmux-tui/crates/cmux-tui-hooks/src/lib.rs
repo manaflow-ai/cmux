@@ -1717,9 +1717,16 @@ fn rewrite_json_hooks_with_helper(
 ) -> anyhow::Result<()> {
     let hooks = root.entry("hooks").or_insert_with(|| json!({}));
     let hooks = hooks.as_object_mut().context("agent hooks field must be a JSON object")?;
-    for entries in hooks.values_mut() {
+    // Where each event's first fully-owned group was, so a reinstall puts our
+    // group back in that slot instead of behind every other producer's: codex
+    // keys hook trust by position, and moving ours shifts theirs off their
+    // trusted keys.
+    let mut owned_slots = BTreeMap::new();
+    for (event, entries) in hooks.iter_mut() {
         if nested {
-            rewrite_nested_entries(entries)?;
+            if let Some(slot) = rewrite_nested_entries(entries)? {
+                owned_slots.insert(event.clone(), slot);
+            }
         } else {
             rewrite_flat_entries(entries)?;
         }
@@ -1749,20 +1756,27 @@ fn rewrite_json_hooks_with_helper(
             json!({"command":command,"timeout":timeout})
         };
         hooks.entry(*event).or_insert_with(|| json!([]));
-        hooks
+        let entries = hooks
             .get_mut(*event)
             .and_then(Value::as_array_mut)
-            .with_context(|| format!("hook event {event:?} must be an array"))?
-            .push(entry);
+            .with_context(|| format!("hook event {event:?} must be an array"))?;
+        match owned_slots.get(*event) {
+            Some(slot) if *slot <= entries.len() => entries.insert(*slot, entry),
+            _ => entries.push(entry),
+        }
     }
     Ok(())
 }
 
-fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<()> {
+/// Removes the owned commands from every group, dropping groups left empty.
+/// Returns the position, among the kept groups, of the first group that held
+/// only owned commands.
+fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<Option<usize>> {
     let Some(groups) = value.as_array_mut() else {
-        return Ok(());
+        return Ok(None);
     };
     let mut rewritten = Vec::with_capacity(groups.len());
+    let mut owned_slot = None;
     for mut group in std::mem::take(groups) {
         let Some(group_object) = group.as_object_mut() else {
             rewritten.push(group);
@@ -1772,13 +1786,16 @@ fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<()> {
             rewritten.push(group);
             continue;
         };
+        let was_empty = commands.is_empty();
         rewrite_command_entries(commands);
         if !commands.is_empty() {
             rewritten.push(group);
+        } else if !was_empty && owned_slot.is_none() {
+            owned_slot = Some(rewritten.len());
         }
     }
     *groups = rewritten;
-    Ok(())
+    Ok(owned_slot)
 }
 
 fn rewrite_flat_entries(value: &mut Value) -> anyhow::Result<()> {
@@ -2003,6 +2020,88 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
         shell_quote(provider),
         shell_quote(event),
     )
+}
+
+/// Codex's shared app-server may run hooks without the launching terminal's
+/// environment. Carry that route in the command, using the embedded helper
+/// so hosts deployed with only the cmux-tui binary work too. Like
+/// `hook_command`, an event that delivers messages lets the helper print the
+/// reply itself and echoes `{}` only when the helper fails.
+#[cfg(unix)]
+fn codex_contextual_hook_command(
+    event: &str,
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+) -> String {
+    let reply = if delivers_messages("codex", event) { "||echo {}" } else { "||:;echo {}" };
+    format!(
+        "CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        shell_quote(&socket.to_string_lossy()),
+        shell_quote(terminal),
+        shell_quote(&launcher.to_string_lossy()),
+        shell_quote(event),
+    )
+}
+
+/// Session flags have their own config layer in Codex 0.162. Trust only the
+/// commands generated here, leaving all other hooks' trust decisions intact.
+/// Codex appends hooks from lower layers, so disable the installed cmux copies
+/// for this invocation instead of sending each event twice.
+///
+/// Codex splits a `-c` key on every `.`, even inside TOML quotes
+/// (codex-rs/config/src/overrides.rs `apply_toml_override`), and every state
+/// key contains one (`config.toml`, `hooks.json`). The whole state therefore
+/// goes in one inline-table value at `hooks.state`, which Codex merges with
+/// the persistent config's trust instead of replacing it.
+#[cfg(unix)]
+pub fn codex_session_hook_settings(
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+) -> anyhow::Result<Vec<String>> {
+    let context = Context::runtime()?;
+    codex_session_hook_settings_with_context(socket, terminal, launcher, &context)
+}
+
+#[cfg(unix)]
+fn codex_session_hook_settings_with_context(
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+    context: &Context,
+) -> anyhow::Result<Vec<String>> {
+    let mut settings = Vec::new();
+    let provider = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "codex")
+        .ok_or_else(|| anyhow::anyhow!("the codex hook provider is missing"))?;
+    let path = context.provider_path(provider);
+    let root = read_json_object(&path)?;
+    let key_path =
+        codex_state_key_hooks_path(&path, context.provider_path_from_env_override(provider));
+    let mut state = toml_edit::InlineTable::new();
+    for key in codex_owned_entry_keys(&key_path, &root) {
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("enabled", false.into());
+        state.insert(&key, entry.into());
+    }
+    for event in CODEX_EVENTS {
+        let command = codex_contextual_hook_command(event, socket, terminal, launcher);
+        let timeout = codex_hook_timeout(event);
+        let label = codex_event_state_label(event)?;
+        let hash = codex_trust_hash(label, &command, timeout);
+        settings.push(format!(
+            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
+            toml_edit::Value::from(command),
+        ));
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("trusted_hash", hash.into());
+        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
+    }
+    settings.push(format!("hooks.state={state}"));
+    Ok(settings)
 }
 
 /// The command shape before the tmux fallback. Its codex trust hashes stay

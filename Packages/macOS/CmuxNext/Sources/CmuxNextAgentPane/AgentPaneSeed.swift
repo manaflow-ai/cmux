@@ -74,6 +74,10 @@ public final class AgentPaneSeedSource {
     public private(set) var surface: AgentPaneSurface?
     /// The missing folder this pane's chat waits for (cx-nn3e.1), until a pick works.
     public internal(set) var folderNeeded: AgentPaneFolderNeeded?
+    /// The chat was opened for its workspace (Cmd-I's chat dock, cx-ihyx2): until the chat has a
+    /// session the page adds the workspace context to its first prompt, hidden from the
+    /// transcript (`_meta.acpmux.context`). Held apart from the read seed, which a slow read drops.
+    public var workspaceContext = false
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read

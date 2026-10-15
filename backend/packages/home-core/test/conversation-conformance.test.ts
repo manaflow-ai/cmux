@@ -39,7 +39,8 @@ const LOCAL_OPS: ReadonlyArray<OpKind> = [
   "read_cursor.set",
   "participants.add",
   "title.set",
-  "question.answer"
+  "question.answer",
+  "thread.update"
 ]
 
 describe.each([

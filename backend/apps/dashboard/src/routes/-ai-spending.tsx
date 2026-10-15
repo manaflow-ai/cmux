@@ -1,9 +1,9 @@
-import { useState } from "react"
 import { useLocale } from "../lib/approval-strings"
 import { aiLimitText, usd } from "../lib/ai-limit-strings"
 import { useLoad } from "../lib/hooks"
 import { newKey, setSignedIn } from "../lib/session"
 import { useTeamApi } from "../lib/team-api"
+import { AiUsageView, type AiUsageLine } from "./-ai-usage-view"
 
 /** team.ai_limit.get (cx-ds09i): members only for team admins and billing members. */
 export interface AiLimitMember {
@@ -21,6 +21,8 @@ export interface AiLimitView {
   readonly resets_at: number
   readonly me: AiLimitMember
   readonly members?: ReadonlyArray<AiLimitMember>
+  /** Beside members only (billing.manage): the team's usage against its included amount (cx-y79zh.1 S5). */
+  readonly team_usage?: AiUsageLine
 }
 interface AuditEntry {
   readonly op: string
@@ -67,29 +69,18 @@ export const memberLabel = (names: ReadonlyMap<string, string>, user: string): s
   return shared || name === "Member" ? `${name} (${user})` : name
 }
 
-const parseUsd = (raw: string): number | null => {
-  const n = Number(raw.trim())
-  return raw.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null
-}
-
-/** The "AI spending" section above Members: the team default (admins), or the caller's own line (members). */
+/**
+ * The "AI usage" section above Members: for admins the usage view (-ai-usage-view.tsx: the team's usage,
+ * each member's spend and limit with an inline edit, the team default) and the recent limit changes;
+ * for members their own line.
+ */
 export function AiSpendingSection({ ai, names }: { readonly ai: AiLimits; readonly names: ReadonlyMap<string, string> }) {
   const locale = useLocale()
   const { mutate } = useTeamApi()
-  const [draft, setDraft] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const v = ai.limits.data
   if (ai.limits.error) return <p className="error">{aiLimitText(locale, "error.load", { error: ai.limits.error })}</p>
   if (!v) return null
   const date = new Date(v.resets_at).toLocaleDateString(locale === "ja" ? "ja-JP" : "en-US", { timeZone: "UTC", month: "long", day: "numeric" })
-  const save = async (value: number | null) => {
-    setError(null)
-    const r = await mutate({ data: { op: "team.ai_limit.set", params: { default_usd: value }, idempotency_key: newKey() } })
-    if (r.status === 401) setSignedIn(false)
-    if (!r.body.ok) setError(r.body.error?.message ?? `http ${r.status}`)
-    else setDraft(null)
-    ai.reload()
-  }
   if (!ai.admin) {
     const me = v.me
     return (
@@ -101,26 +92,23 @@ export function AiSpendingSection({ ai, names }: { readonly ai: AiLimits; readon
       </>
     )
   }
-  const value = draft ?? (v.is_default ? "" : String(v.default_usd))
-  const parsed = parseUsd(value)
+  const write = async (op: string, params: Record<string, unknown>): Promise<string | null> => {
+    const r = await mutate({ data: { op, params, idempotency_key: newKey() } })
+    if (r.status === 401) setSignedIn(false)
+    ai.reload()
+    return r.body.ok ? null : (r.body.error?.message ?? `http ${r.status}`)
+  }
   const who = (u: string) => memberLabel(names, u)
   const shown = (x: number | null | undefined) => (typeof x === "number" ? usd(locale, x) : aiLimitText(locale, "value.default"))
+  const members = (v.members ?? []).map((m) => ({ ...m, display_name: who(m.user) }))
   return (
     <>
-      <h3>{aiLimitText(locale, "section.title")}</h3>
+      <AiUsageView
+        data={{ default_usd: v.default_usd, is_default: v.is_default, resets_at: v.resets_at, members, ...(v.team_usage ? { team_usage: v.team_usage } : {}) }}
+        locale={locale}
+        actions={{ setDefault: (value) => write("team.ai_limit.set", { default_usd: value }), setMember: (member, value) => write("team.ai_limit.member.set", { member, limit_usd: value }) }}
+      />
       <div className="card">
-        <p className="muted">{aiLimitText(locale, "section.intro", { date })}</p>
-        <label>
-          {aiLimitText(locale, "default.label")}{" "}
-          <input aria-label={aiLimitText(locale, "default.label")} inputMode="decimal" placeholder={String(v.default_usd)} value={value} onChange={(e) => setDraft(e.target.value)} size={8} /> USD{" "}
-          <button disabled={parsed === null} onClick={() => parsed !== null && void save(parsed)}>
-            {aiLimitText(locale, "default.save")}
-          </button>{" "}
-          {!v.is_default ? <button onClick={() => void save(null)}>{aiLimitText(locale, "default.reset")}</button> : null}
-        </label>
-        {v.is_default ? <p className="muted">{aiLimitText(locale, "default.uses_cmux", { amount: usd(locale, v.default_usd) })}</p> : null}
-        {draft !== null && parsed === null ? <p className="error">{aiLimitText(locale, "default.invalid")}</p> : null}
-        {error ? <p className="error">{aiLimitText(locale, "error.save", { error })}</p> : null}
         <h4>{aiLimitText(locale, "changes.title")}</h4>
         {(ai.changes.data ?? []).length === 0 ? <p className="muted">{aiLimitText(locale, "changes.empty")}</p> : null}
         <ul>
@@ -139,49 +127,6 @@ export function AiSpendingSection({ ai, names }: { readonly ai: AiLimits; readon
           ))}
         </ul>
       </div>
-    </>
-  )
-}
-
-/** The two AI cells of a Members row (admins): spend this month, and the limit with an inline edit. */
-export function MemberAiCells({ ai, user }: { readonly ai: AiLimits; readonly user: string }) {
-  const locale = useLocale()
-  const { mutate } = useTeamApi()
-  const [draft, setDraft] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const m = ai.limits.data?.members?.find((x) => x.user === user)
-  if (!ai.admin || !m) return null
-  const set = async (value: number | null) => {
-    setError(null)
-    const r = await mutate({ data: { op: "team.ai_limit.member.set", params: { member: user, limit_usd: value }, idempotency_key: newKey() } })
-    if (r.status === 401) setSignedIn(false)
-    if (!r.body.ok) setError(r.body.error?.message ?? `http ${r.status}`)
-    else setDraft(null)
-    ai.reload()
-  }
-  const key = m.source === "personal" ? "limit.personal" : m.source === "team" ? "limit.team" : "limit.default"
-  const parsed = draft === null ? null : parseUsd(draft)
-  return (
-    <>
-      <td>{m.spent_usd < 0 ? aiLimitText(locale, "spend.unknown") : usd(locale, m.spent_usd)}</td>
-      <td>
-        {draft === null ? (
-          <>
-            {aiLimitText(locale, key, { amount: usd(locale, m.limit_usd) })}{" "}
-            <button onClick={() => setDraft(m.source === "personal" ? String(m.limit_usd) : "")}>{aiLimitText(locale, "limit.edit")}</button>{" "}
-            {m.source === "personal" ? <button onClick={() => void set(null)}>{aiLimitText(locale, "limit.clear")}</button> : null}
-          </>
-        ) : (
-          <>
-            <input aria-label={aiLimitText(locale, "col.limit")} inputMode="decimal" value={draft} onChange={(e) => setDraft(e.target.value)} size={8} /> USD{" "}
-            <button disabled={parsed === null} onClick={() => parsed !== null && void set(parsed)}>
-              {aiLimitText(locale, "limit.save")}
-            </button>{" "}
-            <button onClick={() => setDraft(null)}>{aiLimitText(locale, "limit.cancel")}</button>
-          </>
-        )}
-        {error ? <p className="error">{aiLimitText(locale, "error.save", { error })}</p> : null}
-      </td>
     </>
   )
 }

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609.
+// cmux-tui mux protocol 12, IR b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -100,6 +100,9 @@ pub type AttachSurfaceResult = T::EmptyResult;
 pub struct BindConversationTabSessionRequest {
     /// The tab's current session, or null for a tab without one; the bind applies only when it matches.
     pub expected_session: Nullable<String>,
+    /// The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub harness: Optional<String>,
     pub session: String,
     pub surface: T::Id,
 }
@@ -500,6 +503,123 @@ pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentLinkRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentLinkResult {
+    pub expires_in_ms: u64,
+    pub path: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentReadRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub length: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentReadResult {
+    pub byte_count: u64,
+    pub data: String,
+    pub eof: bool,
+    pub hash: String,
+    pub mime_type: String,
+    pub offset: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentUploadRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub byte_count: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub data: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub duration_ms: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub height: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mime_type: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub piece: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub poster: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub preview: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sha256: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub upload: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub width: Optional<u32>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentUploadResultStoredPoster {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentUploadResultStoredPreview {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentUploadResultStored {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub poster: Optional<CloudAttachmentUploadResultStoredPoster>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub preview: Optional<CloudAttachmentUploadResultStoredPreview>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudAttachmentUploadResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub needs: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub received: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stored: Optional<CloudAttachmentUploadResultStored>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub upload: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationHistoryRequest {
     pub before_seq: u64,
     pub conversation: String,
@@ -522,6 +642,33 @@ pub struct CloudConversationOpRequest {
 
 #[rustfmt::skip]
 pub type CloudConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationRunRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_seq: Optional<u64>,
+    pub agent: String,
+    pub conversation: String,
+    pub run: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationRunResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationRunsRequest {
+    pub agent: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before_started_at: Optional<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationRunsResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -578,6 +725,17 @@ pub struct CloudInboxListRequest {
 pub type CloudInboxListResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudInboxOpRequest {
+    pub conversation: String,
+    pub idempotency_key: String,
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type CloudInboxOpResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudInboxSubscribeRequest {
 }
@@ -620,6 +778,17 @@ pub struct CloudMuxUnsubscribeRequest {
 pub type CloudMuxUnsubscribeResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudParticipantAvatarGetRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+    pub participant_id: String,
+}
+
+#[rustfmt::skip]
+pub type CloudParticipantAvatarGetResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudSessionClearRequest {
 }
@@ -659,6 +828,24 @@ pub struct ConversationAgentTokenRequest {
 pub struct ConversationAgentTokenResult {
     pub participant: String,
     pub token: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkResult {
+    pub expires_in_ms: u64,
+    pub path: String,
 }
 
 #[rustfmt::skip]
@@ -845,6 +1032,44 @@ pub struct ConversationImportResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationInboxOpRequest {
+    pub conversation: String,
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationInboxOpResult {
+    pub conversation: String,
+    pub marked_unread: bool,
+    pub participant: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<u64>,
+    pub pinned: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLinkResolveRequest {
+    pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLinkResolveResult {
+    pub conversation: T::ConversationSummary,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub message: Option<T::ConversationMessage>,
+    pub path: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
+    pub url: String,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConversationListRequest {
 }
@@ -877,6 +1102,60 @@ pub struct ConversationOpResult {
     pub seq: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub transaction: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub after_rev: Option<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+    pub run: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunResult {
+    pub has_more: bool,
+    pub run: Nullable<T::JsonValue>,
+    pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunAppendRequest {
+    pub conversation: String,
+    pub run: Nullable<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub steps: Option<Vec<T::JsonValue>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunAppendResult {
+    pub run: Nullable<T::JsonValue>,
+    pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before_started_at: Optional<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub turns: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunsResult {
+    pub has_more: bool,
+    pub runs: Vec<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -1862,6 +2141,8 @@ pub struct MoveTabToColumnRequest {
     pub after_column: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub dock: Optional<T::ColumnPin>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep_focus: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1899,6 +2180,8 @@ pub type MoveTabToNewWorkspaceResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveTabToSplitRequest {
     pub edge: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep_focus: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ratio: Optional<f32>,
@@ -2283,6 +2566,8 @@ pub struct NotifyRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PageCredentialRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -2433,6 +2718,8 @@ pub struct RegisterBrowserProviderRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bearer_token: Optional<String>,
     pub endpoint: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hosting: Optional<T::BrowserProviderHosting>,
     pub provider_id: String,
     pub targets: Vec<T::BrowserProviderTarget>,
 }
@@ -3827,12 +4114,32 @@ impl CmuxClient {
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
     }
 
+    pub fn cloud_attachment_link(&mut self, request: CloudAttachmentLinkRequest) -> Result<CloudAttachmentLinkResult> {
+        self.execute(&CLOUD_ATTACHMENT_LINK_METADATA, &request)
+    }
+
+    pub fn cloud_attachment_read(&mut self, request: CloudAttachmentReadRequest) -> Result<CloudAttachmentReadResult> {
+        self.execute(&CLOUD_ATTACHMENT_READ_METADATA, &request)
+    }
+
+    pub fn cloud_attachment_upload(&mut self, request: CloudAttachmentUploadRequest) -> Result<CloudAttachmentUploadResult> {
+        self.execute(&CLOUD_ATTACHMENT_UPLOAD_METADATA, &request)
+    }
+
     pub fn cloud_conversation_history(&mut self, request: CloudConversationHistoryRequest) -> Result<CloudConversationHistoryResult> {
         self.execute(&CLOUD_CONVERSATION_HISTORY_METADATA, &request)
     }
 
     pub fn cloud_conversation_op(&mut self, request: CloudConversationOpRequest) -> Result<CloudConversationOpResult> {
         self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_run(&mut self, request: CloudConversationRunRequest) -> Result<CloudConversationRunResult> {
+        self.execute(&CLOUD_CONVERSATION_RUN_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_runs(&mut self, request: CloudConversationRunsRequest) -> Result<CloudConversationRunsResult> {
+        self.execute(&CLOUD_CONVERSATION_RUNS_METADATA, &request)
     }
 
     pub fn cloud_conversation_snapshot(&mut self, request: CloudConversationSnapshotRequest) -> Result<CloudConversationSnapshotResult> {
@@ -3855,6 +4162,10 @@ impl CmuxClient {
         self.execute(&CLOUD_INBOX_LIST_METADATA, &request)
     }
 
+    pub fn cloud_inbox_op(&mut self, request: CloudInboxOpRequest) -> Result<CloudInboxOpResult> {
+        self.execute(&CLOUD_INBOX_OP_METADATA, &request)
+    }
+
     pub fn cloud_inbox_subscribe(&mut self, request: CloudInboxSubscribeRequest) -> Result<CloudInboxSubscribeResult> {
         self.execute(&CLOUD_INBOX_SUBSCRIBE_METADATA, &request)
     }
@@ -3875,6 +4186,10 @@ impl CmuxClient {
         self.execute(&CLOUD_MUX_UNSUBSCRIBE_METADATA, &request)
     }
 
+    pub fn cloud_participant_avatar_get(&mut self, request: CloudParticipantAvatarGetRequest) -> Result<CloudParticipantAvatarGetResult> {
+        self.execute(&CLOUD_PARTICIPANT_AVATAR_GET_METADATA, &request)
+    }
+
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
         self.execute(&CLOUD_SESSION_CLEAR_METADATA, &request)
     }
@@ -3889,6 +4204,10 @@ impl CmuxClient {
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
         self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
+    }
+
+    pub fn conversation_attachment_link(&mut self, request: ConversationAttachmentLinkRequest) -> Result<ConversationAttachmentLinkResult> {
+        self.execute(&CONVERSATION_ATTACHMENT_LINK_METADATA, &request)
     }
 
     pub fn conversation_attachment_read(&mut self, request: ConversationAttachmentReadRequest) -> Result<ConversationAttachmentReadResult> {
@@ -3919,12 +4238,32 @@ impl CmuxClient {
         self.execute(&CONVERSATION_IMPORT_METADATA, &request)
     }
 
+    pub fn conversation_inbox_op(&mut self, request: ConversationInboxOpRequest) -> Result<ConversationInboxOpResult> {
+        self.execute(&CONVERSATION_INBOX_OP_METADATA, &request)
+    }
+
+    pub fn conversation_link_resolve(&mut self, request: ConversationLinkResolveRequest) -> Result<ConversationLinkResolveResult> {
+        self.execute(&CONVERSATION_LINK_RESOLVE_METADATA, &request)
+    }
+
     pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {
         self.execute(&CONVERSATION_LIST_METADATA, &request)
     }
 
     pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
         self.execute(&CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn conversation_run(&mut self, request: ConversationRunRequest) -> Result<ConversationRunResult> {
+        self.execute(&CONVERSATION_RUN_METADATA, &request)
+    }
+
+    pub fn conversation_run_append(&mut self, request: ConversationRunAppendRequest) -> Result<ConversationRunAppendResult> {
+        self.execute(&CONVERSATION_RUN_APPEND_METADATA, &request)
+    }
+
+    pub fn conversation_runs(&mut self, request: ConversationRunsRequest) -> Result<ConversationRunsResult> {
+        self.execute(&CONVERSATION_RUNS_METADATA, &request)
     }
 
     pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {
@@ -4266,6 +4605,10 @@ impl CmuxClient {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "dock-columns-v1")?;
         }
+        if request.keep_focus.is_some() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "tab-split-keep-focus-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
@@ -4281,6 +4624,10 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_split(&mut self, request: MoveTabToSplitRequest) -> Result<MoveTabToSplitResult> {
+        if request.keep_focus.is_some() {
+            self.require_protocol_field("move-tab-to-split", 12)?;
+            self.require_capability_field("move-tab-to-split", "tab-split-keep-focus-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-split", 12)?;
             self.require_capability_field("move-tab-to-split", "tab-split-respawn-v1")?;
@@ -4537,6 +4884,9 @@ impl CmuxClient {
     }
 
     pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
+        if !request.hosting.is_missing() {
+            self.require_capability_field("register-browser-provider", "browser-provider-native-hosting-v1")?;
+        }
         self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 

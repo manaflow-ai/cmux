@@ -49,11 +49,51 @@ export class CloudHome {
     private readonly project: (raw: Json, me: string) => HomeConversation,
     /** Pushes a changed cloud summary to the page (the events stream). */
     private readonly changed: (conversation: HomeConversation) => void,
+    /** Participants a head names for the first time: their Cloud picture can be read now (with
+     *  that conversation), so the page asks again instead of keeping an earlier refusal. */
+    private readonly peopleSeen: (participants: string[]) => void = () => {},
   ) {}
+
+  /** Participants some head named (the pictures asked again once, `peopleSeen`). */
+  private readonly seen = new Set<string>();
+
+  private keepHead(id: string, head: Json): void {
+    this.heads.set(id, head);
+    const people = Array.isArray(head.participants) ? (head.participants as Json[]) : [];
+    // A member who left is not marked: a later head where they are present re-asks them.
+    const fresh = people
+      .filter((person) => (person as Json | null)?.left_at === undefined)
+      .map((person) => (person as Json | null)?.id)
+      .filter((pid): pid is string => typeof pid === "string" && pid !== LOCAL_USER && !this.seen.has(pid));
+    for (const pid of fresh) this.seen.add(pid);
+    if (fresh.length) this.peopleSeen(fresh);
+  }
 
   /** Whether `id` is a cloud conversation this page knows. */
   owns(id: string): boolean {
     return this.known.has(id);
+  }
+
+  /** Whether participant `id` (not the person) is in a cloud conversation this page read: its
+   *  picture is the Cloud owner's. */
+  hasParticipant(id: string): boolean {
+    return this.conversationWith(id) !== undefined;
+  }
+
+  /** A cloud conversation this page knows that has participant `id` (not the person): a head that
+   *  names them, else a DM with them. Cloud answers another participant's picture only with one. */
+  conversationWith(id: string): string | undefined {
+    if (id === LOCAL_USER) return undefined;
+    for (const [conversation, head] of this.heads) {
+      const people = head.participants;
+      if (
+        Array.isArray(people) &&
+        people.some((person) => (person as Json | null)?.id === id && (person as Json).left_at === undefined)
+      )
+        return conversation;
+    }
+    for (const [conversation, entry] of this.entries) if (entry.dm_peer === id) return conversation;
+    return undefined;
   }
 
   /** The person's id rewritten to the page's `me` in an owner value (people, authors, cursors). */
@@ -103,9 +143,13 @@ export class CloudHome {
       this.participant = null;
       this.entries = new Map();
       this.heads.clear();
+      this.seen.clear();
       return;
     }
-    if (status.participant !== this.participant) this.heads.clear();
+    if (status.participant !== this.participant) {
+      this.heads.clear();
+      this.seen.clear();
+    }
     this.participant = status.participant;
     // Subscribed before the list, so no inbox change falls between them.
     void this.daemon.request("cloud-inbox-subscribe").catch(() => undefined);
@@ -134,6 +178,8 @@ export class CloudHome {
       unread: num(entry.unread),
       mentions: num(entry.mentions),
       pinned: entry.pinned === true,
+      ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+      ...(entry.marked_unread === true ? { markedUnread: true } : {}),
       muted: entry.muted === true,
       lastText: base.lastText ?? (String(entry.preview ?? "") || undefined),
     };
@@ -144,7 +190,7 @@ export class CloudHome {
     if (typeof params.tail === "number") params = { ...params, tail: Math.min(params.tail, MAX_TAIL) };
     const value = this.localize(await this.daemon.request<T>(cmd, params));
     const head = (value as Json).conversation as Json | undefined;
-    if (head && typeof head === "object") this.heads.set(String(head.id), head);
+    if (head && typeof head === "object") this.keepHead(String(head.id), head);
     if (cmd === "cloud-conversation-snapshot") this.subscribe(String(params.conversation));
     return value;
   }
@@ -153,7 +199,9 @@ export class CloudHome {
   async op(conversation: string, key: string, op: Json): Promise<Json> {
     const sent: Json = { ...op };
     // An owner from before threads keeps a thread reply as a reply to the root's first part.
-    if (typeof op.thread_root === "string") sent.reply_to = { message_id: op.thread_root, part_index: 0 };
+    // A nested reply keeps its own parent.
+    if (typeof op.thread_root === "string" && !op.reply_to)
+      sent.reply_to = { message_id: op.thread_root, part_index: 0 };
     return this.daemon.request("cloud-conversation-op", {
       conversation,
       idempotency_key: key,
@@ -170,6 +218,8 @@ export class CloudHome {
     removed?: string[];
     stale?: string;
     inboxStale?: boolean;
+    /** A Cloud Chief's run change (the run and the steps that changed), in the owner's shape. */
+    run?: { run: Json; steps: Json[] };
   } | null {
     // A new lease (the app signed in or switched accounts), or the owner reset the inbox.
     if (event.event === "cloud-inbox-reset") {
@@ -186,20 +236,23 @@ export class CloudHome {
           const head = this.heads.get(id);
           const message = change.message as Json;
           if (head && num(message.seq) >= num(head.last_seq))
-            this.heads.set(id, { ...head, last_seq: message.seq, last_message: message, rev: event.rev });
+            this.keepHead(id, { ...head, last_seq: message.seq, last_message: message, rev: event.rev });
           return { message, conversation: this.summary(id) };
         }
-        if (change.kind === "conversation" && change.conversation) this.heads.set(id, change.conversation as Json);
+        if (change.kind === "conversation" && change.conversation) this.keepHead(id, change.conversation as Json);
         if (change.kind === "read-cursor") {
           const head = this.heads.get(id);
           const cursors = { ...(head?.read_cursors as Json | undefined), [String(change.participant)]: change.seq };
-          if (head) this.heads.set(id, { ...head, read_cursors: cursors });
+          if (head) this.keepHead(id, { ...head, read_cursors: cursors });
         }
         return { conversation: this.summary(id) };
       }
+      case "cloud-conversation-run-changed":
+        if (!event.run || typeof event.run !== "object") return null;
+        return { run: { run: this.localize(event.run as Json), steps: (event.steps as Json[] | undefined) ?? [] } };
       case "cloud-conversation-resynced": {
         const id = String(event.conversation);
-        this.heads.set(id, this.localize(event.summary as Json));
+        this.keepHead(id, this.localize(event.summary as Json));
         return { stale: id, conversation: this.summary(id) };
       }
       case "cloud-inbox-changed": {
@@ -279,7 +332,7 @@ export class CloudHome {
         this.hydrating.delete(id);
         const head = page && (this.localize(page).conversation as Json | undefined);
         if (!head || !this.entries.has(id)) continue;
-        this.heads.set(id, head);
+        this.keepHead(id, head);
         const summary = this.summary(id);
         if (summary) this.changed(summary);
       }
@@ -315,5 +368,7 @@ function fromEntry(entry: Json): HomeConversation {
     mentions: num(entry.mentions),
     muted: entry.muted === true,
     pinned: entry.pinned === true,
+    ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+    ...(entry.marked_unread === true ? { markedUnread: true } : {}),
   };
 }

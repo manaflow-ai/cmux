@@ -4,12 +4,15 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -58,7 +61,7 @@ impl Daemon {
 
     fn start(&mut self) {
         assert!(self.child.is_none());
-        let mut command = Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)
@@ -66,10 +69,7 @@ impl Daemon {
             // No catalog fetch: a test never reaches the network, and the fetch's
             // warning (a catalog server 404) came on stdout before the ready line.
             .env("ACPMUX_CATALOG_FETCH", "0")
-            .env_remove("ACPMUX_AGENT_HOSTS")
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("ACPMUX_IDLE_CHILD_SECS")
             .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -455,7 +455,7 @@ async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_t
 
 /// `acpmux daemon shutdown` as the CLI runs it, against this daemon.
 fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    daemon_env::acpmux(&daemon.home)
         .args(["daemon", "shutdown"])
         .args(extra)
         .env("ACPMUX_HOME", &daemon.home)
@@ -497,9 +497,12 @@ async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
         "approve-all",
         &[("FAKE_SETSID_CHILD", helper_file.to_str().unwrap())],
     );
-    let (_session, _host, client) = gated_turn(&daemon).await;
-    let helper: i64 = std::fs::read_to_string(&helper_file).unwrap().trim().parse().unwrap();
-    let _ = std::fs::remove_file(&helper_file);
+    let (_session, host, client) = gated_turn(&daemon).await;
+    // The helper of this session's harness (a model probe's harness starts
+    // one too, in its own file).
+    let helper_path = format!("{}.{}", helper_file.display(), host["harness_pid"]);
+    let helper: i64 = std::fs::read_to_string(&helper_path).unwrap().trim().parse().unwrap();
+    let _ = std::fs::remove_file(&helper_path);
     let out = cli_shutdown(&daemon, &[]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();
@@ -997,4 +1000,37 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
         .filter(|id| id.starts_with("q-"))
         .collect();
     assert_eq!(order, ["q-2", "q-1"]);
+}
+
+/// A message's provenance (`_meta.acpmux.provenance`, cx-55d27) stays with its queued prompt
+/// across a daemon crash: the rebuilt prompt's `user_message` still names the agent that sent it.
+#[tokio::test]
+async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
+    let mut daemon = Daemon::new("qprov", "approve-all");
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    let provenance = json!({"kind": "agent_message", "from": "acp:sender-1", "to": format!("acp:{session}"),
+                            "msgId": "msg-1", "threadId": "thread-1"});
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "from builder"}],
+                   "_meta": {"acpmux": {"promptId": "q-prov", "provenance": provenance}}}),
+        )
+        .await;
+    let queued = daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-prov"
+    });
+    assert_eq!(queued["msg"]["_meta"]["provenance"], provenance, "{queued:#}");
+
+    daemon.sigkill();
+    drop(client);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(attached["session"]["queued"], 1, "the queue did not survive: {attached:#}");
+    std::fs::write(&gate, b"go").unwrap();
+    let ran = daemon.wait_event(&session, "the rebuilt prompt's user_message", |e| {
+        e["kind"] == "user_message" && e["msg"]["promptId"] == "q-prov"
+    });
+    assert_eq!(ran["msg"]["_meta"]["provenance"], provenance, "{ran:#}");
 }

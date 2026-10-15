@@ -14,7 +14,10 @@ extension SidebarMapping {
         detail.activitySince = Self.activitySince(tabs: tabs, indicator: indicator, turns: turns)
         let chat = agentTab?.agentSession.flatMap(turns.detail(for:))
         detail.model = chat?.model
-        detail.task = chat?.prompt
+        // The task: the chat's running prompt, else the terminal agent's last prompt (memory
+        // only in the daemon), else what a working program says it does (OSC 7501 title, msg).
+        detail.task = chat?.prompt ?? agentTab?.agent?.lastPrompt ?? tabs.lazy.filter { ProgramStatusRecord.strongest($0.programStatus)?.state == .working }
+            .compactMap { StatusMapping.shared.detail($0) }.first
         if case .waiting = indicator {
             // Only a program that waits says why; another tab's working record is no reason.
             let blocked = tabs.lazy.filter { ProgramStatusRecord.strongest($0.programStatus)?.state == .blocked }

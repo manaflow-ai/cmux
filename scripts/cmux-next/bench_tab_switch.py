@@ -123,7 +123,7 @@ class Bench:
         tabs, workspaces = self.args.tabs, self.args.workspaces
         # A fresh workspace; the tagged daemon keeps earlier runs' workspaces.
         for reason in [refused(self.control.action("workspace new", timeout=30)),
-                       refused(self.control.action("palette.closeOtherWorkspaces", timeout=30))]:
+                       refused(self.control.action("palette.closeOtherWorkspaces", timeout=30, confirm=True))]:
             if reason:
                 raise SystemExit(f"bench-tab-switch: could not reset workspaces: {reason}")
         time.sleep(1)  # test script: let the close settle

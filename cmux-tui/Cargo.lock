@@ -29,6 +29,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rustls",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -948,6 +949,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-build-identity"
+version = "0.1.0"
+dependencies = [
+ "cmux-tui-source-watch",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -986,6 +994,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-local-auth",
  "fs4",
  "futures-util",
@@ -1076,6 +1085,15 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-focus-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1265,12 +1283,12 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-build-identity",
  "cmux-link",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-tui-core",
- "cmux-tui-source-watch",
  "cmux-unix-socket",
  "cmux-wg",
  "diffy",
@@ -1457,6 +1475,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-build-identity",
  "cmux-host",
  "cmux-link",
  "cmux-pty",
@@ -1531,6 +1550,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-agent-pane-policy",
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-config",
@@ -1559,6 +1579,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "notify",
  "parking_lot",
  "proptest",
  "quick-xml",

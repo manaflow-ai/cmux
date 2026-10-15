@@ -38,12 +38,14 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
   const networkData = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
   const creates: unknown[] = [];
   const execs: string[] = [];
+  const execUsers: Array<string | undefined> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
   let guestCliProbeSeen = false;
   const vm = {
-    exec: async ({ command }: { command: string }) => {
+    exec: async ({ command, linuxUser }: { command: string; linuxUser?: string }) => {
       execs.push(command);
+      execUsers.push(linuxUser);
       const statusCode = command.includes("sha256sum") && !guestCliProbeSeen
         ? (guestCliProbeSeen = true, input.guestCliExit ?? 0)
         : command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
@@ -73,7 +75,7 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
       ref: () => vm,
     },
   } as unknown as Freestyle;
-  return { client, creates, execs, writes, deletes };
+  return { client, creates, execs, execUsers, writes, deletes };
 }
 
 function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
@@ -104,6 +106,62 @@ describe("FreestyleProvider transport contract", () => {
     // menu must not offer a verb the driver cannot serve.
     const provider = new FreestyleProvider();
     expect((provider as { fork?: unknown }).fork).toBeUndefined();
+  });
+});
+
+describe("Freestyle fork readiness", () => {
+  // The fork readiness error is stored on the row and alerted on, so it names
+  // the stalled stage from the guest's fixed vocabulary and nothing else; the
+  // guest's log lines go only to the server log.
+  const forkClient = (stderr: string | Error) => {
+    const deletes: string[] = [];
+    const exec = async () => {
+      if (stderr instanceof Error) throw stderr;
+      return { statusCode: 1, stdout: "", stderr };
+    };
+    return {
+      deletes,
+      client: {
+        vms: {
+          create: async () => ({
+            vmId: VM_ID,
+            data: {},
+            vm: { exec, delete: async () => { deletes.push(VM_ID); } },
+          }),
+        },
+      } as unknown as Freestyle,
+    };
+  };
+
+  test("names the stalled stage without guest log text", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=unbound supervisor=active\ncmux-tui: /home/cmux/private-path refused\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unbound supervisor=active)");
+    expect((error as Error).message).not.toContain("private-path");
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  test("a stage outside the fixed set reads as unknown", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=leaked-token supervisor=active\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("leaked-token");
+  });
+
+  test("a readiness exec that never answered reads as exec-unavailable and the clone is deleted", async () => {
+    const fake = forkClient(new Error("exec transport failed"));
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=exec-unavailable)");
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  test("does not echo an unrecognized guest answer into the error", async () => {
+    const fake = forkClient("something else entirely: stage=$(rm -rf /)\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("rm -rf");
   });
 });
 
@@ -405,7 +463,15 @@ describe("Freestyle platform contract", () => {
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
     expect(fake.execs).toEqual(["echo hi"]);
+    expect(fake.execUsers).toEqual([undefined]);
     expect(fake.writes).toHaveLength(0);
+  });
+
+  test("cmux's own guest maintenance through exec can still ask for root", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const result = await providerWith(fake).exec(VM_ID, "true", { timeoutMs: 5_000, asRoot: true });
+    expect(result.exitCode).toBe(0);
+    expect(fake.execUsers).toEqual(["root"]);
   });
 
   test("exec does not repair an absent guest CLI during a command", async () => {
@@ -414,6 +480,7 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(0);
     expect(fake.execs).toEqual(["cmux self --json"]);
+    expect(fake.execUsers).toEqual([undefined]);
   });
 
   test("exec timeouts clamp to the per-exec cap; killed execs read as 124", () => {
@@ -421,6 +488,36 @@ describe("Freestyle platform contract", () => {
     expect(normalizeFreestyleExecTimeout(-5)).toBe(30_000);
     expect(normalizeFreestyleExecTimeout(10 * 60 * 1000)).toBe(300_000);
     expect(normalizeFreestyleExecTimeout(12_345)).toBe(12_345);
+  });
+
+  // A command that outlives its timeout and whose kill reports no exit comes
+  // back from Freestyle as 409 VM_NON_RESPONSIVE ("exec produced no exit
+  // within 35s") even though the machine answers the next exec at once. That
+  // is the command's timeout, the same outcome the guest reports as a null
+  // status, not a provider outage (production 2026-10-07, vm-96e008...).
+  const execFailing = (err: unknown) => ({
+    client: {
+      vms: { ref: () => ({ exec: async () => { throw err; } }) },
+    } as unknown as Freestyle,
+  });
+
+  test("an exec the provider saw no exit for reads as a command timeout (124)", async () => {
+    const fake = execFailing(new FreestyleApiError(409, {
+      code: "VM_NON_RESPONSIVE",
+      message: "vm stopped responding: exec produced no exit within 35s; the guest likely stopped mid-command",
+    }));
+    const result = await providerWith(fake).exec(VM_ID, "sleep 999", { timeoutMs: 30_000 });
+    expect(result.exitCode).toBe(124);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("did not exit within 30s");
+  });
+
+  test("other non-responsive answers stay provider errors", async () => {
+    const fake = execFailing(new FreestyleApiError(409, {
+      code: "VM_NON_RESPONSIVE",
+      message: "vm stopped responding: read_file stream: early eof",
+    }));
+    await expect(providerWith(fake).exec(VM_ID, "true", { timeoutMs: 30_000 })).rejects.toBeInstanceOf(ProviderError);
   });
 
   test("stopped VMs read as paused (start() recovers them), not destroyed", () => {
@@ -610,7 +707,13 @@ describe("FreestyleProvider create with edge rules", () => {
       // explicitly pauses or destroys it. The explicit -1 also overrides a
       // provider/account default that would otherwise idle-pause the VM.
       idleTimeoutSeconds: -1,
+      automaticRestart: true,
     });
+  });
+
+  test("does not expose hard restart without a supported provider contract", () => {
+    const provider: VMProvider = providerWith(fakeFreestyle({ probeExit: 0 }));
+    expect(provider.restart).toBeUndefined();
   });
 
   test("passes the rule inline and returns a snapshot-v2 machine without guest setup", async () => {
@@ -673,6 +776,7 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(restored.image).toBe("snap-1");
     expect(ok.creates[0]).toMatchObject({
       snapshotId: "snap-1",
+      automaticRestart: true,
       idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
@@ -806,15 +910,22 @@ describe("Freestyle attach route source", () => {
 });
 
 describe("Freestyle client configuration", () => {
-  test("every guest exec is pinned to root", () => {
-    // The 0.2 API's linuxUser default is uid 1000, not root. The devbox image
-    // ships such a user, so an unpinned exec would silently move the daemon,
-    // its install, and the model-plane write off the root layout.
+  test("driver maintenance execs stay pinned to root", () => {
+    // Public vm exec intentionally uses the provider's uid-1000 default so it
+    // lands in the same home as Cloud terminals. Driver maintenance must keep
+    // its explicit root pin so installs and probes retain their privileged
+    // layout.
     const execCalls = driverSource.match(/\.exec\(\{[\s\S]*?\}\)/g) ?? [];
     expect(execCalls.length).toBeGreaterThan(0);
-    for (const call of execCalls) {
+    for (const call of execCalls.filter((call) => !call.includes("command, timeoutMs }"))) {
       expect(call).toContain("linuxUser");
     }
+  });
+
+  test("public vm exec leaves the guest user to the provider default", () => {
+    expect(driverSource).toContain(
+      "const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });",
+    );
   });
 
   test("the driver talks to the SDK's default public edge unless overridden", () => {

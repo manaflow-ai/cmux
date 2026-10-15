@@ -12,11 +12,13 @@ impl BrowserRuntime {
     pub(crate) fn connect_provider(
         endpoint: &str,
         authentication: &BrowserProviderAuthentication,
+        hosting: BrowserProviderHosting,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_to_endpoint_with_bearer(
+        Self::connect_to_endpoint_hosted(
             endpoint,
             BrowserSource::Provider,
             authentication.bearer_token(),
+            hosting,
         )
     }
 
@@ -32,6 +34,20 @@ impl BrowserRuntime {
         source: BrowserSource,
         bearer_token: Option<&str>,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_to_endpoint_hosted(
+            web_socket_url,
+            source,
+            bearer_token,
+            BrowserProviderHosting::Daemon,
+        )
+    }
+
+    fn connect_to_endpoint_hosted(
+        web_socket_url: &str,
+        source: BrowserSource,
+        bearer_token: Option<&str>,
+        hosting: BrowserProviderHosting,
+    ) -> anyhow::Result<Arc<Self>> {
         let (event_tx, event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
         let client = CdpClient::connect_with_bearer(web_socket_url, bearer_token, event_tx)?;
         let stealth_user_agent = if source == BrowserSource::Launched {
@@ -44,6 +60,7 @@ impl BrowserRuntime {
             source,
             endpoint: web_socket_url.to_string(),
             bearer_token: bearer_token.map(str::to_string),
+            hosting,
             stealth_user_agent,
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
@@ -65,10 +82,19 @@ impl BrowserRuntime {
         &self,
         endpoint: &str,
         authentication: &BrowserProviderAuthentication,
+        hosting: BrowserProviderHosting,
     ) -> bool {
         self.source == BrowserSource::Provider
             && self.endpoint == endpoint
             && self.bearer_token.as_deref() == authentication.bearer_token()
+            && self.hosting == hosting
+    }
+
+    /// The provider presents its pages itself (`hosting:"native"`): the
+    /// daemon never overrides their device metrics and screencasts them only
+    /// while a frame viewer is attached.
+    pub(crate) fn native_hosted(&self) -> bool {
+        self.hosting.is_native()
     }
 
     pub(crate) fn bootstrap_surface_sync(
@@ -124,17 +150,32 @@ impl BrowserRuntime {
         self.client.set_lifecycle_events_enabled(session_id)?;
         self.client.seed_main_frame(session_id)?;
         let (pixel_w, pixel_h) = browser.pixel_size();
-        self.client.set_device_metrics(session_id, pixel_w, pixel_h)?;
-        self.client.start_screencast(session_id, pixel_w, pixel_h)?;
+        // A natively hosted page keeps its native geometry: no metrics
+        // override, and frames only while a viewer asks for them.
+        let native = self.native_hosted();
+        let screencast = !native || browser.has_frame_viewers();
+        if !native {
+            self.client.set_device_metrics(session_id, pixel_w, pixel_h)?;
+        }
+        if screencast {
+            self.client.start_screencast(session_id, pixel_w, pixel_h)?;
+        }
         if browser.is_dead() {
             anyhow::bail!("browser surface was closed before it started");
         }
+        browser.set_screencast_paused(!screencast);
         let session_id = session_id.to_string();
         let target_id = target_id.to_string();
         browser.attach_live(
             BrowserSession { runtime: self.clone(), target_id, session_id },
             normalized_url,
-        )
+        )?;
+        // A viewer that came or went during setup is reconciled by the
+        // worker now that the session is published.
+        if native {
+            browser.wake_lifecycle_worker();
+        }
+        Ok(())
     }
 
     pub(super) fn register(&self, target_id: &str, session_id: &str) -> Arc<SurfaceRoute> {
@@ -299,13 +340,16 @@ pub(crate) fn new_surface_with_resource_identity(
             last_frame_at: None,
             stall_nudged: false,
             not_responding_reported: false,
+            screencast_paused: false,
+            frame_demand_retry_at: None,
         })),
         frame_epoch,
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),
         cell_pixels: Mutex::new((cell_w, cell_h)),
         capture_options,
-        command_tx: Mutex::new(Some(command_tx)),
+        command_tx: Arc::new(Mutex::new(Some(command_tx))),
+        frame_viewers: Arc::new(AtomicUsize::new(0)),
         command_order: command_order.clone(),
         latest_nav: latest_nav.clone(),
         latest_authority: latest_authority.clone(),

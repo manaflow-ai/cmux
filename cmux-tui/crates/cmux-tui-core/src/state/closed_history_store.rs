@@ -197,12 +197,14 @@ pub(crate) fn queue_change(transaction: &Transaction<'_>, change: &Value) -> any
 }
 
 /// Move queued state changes into `changes` (a journal batch array).
+/// Returns the placement shift the queued markers name
+/// ([`super::placement_shift`]); markers are not changes.
 pub(crate) fn drain_pending_changes(
     transaction: &Transaction<'_>,
     changes: &mut Value,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<super::placement_shift::PlacementShift>> {
     if !super::store::state_tables_ready(transaction)? {
-        return Ok(());
+        return Ok(None);
     }
     let queued = {
         let mut statement = transaction
@@ -210,17 +212,28 @@ pub(crate) fn drain_pending_changes(
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     if queued.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     transaction.execute("DELETE FROM state_pending_changes", [])?;
+    let mut shift = None;
     if let Some(array) = changes.as_array_mut() {
         for change in queued {
-            let mut change: Value = serde_json::from_str(&change)?;
-            change["sequence"] = json!(array.len());
-            array.push(change);
+            let queued: Value = serde_json::from_str(&change)?;
+            let batch = match queued {
+                Value::Array(batch) => batch,
+                change => vec![change],
+            };
+            for mut change in batch {
+                if let Some(marker) = super::placement_shift::marker(&change) {
+                    super::placement_shift::merge(&mut shift, marker);
+                    continue;
+                }
+                change["sequence"] = json!(array.len());
+                array.push(change);
+            }
         }
     }
-    Ok(())
+    Ok(shift)
 }
 
 pub(super) fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
@@ -259,6 +272,8 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         .optional()?
         .is_some_and(|value| value != 0);
     let mut record = json!({
+        // The closed tab's id: a closed tab group names its tabs by it.
+        "tab_id": tab_id,
         "kind": kind,
         "name": name,
         "cwd": null,
@@ -367,11 +382,16 @@ fn insert_group(
     transaction: &Transaction<'_>,
     members: Vec<Value>,
     window: Option<String>,
+    tab_groups: Vec<Value>,
 ) -> anyhow::Result<()> {
-    let (closed_id, extra) = match take_pending_group(transaction)? {
+    let (closed_id, mut extra) = match take_pending_group(transaction)? {
         Some((closed_id, extra)) => (closed_id, Some(extra)),
         None => (new_closed_id(), None),
     };
+    if !tab_groups.is_empty() {
+        let fields = extra.get_or_insert_with(|| json!({}));
+        fields["tab_groups"] = Value::Array(tab_groups);
+    }
     insert_record(transaction, closed_id, members, window, extra)
 }
 
@@ -551,7 +571,7 @@ pub(crate) fn flush_pending_group(transaction: &Transaction<'_>) -> anyhow::Resu
     let pending: bool =
         transaction
             .query_row("SELECT EXISTS(SELECT 1 FROM closed_group_pending)", [], |row| row.get(0))?;
-    if pending { insert_group(transaction, Vec::new(), None) } else { Ok(()) }
+    if pending { insert_group(transaction, Vec::new(), None, Vec::new()) } else { Ok(()) }
 }
 
 /// The highest level among the members: a group with a screen is a screen
@@ -664,6 +684,15 @@ pub(crate) fn capture_closed(
     }
     let closing_workspaces = closing.workspaces.iter().cloned().collect::<HashSet<_>>();
     let closing_screens = closing.screens.iter().cloned().collect::<HashSet<_>>();
+    // Before `capture_workspace` forgets which closing workspaces are
+    // ephemeral: their groups are never recorded.
+    let closing_tabs = closing.tabs.iter().cloned().collect::<HashSet<_>>();
+    let tab_groups = super::closed_tab_groups::closing_tab_groups(
+        transaction,
+        &closing_tabs,
+        &closing_screens,
+        &closing_workspaces,
+    )?;
     let mut capture = Capture::default();
     for workspace_id in &closing.workspaces {
         capture_workspace(transaction, workspace_id, &mut capture)?;
@@ -693,7 +722,7 @@ pub(crate) fn capture_closed(
     if capture.members.is_empty() {
         return Ok(());
     }
-    insert_group(transaction, capture.members, capture.window)
+    insert_group(transaction, capture.members, capture.window, tab_groups)
 }
 
 fn capture_screen(
@@ -751,6 +780,8 @@ fn tab_member(
     let Some(tab) = tab_record(transaction, tab_id)? else { return Ok(None) };
     Ok(Some(json!({
         "kind": "tab",
+        // The closed tab's id: a closed tab group names its tabs by it.
+        "tab_id": tab_id,
         "name": tab["name"],
         "workspace_id": workspace_id,
         "pane_id": pane_id,
