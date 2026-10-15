@@ -1023,6 +1023,41 @@ fn a_closed_pane_reopened_in_parts_comes_back_as_one_split() {
 }
 
 #[test]
+fn a_closed_pane_reopened_in_parts_never_follows_its_pane_into_another_workspace() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-pane-parts-elsewhere");
+    app.send(serde_json::json!({"cmd":"split","pane":pane,"dir":"right","cols":80,"rows":24}));
+    let workspace = kinds_workspace(&mut app);
+    let screen = workspace["screens"][0].clone();
+    let split = screen["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate["id"].as_u64() != Some(pane))
+        .cloned()
+        .expect("the split made a pane");
+    app.send(serde_json::json!({"cmd":"new-tab","pane":split["id"]}));
+    resource_request(
+        &harness.socket,
+        "parts-elsewhere-close",
+        "pane.close",
+        serde_json::json!({"machine":"current","session":"current","pane":split["resource_id"]}),
+        Some("parts-elsewhere-close"),
+    );
+    let closed = closed_list(&harness, "parts-elsewhere-closed");
+    assert_eq!(closed[0]["member_count"], 2, "{}", closed[0]);
+    let id = closed[0]["id"].as_str().expect("the closed item has an id").to_string();
+    reopen_members(&harness, &id, Some(serde_json::json!([0])), "parts-elsewhere-1");
+    // The screen of the pane the first tab came back in moves to a
+    // workspace of its own; the rest stays in the recorded workspace.
+    app.send(serde_json::json!({"cmd":"new-screen","workspace":workspace["id"],
+                                "cols":80,"rows":24}));
+    app.send(serde_json::json!({"cmd":"move-screen","screen":screen["id"],"new_workspace":true}));
+    let rest = reopen_members(&harness, &id, None, "parts-elsewhere-2");
+    assert_eq!(rest["workspace_id"], workspace["resource_id"], "{rest}");
+}
+
+#[test]
 fn a_closed_pane_never_splits_a_neighbor_in_another_workspace() {
     let _exclusive = exclusive_process_test();
     let (harness, mut app, pane) = start("reopen-path-pane-elsewhere");
