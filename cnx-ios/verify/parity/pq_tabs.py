@@ -314,12 +314,13 @@ def reorder(j):
     st = pq.load()
     pq.rec_stop()  # xcodebuild launches the app itself; the recording restarts below
     pq.rec_start("reorder")
-    env = dict(os.environ, DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer")
+    # TEST_RUNNER_* reach the test process from xcodebuild's environment (not as build settings).
+    env = dict(os.environ, DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer",
+               TEST_RUNNER_CNX_UI_WORKSPACE=a["key"], TEST_RUNNER_CNX_UI_SLOTS="3")
     r = subprocess.run([
         "xcodebuild", "-project", f"{CNX}/CnxApp.xcodeproj", "-scheme", "CnxApp", "-configuration", "Debug",
         "-destination", f"id={st['udid']}", "-derivedDataPath", f"{CNX}/build/dd", "ARCHS=arm64", "ONLY_ACTIVE_ARCH=YES",
         "CODE_SIGN_STYLE=Manual", "CODE_SIGN_IDENTITY=-", "DEVELOPMENT_TEAM=",
-        f"TEST_RUNNER_CNX_UI_WORKSPACE={a['key']}", "TEST_RUNNER_CNX_UI_SLOTS=3",
         "-only-testing:CnxAppUITests/TabReorderUITests", "test-without-building"],
         capture_output=True, text=True, timeout=540, env=env)
     lines = [ln for ln in r.stdout.splitlines() if "CNX_UI_" in ln or "error:" in ln or "TEST " in ln]
