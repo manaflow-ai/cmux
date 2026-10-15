@@ -68,6 +68,7 @@ final class AppControl {
         // (ControlRouter drops them too: Configuration.allowsDebugMethods).
         #if DEBUG
         let probe = frameProbe
+        service.router.register(DebugWindowsControl.methods(services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
@@ -106,18 +107,6 @@ final class AppControl {
             .mainActor("debug.themes") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugThemes.report(services: services))
-            },
-            // Window membership and the window invariants (no window
-            // without a workspace).
-            .mainActor("debug.windows") { [weak services] _ in
-                guard let services, case let windows = services.windows else { return .value(.null) }
-                guard case .object(var report) = WindowInvariants.report(windows) else { return .value(.null) }
-                // Every workspace the app closed or kept after it lost its
-                // last pane, with the cause (EmptyWorkspaceRepair).
-                report["emptied_workspaces"] = .array(services.emptyWorkspaces.decisions.map {
-                    .object(["key": .string($0.key.rawValue), "cause": .string(String(describing: $0.cause))])
-                })
-                return .value(.object(report))
             },
             // Omnibar state machine vs its field editor (focus.md section 7).
             .mainActor("debug.omnibar") { [weak services] call in
@@ -163,26 +152,6 @@ final class AppControl {
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
-            },
-            // `text: true` adds each terminal mirror's viewport text. DEBUG builds add each
-            // terminal pane's `terminal_id` and `host_pid` (SurfaceHostReport).
-            .async("debug.surfaces") { [weak services] call in
-                let includeText = call.params["text"]?.boolValue == true
-                let built: (JSONValue, [SurfaceHostReport.Target])? = await MainActor.run {
-                    guard let services else { return nil }
-                    #if DEBUG
-                    let targets = SurfaceHostReport.targets(services)
-                    #else
-                    let targets: [SurfaceHostReport.Target] = []
-                    #endif
-                    return (SurfaceDiagnosticsReport.make(services, includeText: includeText), targets)
-                }
-                guard let (report, targets) = built else { return .null }
-                #if DEBUG
-                return SurfaceHostReport.annotate(report, identities: await SurfaceHostReport.identities(targets))
-                #else
-                return report
-                #endif
             },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
