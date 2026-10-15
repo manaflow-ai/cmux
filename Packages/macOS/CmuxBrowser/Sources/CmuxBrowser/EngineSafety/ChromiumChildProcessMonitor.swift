@@ -85,9 +85,22 @@ public final class ChromiumChildProcessMonitor: @unchecked Sendable {
         }
     }
 
+    /// Stops watching (idempotent). The app calls it when it starts quitting:
+    /// Chromium then ends every helper, with SIGKILL for those that do not
+    /// exit in time, and those ends are not crashes.
+    public func stop() {
+        queue.async { [self] in
+            source?.cancel()
+            source = nil
+            kq = -1
+            children.removeAll()
+        }
+    }
+
     private func drain() {
         var events = Array(repeating: Darwin.kevent(), count: 16)
         var zero = timespec(tv_sec: 0, tv_nsec: 0)
+        guard kq >= 0 else { return }
         let count = kevent(kq, nil, 0, &events, Int32(events.count), &zero)
         guard count > 0 else { return }
         var needsRescan = false
@@ -112,13 +125,14 @@ public final class ChromiumChildProcessMonitor: @unchecked Sendable {
     }
 
     private func rescan() {
+        guard kq >= 0 else { return }
         var pids = [pid_t](repeating: 0, count: 512)
         let filled = proc_listchildpids(getpid(), &pids, Int32(pids.count * MemoryLayout<pid_t>.stride))
         guard filled > 0 else { return }
         // proc_listchildpids returns a count on current macOS (bytes on
         // older ones); take whichever fits the buffer.
         let count = min(Int(filled), pids.count)
-        for pid in pids.prefix(count) where pid > 0 && children[pid] == nil {
+        for pid in pids.prefix(count) where pid > 0 && !children.keys.contains(pid) {
             var event = kevent(
                 ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
                 fflags: UInt32(NOTE_EXEC) | UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS), data: 0, udata: nil
