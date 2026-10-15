@@ -510,6 +510,9 @@ export function ComposerPickers({
     startEffort ??
     heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
     heldOption?.currentValue;
+  // The held chip steps down as the reported one does: "Med" in a narrow row (composerRowFit.ts).
+  const heldChoice = heldLevels.find((choice) => choice.id === heldValue);
+  const heldShort = heldChoice && heldChoice.id !== "ultracode" ? shortLevel(heldChoice, t) : undefined;
   // Before a chat reports its modes, the access chip names the mode acpmux answers it will start
   // the chat in (`_acpmux/start_mode`: its kept answer on the first frame, then the one asked for),
   // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
@@ -634,6 +637,7 @@ export function ComposerPickers({
           label={t(PICKER_LABELS.effort)}
           efforts={heldLevels}
           current={heldValue}
+          {...(heldShort ? { short: heldShort } : {})}
           chevron={<ChevronIcon />}
           onPick={(value) => {
             pending.current = undefined;

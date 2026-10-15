@@ -471,11 +471,13 @@
 .nt-pickers .acpmux-chips { flex: 1 1 0%; min-width: 0; }
 .acpmux-composer-bar > :not(.acpmux-chips),
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > * { flex: none; }
-/* The New Tab card's pickers still give way by shrinking (#20548); the chat bar steps whole units. */
-.nt-pickers .acpmux-chips > .acpmux-effort { flex: 0 100000 auto; min-width: 44px; }
+/* The New Tab card's model chip still gives way by shrinking (#20548); its effort chip steps whole,
+   as the chat bar's does: "Med", never "M…" (the effortShort query below). */
 .nt-pickers .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
-.nt-pickers .acpmux-effort .acpmux-picker-button,
 .nt-pickers .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
+.nt-pickers .acpmux-effort .acpmux-picker-button { position: relative; overflow: clip; }
+.nt-pickers .acpmux-effort .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
+.nt-pickers .acpmux-effort .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
 .nt-pickers .acpmux-picker-button > :not(span) { flex: none; }
 .acpmux-composer-bar .acpmux-picker-button > * { flex: none; }
 /* The row swaps whole units as the composer narrows (composerRowFit.ts COMPOSER_FIT_STEPS):
@@ -507,6 +509,7 @@
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
+.nt-pickers [data-fit-part="effort"]:not([data-fit-forms~="full"]),
 .acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
 .acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
 .acpmux-composer-bar[data-fit-mic="hidden"] [data-fit-part="mic"]:not([data-fit-forms~="hidden"]),
@@ -519,12 +522,12 @@
   pointer-events: none;
 }
 @container composer (max-width: 470px) {
-  .acpmux-composer-bar [data-fit-part="effort"][data-fit-forms~="short"] {
+  :is(.acpmux-composer-bar, .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  .acpmux-composer-bar [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
+  :is(.acpmux-composer-bar, .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
