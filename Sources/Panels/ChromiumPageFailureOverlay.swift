@@ -6,13 +6,17 @@ import SwiftUI
 /// Covers a Chromium pane whose renderer crashed or stopped responding
 /// (design spec §8).
 ///
-/// The crash page uses Chrome's own words ("Aw, Snap!"), sits on the same
-/// 92% chrome-background veil as the WebKit crash overlay
+/// The crash page uses Chrome's own words (`ChromiumPageGone`: "Aw, Snap!"),
+/// sits on the same 92% chrome-background veil as the WebKit crash overlay
 /// (`BrowserPageRecoveryOverlay`), and offers Reload. The hang prompt is a
-/// card with Exit page and Wait. Neither takes keyboard focus on appear.
+/// card with Exit page and Wait. Both mount as occluding page overlays, so
+/// they show above a Chromium page window; neither takes keyboard focus on
+/// appear.
 struct ChromiumPageFailureOverlay: View {
     let failure: ChromiumPageFailureState.Failure
     let metrics: BrowserChromeMetrics
+    /// The panel's page overlay coordinator (nil until the page is hosted).
+    let overlays: BrowserPageOverlayCoordinator?
     let backgroundColor: NSColor
     /// Reload (crash page) or Wait (hang prompt).
     let primaryAction: () -> Void
@@ -24,19 +28,20 @@ struct ChromiumPageFailureOverlay: View {
     var body: some View {
         Group {
             switch failure {
-            case .crashed(let variant, _):
-                crashPage(variant)
+            case .crashed(let exit, let isRepeat, _):
+                crashPage(ChromiumPageGone(exit), isRepeat: isRepeat)
             case .unresponsive:
                 unresponsiveCard
             }
         }
+        .browserPageOccluding(overlays, id: "pageFailure")
         .transition(.opacity)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: failure)
     }
 
     // MARK: Crash page
 
-    private func crashPage(_ variant: ChromiumCrashPageVariant) -> some View {
+    private func crashPage(_ gone: ChromiumPageGone, isRepeat: Bool) -> some View {
         ZStack {
             Color(nsColor: backgroundColor)
                 .opacity(0.92)
@@ -45,19 +50,19 @@ struct ChromiumPageFailureOverlay: View {
                     .font(.system(size: metrics.pageFailureSymbolSize))
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                Text(Self.crashTitle(variant))
+                Text(gone.title(repeated: isRepeat))
                     .cmuxFont(size: metrics.pageFailureTitleFontSize, weight: .semibold)
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
-                Text(Self.crashMessage(variant))
+                Text(gone.message(repeated: isRepeat))
                     .cmuxFont(size: metrics.pageFailureBodyFontSize)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(action: primaryAction) {
                     Label(
-                        String(localized: "browser.chromium.crash.reload", defaultValue: "Reload"),
+                        String(localized: "browser.error.reload", defaultValue: "Reload"),
                         systemImage: "arrow.clockwise"
                     )
                     .cmuxFont(size: metrics.pageFailureBodyFontSize, weight: .medium)
@@ -67,8 +72,8 @@ struct ChromiumPageFailureOverlay: View {
                 .controlSize(.regular)
                 .focusable(false)
                 .accessibilityIdentifier("BrowserChromiumCrashReloadButton")
-                if let code = variant.errorCode {
-                    Text(Self.errorCodeText(code))
+                if let line = gone.errorCodeLine {
+                    Text(line)
                         .cmuxFont(size: metrics.pageFailureCodeFontSize)
                         .foregroundStyle(.tertiary)
                         .textSelection(.enabled)
@@ -82,32 +87,6 @@ struct ChromiumPageFailureOverlay: View {
             .accessibilityIdentifier("BrowserChromiumCrashPage")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    static func crashTitle(_ variant: ChromiumCrashPageVariant) -> String {
-        variant.isRepeat
-            ? String(localized: "browser.chromium.crash.repeatTitle", defaultValue: "Can’t open this page")
-            : String(localized: "browser.chromium.crash.title", defaultValue: "Aw, Snap!")
-    }
-
-    static func crashMessage(_ variant: ChromiumCrashPageVariant) -> String {
-        if variant.isRepeat, variant.isOutOfMemory {
-            return String(
-                localized: "browser.chromium.crash.outOfMemoryMessage",
-                defaultValue: "Try closing other tabs or programs to free up memory."
-            )
-        }
-        return String(
-            localized: "browser.chromium.crash.message",
-            defaultValue: "Something went wrong while displaying this webpage."
-        )
-    }
-
-    static func errorCodeText(_ code: String) -> String {
-        String(
-            format: String(localized: "browser.chromium.crash.errorCode", defaultValue: "Error code: %@"),
-            code
-        )
     }
 
     // MARK: Hang prompt
@@ -153,7 +132,6 @@ struct ChromiumPageFailureOverlay: View {
         )
         .shadow(color: .black.opacity(0.11), radius: 6, y: 2)
         .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("BrowserChromiumUnresponsiveCard")
     }
