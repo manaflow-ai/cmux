@@ -73,6 +73,17 @@ public final class DesignSettings {
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults
+    /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
+    /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
+    public var hoverCardsEnabled = true {
+        didSet {
+            guard hoverCardsEnabled != oldValue else { return }
+            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
+        }
+    }
+    /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
+    /// Chrome's tab hover card delay at its default tab width (`HoverCardTiming.chromeDelay`).
+    public var hoverCardDelay: Duration = HoverCardTiming.chromeDelay
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.

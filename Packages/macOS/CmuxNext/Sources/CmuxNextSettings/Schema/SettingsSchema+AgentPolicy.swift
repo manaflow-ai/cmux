@@ -129,7 +129,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
+        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
