@@ -91,7 +91,6 @@ struct CrashMarkerSentSignalTests {
         let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
         #expect(previous.signal == SIGTRAP, "a Swift trap recorded \(previous.signal.map(String.init) ?? "none")")
     }
-}
 
     /// The classifier on a built context: only a supervisor-call syndrome
     /// with `svc #0x80` before the pc reads as sent; a data abort, a `brk`,
