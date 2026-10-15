@@ -476,6 +476,8 @@ public final class CEFBrowser {
         case .favicon(_, let url):
             state.faviconURL = url.isEmpty ? nil : URL(string: url)
         case .loadingState(_, let loading, let back, let forward):
+            // The first load finished: the page window shows content now.
+            if !loading, state.url != nil { hostView.showsPlaceholder = false }
             state.isLoading = loading
             state.canGoBack = back
             state.canGoForward = forward
