@@ -197,7 +197,9 @@ class UIView: NSObject, CALayerDelegate {
             ctx.translateBy(x: 0, y: layer.bounds.height)
             ctx.scaleBy(x: 1, y: -1)
         }
-        ContextScope.run(ctx) { draw(bounds) }
+        // Static drawing code reads Fixture.renderScale: the layer's own scale here (its window view's, cx-3cb
+        // view-scale; two views can draw at two scales).
+        ContextScope.run(ctx) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } }
     }
 
     func action(for layer: CALayer, forKey event: String) -> CAAction? { NSNull() }
@@ -303,7 +305,8 @@ class UIScrollView: UIView {
     var contentOffset: CGPoint {
         get { layer.bounds.origin }
         set {
-            let s = DisplayScale.current
+            // The window view's scale (labRenderScale: two views can show at two scales).
+            let s = max(1, labRenderScale)
             let newValue = CGPoint(x: (newValue.x * s).rounded() / s, y: (newValue.y * s).rounded() / s)
             guard newValue != layer.bounds.origin else { return }
             layer.bounds.origin = newValue

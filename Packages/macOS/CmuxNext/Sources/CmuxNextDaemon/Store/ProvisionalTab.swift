@@ -42,8 +42,40 @@ public struct ProvisionalTab: Sendable, Hashable {
     @MainActor static func echoed(_ event: DaemonEvent, transaction: ClientTransactionID, in store: DaemonStore) {
         guard case .tabAdded(let delta) = event,
               let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
+              entry.createdSurface != delta.surface, // `matched` paired it already
               case .createTab(_, let provisional) = entry.kind, let tab = store.tabsBySurface[delta.surface] else { return }
         store.intentLog.noteCreated(transaction, surface: delta.surface)
+        let id = provisional.tabResourceID?.rawValue ?? ""
+        if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+    }
+
+    /// The daemon's raw `tab-added` of a conversation tab, with no transaction: the daemon sends it
+    /// as it makes the tab, and the copy carrying the create's transaction (`echoed`) and the reply
+    /// (`created`) trail it (cmux-tui conversation_tabs_wire.rs, bead in the commit). Shown as it
+    /// came, the store listed the daemon's tab BESIDE the provisional one until the reply, and the
+    /// strip grew one in while the other closed on every Cmd-T (hq-1d 2026-10-14).
+    /// Nothing on the event names its create, so it is taken for one only when that cannot be
+    /// wrong in practice: the pane has exactly ONE pending create intent without a tab, its record
+    /// is the same (agent session host and session, page, route), and the tab is the newest in
+    /// the pane. Otherwise (two quick Cmd-T, a tab of another kind or record) the tab shows as it
+    /// came and the echo or reply settles the stand-in as before.
+    @MainActor static func matched(_ event: DaemonEvent, in store: DaemonStore) {
+        guard case .tabAdded(let delta) = event, delta.clientTransactionID == nil, delta.entity.kind == .conversation,
+              let tab = store.tabsBySurface[delta.surface],
+              !store.intentLog.entries.contains(where: { $0.createdSurface == delta.surface }) else { return }
+        let waiting = store.intentLog.entries.filter { entry in
+            guard entry.createdSurface == nil, case .createTab(let pane, _) = entry.kind else { return false }
+            return pane == delta.pane
+        }
+        guard waiting.count == 1, let entry = waiting.first, case .createTab(_, let provisional) = entry.kind,
+              provisional.kind == .conversation, let wanted = provisional.conversation else { return }
+        let asked = delta.entity.conversation
+        guard wanted.agentSession?.host == asked?.agentSession?.host, wanted.agentSession?.session == asked?.agentSession?.session,
+              wanted.page == asked?.page, wanted.route == asked?.route else { return }
+        // The newest daemon tab of the pane (daemon surfaces count up; provisional ones live above them).
+        let daemonTabs = store.pane(delta.pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []
+        guard daemonTabs.allSatisfy({ $0.surface.rawValue <= delta.surface.rawValue }) else { return }
+        store.intentLog.noteCreated(entry.transaction, surface: delta.surface)
         let id = provisional.tabResourceID?.rawValue ?? ""
         if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
     }

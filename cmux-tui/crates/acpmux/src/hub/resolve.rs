@@ -80,7 +80,6 @@ impl Hub {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
-                mode: None,
                 prefer: vec![],
                 env: p.env.clone(),
             });
@@ -197,5 +196,10 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         adopted_cwd: None,
         harness_roots: vec![],
         composer_draft: None,
+        bookmarks: Default::default(),
+        tools: Default::default(),
+        // Read off the async runtime by `session/new` (`adoption::start_folder`).
+        git_branch: None,
+        git_head: None,
     }
 }

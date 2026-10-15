@@ -103,7 +103,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     }
     endPreview();
   };
-  const tile = (id: string, title: string, attribution: string) => (
+  // `video`: a moving wallpaper, marked over its first frame.
+  const tile = (id: string, title: string, attribution: string, choice?: { video?: boolean }) => (
     <button
       type="button"
       key={id}
@@ -124,7 +125,14 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           ↻
         </span>
       ) : (
-        <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(id)}`} />
+        // Encoded twice: the app decodes the URL path before splitting it on "/", then decodes the
+        // one segment, so a system: or file: id with slashes stays one segment.
+        <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+      )}
+      {choice?.video && (
+        <span className="backdrop-badge" aria-hidden="true">
+          ▶
+        </span>
       )}
       <span className="backdrop-title">{title}</span>
       <span className="row-help">{attribution}</span>
@@ -205,7 +213,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
           {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
           <div className="backdrop-grid">
-            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution, choice))}
           </div>
         </div>
       ))}
@@ -220,12 +228,10 @@ export function TerminalInfo() {
     <section className="group" data-card="terminal">
       <div className="rows">
         <ActionRow title={t("settingsWindow.ghosttyConfig")} help="">
-          <span className="row-help selectable" title={host.terminal.ghostty_config}>
-            {host.terminal.ghostty_config}
-          </span>
+          <span className="row-help selectable">{host.terminal.ghostty_config}</span>
         </ActionRow>
         <ActionRow title={t("settingsWindow.shellIntegration")} help="">
-          <span className="row-help selectable" title={host.terminal.shell_integration ?? undefined}>
+          <span className="row-help selectable">
             {host.terminal.shell_integration ?? t("settingsWindow.shellIntegrationUnknown")}
           </span>
         </ActionRow>

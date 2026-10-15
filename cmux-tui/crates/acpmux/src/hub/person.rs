@@ -608,13 +608,6 @@ impl Hub {
                 if removes && self.stored_policy(m, params).await.is_some() {
                     return Err(person_required("removing a stored permission policy"));
                 }
-                // A clear also drops the person's saved start mode
-                // (`start_mode.rs`), after which a new chat may start in
-                // full access.
-                let clears = params.get("clear").and_then(Value::as_bool) == Some(true);
-                if clears && m == method::MUX_DEFAULTS && self.stored_mode(params).await {
-                    return Err(person_required("removing a saved permission mode"));
-                }
                 Ok(())
             }
             method::MUX_SET_RULES => {
@@ -696,13 +689,6 @@ impl Hub {
             let name = params.get("name").and_then(Value::as_str)?;
             cfg.presets.get(name).and_then(|p| p.policy)
         }
-    }
-
-    /// Whether the `_acpmux/defaults` entry a request names holds a saved
-    /// start mode (`start_mode.rs`).
-    async fn stored_mode(&self, params: &Value) -> bool {
-        let Some(family) = params.get("family").and_then(Value::as_str) else { return false };
-        self.config.read().await.defaults.get(family).is_some_and(|d| d.mode.is_some())
     }
 
     /// Whether the request names a peer's session (this daemon does not

@@ -21,6 +21,7 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "model"
         | "config"
         | "policy"
+        | "tools"
         | "rules"
         | "tags"
         | "turn_started"

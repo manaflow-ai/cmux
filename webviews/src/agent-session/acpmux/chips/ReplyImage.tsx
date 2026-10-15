@@ -112,11 +112,7 @@ function LocalImage({ src, path, alt, fallback }: { src: string; path: string; a
   if (!outside && place !== "missing" && state.kind !== "failed") return <>{fallback}</>;
   const canOpen = outside ? policy.outsideRoots !== "text" : place !== "missing";
   return (
-    <span
-      className={`cv-image-file${outside ? " is-outside" : ""}`}
-      title={outside ? `${path}\n${t("chip.outsideProject")}` : path}
-      data-path={path}
-    >
+    <span className={`cv-image-file${outside ? " is-outside" : ""}`} data-path={path}>
       <ImageIcon size={16} className="cv-chip__icon" />
       {alt && <span className="cv-image-file__alt">{alt}</span>}
       <span className="cv-image-file__name">{pathName(path)}</span>
@@ -142,7 +138,7 @@ function RemoteImage({ src, alt, host, fallback }: { src: string; alt: string; h
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   return (
-    <span className="cv-image-placeholder" title={src}>
+    <span className="cv-image-placeholder">
       <ImageIcon size={16} className="cv-chip__icon" />
       <span className="cv-image-placeholder__host">{host}</span>
       {state.kind === "failed" ? (

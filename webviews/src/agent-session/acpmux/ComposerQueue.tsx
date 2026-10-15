@@ -7,11 +7,13 @@
 // ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { experimentArm } from "../../experiments/experiment";
+import { hoverActions } from "../../ui/hoverActions.experiment";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -53,11 +55,6 @@ export function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
-  // Laid over the transcript's foot, but never over a question waiting for an answer: the list's
-  // height is the chat's --acpmux-queue-space, which the permission panel keeps clear (hq #1893).
-  const reserve = useCallback((node: HTMLOListElement | null) => {
-    list.current = node;
-  }, []);
   useEffect(() => {
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
@@ -70,19 +67,6 @@ export function ComposerQueue({
       setEditing(undefined);
     }
   }, [queue, editing, onLost]);
-  useLayoutEffect(() => {
-    const node = list.current;
-    const chat = node?.closest<HTMLElement>(".acpmux-main");
-    if (!node || !chat) return;
-    const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight}px`);
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    update();
-    return () => {
-      observer.disconnect();
-      chat.style.removeProperty("--acpmux-queue-space");
-    };
-  }, [queue, leaving]);
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
@@ -111,6 +95,7 @@ export function ComposerQueue({
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
   const sendNow = onChange && ((entry: QueuedEntry) => act(entry.id, () => onChange(entry.id, { op: "send_now" })));
+  const allActions = experimentArm(hoverActions) === "all";
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =
@@ -226,7 +211,9 @@ export function ComposerQueue({
           {entry.prompt}
         </span>
       )}
-      {editing !== entry.id && (sendNow || onChange || remove) && (
+      {/* Send now is the row's one hover action; Edit and Remove are on its menu and keys (Leo dogfood
+          2026-10-13). The `hover-actions` experiment's "all" arm shows them too. */}
+      {editing !== entry.id && (sendNow || (allActions && (onChange || remove))) && (
         <span className="acpmux-queued-actions">
           {sendNow && (
             <button
@@ -239,7 +226,7 @@ export function ComposerQueue({
               <Icon name="composer.send" size={14} />
             </button>
           )}
-          {onChange && (
+          {onChange && allActions && (
             <button
               type="button"
               className="acpmux-queued-action"
@@ -250,7 +237,7 @@ export function ComposerQueue({
               <Icon name="action.edit" size={14} />
             </button>
           )}
-          {remove && (
+          {remove && allActions && (
             <button
               type="button"
               className="acpmux-queued-action"
@@ -266,7 +253,7 @@ export function ComposerQueue({
     </>
   );
   return (
-    <ol ref={reserve} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
+    <ol ref={list} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
       {paused && (
         <li className="acpmux-queue-paused">
           <span>{t("composer.queuePaused")}</span>

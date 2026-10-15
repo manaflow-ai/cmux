@@ -1,5 +1,5 @@
-//! `cmux chief list|new|edit|delete`: the person's Chiefs, through the
-//! daemon's Chief registry (`chief.profile.list`, `chief.profile.create`, `chief.profile.update`,
+//! `cmux chief list|new|adopt|edit|delete`: the person's Chiefs, through the
+//! daemon's Chief registry (`chief.profile.list`, `chief.profile.create`, `chief.profile.adopt`, `chief.profile.update`,
 //! `chief.profile.delete`, `chief.profile.avatar.set`). One call per command on the Chief
 //! home's owner, as `cmux chief engine` finds it; nothing is started. A
 //! CHIEF argument is an id or a display name that names one Chief.
@@ -18,7 +18,7 @@ use crate::cli::OutputMode;
 const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
 
 /// The registry words `cmux chief` takes first.
-pub(super) const WORDS: [&str; 4] = ["list", "new", "edit", "delete"];
+pub(super) const WORDS: [&str; 5] = ["list", "new", "adopt", "edit", "delete"];
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Request {
@@ -40,39 +40,51 @@ struct Text {
     no_such: &'static str,
     ambiguous: &'static str,
     created: &'static str,
+    needs_agent: &'static str,
+    adopted: &'static str,
     updated: &'static str,
     deleted: &'static str,
     default_mark: &'static str,
     unsupported: &'static str,
     picture_not_set: &'static str,
+    agent_refused: &'static str,
+    control_refused: &'static str,
 }
 
 static ENGLISH: Text = Text {
-    usage: "usage: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  Your Chiefs: each has its own name, role, picture, personality, instructions,\n  tools and memory. CHIEF is an id (agent_...) or a name.\n\n  PROFILE:\n  --name NAME              1 to 100 characters\n  --role TEXT              one line, for example \"Release captain\"\n  --personality TEXT       tone and style\n  --instructions TEXT      added to the Chief's system prompt (after the base rules)\n  --instructions-file F    the same, read from file F\n  --avatar FILE            a PNG, JPEG, GIF or WebP picture, at most 1 MiB\n  --tools a,b              from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces\n  --harnesses a,b          the harnesses its subagents may use (empty: all)\n  --self-edit a,b          what the Chief may change itself: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   its engine\n  --chief-home DIR         an isolated Chief home",
+    usage: "usage: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  Your Chiefs: each has its own name, role, picture, personality, instructions,\n  tools and memory. CHIEF is an id (agent_...) or a name.\n  adopt makes AGENT, an agent already in your conversations (agent_...), a Chief\n  under its own id: its conversations and history stay; it gets a new Chief's defaults.\n\n  PROFILE:\n  --name NAME              1 to 100 characters\n  --role TEXT              one line, for example \"Release captain\"\n  --personality TEXT       tone and style\n  --instructions TEXT      added to the Chief's system prompt (after the base rules)\n  --instructions-file F    the same, read from file F\n  --avatar FILE            a PNG, JPEG, GIF or WebP picture, at most 1 MiB\n  --tools a,b              from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces\n  --harnesses a,b          the harnesses its subagents may use (empty: all)\n  --self-edit a,b          what the Chief may change itself: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   its engine\n  --chief-home DIR         an isolated Chief home",
     needs_name: "cmux chief new needs --name NAME",
     needs_chief: "give the Chief: an id (agent_...) or its name; cmux chief list shows them",
     no_such: "no Chief is named {chief}; cmux chief list shows them",
     ambiguous: "more than one Chief is named {chief}; use its id",
     created: "created {name} ({id})",
+    needs_agent: "cmux chief adopt needs the agent: its participant id (agent_...)",
+    adopted: "adopted {name} ({id}) as a Chief",
     updated: "updated {name} ({id}, rev {rev})",
     deleted: "deleted {name} ({id})",
     default_mark: "default",
     unsupported: "this needs a newer cmux daemon (the chief.profile.list operation); stop it and run the command again",
     picture_not_set: "the picture was not set",
+    agent_refused: "cmux chief {what} is refused for an agent caller ({marker} is set); only the person makes, changes and deletes Chiefs; a Chief changes its own profile with its profile tool",
+    control_refused: "{what} is refused for an agent caller ({marker} is set); only the person writes a Chief's profile, engine or turn; a Chief changes its own profile with its profile tool and its own engine with its chief engine tool",
 };
 
 static JAPANESE: Text = Text {
-    usage: "使い方: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  あなたの Chief たち。それぞれに名前、役割、画像、性格、指示、ツール、記憶があります。\n  CHIEF は id (agent_...) または名前です。\n\n  PROFILE:\n  --name NAME              1 から 100 文字\n  --role TEXT              1 行。例: \"リリース担当\"\n  --personality TEXT       口調とスタイル\n  --instructions TEXT      Chief のシステムプロンプトに追加 (基本ルールの後)\n  --instructions-file F    同じ内容をファイル F から読む\n  --avatar FILE            PNG、JPEG、GIF または WebP の画像 (1 MiB まで)\n  --tools a,b              browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces から\n  --harnesses a,b          サブエージェントが使えるハーネス (空ならすべて)\n  --self-edit a,b          Chief が自分で変えられる項目: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   エンジン\n  --chief-home DIR         独立した Chief ホーム",
+    usage: "使い方: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  あなたの Chief たち。それぞれに名前、役割、画像、性格、指示、ツール、記憶があります。\n  CHIEF は id (agent_...) または名前です。\n  adopt は会話にすでにいるエージェント AGENT (agent_...) を、その id のまま Chief にします。\n  会話と履歴はそのまま残り、新しい Chief の既定値が付きます。\n\n  PROFILE:\n  --name NAME              1 から 100 文字\n  --role TEXT              1 行。例: \"リリース担当\"\n  --personality TEXT       口調とスタイル\n  --instructions TEXT      Chief のシステムプロンプトに追加 (基本ルールの後)\n  --instructions-file F    同じ内容をファイル F から読む\n  --avatar FILE            PNG、JPEG、GIF または WebP の画像 (1 MiB まで)\n  --tools a,b              browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces から\n  --harnesses a,b          サブエージェントが使えるハーネス (空ならすべて)\n  --self-edit a,b          Chief が自分で変えられる項目: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   エンジン\n  --chief-home DIR         独立した Chief ホーム",
     needs_name: "cmux chief new には --name NAME が必要です",
     needs_chief: "Chief を指定してください: id (agent_...) または名前。cmux chief list で一覧を表示します",
     no_such: "{chief} という名前の Chief はいません。cmux chief list で一覧を表示します",
     ambiguous: "{chief} という名前の Chief が複数います。id を使ってください",
     created: "{name} を作成しました ({id})",
+    needs_agent: "cmux chief adopt にはエージェントの参加者 id (agent_...) が必要です",
+    adopted: "{name} ({id}) を Chief にしました",
     updated: "{name} を更新しました ({id}、rev {rev})",
     deleted: "{name} を削除しました ({id})",
     default_mark: "既定",
     unsupported: "これには新しい cmux デーモン (chief.profile.list 操作) が必要です。デーモンを停止してから、もう一度実行してください",
     picture_not_set: "画像は設定されていません",
+    agent_refused: "エージェントからの呼び出しでは cmux chief {what} を使えません ({marker} が設定されています)。Chief の作成、変更、削除は本人だけが行います。Chief は自分のプロフィールを profile ツールで変更します",
+    control_refused: "エージェントからの呼び出しでは {what} を使えません ({marker} が設定されています)。Chief のプロフィール、エンジン、ターンを変えられるのは本人だけです。Chief は自分のプロフィールを profile ツールで、自分のエンジンを chief engine ツールで変更します",
 };
 
 fn text() -> &'static Text {
@@ -139,6 +151,9 @@ fn parse(args: &[String]) -> Result<Request, String> {
     if word == "list" && (request.chief.is_some() || !request.fields.is_empty()) {
         return Err("cmux chief list takes no Chief or profile".into());
     }
+    if word == "adopt" && !request.help && request.chief.is_none() {
+        return Err(text().needs_agent.into());
+    }
     if word == "new" && request.chief.is_some() {
         return Err("cmux chief new takes --name, not a Chief".into());
     }
@@ -165,6 +180,83 @@ fn parse(args: &[String]) -> Result<Request, String> {
     Ok(request)
 }
 
+impl Request {
+    /// What of this request only the person may do (cx-ebm.60.9 layer 1,
+    /// hq-6d 2026-10-14): every write. An agent caller may not make, edit
+    /// (any field, picture included) or delete any Chief; a Chief changes its
+    /// own profile only through its `profile` tool on its own bound
+    /// connection. `None` for a read (list).
+    fn write(&self) -> Option<&str> {
+        match self.word.as_str() {
+            "new" | "adopt" | "edit" | "delete" => Some(self.word.as_str()),
+            _ => None,
+        }
+    }
+}
+
+/// The typed refusal of a Chief write for an agent caller: the
+/// `origin.forbidden` shape of `--all-sessions` (cli/federation.rs). The
+/// marker check is cooperative: it stops a model that tries, not a process
+/// that clears its env (the daemon cannot tell the turn's unbound
+/// connection from the person's; layer 2 is #13742).
+fn agent_refused(what: &str, marker: &str) -> Value {
+    json!({
+        "code": "origin.forbidden",
+        "message": text().agent_refused.replace("{what}", what).replace("{marker}", marker),
+        "details": {"reason": "agent_caller", "marker": marker, "refused": what},
+        "retryable": false,
+    })
+}
+
+/// The `chief.*` operations an agent caller may call: the reads. Every other
+/// `chief.*` operation (a profile write, `chief.engine.set`, `chief.stop`,
+/// and any later one) is a write the person makes, so a new daemon `chief.*`
+/// read must be added here too.
+const AGENT_READS: [&str; 4] =
+    ["chief.engine.get", "chief.profile.list", "chief.profile.get", "chief.profile.avatar.get"];
+
+/// The refusal of a Chief write that an agent caller sends by another path
+/// than `cmux chief new|edit|delete` (cx-ebm.60.9 layer 1, hq-6d
+/// 2026-10-14): `cmux chief engine` with a change and `cmux chief stop`
+/// (`refused` the word), and `cmux raw operation|command` naming a `chief.*`
+/// write (`refused` the operation). `None` for a read or a person.
+pub(in crate::cli) fn agent_control_refusal(command: &str, refused: &str) -> Option<Value> {
+    let marker = super::super::federation::agent_marker(|key| std::env::var(key).ok())?;
+    Some(json!({
+        "code": "origin.forbidden",
+        "message": text().control_refused.replace("{what}", command).replace("{marker}", marker),
+        "details": {"reason": "agent_caller", "marker": marker, "refused": refused},
+        "retryable": false,
+    }))
+}
+
+/// [`agent_control_refusal`] for a raw request that names `operation`.
+pub(in crate::cli) fn agent_operation_refusal(operation: &str) -> Option<Value> {
+    if !operation.starts_with("chief.") || AGENT_READS.contains(&operation) {
+        return None;
+    }
+    agent_control_refusal(&format!("cmux raw operation {operation}"), operation)
+}
+
+/// The app actions that write a Chief through the app's own connection:
+/// their ids and their CLI names (`cmux action run` takes either).
+const APP_ACTIONS: [&str; 5] = [
+    "home.newChief",
+    "home.archiveChief",
+    "home.stopChief",
+    "home new-chief",
+    "home archive-chief",
+];
+
+/// [`agent_control_refusal`] for an app action (`cmux action run ID`,
+/// `cmux home new-chief`) that writes a Chief; `refused` is the action.
+pub(in crate::cli) fn agent_app_action_refusal(action: &str) -> Option<Value> {
+    if !APP_ACTIONS.contains(&action.trim()) {
+        return None;
+    }
+    agent_control_refusal(&format!("cmux action run {}", action.trim()), action.trim())
+}
+
 /// `cmux chief list|new|edit|delete …`.
 pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let t = text();
@@ -178,6 +270,12 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     if request.help {
         println!("{}", t.usage);
         return 0;
+    }
+    if let Some(what) = request.write()
+        && let Some(marker) = super::super::federation::agent_marker(|key| std::env::var(key).ok())
+    {
+        let output = if request.json { OutputMode::Json } else { global.output };
+        return super::super::wire::print_operation_error(&agent_refused(what, marker), output);
     }
     let socket = match super::target(global, request.chief_home.as_deref()) {
         Ok(Target::Explicit(socket, derived)) => (socket, derived),
@@ -267,7 +365,14 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         return Ok(());
     }
     let avatar = request.avatar.as_deref().map(read_avatar).transpose().map_err(Failure::Usage)?;
-    let mut record = if request.word == "new" {
+    let mut record = if request.word == "adopt" {
+        let agent = request.chief.as_deref().ok_or_else(|| Failure::Usage(t.needs_agent.into()))?;
+        let mut params = request.fields.clone();
+        params.insert("participant_id".into(), json!(agent));
+        let key = super::link::new_message_id();
+        let adopted = link.call("chief.profile.adopt", Value::Object(params), Some(&key))?;
+        adopted.get("value").cloned().unwrap_or(Value::Null)
+    } else if request.word == "new" {
         if !request.fields.contains_key("display_name") {
             return Err(Failure::Usage(t.needs_name.into()));
         }
@@ -317,13 +422,21 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         match link.call("chief.profile.avatar.set", params, Some(&key)) {
             Ok(set) => record = set.get("value").cloned().unwrap_or(Value::Null),
             Err(error) => {
-                let template = if request.word == "new" { t.created } else { t.updated };
+                let template = match request.word.as_str() {
+                    "new" => t.created,
+                    "adopt" => t.adopted,
+                    _ => t.updated,
+                };
                 let done = format!("{}; {}", fill(&record, template), t.picture_not_set);
                 return Err(Failure::Partial { done, error });
             }
         }
     }
-    let template = if request.word == "new" { t.created } else { t.updated };
+    let template = match request.word.as_str() {
+        "new" => t.created,
+        "adopt" => t.adopted,
+        _ => t.updated,
+    };
     print_result(&record, template, json_out);
     Ok(())
 }

@@ -41,21 +41,88 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     }
 }
 
+/// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
+/// ended without an answer, e.g. `outcome_unknown`).
+pub(super) const LAST_TURN_KEYS: [&str; 7] =
+    ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource", "detail"];
+
+impl Hub {
+    /// Ends a turn no one heard the outcome of (`outcome_unknown`: a daemon restart, or a host
+    /// that never got the prompt). The session shows that turn failed (`lastTurn`, its lane),
+    /// recorded before the record goes out, as every turn's end is.
+    pub(super) fn append_unknown_outcome(&self, session: &Session, result: Value) {
+        self.record_last_turn(session, &result);
+        self.append(session, "mux", "turn_result", result);
+    }
+}
+
+/// The session's lane (cx-v9k2f): what a coordinator watching many agents
+/// needs at a glance, decided here once from the summary's own fields.
+///
+/// - `working` since its turn started.
+/// - `input`: a permission or question waits for the person.
+/// - `failed` since its last turn ended, with that turn's error text (an
+///   agent dead on "Credit balance too low" must not read as idle).
+/// - `lost`: the agent process is gone without an answer.
+/// - `idle` since its last turn ended, or since it was created.
+///
+/// A session lost mid-turn (its agent or its peer gone before the turn
+/// ended) is lost since it went, and its `lastTurn` is the turn before: no
+/// error from it. Waiting reads `inputSince` (when it began waiting), so a
+/// later record or a draft save does not move it.
+///
+/// `{state, since, error}`; null for a closed session.
+pub fn lane(summary: &Value) -> Value {
+    if summary["status"] == "closed" {
+        return Value::Null;
+    }
+    let updated = summary["updatedAt"].as_u64();
+    let in_turn = !summary["turn"].is_null();
+    // A session with turns but no `lastTurn` (saved before it existed) is not idle since it was made.
+    let made = if summary["turnCount"].as_u64() > Some(0) {
+        updated
+    } else {
+        summary["createdAt"].as_u64()
+    };
+    let ended = summary["lastTurn"]["endedAt"].as_u64().or(made);
+    let (state, since) = match status_indicator(summary) {
+        Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
+        Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
+        Some("failed") => ("failed", ended),
+        Some("lost") if in_turn => ("lost", updated),
+        Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
+        _ => ("idle", ended),
+    };
+    let error = match state {
+        "failed" => summary["lastTurn"]["errorText"].clone(),
+        "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
+        _ => Value::Null,
+    };
+    json!({"state": state, "since": since, "error": error})
+}
+
+/// Set the summary's derived fields: its status dot and its lane.
+pub fn decide(summary: &mut Value) {
+    summary["indicator"] = status_indicator(summary).map_or(Value::Null, Value::from);
+    summary["lane"] = lane(summary);
+}
+
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
 /// the agent's reply, or the prompt while the turn has not answered yet.
 /// Null before the first prompt.
-fn last_message(m: &SessionMeta) -> Value {
+fn last_message(m: &SessionMeta) -> Option<crate::protocol::session::LastMessage> {
+    use crate::protocol::session::{LastMessage, MessageRole};
     let reply = m
         .preview
         .as_deref()
         .and_then(|p| p.lines().rev().find(|l| l.chars().any(char::is_alphanumeric)));
     if let Some(line) = reply {
-        return json!({"role": "agent", "text": short_text(line, 160)});
+        return Some(LastMessage { role: MessageRole::Agent, text: short_text(line, 160) });
     }
-    match m.last_prompt.as_deref().filter(|p| !p.trim().is_empty()) {
-        Some(prompt) => json!({"role": "user", "text": short_text(prompt, 160)}),
-        None => Value::Null,
-    }
+    m.last_prompt
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .map(|prompt| LastMessage { role: MessageRole::User, text: short_text(prompt, 160) })
 }
 
 /// What limits a session's agent as far as acpmux can tell. `policy` is
@@ -93,53 +160,90 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
+        use crate::protocol::session::{QueuedPromptSummary, SessionSummary, TurnSummary};
         let m = session.meta();
         let turn = session.turn();
-        let mut summary = json!({
-            "sessionId": m.id,
-            "name": m.name,
-            "harness": m.harness,
-            "family": m.family,
-            "cwd": m.cwd,
-            "status": m.status.to_string(),
-            "agentSessionId": m.agent_session_id,
-            "createdAt": m.created_at,
-            "updatedAt": m.updated_at,
-            "lastSeq": m.last_seq,
-            "eventCount": m.event_count,
-            "turnCount": m.turn_count,
-            "parentId": m.parent_id,
+        let summary = SessionSummary {
+            session_id: m.id.clone(),
+            name: m.name.clone(),
+            harness: m.harness.clone(),
+            family: m.family.clone(),
+            cwd: m.cwd.to_string_lossy().into_owned(),
+            status: m.status.to_string(),
+            agent_session_id: m.agent_session_id.clone(),
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+            last_seq: m.last_seq,
+            event_count: m.event_count,
+            turn_count: m.turn_count,
+            parent_id: m.parent_id.clone(),
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
-            "forkSeq": m.fork_seq,
-            "title": m.title,
-            "lastPrompt": m.last_prompt,
-            "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
-            "lastMessage": last_message(&m),
-            "queued": session.queued(),
+            fork_seq: m.fork_seq,
+            title: m.title.clone(),
+            last_prompt: m.last_prompt.clone(),
+            preview: m.preview.as_deref().map(|p| short_text(p, 160)),
+            last_message: last_message(&m),
+            queued: session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
-            "queuePaused": session.queue_paused(),
+            queue_paused: session.queue_paused(),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
-            "moving": session.moving().is_some(),
+            moving: session.moving().is_some(),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
-            "steering": session.steering.load(Ordering::SeqCst),
-            "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
-            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at, "held": q.held})).collect::<Vec<_>>(),
-            "pendingPermissions": session.pending_permissions().len(),
-            "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
-            "model": current_model(&m),
-            "policy": m.permission_policy,
-            "enforcement": self.session_enforcement(&m),
-            "rules": m.permission_rules.is_some(),
-            "tags": live_tags(&m),
-            "stateSeq": session.state_seq.load(Ordering::SeqCst),
-            "unread": m.unread,
-            "lastTurn": m.last_turn,
-            "attached": session.attached.load(Ordering::SeqCst),
+            steering: session.steering.load(Ordering::SeqCst),
+            turn: turn.map(|t| TurnSummary {
+                started_at: t.started_at,
+                client: t.client,
+                prompt: t.prompt_preview,
+                turn_id: t.turn_id,
+                prompt_id: t.prompt_id,
+                turn_seq: t.turn_seq,
+            }),
+            queue: session
+                .queue()
+                .into_iter()
+                .map(|q| QueuedPromptSummary {
+                    prompt_id: q.prompt_id,
+                    turn_id: q.turn_id,
+                    client: q.client,
+                    prompt: q.preview,
+                    queued_at: q.queued_at,
+                    held: q.held,
+                })
+                .collect(),
+            pending_permissions: session.pending_permissions().len() as u64,
+            // Since when it waits on the person (`lane`); null while it does not.
+            input_since: match session.input_since.load(Ordering::SeqCst) {
+                0 => None,
+                since => Some(since),
+            },
+            current_mode_id: m
+                .modes
+                .as_ref()
+                .and_then(|x| x.get("currentModeId"))
+                .cloned()
+                .unwrap_or(Value::Null),
+            model: current_model(&m),
+            policy: m.permission_policy.clone(),
+            enforcement: self.session_enforcement(&m),
+            rules: m.permission_rules.is_some(),
+            // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
+            tools: m.tools.rows.iter().map(Into::into).collect(),
+            tools_mutable: m.tools.mutable,
+            tags: live_tags(&m),
+            state_seq: session.state_seq.load(Ordering::SeqCst),
+            unread: m.unread,
+            last_turn: m.last_turn.clone(),
+            attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
-            "shown": self.shown(session),
-        });
-        summary["indicator"] = status_indicator(&summary).map_or(Value::Null, Value::from);
+            shown: self.shown(session),
+            // Set from the summary's own fields by `decide`.
+            indicator: None,
+            lane: None,
+            peer: None,
+        };
+        let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
+        decide(&mut summary);
         summary
     }
 
@@ -154,6 +258,9 @@ impl Hub {
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
+        // The folder's branch and HEAD when the session started (`git_state.rs`).
+        v["gitBranch"] = json!(m.git_branch);
+        v["gitHead"] = json!(m.git_head);
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
@@ -186,6 +293,8 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            // `deny`: this daemon starts no agent process (cx-9ettq).
+            "agentLaunch": crate::launch_policy::status_word(),
             // Hidden pre-created sessions; never counted above.
             "pool": self.pool_view_json(),
             // New agents outlive this daemon (agent hosts): a restart for an

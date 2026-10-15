@@ -594,7 +594,8 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone"
+        "two-tone",
+        "floating"
       ],
       "title" : "Window Style",
       "type" : "string"
@@ -1460,6 +1461,12 @@
       "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
+    "labs.classicHome" : {
+      "default" : false,
+      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+      "title" : "Classic Home",
+      "type" : "boolean"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
@@ -2085,9 +2092,10 @@
     },
     "sidebar.density" : {
       "default" : "compact",
-      "description" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "description" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
       "enum" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "title" : "Sidebar Density",
@@ -2840,6 +2848,28 @@
       "minimum" : 4,
       "title" : "Font Size",
       "type" : "number"
+    },
+    "ui.animations.bounce" : {
+      "default" : "none",
+      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
+      "enum" : [
+        "none",
+        "subtle"
+      ],
+      "title" : "Animation Bounce",
+      "type" : "string"
+    },
+    "ui.animations.newTab" : {
+      "default" : true,
+      "description" : "A new tab grows into its place in the tab bar. Off shows it there at once.",
+      "title" : "Animate New Tabs",
+      "type" : "boolean"
+    },
+    "ui.animations.newWorkspace" : {
+      "default" : false,
+      "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
+      "title" : "Animate New Workspaces",
+      "type" : "boolean"
     },
     "ui.animationSpeed" : {
       "default" : "fast",

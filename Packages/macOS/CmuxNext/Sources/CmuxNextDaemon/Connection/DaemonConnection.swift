@@ -22,6 +22,8 @@ import os
 /// consecutive drops (reset only after a connection stays up for
 /// `healthyAfter`), and after `retry.timedRetries` failures no timer runs:
 /// the loop waits for the daemon socket to change or `retryWake` to fire.
+/// After `retry.socketRetries` failures that a new socket woke (a daemon
+/// that dies on connect) only `retryWake` does.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -41,7 +43,7 @@ public actor DaemonConnection {
 
     let configuration: Configuration
     private let endpointProvider: EndpointProvider
-    private let clock: any Clock<Duration>
+    let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
     private var phase: Phase = .idle
     private(set) var serial: UInt64 = 0
@@ -58,6 +60,14 @@ public actor DaemonConnection {
     /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
     public var userOriginAllowed: Bool { if case .ready(_, _, let allowed) = phase { allowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
+    /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight, the waits for none, and
+    /// the requests held while a handoff runs (nil: none runs).
+    var inFlight = 0
+    var quietWaiters: [CheckedContinuation<Void, Never>] = []
+    var handoffHold: [UInt64: CheckedContinuation<Void, Never>]?
+    var handoffHoldNext: UInt64 = 0
+    var handoffQueue: [CheckedContinuation<Void, Never>] = []
+    var handoffHoldTimer: DemandTimer?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -100,6 +110,7 @@ public actor DaemonConnection {
         reconnectTask = nil
         if case .ready(let transport, _, _) = phase { transport.close() }
         phase = .closed
+        releaseHandoffHold()
         continuation.finish()
     }
 
@@ -141,7 +152,10 @@ public actor DaemonConnection {
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
+        await waitOutHandoff()
         guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
+        requestStarted()
+        defer { requestEnded() }
         try R.requireServed(by: identity)
         let response = try await Self.perform(request, on: transport, timeout: timeout)
         DaemonCommandScope.noteCreated(by: request, response: response)
@@ -162,7 +176,10 @@ public actor DaemonConnection {
     /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
     func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
                                        as type: R.Type, timeout: Duration? = nil) async throws -> R {
+        await waitOutHandoff()
         guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
+        requestStarted()
+        defer { requestEnded() }
         let response = try await transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
@@ -227,7 +244,8 @@ public actor DaemonConnection {
             self.identity = identity
             self.endpoint = endpoint
             phase = .ready(transport, serial: serial, userOriginAllowed: userOriginAllowed)
-            wake.watch(file: endpoint.socketPath)
+            releaseHandoffHold()
+            wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
             if endpoint.bridge != nil { heartbeat.start(transport, every: configuration.bridgeHeartbeat, misses: configuration.bridgeHeartbeatMisses) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
@@ -306,10 +324,16 @@ public actor DaemonConnection {
     private func reconnectLoop() async {
         // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
         while !Task.isCancelled {
-            // A drop or a failed attempt: space the next one (events only past the budget).
+            // A drop or a failed attempt: space the next one (events only past the budget;
+            // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
             wake.rebaseline()
             let delay = pacer.failed()
-            guard await wake.awaitWake(delay: delay, clock: clock) != .cancelled else { break }
+            if pacer.socketFailures == pacer.policy.socketRetries {
+                logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
+            }
+            let cause = await wake.awaitWake(delay: delay, clock: clock, socket: pacer.wakesOnSocket)
+            guard cause != .cancelled else { break }
+            pacer.woke(cause)
             if isClosedPhase { break }
             do {
                 _ = try await connectOnce()
@@ -321,10 +345,13 @@ public actor DaemonConnection {
                     logger.error("cmux-tui reconnect failed permanently: \(error.description, privacy: .public)")
                     reconnectTask = nil
                     phase = .closed
+                    releaseHandoffHold()
                     continuation.finish(throwing: error)
                     return
                 default:
                     logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(error.description, privacy: .public)")
+                    // A restoring owner keeps the timed budget (`DaemonStartup.ownerIsRestoring`).
+                    if DaemonStartup.shared.ownerIsRestoring(error) { pacer.reset() }
                 }
             } catch {
                 logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(String(describing: error), privacy: .public)")

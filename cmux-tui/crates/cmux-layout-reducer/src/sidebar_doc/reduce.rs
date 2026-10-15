@@ -1,35 +1,24 @@
-//! The reducer: every op, the document invariants, the changed rows and the
-//! inverse ops (undo/redo through `sidebar.apply`).
+//! The reducer: every op, the changed rows and the inverse ops (undo/redo
+//! through `sidebar.apply`).
 //!
-//! [`apply`] runs a list of ops on a copy of the document, checks the
-//! invariants once at the end, and returns the new document (revision + 1
-//! when anything changed), the changed sections and items, and the inverse:
-//! raw `*.put` / `*.delete` ops that restore every changed row. The inverse
-//! of an inverse is the redo.
-//!
-//! Invariants ([`check`]):
-//! - ids are unique across sections and items;
-//! - one machine section per session, with id `sec_m_<session>`;
-//! - each workspace ref is placed once (`duplicate_ref`);
-//! - an item's parent is a group of the same section at the top level, and
-//!   a group has no parent (`nesting`);
-//! - a group's workspaces are of one machine, and a machine section holds
-//!   only its machine's workspaces and groups (`cross_machine`);
-//! - an app section holds no items (`provider_owned`).
+//! Ops change the document in place through a journal that keeps the first
+//! old copy of each row they touch. [`Batch::apply`] runs a list of ops,
+//! then checks only the invariants of the touched rows
+//! ([`super::check::touched`]); a refusal restores the touched rows from
+//! the journal, so the document is as before. [`Batch::finish`] returns the
+//! changed sections and items and the inverse: raw `*.put` / `*.delete` ops
+//! that restore every changed row (the inverse of an inverse is the redo).
+//! Nothing here copies, sorts or scans the whole document: lookups go
+//! through the indexes of [`Doc`].
 
 use std::collections::{HashMap, HashSet};
 
+use super::check;
+use super::doc::{Doc, ListEntry};
 use super::model::*;
 use super::order_key;
 
-/// The result of [`apply`].
-#[derive(Debug, Clone, PartialEq)]
-pub struct Outcome {
-    pub doc: Doc,
-    pub changes: Changes,
-    /// Restores the document `apply` started from.
-    pub inverse: Vec<Op>,
-}
+pub use super::check::{check, diff, fit_title, repair};
 
 /// The rows one apply changed.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -49,144 +38,279 @@ impl Changes {
     }
 }
 
-/// Apply `ops` in order. `mint` makes the id of an item an op adds without
-/// one (the daemon mints random ids; the app's mirror local ones).
-pub fn apply(doc: &Doc, ops: &[Op], mint: &mut dyn FnMut() -> ItemId) -> Result<Outcome, Refusal> {
-    let mut next = doc.clone();
+/// What a finished [`Batch`] changed.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Applied {
+    pub changes: Changes,
+    pub inverse: Vec<Op>,
+    /// The old copy of each changed or deleted item (None: it was added).
+    pub previous_items: HashMap<ItemId, Option<Item>>,
+}
+
+/// Apply `ops` to `doc` atomically: on a refusal `doc` is unchanged. The
+/// revision advances by one when a row changed.
+pub fn apply_in_place(
+    doc: &mut Doc,
+    ops: &[Op],
+    mint: &mut dyn FnMut() -> ItemId,
+) -> Result<Applied, Refusal> {
+    let mut batch = Batch::new(doc);
+    batch.apply(ops, mint)?;
+    Ok(batch.finish())
+}
+
+/// Apply raw row ops (`item.put`, `item.delete`, `section.put`,
+/// `section.delete`: an echoed batch or an inverse) with no invariant
+/// check; other ops are skipped. The revision is the caller's.
+pub fn apply_rows(doc: &mut Doc, ops: &[Op]) {
     for op in ops {
-        apply_one(&mut next, op, mint)?;
-    }
-    check(&next)?;
-    next.normalize();
-    let changes = diff(doc, &next);
-    if changes.is_empty() {
-        let mut same = doc.clone();
-        same.normalize();
-        return Ok(Outcome { doc: same, changes, inverse: Vec::new() });
-    }
-    next.revision = doc.revision + 1;
-    let inverse = inverse_of(doc, &changes);
-    Ok(Outcome { doc: next, changes, inverse })
-}
-
-/// The rows that differ between `before` and `after`.
-pub fn diff(before: &Doc, after: &Doc) -> Changes {
-    let old_sections: HashMap<&str, &Section> =
-        before.sections.iter().map(|s| (s.id.as_str(), s)).collect();
-    let new_sections: HashSet<&str> = after.sections.iter().map(|s| s.id.as_str()).collect();
-    let old_items: HashMap<&str, &Item> = before.items.iter().map(|i| (i.id.as_str(), i)).collect();
-    let new_items: HashSet<&str> = after.items.iter().map(|i| i.id.as_str()).collect();
-    Changes {
-        sections: after
-            .sections
-            .iter()
-            .filter(|s| old_sections.get(s.id.as_str()).is_none_or(|old| *old != *s))
-            .cloned()
-            .collect(),
-        deleted_sections: before
-            .sections
-            .iter()
-            .filter(|s| !new_sections.contains(s.id.as_str()))
-            .map(|s| s.id.clone())
-            .collect(),
-        items: after
-            .items
-            .iter()
-            .filter(|i| old_items.get(i.id.as_str()).is_none_or(|old| *old != *i))
-            .cloned()
-            .collect(),
-        deleted_items: before
-            .items
-            .iter()
-            .filter(|i| !new_items.contains(i.id.as_str()))
-            .map(|i| i.id.clone())
-            .collect(),
-    }
-}
-
-fn inverse_of(before: &Doc, changes: &Changes) -> Vec<Op> {
-    let mut ops = Vec::new();
-    for section in &changes.sections {
-        match before.section(&section.id) {
-            Some(old) => ops.push(Op::SectionPut { section: old.clone() }),
-            None => ops.push(Op::SectionDelete { id: section.id.clone() }),
-        }
-    }
-    for id in &changes.deleted_sections {
-        if let Some(old) = before.section(id) {
-            ops.push(Op::SectionPut { section: old.clone() });
-        }
-    }
-    for item in &changes.items {
-        match before.item(&item.id) {
-            Some(old) => ops.push(Op::ItemPut { item: old.clone() }),
-            None => ops.push(Op::ItemDelete { id: item.id.clone() }),
-        }
-    }
-    for id in &changes.deleted_items {
-        if let Some(old) = before.item(id) {
-            ops.push(Op::ItemPut { item: old.clone() });
-        }
-    }
-    ops
-}
-
-/// Apply one op without the final invariant check.
-pub fn apply_one(doc: &mut Doc, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<(), Refusal> {
-    match op {
-        Op::Move { items, to } => place(doc, items, to),
-        Op::Pin { items } => pin(doc, items),
-        Op::Unpin { items } => unpin(doc, items),
-        Op::ItemAdd { item, to } => {
-            let id = item.id.clone().unwrap_or_else(&mut *mint);
-            ensure_new_id(doc, &id)?;
-            if let Some(reference) = item.body.workspace()
-                && doc.workspace_item(reference).is_some()
-            {
-                return Err(Refusal::DuplicateRef);
+        match op {
+            Op::ItemPut { item } => {
+                doc.replace_item(item.clone());
             }
-            validate_span(item.span)?;
-            if let Body::Group { name, .. } = &item.body {
-                validate_title(name)?;
+            Op::ItemDelete { id } => {
+                doc.remove_item(id);
             }
-            section_index(doc, &to.section)?;
-            doc.items.push(Item {
-                id: id.clone(),
-                section: to.section.clone(),
-                parent: None,
-                order: String::new(),
-                body: item.body.clone(),
-                shows_label: item.shows_label,
-                span: item.span,
-                extra: item.extra.clone(),
+            Op::SectionPut { section } => {
+                doc.replace_section(section.clone());
+            }
+            Op::SectionDelete { id } => {
+                doc.remove_section(id);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Several op lists on one document, each atomic, finished as one change
+/// (one revision): the old-store sync applies one op per old row and skips
+/// the ones the document refuses.
+/// A batch dropped without [`Batch::finish`] (the caller stopped on an
+/// error) restores every row it changed, so the document is as before.
+pub struct Batch<'d> {
+    doc: &'d mut Doc,
+    start_revision: u64,
+    items: HashMap<ItemId, Option<Item>>,
+    sections: HashMap<SectionId, Option<Section>>,
+}
+
+impl Drop for Batch<'_> {
+    fn drop(&mut self) {
+        restore(self.doc, std::mem::take(&mut self.items), std::mem::take(&mut self.sections));
+    }
+}
+
+/// Put back the old copies of a journal's rows.
+fn restore(
+    doc: &mut Doc,
+    items: HashMap<ItemId, Option<Item>>,
+    sections: HashMap<SectionId, Option<Section>>,
+) {
+    for (id, old) in items {
+        match old {
+            Some(item) => {
+                doc.replace_item(item);
+            }
+            None => {
+                doc.remove_item(&id);
+            }
+        }
+    }
+    for (id, old) in sections {
+        match old {
+            Some(section) => {
+                doc.replace_section(section);
+            }
+            None => {
+                doc.remove_section(&id);
+            }
+        }
+    }
+}
+
+impl<'d> Batch<'d> {
+    pub fn new(doc: &'d mut Doc) -> Self {
+        let start_revision = doc.revision;
+        Batch { doc, start_revision, items: HashMap::new(), sections: HashMap::new() }
+    }
+
+    pub fn doc(&self) -> &Doc {
+        self.doc
+    }
+
+    /// Apply `ops` in order and check the rows they touched; a refusal
+    /// restores those rows.
+    pub fn apply(&mut self, ops: &[Op], mint: &mut dyn FnMut() -> ItemId) -> Result<(), Refusal> {
+        let mut tx = Tx { doc: &mut *self.doc, items: HashMap::new(), sections: HashMap::new() };
+        let result = ops
+            .iter()
+            .try_for_each(|op| apply_op(&mut tx, op, mint))
+            .and_then(|()| check::touched(tx.doc, &tx.items, &tx.sections));
+        match result {
+            Ok(()) => {
+                let Tx { items, sections, .. } = tx;
+                for (id, old) in items {
+                    self.items.entry(id).or_insert(old);
+                }
+                for (id, old) in sections {
+                    self.sections.entry(id).or_insert(old);
+                }
+                Ok(())
+            }
+            Err(refusal) => {
+                tx.rollback();
+                Err(refusal)
+            }
+        }
+    }
+
+    /// The changed rows and the inverse; the revision advances by one when
+    /// a row changed.
+    pub fn finish(mut self) -> Applied {
+        let items = std::mem::take(&mut self.items);
+        let sections = std::mem::take(&mut self.sections);
+        let mut applied = Applied::default();
+        let mut section_ids: Vec<&SectionId> = sections.keys().collect();
+        section_ids.sort();
+        for id in section_ids {
+            let old = &sections[id];
+            let now = self.doc.section(id);
+            if old.as_ref() == now {
+                continue;
+            }
+            match now {
+                Some(section) => applied.changes.sections.push(section.clone()),
+                None => applied.changes.deleted_sections.push(id.clone()),
+            }
+            applied.inverse.push(match old {
+                Some(section) => Op::SectionPut { section: section.clone() },
+                None => Op::SectionDelete { id: id.clone() },
             });
-            place(doc, &[id], to)
         }
+        let mut item_ids: Vec<&ItemId> = items.keys().collect();
+        item_ids.sort();
+        for id in item_ids {
+            let old = &items[id];
+            let now = self.doc.item(id);
+            if old.as_ref() == now {
+                continue;
+            }
+            match now {
+                Some(item) => applied.changes.items.push(item.clone()),
+                None => applied.changes.deleted_items.push(id.clone()),
+            }
+            applied.inverse.push(match old {
+                Some(item) => Op::ItemPut { item: item.clone() },
+                None => Op::ItemDelete { id: id.clone() },
+            });
+            applied.previous_items.insert(id.clone(), old.clone());
+        }
+        if !applied.changes.is_empty() {
+            self.doc.revision = self.start_revision + 1;
+        }
+        applied
+    }
+}
+
+/// The rows one op list touched, with their first old copies.
+pub(super) struct Tx<'a> {
+    pub(super) doc: &'a mut Doc,
+    items: HashMap<ItemId, Option<Item>>,
+    sections: HashMap<SectionId, Option<Section>>,
+}
+
+impl Tx<'_> {
+    pub(super) fn touch_item(&mut self, id: &str) {
+        if !self.items.contains_key(id) {
+            self.items.insert(id.to_string(), self.doc.item(id).cloned());
+        }
+    }
+
+    pub(super) fn touch_section(&mut self, id: &str) {
+        if !self.sections.contains_key(id) {
+            self.sections.insert(id.to_string(), self.doc.section(id).cloned());
+        }
+    }
+
+    pub(super) fn put_item(&mut self, item: Item) {
+        self.touch_item(&item.id);
+        self.doc.replace_item(item);
+    }
+
+    pub(super) fn remove_item(&mut self, id: &str) {
+        self.touch_item(id);
+        self.doc.remove_item(id);
+    }
+
+    /// Change one item with `edit` (its indexes follow).
+    pub(super) fn edit_item(
+        &mut self,
+        id: &str,
+        edit: impl FnOnce(&mut Item) -> Result<(), Refusal>,
+    ) -> Result<(), Refusal> {
+        let mut item = self.doc.item(id).cloned().ok_or(Refusal::UnknownItem)?;
+        edit(&mut item)?;
+        if self.doc.item(id) != Some(&item) {
+            self.put_item(item);
+        }
+        Ok(())
+    }
+
+    pub(super) fn put_section(&mut self, section: Section) {
+        self.touch_section(&section.id);
+        self.doc.replace_section(section);
+    }
+
+    pub(super) fn remove_section(&mut self, id: &str) {
+        self.touch_section(id);
+        self.doc.remove_section(id);
+    }
+
+    fn rollback(self) {
+        restore(self.doc, self.items, self.sections);
+    }
+}
+
+fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<(), Refusal> {
+    match op {
+        Op::Move { items, to } => place(tx, items, to),
+        Op::Pin { items } => pin(tx, items),
+        Op::Unpin { items } => unpin(tx, items),
+        Op::ItemAdd { item, to } => add_item(tx, item, to, mint),
         Op::ItemRemove { id } => {
-            doc.item(id).ok_or(Refusal::UnknownItem)?;
-            doc.items.retain(|item| item.id != *id && item.parent.as_deref() != Some(id));
+            let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
+            let children: Vec<ItemId> = tx
+                .doc
+                .list(&item.section, Some(id.as_str()))
+                .map(|child| child.id.clone())
+                .collect();
+            for child in children {
+                tx.remove_item(&child);
+            }
+            tx.remove_item(id);
             Ok(())
         }
-        Op::ItemUpdate { id, patch } => update_item(doc, id, patch),
-        Op::SectionAdd { section, place } => add_section(doc, section, place),
-        Op::SectionUpdate { id, patch } => update_section(doc, id, patch),
+        Op::ItemUpdate { id, patch } => update_item(tx, id, patch),
+        Op::ItemRemoveRef { reference } => super::reset::remove_ref(tx, reference),
+        Op::Reset => super::reset::reset(tx),
+        Op::SectionAdd { section, place } => add_section(tx, section, place),
+        Op::SectionUpdate { id, patch } => update_section(tx, id, patch),
         Op::SectionMove { id, place } => {
-            let index = section_index(doc, id)?;
-            let mut section = doc.sections.remove(index);
-            let result = place_section(doc, &mut section, place);
-            doc.sections.push(section);
-            result
+            let mut section = tx.doc.section(id).cloned().ok_or(Refusal::UnknownSection)?;
+            place_section(tx, &mut section, place)?;
+            tx.put_section(section);
+            Ok(())
         }
-        Op::SectionRemove { id } => remove_section(doc, id),
+        Op::SectionRemove { id } => remove_section(tx, id),
         Op::GroupCreate { id, name, color, icon, profile, items, to } => {
             validate_title(name)?;
             let id = id.clone().unwrap_or_else(&mut *mint);
-            ensure_new_id(doc, &id)?;
+            ensure_new_id(tx.doc, &id)?;
             let target = match to {
                 Some(to) => to.clone(),
                 None => {
                     let first = items.first().ok_or(Refusal::InvalidTarget)?;
-                    let first = doc.item(first).ok_or(Refusal::UnknownItem)?;
+                    let first = tx.doc.item(first).ok_or(Refusal::UnknownItem)?;
                     match &first.parent {
                         None => Target {
                             section: first.section.clone(),
@@ -204,8 +328,8 @@ pub fn apply_one(doc: &mut Doc, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Re
             if target.parent.is_some() {
                 return Err(Refusal::Nesting);
             }
-            section_index(doc, &target.section)?;
-            doc.items.push(Item::new(
+            tx.doc.section(&target.section).ok_or(Refusal::UnknownSection)?;
+            tx.put_item(Item::new(
                 &id,
                 &target.section,
                 Body::Group {
@@ -216,19 +340,18 @@ pub fn apply_one(doc: &mut Doc, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Re
                     profile: profile.clone(),
                 },
             ));
-            place(doc, std::slice::from_ref(&id), &target)?;
+            place(tx, std::slice::from_ref(&id), &target)?;
             if !items.is_empty() {
                 let into = Target {
                     section: target.section.clone(),
                     parent: Some(id.clone()),
                     ..Target::default()
                 };
-                place(doc, items, &into)?;
+                place(tx, items, &into)?;
             }
             Ok(())
         }
-        Op::GroupUpdate { id, patch } => {
-            let item = doc.item_mut(id).ok_or(Refusal::UnknownItem)?;
+        Op::GroupUpdate { id, patch } => tx.edit_item(id, |item| {
             let Body::Group { name, color, icon, collapsed, profile } = &mut item.body else {
                 return Err(Refusal::InvalidValue);
             };
@@ -243,142 +366,54 @@ pub fn apply_one(doc: &mut Doc, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Re
                 *collapsed = value;
             }
             Ok(())
-        }
+        }),
         Op::GroupUngroup { id } => {
-            let group = doc.item(id).ok_or(Refusal::UnknownItem)?;
+            let group = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
             if !group.body.is_group() {
                 return Err(Refusal::InvalidValue);
             }
             let section = group.section.clone();
             let children: Vec<ItemId> =
-                doc.children(&section, Some(id)).iter().map(|c| c.id.clone()).collect();
+                tx.doc.list(&section, Some(id.as_str())).map(|child| child.id.clone()).collect();
             if !children.is_empty() {
                 let to = Target { section, after: Some(id.clone()), ..Target::default() };
-                place(doc, &children, &to)?;
+                place(tx, &children, &to)?;
             }
-            doc.items.retain(|item| item.id != *id);
+            tx.remove_item(id);
             Ok(())
         }
-        Op::Adopt { refs, to } => adopt(doc, refs, to.as_ref()),
+        Op::Adopt { refs, to } => adopt(tx, refs, to.as_ref()),
         Op::Close { refs } => {
-            close(doc, refs);
+            close(tx, refs);
             Ok(())
         }
         Op::ItemPut { item } => {
-            match doc.items.iter_mut().find(|existing| existing.id == item.id) {
-                Some(existing) => *existing = item.clone(),
-                None => doc.items.push(item.clone()),
-            }
+            tx.put_item(item.clone());
             Ok(())
         }
         Op::ItemDelete { id } => {
-            doc.items.retain(|item| item.id != *id);
+            if tx.doc.item(id).is_some() {
+                tx.remove_item(id);
+            }
             Ok(())
         }
         Op::SectionPut { section } => {
-            match doc.sections.iter_mut().find(|existing| existing.id == section.id) {
-                Some(existing) => *existing = section.clone(),
-                None => doc.sections.push(section.clone()),
-            }
+            tx.put_section(section.clone());
             Ok(())
         }
         Op::SectionDelete { id } => {
-            doc.sections.retain(|section| section.id != *id);
+            if tx.doc.section(id).is_some() {
+                tx.remove_section(id);
+            }
             Ok(())
         }
     }
-}
-
-/// Check every invariant of the document.
-pub fn check(doc: &Doc) -> Result<(), Refusal> {
-    if doc.sections.len() > MAX_SECTIONS || doc.items.len() > MAX_ITEMS {
-        return Err(Refusal::TooMany);
-    }
-    let mut ids = HashSet::new();
-    let mut machines = HashSet::new();
-    let mut sections = HashMap::new();
-    for section in &doc.sections {
-        if !ids.insert(section.id.as_str()) {
-            return Err(Refusal::DuplicateId);
-        }
-        if let Some(session) = section.kind.machine()
-            && (!machines.insert(session) || section.id != machine_section_id(session))
-        {
-            return Err(Refusal::DuplicateRef);
-        }
-        if matches!(section.kind, SectionKind::Pinned) && section.id != PINNED_SECTION_ID {
-            return Err(Refusal::DuplicateId);
-        }
-        if !order_key::is_valid(&section.order) {
-            return Err(Refusal::InvalidValue);
-        }
-        if let Some(title) = &section.title {
-            validate_title(title)?;
-        }
-        validate_section_numbers(section.columns, section.max_rows)?;
-        sections.insert(section.id.as_str(), section);
-    }
-    let items: HashMap<&str, &Item> = doc.items.iter().map(|i| (i.id.as_str(), i)).collect();
-    let mut refs = HashSet::new();
-    let mut group_machine: HashMap<&str, &str> = HashMap::new();
-    for item in &doc.items {
-        if !ids.insert(item.id.as_str()) {
-            return Err(Refusal::DuplicateId);
-        }
-        let section = sections.get(item.section.as_str()).ok_or(Refusal::UnknownSection)?;
-        if matches!(section.kind, SectionKind::App { .. }) {
-            return Err(Refusal::ProviderOwned);
-        }
-        if !order_key::is_valid(&item.order) {
-            return Err(Refusal::InvalidValue);
-        }
-        validate_span(item.span)?;
-        if let Body::Group { name, .. } = &item.body {
-            validate_title(name)?;
-        }
-        if let Some(parent) = &item.parent {
-            let parent = items.get(parent.as_str()).ok_or(Refusal::UnknownItem)?;
-            if !parent.body.is_group()
-                || parent.parent.is_some()
-                || parent.section != item.section
-                || item.body.is_group()
-            {
-                return Err(Refusal::Nesting);
-            }
-        }
-        if let Some(reference) = item.body.workspace() {
-            if !refs.insert((reference.session_id.as_str(), reference.workspace_id.as_str())) {
-                return Err(Refusal::DuplicateRef);
-            }
-            if let Some(machine) = section.kind.machine()
-                && machine != reference.session_id
-            {
-                return Err(Refusal::CrossMachine);
-            }
-            if let Some(parent) = &item.parent {
-                let machine =
-                    group_machine.entry(parent.as_str()).or_insert(reference.session_id.as_str());
-                if *machine != reference.session_id {
-                    return Err(Refusal::CrossMachine);
-                }
-            }
-        }
-    }
-    for (group, machine) in group_machine {
-        let section = &items[group].section;
-        if let Some(owner) = sections[section.as_str()].kind.machine()
-            && owner != machine
-        {
-            return Err(Refusal::CrossMachine);
-        }
-    }
-    Ok(())
 }
 
 /// Whether a client-sent `ops` list turns an app section into another kind
 /// or another kind into an app section (raw `section.put`, `sidebar.apply`):
 /// that would make a provider's section take drops. Echoes and inverses
-/// never do it, so only the daemon's ingress checks it, not [`apply_one`]
+/// never do it, so only the daemon's ingress checks it, not the reducer
 /// (the client mirror applies echoed rows with it).
 pub fn changes_app_kind(doc: &Doc, ops: &[Op]) -> bool {
     ops.iter().any(|op| match op {
@@ -391,140 +426,28 @@ pub fn changes_app_kind(doc: &Doc, ops: &[Op]) -> bool {
     })
 }
 
-/// `title` cut to the document limit (old stores allow longer names).
-pub fn fit_title(title: &str) -> String {
-    title.trim().chars().take(MAX_TITLE_CHARS).collect::<String>().trim_end().to_string()
-}
-
-/// Make a document read from old or stored data pass [`check`], so one bad
-/// row cannot refuse every later op: titles are cut, numbers out of range
-/// are cleared, bad order keys are respread, and rows that cannot be kept
-/// (a duplicate id or ref, an unknown section, an item in an app section, a
-/// workspace in another machine's section) are dropped. A dropped
-/// workspace is unplaced, and adoption puts it back into its machine
-/// section. Returns whether anything changed.
-pub fn repair(doc: &mut Doc) -> bool {
-    if check(doc).is_ok() {
-        return false;
-    }
-    let mut ids: HashSet<String> = HashSet::new();
-    let mut machines: HashSet<String> = HashSet::new();
-    doc.sections.retain(|section| {
-        if !ids.insert(section.id.clone()) {
-            return false;
-        }
-        if let Some(session) = section.kind.machine()
-            && (section.id != machine_section_id(session) || !machines.insert(session.to_string()))
-        {
-            return false;
-        }
-        !(matches!(section.kind, SectionKind::Pinned) && section.id != PINNED_SECTION_ID)
-    });
-    for section in &mut doc.sections {
-        if let Some(title) = &section.title {
-            let fitted = fit_title(title);
-            section.title = (!fitted.is_empty()).then_some(fitted);
-        }
-        if section.columns.is_some_and(|c| !(1..=12).contains(&c)) {
-            section.columns = None;
-        }
-        if section.max_rows.is_some_and(|r| !(1..=50).contains(&r)) {
-            section.max_rows = None;
-        }
-    }
-    if doc.sections.iter().any(|section| !order_key::is_valid(&section.order)) {
-        let keys = order_key::spread(doc.sections.len());
-        for (section, key) in doc.sections.iter_mut().zip(keys) {
-            section.order = key;
-        }
-    }
-    let kinds: HashMap<String, SectionKind> =
-        doc.sections.iter().map(|s| (s.id.clone(), s.kind.clone())).collect();
-    let mut refs: HashSet<(String, String)> = HashSet::new();
-    doc.items.retain(|item| {
-        let Some(kind) = kinds.get(&item.section) else { return false };
-        if matches!(kind, SectionKind::App { .. }) || !ids.insert(item.id.clone()) {
-            return false;
-        }
-        match item.body.workspace() {
-            Some(reference) => {
-                kind.machine().is_none_or(|machine| machine == reference.session_id)
-                    && refs.insert((reference.session_id.clone(), reference.workspace_id.clone()))
-            }
-            None => true,
-        }
-    });
-    doc.items.truncate(MAX_ITEMS);
-    let groups: HashMap<String, String> = doc
-        .items
-        .iter()
-        .filter(|item| item.body.is_group() && item.parent.is_none())
-        .map(|item| (item.id.clone(), item.section.clone()))
-        .collect();
-    let mut group_machine: HashMap<String, String> = HashMap::new();
-    for item in &mut doc.items {
-        if let Body::Group { name, .. } = &mut item.body {
-            let fitted = fit_title(name);
-            *name = if fitted.is_empty() { "Group".into() } else { fitted };
-        }
-        if item.span.is_some_and(|span| !(1..=12).contains(&span)) {
-            item.span = None;
-        }
-        let Some(parent) = item.parent.clone() else { continue };
-        let fits = !item.body.is_group() && groups.get(&parent) == Some(&item.section);
-        let fits = fits
-            && match item.body.workspace() {
-                Some(reference) => {
-                    *group_machine.entry(parent).or_insert_with(|| reference.session_id.clone())
-                        == reference.session_id
-                }
-                None => true,
-            };
-        if !fits {
-            item.parent = None;
-        }
-    }
-    // A group whose workspaces belong to another machine than its section.
-    doc.items.retain(|item| {
-        let Some(machine) = group_machine.get(&item.id) else { return true };
-        kinds
-            .get(&item.section)
-            .and_then(|kind| kind.machine())
-            .is_none_or(|owner| owner == machine)
-    });
-    let kept: HashSet<String> = doc.items.iter().map(|item| item.id.clone()).collect();
-    for item in &mut doc.items {
-        if item.parent.as_ref().is_some_and(|parent| !kept.contains(parent)) {
-            item.parent = None;
-        }
-    }
-    let mut lists: HashMap<(String, Option<String>), Vec<usize>> = HashMap::new();
-    for (index, item) in doc.items.iter().enumerate() {
-        lists.entry((item.section.clone(), item.parent.clone())).or_default().push(index);
-    }
-    for indexes in lists.values() {
-        if indexes.iter().any(|&index| !order_key::is_valid(&doc.items[index].order)) {
-            for (&index, key) in indexes.iter().zip(order_key::spread(indexes.len())) {
-                doc.items[index].order = key;
-            }
-        }
-    }
-    doc.normalize();
-    true
-}
-
-fn validate_title(title: &str) -> Result<(), Refusal> {
+pub(crate) fn validate_title(title: &str) -> Result<(), Refusal> {
     if title.is_empty() || title.chars().count() > MAX_TITLE_CHARS {
         return Err(Refusal::InvalidTitle);
     }
     Ok(())
 }
 
-fn validate_span(span: Option<i64>) -> Result<(), Refusal> {
+pub(crate) fn validate_span(span: Option<i64>) -> Result<(), Refusal> {
     match span {
         Some(span) if !(1..=12).contains(&span) => Err(Refusal::InvalidValue),
         _ => Ok(()),
     }
+}
+
+pub(crate) fn validate_section_numbers(section: &Section) -> Result<(), Refusal> {
+    if section.columns.is_some_and(|c| !(1..=12).contains(&c))
+        || section.max_rows.is_some_and(|r| !(1..=50).contains(&r))
+        || section.gap.is_some_and(|gap| !GAP_RANGE.contains(&gap))
+    {
+        return Err(Refusal::InvalidValue);
+    }
+    Ok(())
 }
 
 fn ensure_new_id(doc: &Doc, id: &str) -> Result<(), Refusal> {
@@ -534,12 +457,87 @@ fn ensure_new_id(doc: &Doc, id: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
-fn section_index(doc: &Doc, id: &str) -> Result<usize, Refusal> {
-    doc.sections.iter().position(|section| section.id == id).ok_or(Refusal::UnknownSection)
+fn add_item(
+    tx: &mut Tx,
+    item: &NewItem,
+    to: &Target,
+    mint: &mut dyn FnMut() -> ItemId,
+) -> Result<(), Refusal> {
+    let id = item.id.clone().unwrap_or_else(&mut *mint);
+    ensure_new_id(tx.doc, &id)?;
+    if let Some(reference) = item.body.workspace()
+        && tx.doc.workspace_item(reference).is_some()
+    {
+        return Err(Refusal::DuplicateRef);
+    }
+    validate_span(item.span)?;
+    if let Body::Group { name, .. } = &item.body {
+        validate_title(name)?;
+    }
+    tx.doc.section(&to.section).ok_or(Refusal::UnknownSection)?;
+    let mut new = Item {
+        id: id.clone(),
+        section: to.section.clone(),
+        parent: None,
+        order: String::new(),
+        body: item.body.clone(),
+        shows_label: item.shows_label,
+        span: item.span,
+        extra: item.extra.clone(),
+    };
+    new.lift_icon_url();
+    tx.put_item(new);
+    place(tx, &[id], to)
+}
+
+/// The two entries around the place `to` names among the siblings that do
+/// not move: `(low, high)` (either absent at an end).
+fn neighbors(
+    doc: &Doc,
+    to: &Target,
+    moved: &HashSet<ItemId>,
+) -> Result<(Option<ListEntry>, Option<ListEntry>), Refusal> {
+    let skip = |id: &str| moved.contains(id);
+    let empty = std::collections::BTreeSet::new();
+    let list = doc.list_entries(&to.section, to.parent.as_deref()).unwrap_or(&empty);
+    let anchor = |id: &ItemId| -> Result<ListEntry, Refusal> {
+        let item = doc
+            .item(id)
+            .filter(|item| {
+                item.section == to.section && item.parent == to.parent && !moved.contains(id)
+            })
+            .ok_or(Refusal::InvalidTarget)?;
+        Ok((item.order.clone(), item.id.clone()))
+    };
+    Ok(match (&to.before, &to.after, to.index) {
+        (Some(before), _, _) => {
+            let high = anchor(before)?;
+            (Doc::entry_before(list, &high, &skip).cloned(), Some(high))
+        }
+        (None, Some(after), _) => {
+            let low = anchor(after)?;
+            let high = Doc::entry_after(list, &low, &skip).cloned();
+            (Some(low), high)
+        }
+        (None, None, Some(index)) => {
+            let index = usize::try_from(index.max(0)).unwrap_or(usize::MAX);
+            let mut low = None;
+            let mut high = None;
+            for (at, entry) in list.iter().filter(|(_, id)| !skip(id)).enumerate() {
+                if at == index {
+                    high = Some(entry.clone());
+                    break;
+                }
+                low = Some(entry);
+            }
+            (low.cloned(), high)
+        }
+        (None, None, None) => (list.iter().rev().find(|(_, id)| !skip(id)).cloned(), None),
+    })
 }
 
 /// Move `ids` (in this order, as one run) to `to`.
-pub(crate) fn place(doc: &mut Doc, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
+pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
     let mut moved: Vec<ItemId> = Vec::with_capacity(ids.len());
     for id in ids {
         if !moved.contains(id) {
@@ -549,33 +547,34 @@ pub(crate) fn place(doc: &mut Doc, ids: &[ItemId], to: &Target) -> Result<(), Re
     if moved.is_empty() {
         return Ok(());
     }
-    let section = doc.section(&to.section).ok_or(Refusal::UnknownSection)?.clone();
+    let moved_set: HashSet<ItemId> = moved.iter().cloned().collect();
+    let section = tx.doc.section(&to.section).ok_or(Refusal::UnknownSection)?;
     if matches!(section.kind, SectionKind::App { .. }) {
         return Err(Refusal::ProviderOwned);
     }
     let target_machine = section.kind.machine().map(str::to_string);
     let mut parent_machine = None;
     if let Some(parent) = &to.parent {
-        let group = doc.item(parent).ok_or(Refusal::UnknownItem)?;
+        let group = tx.doc.item(parent).ok_or(Refusal::UnknownItem)?;
         if !group.body.is_group() || group.parent.is_some() || group.section != to.section {
             return Err(Refusal::Nesting);
         }
-        if moved.contains(parent) {
+        if moved_set.contains(parent) {
             return Err(Refusal::InvalidTarget);
         }
-        parent_machine = doc
-            .children(&group.section, Some(parent))
-            .iter()
-            .filter(|child| !moved.contains(&child.id))
+        parent_machine = tx
+            .doc
+            .list(&group.section, Some(parent.as_str()))
+            .filter(|child| !moved_set.contains(&child.id))
             .find_map(|child| child.body.workspace().map(|r| r.session_id.clone()));
     }
     let mut moved_machine: Option<String> = None;
     for id in &moved {
-        let item = doc.item(id).ok_or(Refusal::UnknownItem)?;
+        let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
         if to.parent.is_some() && item.body.is_group() {
             return Err(Refusal::Nesting);
         }
-        if let Some(machine) = doc.item_machine(item) {
+        if let Some(machine) = tx.doc.item_machine(item) {
             if target_machine.as_ref().is_some_and(|target| *target != machine)
                 || parent_machine.as_ref().is_some_and(|group| *group != machine)
             {
@@ -589,58 +588,60 @@ pub(crate) fn place(doc: &mut Doc, ids: &[ItemId], to: &Target) -> Result<(), Re
             }
         }
     }
-    let siblings: Vec<(ItemId, String)> = doc
-        .children(&to.section, to.parent.as_deref())
-        .into_iter()
-        .filter(|item| !moved.contains(&item.id))
-        .map(|item| (item.id.clone(), item.order.clone()))
-        .collect();
-    let position = match (&to.before, &to.after, to.index) {
-        (Some(anchor), _, _) => {
-            siblings.iter().position(|(id, _)| id == anchor).ok_or(Refusal::InvalidTarget)?
-        }
-        (None, Some(anchor), _) => {
-            siblings.iter().position(|(id, _)| id == anchor).ok_or(Refusal::InvalidTarget)? + 1
-        }
-        (None, None, Some(index)) => index.clamp(0, siblings.len() as i64) as usize,
-        (None, None, None) => siblings.len(),
-    };
-    let low = position.checked_sub(1).map(|i| siblings[i].1.as_str());
-    let high = siblings.get(position).map(|(_, order)| order.as_str());
-    let keys = order_key::sequence(low, high, moved.len());
+    let (low, high) = neighbors(tx.doc, to, &moved_set)?;
+    let (low_key, high_key) =
+        (low.as_ref().map(|e| e.0.as_str()), high.as_ref().map(|e| e.0.as_str()));
+    let keys = order_key::sequence(low_key, high_key, moved.len());
     let mut assignments: Vec<(ItemId, String)> = moved.iter().cloned().zip(keys).collect();
-    if order_key::needs_spread(low, high)
+    if order_key::needs_spread(low_key, high_key)
         || assignments.iter().any(|(_, key)| key.len() > MAX_ORDER_KEY_CHARS)
     {
-        let run: Vec<ItemId> = siblings[..position]
+        // Renumber this one sibling list (rare: keys grew too long, or old
+        // keys were out of order).
+        let siblings: Vec<ListEntry> = tx
+            .doc
+            .list_entries(&to.section, to.parent.as_deref())
+            .map(|set| set.iter().filter(|(_, id)| !moved_set.contains(id)).cloned().collect())
+            .unwrap_or_default();
+        let at = match &high {
+            Some(high) => siblings.iter().position(|entry| entry == high).unwrap_or(siblings.len()),
+            None => siblings.len(),
+        };
+        let run: Vec<ItemId> = siblings[..at]
             .iter()
-            .map(|(id, _)| id.clone())
+            .map(|(_, id)| id.clone())
             .chain(moved.iter().cloned())
-            .chain(siblings[position..].iter().map(|(id, _)| id.clone()))
+            .chain(siblings[at..].iter().map(|(_, id)| id.clone()))
             .collect();
         assignments = run.iter().cloned().zip(order_key::spread(run.len())).collect();
     }
-    let moved_set: HashSet<&ItemId> = moved.iter().collect();
-    let index: HashMap<ItemId, usize> =
-        doc.items.iter().enumerate().map(|(i, item)| (item.id.clone(), i)).collect();
+    // Where each moved group's children are now, before the group moves.
+    let groups: Vec<(ItemId, SectionId)> = moved
+        .iter()
+        .filter_map(|id| tx.doc.item(id))
+        .filter(|item| item.body.is_group() && item.section != to.section)
+        .map(|item| (item.id.clone(), item.section.clone()))
+        .collect();
     for (id, key) in assignments {
         let is_moved = moved_set.contains(&id);
-        if let Some(item) = index.get(&id).map(|&i| &mut doc.items[i]) {
+        tx.edit_item(&id, |item| {
             item.order = key;
             if is_moved {
                 item.section = to.section.clone();
                 item.parent = to.parent.clone();
             }
-        }
+            Ok(())
+        })?;
     }
     // A moved group's children follow it to its section.
-    for id in &moved {
-        if doc.item(id).is_some_and(|item| item.body.is_group()) {
-            for item in &mut doc.items {
-                if item.parent.as_deref() == Some(id.as_str()) {
-                    item.section = to.section.clone();
-                }
-            }
+    for (group, old_section) in groups {
+        let children: Vec<ItemId> =
+            tx.doc.list(&old_section, Some(group.as_str())).map(|child| child.id.clone()).collect();
+        for child in children {
+            tx.edit_item(&child, |item| {
+                item.section = to.section.clone();
+                Ok(())
+            })?;
         }
     }
     Ok(())
@@ -648,154 +649,160 @@ pub(crate) fn place(doc: &mut Doc, ids: &[ItemId], to: &Target) -> Result<(), Re
 
 /// The machine section of `session`, made at the end of the machine
 /// sections when missing.
-fn ensure_machine_section(doc: &mut Doc, session: &str) -> SectionId {
-    if let Some(section) = doc.machine_section(session) {
+pub(super) fn ensure_machine_section(tx: &mut Tx, session: &str) -> SectionId {
+    if let Some(section) = tx.doc.machine_section(session) {
         return section.id.clone();
     }
     let mut section = Section::machine(session);
-    let last_machine = doc
-        .sections
+    let last_machine = tx
+        .doc
+        .sections()
         .iter()
         .filter(|s| s.kind.machine().is_some() && s.region == section.region)
-        .map(|s| s.id.clone())
-        .max_by(|a, b| {
-            let order = |id: &str| doc.section(id).map(|s| s.order.clone()).unwrap_or_default();
-            order(a).cmp(&order(b))
-        });
+        .max_by(|a, b| a.order.cmp(&b.order))
+        .map(|s| s.id.clone());
     let place = SectionPlace { after: last_machine, ..SectionPlace::default() };
-    let _ = place_section(doc, &mut section, &place);
+    let _ = place_section(tx, &mut section, &place);
     let id = section.id.clone();
-    doc.sections.push(section);
+    tx.put_section(section);
     id
 }
 
-fn ensure_pinned_section(doc: &mut Doc) {
-    if doc.section(PINNED_SECTION_ID).is_some() {
+fn ensure_pinned_section(tx: &mut Tx) {
+    if tx.doc.section(PINNED_SECTION_ID).is_some() {
         return;
     }
     let mut section = Section::pinned();
-    let _ =
-        place_section(doc, &mut section, &SectionPlace { index: Some(0), ..Default::default() });
-    doc.sections.push(section);
+    let _ = place_section(tx, &mut section, &SectionPlace { index: Some(0), ..Default::default() });
+    tx.put_section(section);
 }
 
-fn pin(doc: &mut Doc, ids: &[ItemId]) -> Result<(), Refusal> {
-    ensure_pinned_section(doc);
+fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    ensure_pinned_section(tx);
     let mut moving = Vec::new();
     for id in ids {
-        let item = doc.item(id).ok_or(Refusal::UnknownItem)?;
+        let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
         if !(item.section == PINNED_SECTION_ID && item.parent.is_none()) {
             moving.push(id.clone());
         }
     }
-    place(doc, &moving, &Target::end(PINNED_SECTION_ID))
+    place(tx, &moving, &Target::end(PINNED_SECTION_ID))
 }
 
-fn unpin(doc: &mut Doc, ids: &[ItemId]) -> Result<(), Refusal> {
+fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     for id in ids {
-        let item = doc.item(id).ok_or(Refusal::UnknownItem)?;
-        let machine = doc.item_machine(item).ok_or(Refusal::NoMachine)?;
-        if doc
+        let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
+        let machine = tx.doc.item_machine(item).ok_or(Refusal::NoMachine)?;
+        if tx
+            .doc
             .section(&item.section)
             .is_some_and(|section| section.kind.machine() == Some(machine.as_str()))
         {
             continue;
         }
-        let section = ensure_machine_section(doc, &machine);
-        place(doc, std::slice::from_ref(id), &Target::end(&section))?;
+        let section = ensure_machine_section(tx, &machine);
+        place(tx, std::slice::from_ref(id), &Target::end(&section))?;
     }
     Ok(())
 }
 
-fn adopt(doc: &mut Doc, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<(), Refusal> {
+fn adopt(tx: &mut Tx, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<(), Refusal> {
     let mut adopted = Vec::new();
     for reference in refs {
-        if doc.workspace_item(reference).is_some() {
+        if tx.doc.workspace_item(reference).is_some() {
             continue;
         }
         // Resolve an item placed by workspace key before its id was known.
         if let Some(key) = reference.placement_ref()
-            && let Some(item) = doc.items.iter_mut().find(|item| {
-                item.body.workspace().is_some_and(|placed| {
-                    placed.session_id == reference.session_id && placed.placement_ref() == Some(key)
-                })
-            })
+            && let Some(id) =
+                tx.doc.placement_item(&reference.session_id, key).map(|item| item.id.clone())
         {
             let mut resolved = reference.clone();
             resolved.extra.remove("unresolved");
             resolved.extra.insert("workspace_ref".into(), key.into());
-            item.body = Body::Workspace { reference: resolved };
+            tx.edit_item(&id, |item| {
+                item.body = Body::Workspace { reference: resolved };
+                Ok(())
+            })?;
             continue;
         }
         let section = match to {
             Some(to) => to.section.clone(),
-            None => ensure_machine_section(doc, &reference.session_id),
+            None => ensure_machine_section(tx, &reference.session_id),
         };
         let item = Item::workspace(reference.clone(), &section);
-        if doc.item(&item.id).is_some() {
+        if tx.doc.item(&item.id).is_some() {
             continue;
         }
         let id = item.id.clone();
-        doc.items.push(item);
+        tx.put_item(item);
         if to.is_none() {
-            place(doc, std::slice::from_ref(&id), &Target::end(&section))?;
+            place(tx, std::slice::from_ref(&id), &Target::end(&section))?;
         }
         adopted.push(id);
     }
     if let Some(to) = to {
-        place(doc, &adopted, to)?;
+        place(tx, &adopted, to)?;
     }
     Ok(())
 }
 
-fn close(doc: &mut Doc, refs: &[WorkspaceRef]) {
+fn close(tx: &mut Tx, refs: &[WorkspaceRef]) {
     for reference in refs {
-        let Some(item) = doc.workspace_item(reference).cloned() else { continue };
-        let keeps = |doc: &Doc, section: &str| doc.section(section).is_some_and(|s| s.keeps_closed);
-        if keeps(doc, &item.section) {
+        let Some(item) = tx.doc.workspace_item(reference).cloned() else { continue };
+        if tx.doc.section(&item.section).is_some_and(|section| section.keeps_closed) {
             continue;
         }
-        doc.items.retain(|other| other.id != item.id);
+        tx.remove_item(&item.id);
         if let Some(parent) = &item.parent
-            && !doc.items.iter().any(|other| other.parent.as_ref() == Some(parent))
+            && tx.doc.list_len(&item.section, Some(parent.as_str())) == 0
+            && tx.doc.item(parent).is_some()
         {
-            doc.items.retain(|other| other.id != *parent);
+            tx.remove_item(parent);
         }
     }
 }
 
-fn update_item(doc: &mut Doc, id: &str, patch: &ItemPatch) -> Result<(), Refusal> {
-    let item = doc.item_mut(id).ok_or(Refusal::UnknownItem)?;
-    if let Some(shows_label) = patch.shows_label {
-        item.shows_label = shows_label;
-    }
-    if let Patch::Set(span) = patch.span {
-        validate_span(Some(span))?;
-    }
-    patch.span.apply(&mut item.span);
-    match &patch.label {
-        Patch::Keep => {}
-        Patch::Clear => {
-            item.extra.remove("label");
+fn update_item(tx: &mut Tx, id: &str, patch: &ItemPatch) -> Result<(), Refusal> {
+    tx.edit_item(id, |item| {
+        if let Some(shows_label) = patch.shows_label {
+            item.shows_label = shows_label;
         }
-        Patch::Set(label) => {
-            item.extra.insert("label".into(), label.clone().into());
+        if let Patch::Set(span) = patch.span {
+            validate_span(Some(span))?;
         }
-    }
-    if !patch.title.is_keep() {
-        let Body::Url { title, .. } = &mut item.body else { return Err(Refusal::InvalidValue) };
-        patch.title.apply(title);
-    }
-    Ok(())
+        patch.span.apply(&mut item.span);
+        match &patch.label {
+            Patch::Keep => {}
+            Patch::Clear => {
+                item.extra.remove("label");
+            }
+            Patch::Set(label) => {
+                item.extra.insert("label".into(), label.clone().into());
+            }
+        }
+        if !patch.title.is_keep() || !patch.icon_url.is_keep() {
+            let Body::Url { title, icon_url, .. } = &mut item.body else {
+                return Err(Refusal::InvalidValue);
+            };
+            patch.title.apply(title);
+            patch.icon_url.apply(icon_url);
+            if !patch.icon_url.is_keep() {
+                // The body field replaces an old client's extra copy.
+                item.extra.remove("icon_url");
+            }
+        }
+        Ok(())
+    })
 }
 
-fn add_section(doc: &mut Doc, section: &Section, place: &SectionPlace) -> Result<(), Refusal> {
-    if doc.section(&section.id).is_some() || doc.item(&section.id).is_some() {
+fn add_section(tx: &mut Tx, section: &Section, place: &SectionPlace) -> Result<(), Refusal> {
+    if tx.doc.section(&section.id).is_some() || tx.doc.item(&section.id).is_some() {
         return Err(Refusal::DuplicateId);
     }
     match &section.kind {
         SectionKind::Machine { session_id } => {
-            if doc.machine_section(session_id).is_some() {
+            if tx.doc.machine_section(session_id).is_some() {
                 return Err(Refusal::DuplicateRef);
             }
             if section.id != machine_section_id(session_id) {
@@ -810,25 +817,15 @@ fn add_section(doc: &mut Doc, section: &Section, place: &SectionPlace) -> Result
     if let Some(title) = &section.title {
         validate_title(title)?;
     }
-    validate_section_numbers(section.columns, section.max_rows)?;
+    validate_section_numbers(section)?;
     let mut section = section.clone();
-    place_section(doc, &mut section, place)?;
-    doc.sections.push(section);
+    place_section(tx, &mut section, place)?;
+    tx.put_section(section);
     Ok(())
 }
 
-fn validate_section_numbers(columns: Option<i64>, max_rows: Option<i64>) -> Result<(), Refusal> {
-    if columns.is_some_and(|c| !(1..=12).contains(&c))
-        || max_rows.is_some_and(|r| !(1..=50).contains(&r))
-    {
-        return Err(Refusal::InvalidValue);
-    }
-    Ok(())
-}
-
-fn update_section(doc: &mut Doc, id: &str, patch: &SectionPatch) -> Result<(), Refusal> {
-    let index = section_index(doc, id)?;
-    let section = &mut doc.sections[index];
+fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Refusal> {
+    let mut section = tx.doc.section(id).cloned().ok_or(Refusal::UnknownSection)?;
     if let Patch::Set(title) = &patch.title {
         validate_title(title)?;
     }
@@ -842,26 +839,45 @@ fn update_section(doc: &mut Doc, id: &str, patch: &SectionPatch) -> Result<(), R
     if let Some(arrangement) = &patch.arrangement {
         section.arrangement = arrangement.clone();
     }
+    if let Some(align) = &patch.align {
+        section.align = align.clone();
+    }
+    patch.gap.apply(&mut section.gap);
     patch.columns.apply(&mut section.columns);
     patch.max_rows.apply(&mut section.max_rows);
     patch.room.apply(&mut section.room);
     if let Some(keeps_closed) = patch.keeps_closed {
         section.keeps_closed = keeps_closed;
     }
-    validate_section_numbers(section.columns, section.max_rows)
+    if let Some(scroll) = patch.scroll {
+        section.scroll = scroll;
+    }
+    validate_section_numbers(&section)?;
+    if tx.doc.section(id) != Some(&section) {
+        tx.put_section(section);
+    }
+    Ok(())
 }
 
-/// Give `section` (not in `doc.sections`) its region and order key.
-fn place_section(
-    doc: &mut Doc,
+/// Give `section` its region and order key among the other sections of
+/// its region (renumbering them when no key fits). A scroll that is the
+/// old region's default (the user never changed it) follows the region.
+pub(super) fn place_section(
+    tx: &mut Tx,
     section: &mut Section,
     place: &SectionPlace,
 ) -> Result<(), Refusal> {
-    if let Some(region) = &place.region {
+    if let Some(region) = &place.region
+        && *region != section.region
+    {
+        if section.scroll == Scroll::default_for(&section.kind, &section.region) {
+            section.scroll = Scroll::default_for(&section.kind, region);
+        }
         section.region = region.clone();
     }
-    let mut siblings: Vec<(SectionId, String)> = doc
-        .sections
+    let mut siblings: Vec<(SectionId, String)> = tx
+        .doc
+        .sections()
         .iter()
         .filter(|s| s.region == section.region && s.id != section.id)
         .map(|s| (s.id.clone(), s.order.clone()))
@@ -890,31 +906,37 @@ fn place_section(
     for (id, key) in run.into_iter().zip(keys) {
         if id == section.id {
             section.order = key;
-        } else if let Some(existing) = doc.sections.iter_mut().find(|s| s.id == id) {
+        } else if let Some(mut existing) = tx.doc.section(&id).cloned() {
             existing.order = key;
+            tx.put_section(existing);
         }
     }
     Ok(())
 }
 
-fn remove_section(doc: &mut Doc, id: &str) -> Result<(), Refusal> {
-    let section = doc.section(id).ok_or(Refusal::UnknownSection)?;
+fn remove_section(tx: &mut Tx, id: &str) -> Result<(), Refusal> {
+    let section = tx.doc.section(id).ok_or(Refusal::UnknownSection)?;
     if section.kind.machine().is_some() {
         return Err(Refusal::MachineRequired);
     }
-    let top: Vec<ItemId> = doc.children(id, None).iter().map(|item| item.id.clone()).collect();
+    let top: Vec<ItemId> = tx.doc.list(id, None).map(|item| item.id.clone()).collect();
     for item_id in top {
-        let Some(item) = doc.item(&item_id) else { continue };
-        match doc.item_machine(item) {
+        let Some(item) = tx.doc.item(&item_id) else { continue };
+        match tx.doc.item_machine(item) {
             Some(machine) => {
-                let target = ensure_machine_section(doc, &machine);
-                place(doc, std::slice::from_ref(&item_id), &Target::end(&target))?;
+                let target = ensure_machine_section(tx, &machine);
+                place(tx, std::slice::from_ref(&item_id), &Target::end(&target))?;
             }
             None => {
-                doc.items.retain(|i| i.id != item_id && i.parent.as_deref() != Some(&item_id));
+                let children: Vec<ItemId> =
+                    tx.doc.list(id, Some(item_id.as_str())).map(|child| child.id.clone()).collect();
+                for child in children {
+                    tx.remove_item(&child);
+                }
+                tx.remove_item(&item_id);
             }
         }
     }
-    doc.sections.retain(|section| section.id != id);
+    tx.remove_section(id);
     Ok(())
 }

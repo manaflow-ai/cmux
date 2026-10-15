@@ -59,6 +59,7 @@ impl Mux {
         record: ConversationTabRecord,
         mutation: Option<&WorkspaceMutation>,
         size: Option<(u16, u16)>,
+        transaction: Option<&str>,
     ) -> anyhow::Result<ConversationTabOutcome> {
         record.validate()?;
         let key = mutation.map(|mutation| (mutation.origin.as_str(), mutation.id.as_str()));
@@ -121,10 +122,18 @@ impl Mux {
             self.reload_presentation(&registry)?;
         }
         mark_conversation_tabs_present();
-        let fields = Map::from_iter([(
+        let mut fields = Map::from_iter([(
             "frontend_browser_id".to_string(),
             Value::String(browser_id.as_str().to_string()),
         )]);
+        // The created tab's one `tab-added` carries the client's transaction
+        // (`conversation-tab-transaction-v1`); a replay above emits nothing.
+        if let Some(transaction) = transaction {
+            fields.insert(
+                FRONTEND_BROWSER_TRANSACTION_FIELD.to_string(),
+                Value::String(transaction.to_string()),
+            );
+        }
         let created = match target {
             ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields_as(
                 actor,
@@ -323,6 +332,6 @@ impl Mux {
         mutation: Option<&WorkspaceMutation>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<ConversationTabOutcome> {
-        self.new_conversation_tab_as(&Actor::Daemon, target, record, mutation, size)
+        self.new_conversation_tab_as(&Actor::Daemon, target, record, mutation, size, None)
     }
 }
