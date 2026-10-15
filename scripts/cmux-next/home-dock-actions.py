@@ -2,7 +2,7 @@
 """Tagged-app check of the docked Home's actions (cx-ebm.59.5, classic Home off).
 
 Home is the home workspace with the `home-dock` tab in a left dock (Messages by default; this check switches it
-to Channels first with home.switchView, home-dock-switch.py checks Messages). Through the app's
+to Channels first with home.switchView, home-channels-entry.py checks the two entries). Through the app's
 control socket only (`action.run`, no system input) it checks:
 - home.show shows Home and the sidebar's Home item is the selected item;
 - home.openConversation {conversation} is not refused: the docked page goes to
@@ -104,7 +104,8 @@ os.makedirs(os.path.join(CHIEF, "optchat"), exist_ok=True)
 os.makedirs(HOME, exist_ok=True)
 open(os.path.join(CHIEF, "optchat", "settings.json"), "w").write('{"backup": {"remote": false}}\n')
 open(os.path.join(CHIEF, "migration.json"), "w").write('{"status": "test home: nothing to import"}\n')
-open(os.path.join(SCRATCH, "cmux.json"), "w").write("{}")
+# Channels is off by default (cx-frn2y); this check uses both views.
+open(os.path.join(SCRATCH, "cmux.json"), "w").write('{"home": {"channelsEnabled": true}}')
 open(os.path.join(SCRATCH, "ghostty"), "w").write("")
 env = {k: v for k, v in os.environ.items() if k in ("USER", "LOGNAME", "TMPDIR", "SHELL", "LANG")}
 env.update({"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
