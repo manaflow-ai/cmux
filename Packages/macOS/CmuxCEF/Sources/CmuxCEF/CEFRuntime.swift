@@ -402,13 +402,19 @@ public final class CEFRuntime {
     public static let devToolsTimeout: Duration = .seconds(10)
 
     /// Runs a DevTools protocol method on browser `id` in process and returns
-    /// its JSON result.
+    /// its JSON result. A method the browser process answers itself
+    /// (`Emulation.setGeolocationOverride`, `Page.getNavigationHistory`)
+    /// replies inside `devToolsCall`, before the message id is returned;
+    /// `send` keeps that reply instead of waiting it out to the timeout.
     func devTools(_ id: Int32, method: String, paramsJSON: String, timeout: Duration) async throws -> String {
         guard let shim, state == .ready else { throw CEFError.browserClosed }
-        let message = shim.devToolsCall(id, method, paramsJSON)
-        guard message != 0 else { throw CEFError.browserClosed }
-        return try await devToolsCalls.reply(for: CEFDevToolsKey(browser: id, message: message), timeout: timeout) {
-            CEFError.timedOut("DevTools \(method) (\(timeout))")
+        return try await devToolsCalls.send(
+            timeout: timeout,
+            notStarted: CEFError.browserClosed,
+            timeoutError: { CEFError.timedOut("DevTools \(method) (\(timeout))") }
+        ) {
+            let message = shim.devToolsCall(id, method, paramsJSON)
+            return message == 0 ? nil : CEFDevToolsKey(browser: id, message: message)
         }
     }
 
