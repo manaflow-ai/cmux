@@ -87,6 +87,11 @@ extension BrowserPanel {
         _ reason: BrowserEngineUnavailableReason?,
         runtime: BrowserEngineRuntime
     ) -> BrowserEngineUnavailableReason? {
+#if DEBUG
+        if let reason {
+            cmuxDebugLog("browser.engine.fallback at_open reason=\(reason.code) detail=\(reason.detail ?? "")")
+        }
+#endif
         guard let reason, runtime.fallbackNotices.recordFallback(reason) else { return nil }
         return reason
     }

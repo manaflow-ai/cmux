@@ -6777,6 +6777,9 @@ extension BrowserPanel {
     func fallBackToWebKit(reason: BrowserEngineUnavailableReason) {
         guard enginePage != nil else { return }
         let url = currentURL
+#if DEBUG
+        cmuxDebugLog("browser.engine.fallback panel=\(id.uuidString.prefix(5)) reason=\(reason.code) detail=\(reason.detail ?? "")")
+#endif
         closeEnginePage()
         enginePage = nil
         engineFallbackReason = reason
