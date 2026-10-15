@@ -16,8 +16,11 @@ signed ad hoc, and runs it with a scratch HOME, so the old layout lives only und
          legacy-1..3 and its launch snapshot, and no `cmux-app-staging` state. Launch: the app
          must show legacy-1..3 (its daemon is the old one) and record the adopt marker. Relaunch:
          still the old session, and the last layout is drawn at once from its snapshot.
-  keep   the same old layout, but the channel's own session was used (a terminal workspace
-         own-1). Launch: the app must show own-1 and not the legacy workspaces; no marker.
+  keep   the same old layout, but the channel's own session was used (a workspace own-1).
+         Launch: the app must show own-1 and not the legacy workspaces; no marker.
+  late   a person who already opened a post-split build once (no remembered old snapshot, so
+         that launch starts the own session with its New Tab page). Next launch with the
+         remembered snapshot: the old session is adopted.
 
 Every daemon it starts it stops with the bundled `cmux-tui server stop --end-terminals`; the app
 quits through its control socket (`action.run quitKeepSessions`); only processes it started are
@@ -300,11 +303,44 @@ def keep(stage, root, failures):
         home.stop_all()
 
 
+def late(stage, root, failures):
+    """A person who already opened a post-split build once: its own session holds only the
+    launch's unused New Tab page. The next launch adopts the old session."""
+    home = Home(stage, root, "late")
+    try:
+        legacy = home.daemon("cmux-app", None, LEGACY)
+        app = App(home)  # no remembered old snapshot: no adopt, the own session starts
+        try:
+            app.wait_mark("workspace_content_shown", 60)
+            first = app.workspace_names()
+        finally:
+            app.quit()
+        own_state = os.path.join(home.support, f"cmux/tags/{CHANNEL}/tui")
+        bounded(lambda: glob.glob(os.path.join(own_state, f"cmux-app-{CHANNEL}-*", "launch-snapshot.json")), 60,
+                "the own session's launch snapshot")
+        print(f"  late launch 1 (own session): workspaces {sorted(n for n in first if n)}")
+        app = App(home, legacy)
+        try:
+            app.wait_mark("daemon_snapshot_loaded", 60)
+            names = app.workspace_names()
+        finally:
+            app.quit()
+        print(f"  late launch 2: workspaces {sorted(n for n in names if n)}")
+        if set(LEGACY) & first:
+            failures.append("late: launch 1 had no remembered old snapshot and must not adopt")
+        if not set(LEGACY) <= names or not os.path.exists(home.marker()):
+            failures.append("late: an own session with only its unused New Tab page must be adopted over")
+    finally:
+        home.stop_all()
+
+
 def main():
     for path in [CONTROL_SOCKET]:
         if os.path.exists(path):
             raise SystemExit(f"{path} exists: another staging app may run here; refusing")
-    root = tempfile.mkdtemp(prefix="legacy-adopt-", dir=os.environ.get("NX_JOB_DIR"))
+    # The staged copy lives inside the installed $NX_APP, so `$NX_APP_STOP` owns every helper it
+    # leaves (agent screen detection, hook clients) and ends them at the end; this script signals none.
+    root = tempfile.mkdtemp(prefix="legacy-adopt-", dir=os.path.join(os.environ["NX_APP"], "Contents"))
     stage = Stage(root)
     for name in ("cmux-app.sock", f"cmux-app-{CHANNEL}.sock"):
         found = glob.glob(os.path.join(stage.temp, "cmux-tui-*", name))
@@ -315,11 +351,13 @@ def main():
     # sun_path; the model router's client traps on a longer one (seen in a /Users/cmux/nx-jobs HOME).
     homes = tempfile.mkdtemp(prefix="lad-", dir="/tmp")
     try:
-        for scenario in (adopt, keep):
+        for scenario in (adopt, keep, late):
             print(f"== {scenario.__name__}")
             scenario(stage, homes, failures)
     finally:
         shutil.rmtree(homes, ignore_errors=True)
+        if os.environ.get("NX_APP_STOP"):
+            subprocess.run([os.environ["NX_APP_STOP"]], timeout=180)
     print("\nFAIL\n  " + "\n  ".join(failures) if failures else "\nPASS")
     sys.exit(1 if failures else 0)
 
