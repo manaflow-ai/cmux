@@ -47,7 +47,7 @@ export function ComposerQueue({
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
 }) {
-  // A row leaves as soon as it is removed or sent; it comes back only if acpmux kept it waiting.
+  // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<string>();
   // Rows opened to their whole text (a row shows two lines until it is opened).
@@ -104,7 +104,11 @@ export function ComposerQueue({
     else all[Math.max(0, index)]?.focus();
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
-  const sendNow = onChange && ((entry: QueuedEntry) => act(entry.id, () => onChange(entry.id, { op: "send_now" })));
+  // A prompt sent now stays in place: acpmux marks it next (`queue_order`), so its row reads
+  // Steering until it runs; to an agent that steers it leaves once acpmux takes it (`dequeued`).
+  // Hiding it as leaving showed nothing until the turn it stopped had ended (live run 2026-10-14).
+  const sendNow =
+    onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "send_now" }).catch(() => undefined));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =

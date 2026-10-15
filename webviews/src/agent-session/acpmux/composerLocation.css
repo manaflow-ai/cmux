@@ -10,8 +10,12 @@
    Queued prompts stack above it (.acpmux-composer-queue), never over it. A control is a plain text
    button (no bezel, no fill, no weight change); hover and an open menu lay the bar's own wash under
    it, and keyboard focus draws a ring in the theme's text color. */
-.acpmux-composer-strip {
+/* The strip's height is the composer's, so the card's rim can reach up around it (below). */
+.acpmux-composer,
+.nt-composer {
   --acpmux-strip-height: 30px;
+}
+.acpmux-composer-strip {
   position: relative;
   display: flex;
   align-items: stretch;
@@ -24,11 +28,7 @@
   border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0;
   /* The card's solid surface (composerStates.css), so the strip and the card are one fill. */
   background: var(--acpmux-composer-surface);
-  --acpmux-strip-edge: var(--acpmux-composer-edge);
-  box-shadow:
-    inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge),
-    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
-    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+  /* No rim of its own: the card's rim goes around the strip and the card as one (below). */
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
@@ -404,10 +404,11 @@
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons .acpmux-permission-deny { background: transparent; border: 0; color: var(--agent-muted); }
 
-/* The seam: under the strip the card draws its rim (--acpmux-card-ring, resting or focused) on a
-   layer that leaves out the stretch the strip stands on, so the strip and the card read as one
-   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it.
-   The card's top corners square off under the strip, whose own corners round the pair. */
+/* One rim around the strip and the card: the card draws its rim (--acpmux-card-ring, resting,
+   focused, shell or borders none) on a layer that reaches up over the strip, its top corners the
+   strip's radius. Two rims, the strip's and the card's, broke at the join (half a pixel of mask at
+   1x) and took two tones once the card had focus (live captures, 2026-10-14). The card's top
+   corners square off under the strip. */
 .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
 .nt-screen .nt-composer:has(.acpmux-composer-strip) .nt-box {
   border-top-left-radius: 0;
@@ -421,15 +422,13 @@
 .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  inset: calc(-1 * var(--acpmux-strip-height)) 0 0;
+  border-top-left-radius: var(--acpmux-strip-radius, 18px);
+  border-top-right-radius: var(--acpmux-strip-radius, 18px);
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
   box-shadow: var(--acpmux-card-ring);
   pointer-events: none;
-  --acpmux-seam: linear-gradient(#000 0 0) 50% 0 / calc(100% - 1px) 2px no-repeat;
-  -webkit-mask: linear-gradient(#000 0 0), var(--acpmux-seam);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0), var(--acpmux-seam);
-  mask-composite: exclude;
 }
 
 /* The strip's controls are the small ghost buttons, centered in its fixed height. */
@@ -443,9 +442,18 @@
 }
 .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   border-radius: 0;
-  box-shadow:
-    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
-    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+}
+/* Under the queue the rim's top edge gives way to the queue's sides: the rim leaves out its top
+   line, all but one hairline at each side (the mask keeps whole device pixels at 1x and 2x). */
+.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box::before {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  --acpmux-seam: linear-gradient(#000 0 0) 50% 0 / calc(100% - 2 * var(--cmux-hairline, .5px))
+    calc(2 * var(--cmux-hairline, .5px)) no-repeat;
+  -webkit-mask: linear-gradient(#000 0 0), var(--acpmux-seam);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0), var(--acpmux-seam);
+  mask-composite: exclude;
 }
 
 /* The folder popover (FolderPopover.tsx): a search field over the folders, then New Worktree, Add
