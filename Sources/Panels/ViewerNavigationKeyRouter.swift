@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 
 @MainActor
 final class ViewerNavigationKeyRouter {
@@ -35,6 +36,7 @@ final class ViewerNavigationKeyRouter {
     func handle(
         _ event: NSEvent,
         isAllowed: (KeyboardShortcutSettings.Action, NSEvent) -> Bool,
+        bindingIsAllowed: ((KeyboardShortcutSettings.Action, ShortcutWhenClause, NSEvent) -> Bool)? = nil,
         perform: (KeyboardShortcutSettings.Action) -> Void
     ) -> Bool {
         if let pendingChord {
@@ -45,7 +47,7 @@ final class ViewerNavigationKeyRouter {
                     guard shortcut.firstStroke == pendingChord.prefix,
                           let secondStroke = shortcut.secondStroke,
                           secondStroke.matches(event: event),
-                          isAllowed(action, event) else { continue }
+                          (bindingIsAllowed?(action, binding.whenClause, event) ?? isAllowed(action, event)) else { continue }
                     perform(action)
                     return true
                 }
@@ -54,7 +56,7 @@ final class ViewerNavigationKeyRouter {
 
         for (action, binding) in bindings where !binding.shortcut.isUnbound {
             let shortcut = binding.shortcut
-            guard isAllowed(action, event) else { continue }
+            guard bindingIsAllowed?(action, binding.whenClause, event) ?? isAllowed(action, event) else { continue }
             if shortcut.secondStroke != nil {
                 if shortcut.firstStroke.matches(event: event) {
                     pendingChord = (

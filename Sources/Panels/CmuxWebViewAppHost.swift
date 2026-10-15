@@ -155,6 +155,11 @@ private final class DiffViewerNavigationKeyRouterAdapter: CmuxWebViewNavigationK
     ) -> Bool {
         router.handle(event, isAllowed: { action, event in
             AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+        }, bindingIsAllowed: { action, clause, event in
+            guard let appDelegate = AppDelegate.shared else { return true }
+            return clause.evaluate(
+                appDelegate.shortcutWhenClauseContext(for: action, clause: clause, event: event)
+            )
         }, perform: { action in
             perform(CmuxWebViewNavigationKeyAction(
                 rawValue: action.rawValue,
