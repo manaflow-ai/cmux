@@ -4,6 +4,7 @@ import type {
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
+  AcpmuxOfferResult,
   AcpmuxBackgroundTask,
   AcpmuxPlanEntry,
   AcpmuxRow,
@@ -32,8 +33,8 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
-import { experimentArm } from "../../experiments/experiment";
-import { sessionOffer as sessionOfferExperiment } from "./offer/sessionOffer.experiment";
+import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
@@ -156,6 +157,8 @@ const OLDER_PAGE_BYTES = 256 * 1024;
 const SESSION_REREAD_MS = 2000;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
+const OFFER_RESULT_PROMPT = "offer-result-";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -609,6 +612,17 @@ export class AcpmuxDirectClient {
   >();
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
+  /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
+  private offerRows = new Map<string, string>();
+  /// Offers whose result prompt reached this chat (its user_message): a replayed `queued` record
+  /// of it draws no second line.
+  private receivedOffers = new Set<string>();
+  /// The chats started from this chat's offers, watched while they run for their rows' subtitles.
+  private readonly offerChildren = new OfferChildren(
+    (method, params) => this.request(method, params, 15000),
+    () => this.selectedSessionId,
+    (child) => this.childChanged(child),
+  );
   private sessions: Session[] = [];
   /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
   private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
@@ -850,6 +864,8 @@ export class AcpmuxDirectClient {
           return;
         }
         this.handoff.disconnect();
+        // acpmux drops a connection's attaches with it; the next attach watches them again.
+        this.offerChildren.reset(false);
         this.groupedPermissions.clear();
         this.permissions.disconnected();
         this.rejectPending();
@@ -946,6 +962,8 @@ export class AcpmuxDirectClient {
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(): void {
+    // The chats started from the chat before are no longer watched.
+    this.offerChildren.reset(this.socket?.readyState === WebSocket.OPEN);
     clearTimeout(this.stopTimer);
     this.stopGaveUp = false;
     this.stopAfterSeq = undefined;
@@ -975,6 +993,8 @@ export class AcpmuxDirectClient {
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
+    this.offerRows.clear();
+    this.receivedOffers.clear();
     this.toolRows.clear();
     this.planCalls.clear();
     this.planRow = undefined;
@@ -1039,6 +1059,9 @@ export class AcpmuxDirectClient {
     }
     const notification = message as Notification;
     if (notification.method === "_acpmux/event") {
+      // A chat started from an offer here, watched for its row (offer/offerChildren.ts).
+      const params = notification.params ?? {};
+      if (params.sessionId !== this.selectedSessionId && this.offerChildren.event(params)) return;
       this.observeClock(notification.params?.sessionId, notification.params?.at);
       this.apply(notification.params as EventRecord);
     } else if (notification.method === "session/update") {
@@ -1470,6 +1493,7 @@ export class AcpmuxDirectClient {
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = session.queue.map((entry) => ({ id: entry.promptId, prompt: entry.prompt }));
     }
+    if (this.offerChildIds().includes(session.sessionId)) this.childChanged(session.sessionId);
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
   }
@@ -1528,6 +1552,8 @@ export class AcpmuxDirectClient {
     this.streamingActivity = undefined;
     this.supersededMessageIds.clear();
     this.messageRows.clear();
+    this.offerRows.clear();
+    this.receivedOffers.clear();
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold();
@@ -1574,6 +1600,8 @@ export class AcpmuxDirectClient {
       this.queue = [...this.queue].sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size));
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
+      // A task's result waiting behind the turn draws its received line now (offer/SuggestedTasks.tsx).
+      if (this.queuedResult(msg, event.at)) return;
       if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
@@ -1649,26 +1677,11 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
       } else if (event.kind === "session_offer") {
-        // Off by default: with the experiment off an offer draws nothing (offer/OfferChip.tsx).
-        const offer = experimentArm(sessionOfferExperiment) === "on" ? sessionOffer(msg) : undefined;
-        if (!offer) return;
-        this.endAssistantSegment();
-        this.streamingActivity = undefined;
-        const id = `offer-${offer.offerId}`;
-        this.rows.set(id, {
-          id,
-          version: (this.rows.get(id)?.version ?? 0) + 1,
-          at: event.at,
-          kind: "sessionOffer",
-          offer,
-        });
+        // Off by default: off, an offer draws nothing (offer/offersShown.ts).
+        const offer = offersShown() ? sessionOffer(msg) : undefined;
+        if (offer) this.addOffer(offer, event.at);
       } else if (event.kind === "session_offer_decision") {
-        const id = `offer-${String(msg.offerId ?? "")}`;
-        const row = this.rows.get(id);
-        const outcome = msg.outcome === "accepted" || msg.outcome === "dismissed" ? msg.outcome : undefined;
-        if (!row?.offer || !outcome) return;
-        const child = typeof msg.childSessionId === "string" ? { childSessionId: msg.childSessionId } : {};
-        this.rows.set(id, { ...row, version: row.version + 1, offer: { ...row.offer, outcome, ...child } });
+        this.answerOffer(msg);
       } else if (event.kind === "user_message") {
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
@@ -1698,12 +1711,17 @@ export class AcpmuxDirectClient {
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
+        const received = offersShown() ? offerResult(msg) : undefined;
+        // Its queued line, if the result waited, gives way to this prompt's.
+        if (received) this.rows.delete(`received-${received.offerId}`);
+        if (received) this.receivedOffers.add(received.offerId);
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
           at: event.at,
           kind: "user",
           text: String(msg.text ?? ""),
+          ...(received ? { received } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
@@ -2017,7 +2035,7 @@ export class AcpmuxDirectClient {
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,
-      queue: this.queue,
+      queue: this.shownQueue(),
       permission: this.pendingPermission,
       secret: this.pendingSecret,
       catalog: [],
@@ -2316,9 +2334,37 @@ export class AcpmuxDirectClient {
   async markSide(sessionId: string, chat: string): Promise<void> {
     await this.request("_acpmux/side", { sessionId, chat });
   }
-  /// The shown chat's offer `offerId` (cx-807da), while its chip is drawn.
+  /// The shown chat's offer `offerId` (cx-807da), while its card is drawn.
   offer(offerId: string): AcpmuxSessionOffer | undefined {
-    return this.rows.get(`offer-${offerId}`)?.offer;
+    const row = this.rows.get(this.offerRows.get(offerId) ?? "");
+    return row?.offers?.find((offer) => offer.offerId === offerId);
+  }
+  /// A `queued` record of a task's result (acpmux queues it when the chat is busy and its agent
+  /// does not steer): one received line in the thread, never a queued prompt. False for others.
+  private queuedResult(msg: any, at: number): boolean {
+    const received = offersShown() ? offerResult(msg) : undefined;
+    if (!received) return false;
+    const id = `received-${received.offerId}`;
+    if (!this.receivedOffers.has(received.offerId) && !this.rows.has(id))
+      this.rows.set(id, { id, version: 1, at, kind: OFFER_RESULT, text: String(msg.text ?? ""), received });
+    return true;
+  }
+  /// The queue the composer shows: a task's result waiting there draws as its received line instead.
+  private shownQueue(): { id: string; prompt: string }[] {
+    if (!offersShown()) return this.queue;
+    const shown = this.queue.filter((entry) => !entry.id.startsWith(OFFER_RESULT_PROMPT));
+    return shown.length === this.queue.length ? this.queue : shown;
+  }
+  /// The `agent.suggestedTasks` Debug toggle turned on or off: offers draw or go at once.
+  suggestedTasksChanged(): void {
+    if (!this.selectedSessionId || this.events.length === 0) return;
+    this.rebuildKeepingLiveState();
+    this.emit();
+  }
+  /// Do it here on an offer (cx-lo9yf): acpmux records it answered `here`; the caller then sends
+  /// the offer's prompt to this chat as the person's own.
+  async offerHere(sessionId: string, offerId: string): Promise<void> {
+    await this.request("_acpmux/offer_respond", { sessionId, offerId, outcome: "here" });
   }
   /// Dismiss on an offer's chip: acpmux records the answer, and its record closes the chip.
   async dismissOffer(sessionId: string, offerId: string): Promise<void> {
@@ -2349,23 +2395,85 @@ export class AcpmuxDirectClient {
     return String(child);
   }
   /// Sends `text` to chat `sessionId`, which this pane does not show. acpmux attaches a prompt's
-  /// sender to its chat, as a viewer, which would mark its turn seen: attached hidden first, the
-  /// prompt adds nothing, and the attach ends with the turn (unless the pane shows it by then).
+  /// sender to its chat, as a viewer, which would mark its turn seen: attached hidden first (for
+  /// the tool calls its started row shows), the prompt adds nothing, and the attach ends with the
+  /// turn (unless the pane shows it by then).
   private async promptUnseen(sessionId: string, text: string): Promise<void> {
-    try {
-      await this.request("_acpmux/attach", { sessionId, limit: 0, kinds: [], visible: false });
-      // The reply comes when the turn ends; the chat shows how it goes.
-      await this.request("session/prompt", {
-        sessionId,
-        prompt: promptBlocks(text, []),
-        _meta: { acpmux: { promptId: crypto.randomUUID() } },
-      });
-    } catch {
+    await this.offerChildren
+      .prompting(sessionId, () =>
+        // The reply comes when the turn ends; the chat shows how it goes.
+        this.request("session/prompt", {
+          sessionId,
+          prompt: promptBlocks(text, []),
+          _meta: { acpmux: { promptId: crypto.randomUUID() } },
+        }),
+      )
       // A prompt acpmux refused shows in the chat itself.
-    } finally {
-      if (this.selectedSessionId !== sessionId)
-        void this.request("_acpmux/detach", { sessionId }).catch(() => undefined);
+      .catch(() => undefined);
+  }
+  /// An offer the reducer draws: offers of one group share one card, in the order they came.
+  private addOffer(offer: AcpmuxSessionOffer, at: number): void {
+    const id = offer.groupId ? `offers-${offer.groupId}` : `offer-${offer.offerId}`;
+    const row = this.rows.get(id);
+    if (!row) {
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
     }
+    const offers = [...(row?.offers ?? []).filter((item) => item.offerId !== offer.offerId), offer];
+    this.offerRows.set(offer.offerId, id);
+    this.rows.set(id, { id, version: (row?.version ?? 0) + 1, at: row?.at ?? at, kind: "sessionOffer", offers });
+  }
+  /// A `session_offer_decision`: the offer's task is started, dismissed or done here.
+  private answerOffer(msg: any): void {
+    const offerId = String(msg.offerId ?? "");
+    const id = this.offerRows.get(offerId);
+    const row = id ? this.rows.get(id) : undefined;
+    const outcome = ["accepted", "dismissed", "here"].includes(msg.outcome) ? msg.outcome : undefined;
+    if (!id || !row?.offers || !outcome) return;
+    const child = typeof msg.childSessionId === "string" ? { childSessionId: msg.childSessionId } : {};
+    const offers = row.offers.map((offer) =>
+      offer.offerId === offerId ? this.liveOffer({ ...offer, outcome, ...child }) : offer,
+    );
+    this.rows.set(id, { ...row, version: row.version + 1, offers });
+    this.watchOfferChildren();
+  }
+  /// A started offer with its chat's status and latest tool call, as its row shows them.
+  private liveOffer(offer: AcpmuxSessionOffer): AcpmuxSessionOffer {
+    const { childStatus: _status, activity: _activity, ...rest } = offer;
+    const child = rest.outcome === "accepted" ? rest.childSessionId : undefined;
+    if (!child) return rest;
+    const status = this.sessions.find((session) => session.sessionId === child)?.status;
+    const activity = this.offerChildren.activity(child);
+    return {
+      ...rest,
+      ...(typeof status === "string" ? { childStatus: status } : {}),
+      ...(activity ? { activity } : {}),
+    };
+  }
+  /// The chats started from the shown chat's offers.
+  private offerChildIds(): string[] {
+    return [...new Set(this.offerRows.values())].flatMap(
+      (id) => this.rows.get(id)?.offers?.flatMap((offer) => (offer.childSessionId ? [offer.childSessionId] : [])) ?? [],
+    );
+  }
+  /// Attaches to the started chats that run, for their rows' subtitles (offer/offerChildren.ts).
+  private watchOfferChildren(): void {
+    this.offerChildren.want(
+      this.offerChildIds().map((child) => ({
+        child,
+        status: this.sessions.find((session) => session.sessionId === child)?.status,
+      })),
+    );
+  }
+  /// Chat `child`, started from an offer here, changed: its row redraws.
+  private childChanged(child: string): void {
+    for (const id of new Set(this.offerRows.values())) {
+      const row = this.rows.get(id);
+      if (!row?.offers?.some((offer) => offer.childSessionId === child)) continue;
+      this.rows.set(id, { ...row, version: row.version + 1, offers: row.offers.map((offer) => this.liveOffer(offer)) });
+    }
+    this.watchOfferChildren();
+    this.emitInFrame("offer child");
   }
   /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
@@ -2999,7 +3107,19 @@ function sessionOffer(msg: any): AcpmuxSessionOffer | undefined {
     worktree: msg.worktree === true,
     ...(field("harness") ? { harness: field("harness") } : {}),
     ...(field("model") ? { model: field("model") } : {}),
+    ...(field("groupId") ? { groupId: field("groupId") } : {}),
   };
+}
+
+/// The started offer a `user_message` brings the result of (`_meta.provenance`, kind
+/// `offer_result`), or undefined for any other prompt.
+function offerResult(msg: any): AcpmuxOfferResult | undefined {
+  const provenance = msg?._meta?.provenance;
+  if (provenance?.kind !== "offer_result") return undefined;
+  const [offerId, childSessionId, title] = [provenance.offerId, provenance.childSessionId, provenance.title];
+  if (typeof offerId !== "string" || typeof childSessionId !== "string" || typeof title !== "string" || !title)
+    return undefined;
+  return { offerId, childSessionId, title };
 }
 
 function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {
