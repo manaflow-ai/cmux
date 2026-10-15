@@ -238,6 +238,29 @@ import Testing
         #expect(page.placeholderColor == GhosttyBackgroundTheme.currentColor())
     }
 
+    @Test func automationHistoryStepsExactlyOneChromiumEntry() throws {
+        let history = Data("""
+        {"currentIndex": 3, "entries": [{"id": 10}, {"id": 11}, {"id": 12}, {"id": 13}, {"id": 14}]}
+        """.utf8)
+        #expect(BrowserPanel.historyEntryID(in: history, offset: -1) == 12)
+        #expect(BrowserPanel.historyEntryID(in: history, offset: 1) == 14)
+        #expect(BrowserPanel.historyEntryID(in: history, offset: 2) == nil)
+        #expect(BrowserPanel.historyEntryID(in: Data("{}".utf8), offset: -1) == nil)
+    }
+
+    @Test func personBackUsesTheEnginesOwnBack() throws {
+        let provider = FakeChromiumProvider()
+        provider.initialState = BrowserPageState(url: URL(string: "https://example.com/"), canGoBack: true)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        panel.goBack(dialogOwner: .user)
+        #expect(try #require(provider.pages.first).backCount == 1)
+    }
+
     @Test func closingTheChromiumPanelClosesItsPage() {
         let provider = FakeChromiumProvider()
         let panel = BrowserPanel(

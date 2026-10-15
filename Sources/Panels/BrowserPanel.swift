@@ -6804,7 +6804,7 @@ extension BrowserPanel {
     func goBack(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoBack else { return }
-        if let enginePage { enginePage.goBack(); return }
+        if let enginePage { goEngineHistory(enginePage, offset: -1, dialogOwner: dialogOwner); return }
         cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6845,7 +6845,7 @@ extension BrowserPanel {
     func goForward(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoForward else { return }
-        if let enginePage { enginePage.goForward(); return }
+        if let enginePage { goEngineHistory(enginePage, offset: 1, dialogOwner: dialogOwner); return }
         cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
