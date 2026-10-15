@@ -17,7 +17,8 @@ use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
 use crate::state::closed_history_query::{
-    closed_record, keep_members, newest_for_window, remove_closed,
+    closed_page, closed_record, keep_members, newest_for_window, public_item, remove_closed,
+    remove_other_closes,
 };
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::conversation_tabs::ConversationTabTarget;
@@ -140,8 +141,15 @@ fn commit_reopen(
     let tab_group = ["tab_group", "screen_group"]
         .iter()
         .any(|field| record.get(*field).is_some_and(Value::is_object));
+    // A page reopened is open again: every other close of it leaves with this one, so none
+    // takes its Recently Closed row or reopens it a second time (Leo 2026-10-14).
+    let page = if tab_group { None } else { closed_page(&public_item(&record)).map(str::to_owned) };
+    let mut others = Vec::new();
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
+        if let Some(page) = &page {
+            others = remove_other_closes(transaction, page)?;
+        }
         state_delete("closed", closed_id)
     } else {
         state_upsert("closed", closed_id, keep_members(transaction, closed_id, record, keep)?)
@@ -160,6 +168,7 @@ fn commit_reopen(
         })
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
+    changes.extend(others);
     let room_restored = match &room {
         Some(room) => {
             let local = crate::state::values::local_registry_id(transaction)?;
