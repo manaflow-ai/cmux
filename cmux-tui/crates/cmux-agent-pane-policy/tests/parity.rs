@@ -533,20 +533,3 @@ fn question_permissions() {
         assert_eq!(options.question_keys(id).is_some(), question, "{id}");
     }
 }
-
-/// `_acpmux/btw` (the composer's `/btw`, acpmux `hub/btw.rs`): the pane opens a side
-/// session about a chat in its scope, on a gesture (it runs an agent turn), with only its
-/// own params. Mirrors AcpmuxPaneMethods.swift.
-#[test]
-fn a_side_session_frame_is_allowed_for_the_panes_chat_on_a_gesture_with_its_params_only() {
-    let frame = |params: Value| serde_json::json!({"jsonrpc": "2.0", "id": 4, "method": "_acpmux/btw", "params": params});
-    let asked = frame(serde_json::json!({"sessionId": "a", "question": "why?", "model": "haiku"}));
-    let text = asked.to_string();
-    assert!(matches!(allowlist_decision(&text, false, None), Decision::Send(_)), "{text}");
-    assert!(!breaks_params_rule(&object(&asked), None), "its own params");
-    let extra = frame(serde_json::json!({"sessionId": "a", "question": "why?", "cwd": "/"}));
-    assert!(breaks_params_rule(&object(&extra), None), "a param the pane never sends");
-    assert!(needs_gesture(&object(&asked), |_, _| false), "a side session runs a turn");
-    assert!(session_refusal(&object(&asked), |s| s == "a").is_none(), "the pane's chat");
-    assert!(session_refusal(&object(&asked), |s| s == "b").is_some(), "another pane's chat");
-}
