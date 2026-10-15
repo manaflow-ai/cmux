@@ -138,7 +138,7 @@ struct TerminalDemoDriver {
             mark("probe \(label) " + (model.controller?.debugRowProbe ?? "-"))
         }
         probe("intro")
-        for (label, command, seconds) in [("stream600", "stream 600 0", 6.0), ("clear", "clear", 2.0), ("stream30", "stream 30 0", 2.0),
+        for (label, command, seconds) in [("stream600", "stream 600 0", 6.0), ("clear", "clear", 20.0), ("stream30", "stream 30 0", 2.0),
                                           ("clear2", "clear", 2.0), ("stream3000", "stream 3000 0", 20.0)] {
             model.composerText = command
             model.send()
