@@ -65,6 +65,13 @@ public struct BrowserChromiumProfileStorage: Hashable, Sendable {
         return id
     }
 
+    /// cmux's remembered permission answers for a profile
+    /// (``BrowserSitePermissionStore``), inside the profile's store so
+    /// deleting the store deletes them.
+    public func sitePermissionsFile(forProfileID profileID: UUID) -> URL {
+        cachePath(forProfileID: profileID).appendingPathComponent(BrowserSitePermissionStore.fileName, isDirectory: false)
+    }
+
     /// Chromium's log file under the root.
     public var logFile: URL { root.appendingPathComponent("cef.log", isDirectory: false) }
 
