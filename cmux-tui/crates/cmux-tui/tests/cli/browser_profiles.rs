@@ -269,3 +269,113 @@ fn agents_list_create_and_open_browser_profiles_through_mcp_and_the_cli() {
     );
     assert!(error.contains("url"), "{error}");
 }
+
+/// The frontend tab record and its pane's active tab, from the raw tree.
+fn tab_record(server: &HeadlessServer, tab: &str) -> (serde_json::Value, String, bool) {
+    let tree = raw_json(server, serde_json::json!({"id": "tree", "cmd": "list-workspaces"}));
+    for workspace in tree["workspaces"].as_array().into_iter().flatten() {
+        for screen in workspace["screens"].as_array().into_iter().flatten() {
+            for pane in screen["panes"].as_array().into_iter().flatten() {
+                let tabs = pane["tabs"].as_array().cloned().unwrap_or_default();
+                if let Some(record) = tabs.iter().find(|row| row["tab_resource_id"] == tab) {
+                    let active = pane["active_tab"].as_u64().and_then(|i| tabs.get(i as usize));
+                    let selected = active.is_some_and(|row| row["tab_resource_id"] == tab);
+                    return (record.clone(), text(pane.get("resource_id")), selected);
+                }
+            }
+        }
+    }
+    panic!("no tab {tab} in {tree}");
+}
+
+/// cx-2kl68 review: a retry with the same idempotency key answers the same
+/// profile and the same tab; another key makes another profile; any key the
+/// envelope accepts works for open (128 bytes too); open honors an explicit
+/// pane and background; with no engine the tab opens in the person's
+/// `browser.defaultEngine` (chromium is the cef engine).
+#[test]
+fn agents_retry_browser_profile_create_and_open_with_their_keys_through_mcp() {
+    let config = unique_temp_dir("browser-profiles-keys-config");
+    fs::create_dir_all(&config).unwrap();
+    let settings = config.join("cmux-next.json");
+    fs::write(&settings, r#"{"browser": {"defaultEngine": "chromium"}}"#).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "browser-profiles-keys",
+        None,
+        None,
+        &[("CMUX_NEXT_CONFIG_FILE", settings.to_str().unwrap())],
+    );
+    let created = mcp_calls(
+        &server,
+        &[
+            (
+                "browser_profile_create",
+                serde_json::json!({"name": "Work", "idempotency_key": "k1"}),
+            ),
+            (
+                "browser_profile_create",
+                serde_json::json!({"name": "Work", "idempotency_key": "k1"}),
+            ),
+            (
+                "browser_profile_create",
+                serde_json::json!({"name": "Work", "idempotency_key": "k2"}),
+            ),
+        ],
+    );
+    for (index, result) in created.iter().enumerate() {
+        assert_eq!(result["isError"], false, "create {index}: {result}");
+    }
+    let id = |index: usize| text(find(&created[index]["structuredContent"], "id"));
+    assert_eq!(id(0).len(), 36, "{}", created[0]);
+    assert_eq!(id(1), id(0), "a retry made another profile: {}", created[1]);
+    assert_ne!(id(2), id(0), "another key found the first profile: {}", created[2]);
+    let work = id(0);
+
+    let pane = text(find(&ok(&server, &["pane", "list"]), "id"));
+    assert!(pane.starts_with("pane_"), "{pane}");
+    let long_key = "k".repeat(128);
+    let open = serde_json::json!({"url": "https://example.com/keys", "profile": work,
+        "pane": pane, "activate": false, "idempotency_key": long_key});
+    let opened = mcp_calls(
+        &server,
+        &[("browser_profile_open", open.clone()), ("browser_profile_open", open)],
+    );
+    for (index, result) in opened.iter().enumerate() {
+        assert_eq!(result["isError"], false, "open {index}: {result}");
+    }
+    let tab = text(find(&opened[0]["structuredContent"], "tab_id"));
+    assert!(tab.starts_with("tab_"), "{}", opened[0]);
+    assert_eq!(text(find(&opened[1]["structuredContent"], "tab_id")), tab, "{}", opened[1]);
+    let (record, in_pane, selected) = tab_record(&server, &tab);
+    assert_eq!(in_pane, pane, "{record}");
+    assert!(!selected, "activate false selected the tab: {record}");
+    assert_eq!(record["browser_profile_id"], work.as_str(), "{record}");
+    assert_eq!(
+        record["browser_engine"], "cef",
+        "the default engine is not the setting's: {record}"
+    );
+
+    // The CLI's --pane and --background send the same fields.
+    let cli = ok(
+        &server,
+        &[
+            "browser",
+            "profile",
+            "open",
+            "https://example.org/keys",
+            "--profile",
+            &work,
+            "--pane",
+            &pane,
+            "--background",
+            "true",
+            "--engine",
+            "webkit",
+        ],
+    );
+    let second = text(find(&cli, "tab_id"));
+    let (record, in_pane, selected) = tab_record(&server, &second);
+    assert_eq!(in_pane, pane, "{record}");
+    assert!(!selected, "--background true selected the tab: {record}");
+    assert_eq!(record["browser_engine"], "webkit", "{record}");
+}
