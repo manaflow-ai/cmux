@@ -94,8 +94,9 @@ extension SidebarListView {
             drag.lastY = point.y
         }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
-        let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-        let resolved = drag.resolve(card: card, displayed: displayed, base: base, sections: model.sections, ungroupedFirst: model.ungroupedFirst)
+        let sections = listSections // the held rows as shown (`SidebarRowHold`)
+        let base = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))
+        let resolved = drag.resolve(card: card, displayed: displayed, base: base, sections: sections, ungroupedFirst: model.ungroupedFirst)
         guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
         guard target != drag.target else { return }
         drag.target = target
@@ -152,7 +153,7 @@ extension SidebarListView {
         if drag.docGeometry == nil {
             drag.geometryRevision = model.sectionsRevision
             drag.blockBases = blockBases()
-            let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
+            let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
@@ -280,6 +281,8 @@ extension SidebarListView {
             drag.heldKeys = []
         }
         updateHover()
+        // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
+        releaseRowHold()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
     }
 

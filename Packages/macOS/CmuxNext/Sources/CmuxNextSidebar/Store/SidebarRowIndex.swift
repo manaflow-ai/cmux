@@ -95,6 +95,10 @@ extension SidebarListView {
     /// unread total, and its tab rows) is configured again. Only a row whose
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
+        // A drag, its settle or its landing runs: the rows keep their look until the card is gone (`SidebarRowHold`).
+        if holdsRowPatches { return holdRowPatches(patched) }
+        // Rows still held after the hold ended (its card went without a landing): they apply with these.
+        if !rowHold.isEmpty { return releaseRowHold(adding: patched) }
         SidebarPerfCounters.add(.rowPatches, patched.count)
         // A height change lays the list out again (outside the timed patch: `reload` times itself);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).

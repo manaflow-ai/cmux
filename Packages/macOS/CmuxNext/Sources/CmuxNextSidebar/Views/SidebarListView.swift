@@ -58,6 +58,8 @@ final class SidebarListView: NSView {
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by start time.
+    /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
+    var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
@@ -189,12 +191,14 @@ final class SidebarListView: NSView {
     /// Recomputes layout from the model and animates rows to their frames.
     func reload(animated: Bool, adopt: Bool = false) {
         SidebarPerfCounters.add(.listReloads)
+        // No drag holds the rows: this reload shows every held patch (the model has them).
+        if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
         tabs = [:]
         groups = [:]
         sections = [:]
         listItems = [:]
-        for section in model.sections {
+        for section in listSections {
             sections[section.id] = section
             for node in section.nodes {
                 switch node {

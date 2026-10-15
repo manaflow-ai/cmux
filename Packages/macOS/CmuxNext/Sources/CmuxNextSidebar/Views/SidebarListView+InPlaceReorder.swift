@@ -19,9 +19,9 @@ extension SidebarListView {
         // Held over the band: the list without the dragged rows (the pin drop's outcome, cx-odqn).
         // A tile has no list row to move: the list opens its gap (`options`).
         guard let drag, drag.pinTarget == nil, drag.tileSource == nil, let position = shownPosition else {
-            return SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true))
+            return SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: true))
         }
-        var sections = model.sections
+        var sections = listSections
         switch drag.payload {
         case let .workspaces(ids): SidebarEdits.apply(.reorder(ids, to: position), to: &sections) // a group's index counts member rows
         case let .group(group): SidebarEdits.apply(.reorderGroup(group, index: position.index), to: &sections)
