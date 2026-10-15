@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607. */
+/* cmux-tui mux protocol 12, IR a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607" as const;
+export const SDK_IR_SHA256 = "a222d748908a6012af9f50336ab0d0b4d5c07503e5c563fd88239e8647624fd7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2303,6 +2303,10 @@ export const COMMAND_METADATA = {
         "since": 7,
         "capability": null
       },
+      "expected_name_revision": {
+        "since": 12,
+        "capability": "workspace-name-source-v1"
+      },
       "expected_revision": {
         "since": 7,
         "capability": null
@@ -2318,6 +2322,14 @@ export const COMMAND_METADATA = {
       "origin": {
         "since": 7,
         "capability": null
+      },
+      "release": {
+        "since": 12,
+        "capability": "workspace-name-source-v1"
+      },
+      "source": {
+        "since": 12,
+        "capability": "workspace-name-source-v1"
       }
     },
     "stream": null,
@@ -7855,6 +7867,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "NameSource": {
+    "kind": "enum",
+    "values": [
+      "user",
+      "auto"
+    ]
+  },
   "NewRowResult": {
     "additional_properties": false,
     "fields": {
@@ -12842,6 +12861,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "name_revision": {
+        "capability": "workspace-name-source-v1",
+        "constraints": [
+          {
+            "format": "decimal uint64"
+          }
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name_source": {
+        "capability": "workspace-name-source-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "NameSource"
         }
       },
       "screens": {
@@ -22598,7 +22642,9 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "At least one of workspace and key must be supplied; both must identify the same workspace when supplied.",
-        "origin and mutation_id are either both present or both absent."
+        "origin and mutation_id are either both present or both absent.",
+        "source auto requires expected_generation and expected_name_revision unless release is true.",
+        "release requires source auto."
       ],
       "fields": {
         "expected_generation": {
@@ -22606,6 +22652,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "nullable": true,
           "presence": "optional",
           "since": 7,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_name_revision": {
+          "capability": "workspace-name-source-v1",
+          "constraints": [
+            {
+              "format": "decimal uint64"
+            }
+          ],
+          "default": null,
+          "description": "The workspace name_revision the caller read; a rename since then fails.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "string"
@@ -22666,6 +22729,30 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "release": {
+          "capability": "workspace-name-source-v1",
+          "default": false,
+          "description": "With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed.",
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "source": {
+          "capability": "workspace-name-source-v1",
+          "default": null,
+          "description": "Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "NameSource"
           }
         },
         "workspace": {

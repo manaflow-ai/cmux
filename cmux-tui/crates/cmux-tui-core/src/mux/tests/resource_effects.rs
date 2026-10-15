@@ -469,6 +469,8 @@ fn resource_large_workspace_mutations_are_targeted_and_query_bounded() {
                 public_id: public_id.clone(),
                 key: key.clone(),
                 name: name.clone(),
+                name_source: Default::default(),
+                name_revision: 0,
                 group_key: mux.session.clone(),
             },
             position: index,
@@ -479,6 +481,8 @@ fn resource_large_workspace_mutations_are_targeted_and_query_bounded() {
             public_id: public_id.clone(),
             key,
             name,
+            name_source: Default::default(),
+            name_revision: 0,
             screens: Vec::new(),
             active_screen: 0,
         });
