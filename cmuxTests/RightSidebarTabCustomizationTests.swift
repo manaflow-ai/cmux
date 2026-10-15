@@ -63,6 +63,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testAvailableCustomSidebarIsVisibleAndGetsPositionalShortcut() {
+        enableAllModeGates()
         enableCustomSidebar()
 
         XCTAssertEqual(
