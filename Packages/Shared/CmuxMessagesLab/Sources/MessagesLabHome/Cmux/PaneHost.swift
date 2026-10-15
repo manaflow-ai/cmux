@@ -402,6 +402,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.paneHeader.title = store.state.conversation.title
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
+        if window != nil, !Self.noFocus { HomeKeyState.shared.register(demo) }  // the app-wide key palette counts it (cx-4o3vq)
         // A window on a display of another scale than the one the view was made at (MessagesLab 258b385).
         followWindowScale()
         host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
@@ -457,12 +458,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         observers = []
         // The flight recorder follows the pane's window (before the window view exists, too).
         FlightRecorder.shared.attach(self)
-        guard let window, let demo else { return }
+        // The key-window palette is app-wide (HomeKeyState, cx-4o3vq): a pane never sets it from its own window.
+        guard let window, let demo else { if !Self.noFocus { HomeKeyState.shared.apply() }; return }
         let nc = NotificationCenter.default
         if !Self.noFocus {
-            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(false) })
-            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(true) })
-            demo.setInactive(!window.isKeyWindow)
+            HomeKeyState.shared.register(demo)
         } else {
             demo.setInactive(!Self.args.contains("--active"))
         }
