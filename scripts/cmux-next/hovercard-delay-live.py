@@ -229,16 +229,17 @@ def cancel(kind, point, delay_ms):
     check(seen is None, f"{kind}: leaving before the delay cancels the card (shown: {seen})")
 
 
-def quick_return(kind, first, second, delay_ms):
+def quick_return(kind, first, second, delay_ms, away):
     shown = cold(kind + " quick return", first, delay_ms)
     if not shown:
         return
     # The card lingers 200 ms after the pointer leaves (cardGrace), then hides; for 300 ms after
-    # that (Chrome's kShowWithoutDelayTimeBuffer) a new hover shows at once. Return at ~270 ms.
-    left = time.monotonic()
-    move(None)
-    time.sleep(max(0.0, 0.27 - (time.monotonic() - left)))
-    phase = cards().get("phase", "")
+    # that (Chrome's kShowWithoutDelayTimeBuffer) a new hover shows at once. `away` leaves away
+    # from the card (a path toward the card would hold it: the safe triangle). Return as soon as
+    # the card has gone.
+    move(away)
+    phase = quiet_wait(lambda: (lambda p: p if p.startswith("grace") else None)(cards().get("phase", "")), 1.0, step=0.01) \
+        or cards().get("phase", "")
     start = time.monotonic()
     move(second)
     back = quiet_wait(showing, 1.0, step=0.02)
@@ -342,7 +343,10 @@ try:
             shot("tab-card")
         warm(kind, points[1][1], first)
         cancel(kind, points[0][1], 1300)
-        quick_return(kind, points[0][1], points[1][1], 1300)
+        # Away from the card: left of a row (the card opens right of the sidebar), above a tab
+        # (its card opens below it), both still inside the window.
+        away = [3, points[0][1][1]] if kind == "rows" else [points[0][1][0], 2]
+        quick_return(kind, points[0][1], points[1][1], 1300, away)
     if rows:
         held_button(rows[0][1])
 
