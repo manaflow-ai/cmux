@@ -180,10 +180,11 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     // The section's title, with its live count, opens the tab.
     await panel(page).getByRole("heading", { name: "Subagents · 1 running" }).waitFor({ timeout: 5_000 });
     await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
-    const tabs = panel(page).getByRole("tablist");
+    const tabs = panel(page).locator(".acpmux-summary-tabs");
+    const tab = (name: string) => tabs.getByRole("button", { name, exact: true });
     await tabs.waitFor({ timeout: 5_000 });
-    expect(await tabs.getByRole("tab", { name: "Subagents" }).getAttribute("aria-selected")).toBe("true");
-    expect(await tabs.getByRole("tab", { name: "Summary" }).getAttribute("aria-selected")).toBe("false");
+    expect(await tab("Subagents").getAttribute("aria-pressed")).toBe("true");
+    expect(await tab("Summary").getAttribute("aria-pressed")).toBe("false");
     // Its own list in the card's place: no summary sections under it.
     expect(await panel(page).getByRole("region", { name: "Outputs" }).count()).toBe(0);
     const active = panel(page).getByRole("region", { name: "Active · 1" });
@@ -204,7 +205,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     // The tab's close button goes back to the summary.
     await panel(page).getByRole("button", { name: "Close Subagents" }).click();
     await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
-    expect(await panel(page).getByRole("tablist").count()).toBe(0);
+    expect(await tabs.count()).toBe(0);
     await context.close();
   });
 
@@ -214,11 +215,12 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await open(page);
     await panel(page).waitFor({ timeout: 5_000 });
     await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
-    const tabs = panel(page).getByRole("tablist");
-    await tabs.getByRole("tab", { name: "Summary" }).click();
+    const tab = (name: string) =>
+      panel(page).locator(".acpmux-summary-tabs").getByRole("button", { name, exact: true });
+    await tab("Summary").click();
     await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
-    expect(await tabs.getByRole("tab", { name: "Summary" }).getAttribute("aria-selected")).toBe("true");
-    await tabs.getByRole("tab", { name: "Subagents" }).click();
+    expect(await tab("Summary").getAttribute("aria-pressed")).toBe("true");
+    await tab("Subagents").click();
     await panel(page).getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
     await context.close();
   });
