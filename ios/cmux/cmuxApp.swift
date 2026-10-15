@@ -165,6 +165,12 @@ struct cmuxApp: App {
 
     var body: some Scene {
         WindowGroup {
+            PaywallShotsRoot()
+        }
+    }
+
+    var unusedBody: some Scene {
+        WindowGroup {
             rootScene
                 // `initial: true` so the cold-launch `.active` value (which
                 // `onChange` otherwise skips) drives the first
