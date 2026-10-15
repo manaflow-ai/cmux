@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSwiftRender
 @testable import CmuxSwiftRenderUI
 import SwiftUI
 import Testing
@@ -9,6 +10,12 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SceneNodeViewRenderingTests {
+    /// Synchronous by design: `RunLoop.run(until:)` is unavailable directly
+    /// from an async test, but is needed to deliver the posted AppKit events.
+    private func spinRunLoop() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
     /// Sends a left click through AppKit so SwiftUI's native gesture routing
     /// is exercised instead of calling the scene event sink directly.
     private func postLeftClick(at point: NSPoint, in window: NSWindow) async {
@@ -26,7 +33,7 @@ struct SceneNodeViewRenderingTests {
             ) else { continue }
             NSApp.postEvent(event, atStart: false)
         }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        spinRunLoop()
         for _ in 0..<5 { await Task.yield() }
     }
 
@@ -172,7 +179,7 @@ struct SceneNodeViewRenderingTests {
 
         #expect(runtime.store.node(rowId)?.bool("tappable") == true)
         let clickPoint = host.convert(
-            NSPoint(x: host.bounds.midX, y: 14),
+            NSPoint(x: 20, y: 14),
             to: nil
         )
         await postLeftClick(at: clickPoint, in: window)
