@@ -9,14 +9,12 @@ import SwiftUI
 /// The crash page uses Chrome's own words (`ChromiumPageGone`: "Aw, Snap!"),
 /// sits on the same 92% chrome-background veil as the WebKit crash overlay
 /// (`BrowserPageRecoveryOverlay`), and offers Reload. The hang prompt is a
-/// card with Exit page and Wait. Both mount as occluding page overlays, so
-/// they show above a Chromium page window; neither takes keyboard focus on
-/// appear.
+/// card with Exit page and Wait. `BrowserPageRecoveryOverlay` hosts it, and
+/// the panel mounts that as an occluding page overlay so it shows above a
+/// Chromium page window; neither takes keyboard focus on appear.
 struct ChromiumPageFailureOverlay: View {
     let failure: ChromiumPageFailureState.Failure
     let metrics: BrowserChromeMetrics
-    /// The panel's page overlay coordinator (nil until the page is hosted).
-    let overlays: BrowserPageOverlayCoordinator?
     let backgroundColor: NSColor
     /// Reload (crash page) or Wait (hang prompt).
     let primaryAction: () -> Void
@@ -34,7 +32,6 @@ struct ChromiumPageFailureOverlay: View {
                 unresponsiveCard
             }
         }
-        .browserPageOccluding(overlays, id: "pageFailure")
         .transition(.opacity)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: failure)
     }
@@ -45,18 +42,18 @@ struct ChromiumPageFailureOverlay: View {
         ZStack {
             Color(nsColor: backgroundColor)
                 .opacity(0.92)
-            VStack(spacing: metrics.pageFailureSpacing) {
+            VStack(spacing: metrics.recoverySpacing) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: metrics.pageFailureSymbolSize))
+                    .cmuxFont(size: metrics.recoveryIconSize)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
                 Text(gone.title(repeated: isRepeat))
-                    .cmuxFont(size: metrics.pageFailureTitleFontSize, weight: .semibold)
+                    .cmuxFont(size: metrics.recoveryTitleFontSize, weight: .semibold)
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
                 Text(gone.message(repeated: isRepeat))
-                    .cmuxFont(size: metrics.pageFailureBodyFontSize)
+                    .cmuxFont(size: metrics.recoveryBodyFontSize)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -65,7 +62,7 @@ struct ChromiumPageFailureOverlay: View {
                         String(localized: "browser.error.reload", defaultValue: "Reload"),
                         systemImage: "arrow.clockwise"
                     )
-                    .cmuxFont(size: metrics.pageFailureBodyFontSize, weight: .medium)
+                    .cmuxFont(size: metrics.recoveryBodyFontSize, weight: .medium)
                     .padding(.horizontal, 6)
                 }
                 .buttonStyle(.borderedProminent)
@@ -74,15 +71,15 @@ struct ChromiumPageFailureOverlay: View {
                 .accessibilityIdentifier("BrowserChromiumCrashReloadButton")
                 if let line = gone.errorCodeLine {
                     Text(line)
-                        .cmuxFont(size: metrics.pageFailureCodeFontSize)
+                        .cmuxFont(size: metrics.recoveryCaptionFontSize)
                         .foregroundStyle(.tertiary)
                         .textSelection(.enabled)
                         .accessibilityIdentifier("BrowserChromiumCrashErrorCode")
                 }
             }
-            .frame(maxWidth: metrics.pageFailureMaxWidth)
+            .frame(maxWidth: metrics.recoveryMaxWidth)
             .padding(.horizontal, 16)
-            .offset(y: -metrics.pageFailureLift)
+            .offset(y: -metrics.recoveryVerticalLift)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("BrowserChromiumCrashPage")
         }
@@ -92,30 +89,30 @@ struct ChromiumPageFailureOverlay: View {
     // MARK: Hang prompt
 
     private var unresponsiveCard: some View {
-        VStack(alignment: .leading, spacing: metrics.pageFailureCardPadding) {
+        VStack(alignment: .leading, spacing: metrics.unresponsiveCardPadding) {
             Text(String(localized: "browser.chromium.unresponsive.title", defaultValue: "Page unresponsive"))
-                .cmuxFont(size: metrics.pageFailureBodyFontSize, weight: .semibold)
+                .cmuxFont(size: metrics.recoveryBodyFontSize, weight: .semibold)
                 .foregroundStyle(.primary)
                 .accessibilityAddTraits(.isHeader)
             Text(String(
                 localized: "browser.chromium.unresponsive.message",
                 defaultValue: "You can wait for it to respond or exit the page."
             ))
-            .cmuxFont(size: metrics.pageFailureBodyFontSize)
+            .cmuxFont(size: metrics.recoveryBodyFontSize)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 Button(action: exitPageAction) {
                     Text(String(localized: "browser.chromium.unresponsive.exit", defaultValue: "Exit page"))
-                        .cmuxFont(size: metrics.pageFailureBodyFontSize)
+                        .cmuxFont(size: metrics.recoveryBodyFontSize)
                 }
                 .controlSize(.regular)
                 .focusable(false)
                 .accessibilityIdentifier("BrowserChromiumUnresponsiveExitButton")
                 Button(action: primaryAction) {
                     Text(String(localized: "browser.chromium.unresponsive.wait", defaultValue: "Wait"))
-                        .cmuxFont(size: metrics.pageFailureBodyFontSize, weight: .medium)
+                        .cmuxFont(size: metrics.recoveryBodyFontSize, weight: .medium)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
@@ -123,11 +120,11 @@ struct ChromiumPageFailureOverlay: View {
                 .accessibilityIdentifier("BrowserChromiumUnresponsiveWaitButton")
             }
         }
-        .padding(metrics.pageFailureCardPadding)
-        .frame(minWidth: metrics.pageFailureCardMinWidth, maxWidth: metrics.pageFailureCardMaxWidth, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: metrics.pageFailureCardCornerRadius, style: .continuous))
+        .padding(metrics.unresponsiveCardPadding)
+        .frame(minWidth: metrics.unresponsiveCardMinWidth, maxWidth: metrics.unresponsiveCardMaxWidth, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: metrics.unresponsiveCardCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: metrics.pageFailureCardCornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: metrics.unresponsiveCardCornerRadius, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.11), radius: 6, y: 2)

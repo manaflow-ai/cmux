@@ -1882,6 +1882,7 @@ struct BrowserPanelView: View {
                     isVisible: isVisibleInUI && isCurrentPaneOwner,
                     shouldFocus: isFocused && !addressBarFocused,
                     onAttach: { contentView in panel.attachPageOverlays(contentView: contentView) },
+                    onVisibilityChange: { visible in panel.noteEnginePageVisibility(visible) },
                     onPageClicked: {
                         // As a click into a WebKit page: the pane takes focus
                         // and the address bar lets go.
@@ -1967,7 +1968,12 @@ struct BrowserPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
             if let prompt = panel.pageRecoveryPrompt {
-                BrowserPageRecoveryOverlay(prompt: prompt, backgroundColor: browserChromeBackgroundColor, metrics: chromeMetrics) {
+                BrowserPageRecoveryOverlay(
+                    prompt: prompt,
+                    backgroundColor: browserChromeBackgroundColor,
+                    metrics: chromeMetrics,
+                    exitPageAction: { panel.exitUnresponsiveChromiumPage() }
+                ) {
                     panel.performPageRecovery(prompt)
                 }
                 // Over a Chromium page the page leaves a hole here (design spec §8).

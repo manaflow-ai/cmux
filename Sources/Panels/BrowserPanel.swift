@@ -2134,6 +2134,15 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
     /// child-window (Chromium) page; does nothing for a WebKit page.
     let pageOverlays = BrowserPageOverlayCoordinator()
+    /// A Chromium page's crash or hang, and whether it restores on show
+    /// (`BrowserPanel+ChromiumPageFailure.swift`). Unused for WebKit panels.
+    var chromiumPageFailure = ChromiumPageFailureState() {
+        willSet {
+            if newValue != chromiumPageFailure { objectWillChange.send() }
+        }
+    }
+    /// Whether the non-WebKit page is on screen, as its host last reported.
+    var isEnginePageVisible = false
     private var webKitPageAdapter: WebKitBrowserPage?
     private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()

@@ -22,6 +22,9 @@ struct BrowserEnginePageHost: NSViewRepresentable {
     var onAttach: (NSView) -> Void = { _ in }
     /// A click into the page chose it.
     var onPageClicked: () -> Void = {}
+    /// The page went on or off screen (crash recovery restores a page that
+    /// crashed while hidden once it shows).
+    var onVisibilityChange: (Bool) -> Void = { _ in }
 
     func makeNSView(context: Context) -> BrowserEnginePageContainerView {
         let container = BrowserEnginePageContainerView(frame: .zero)
@@ -37,6 +40,10 @@ struct BrowserEnginePageHost: NSViewRepresentable {
         container.wantsPageFocus = shouldFocus && isVisible
         container.onPageClicked = onPageClicked
         page.setContentVisible(isVisible)
+        if container.reportedVisible != isVisible {
+            container.reportedVisible = isVisible
+            onVisibilityChange(isVisible)
+        }
         if shouldFocus, isVisible {
             page.setFocused(true)
         }
@@ -72,6 +79,8 @@ final class BrowserEnginePageContainerView: NSView {
         }
     }
     var onPageClicked: (() -> Void)?
+    /// The visibility last reported through `onVisibilityChange`.
+    var reportedVisible: Bool?
     private var keyObserver: (any NSObjectProtocol)?
 
     override func viewDidMoveToWindow() {

@@ -104,6 +104,7 @@ extension BrowserPanel {
     }
 
     private func handleEnginePageEvent(_ event: BrowserPageEvent) {
+        noteEnginePageSafetyEvent(event)
         switch event {
         case .stateChanged(let state):
             applyEnginePageState(state)
