@@ -1934,6 +1934,86 @@ w("\r\x1b[2KSTREAMDONE\n")
     def mac_name(self):
         return None
 
+    # ------------------------------------------------- Mac build checks (mac-build.md)
+    def hostd_log_since(self, size, needle, timeout):
+        """(epoch, line) of the first `needle` line hostd logs after byte offset `size`."""
+        import datetime
+        path = os.path.join(self.mac.hostd_state, "cnx-hostd.log")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                with open(path, errors="replace") as f:
+                    f.seek(size)
+                    for line in f:
+                        if needle in line:
+                            m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+)Z", line)
+                            ts = datetime.datetime.strptime(m.group(1)[:26], "%Y-%m-%dT%H:%M:%S.%f").replace(
+                                tzinfo=datetime.timezone.utc).timestamp() if m else time.time()
+                            return ts, line.strip()
+            except FileNotFoundError:
+                pass
+            time.sleep(0.1)
+        return None
+
+    def s_hostd_kill_reconnect(self):
+        """cnx-hostd is killed (SIGKILL, this rig's only); the app's supervisor restarts it
+        and the phone's terminal is back within about 2 s: link up in hostd's log, then a
+        marker typed on the phone reaches the Mac terminal."""
+        self.open_seed_workspace()
+        check(self.current_tab_marker() is not None, "terminal input did not reach the Mac before the kill")
+        path = os.path.join(self.mac.hostd_state, "cnx-hostd.log")
+        rows = []
+        for i in range(3):
+            if i:
+                time.sleep(20)  # spacing between injected faults (the supervisor backoff resets), not synchronization
+            size = os.path.getsize(path)
+            pids = self.mac.hostd_pids()
+            check(pids, "cnx-hostd is not running before the kill")
+            t_kill = time.time()
+            for pid in pids:
+                os.kill(pid, 9)
+            up = self.hostd_log_since(size, "link up", 60)
+            check(up, f"kill {i+1}: no link up within 60 s of the kill")
+            reconnect = up[0] - t_kill
+            t = time.time()
+            term = self.current_tab_marker()
+            check(term is not None, f"kill {i+1}: phone terminal input did not reach the Mac after link up")
+            path_kind = "Relay" if "relay" in up[1].lower() else ("Direct" if "direct" in up[1].lower() else "?")
+            rows.append({"reconnect_s": round(reconnect, 2), "path": path_kind, "marker_roundtrip_s": round(time.time() - t, 1)})
+        self.back_to_list()
+        worst = max(r["reconnect_s"] for r in rows)
+        median = sorted(r["reconnect_s"] for r in rows)[1]
+        check(median <= 2.5, f"median reconnect {median:.2f} s after a hostd kill (want about 2 s): {rows}")
+        return {"notes": f"3 hostd kills: link up {[r['reconnect_s'] for r in rows]} s (median {median:.2f}, worst {worst:.2f}), "
+                         f"paths {[r['path'] for r in rows]}; terminal input reached the Mac after each", "kills": rows}
+
+    def s_browser_stream(self):
+        """A browser tab on the Mac streams to the phone: a tab on https://example.com in
+        the seed workspace, opened from the phone's tab grid, shows the page (OCR)."""
+        url = os.environ.get("CNX_E2E_BROWSER_URL", "https://example.com")
+        r = self.mac.cmux("tab", "create", "browser", "--url", url, "--workspace", self.seed["ws"], json_out=True)
+        tab = (r or {}).get("value", {}).get("tab_id") if isinstance(r, dict) else None
+        if tab:
+            self.mac.cmux("tab", tab, "rename", "e2e-web", check=False)
+        self.open_seed_workspace()
+        t = time.time()
+        self.tab_grid_pick("e2e-web")
+        seen, text = None, ""
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            text = " ".join(o[4] for o in self.sim.ocr())
+            if "Example Domain" in text:
+                seen = time.time() - t
+                break
+            time.sleep(0.5)
+        shot = self.sim.shot(f"browser-stream-{self.run_id}")
+        self.back_to_list()
+        if tab:
+            self.mac.cmux("tab", tab, "close", check=False)
+        check(seen is not None, f"the phone never showed the page within 30 s; OCR: {text[:300]!r}")
+        return {"notes": f"browser tab on {url} visible on the phone {seen:.1f} s after opening it from the grid",
+                "screenshot": shot}
+
     # ------------------------------------------------------------------ plan
     def plan(self):
         return [
@@ -1970,6 +2050,8 @@ w("\r\x1b[2KSTREAMDONE\n")
             ("agent_chat", "Agent chat (stream, tools, approvals, question, attachments, diff, artifacts)", "approvals", self.s_agent_chat),
             ("feed", "Feed events and inline answer", "approvals", self.s_feed),
             ("feed_terminal", "Feed: a terminal agent's events (real Codex), Needs input opens the tab", "feedterm", self.s_feed_terminal),
+            ("browser_stream", "Browser tab streams to the phone (https://example.com)", "rbhost", self.s_browser_stream),
+            ("hostd_kill_reconnect", "Terminal back within ~2 s after a cnx-hostd kill", "machost", self.s_hostd_kill_reconnect),
             ("chief", "Chief: real Mac conversation, send/receive, model", "chieflive", self.s_chief),
             ("transport", "Transport WebRTC <-> WireGuard", "fastconn", self.s_transport),
             ("relay_only", "Relay only", "fastconn", self.s_relay_only),
