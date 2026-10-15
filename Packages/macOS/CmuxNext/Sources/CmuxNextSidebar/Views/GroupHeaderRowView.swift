@@ -155,6 +155,8 @@ final class GroupHeaderRowView: SidebarRowView {
     override var titleFrame: NSRect { name.frame }
     /// The member count a collapsed header shows, nil when it shows none.
     var countText: String? { count.isHidden || count.stringValue.isEmpty ? nil : count.stringValue }
+    /// The count's label, laid out (`SidebarGroupChromeLookTests`).
+    var countLabel: NSTextField { count }
     /// The one ink every glyph on the header takes.
     var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
