@@ -17,6 +17,10 @@ extension CEFBrowserPage: BrowserPageDevToolsHosting {
     public func setDevToolsFocused(_ focused: Bool) {
         features.devTools.setFocused(focused)
     }
+
+    public func configureDevTools(dividerThickness: CGFloat, closeShortcut: BrowserDevToolsMenuShortcut?) {
+        features.devTools.configure(dividerThickness: dividerThickness, closeShortcut: closeShortcut)
+    }
 }
 
 /// Context menus: Chromium asks the host to show its menu; the panel adds its cmux rows.

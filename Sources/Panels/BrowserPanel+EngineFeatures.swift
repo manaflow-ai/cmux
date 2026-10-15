@@ -26,6 +26,21 @@ extension BrowserPanel {
         guard let enginePage else { return }
         (enginePage as? any BrowserPageContextMenuCustomizing)?.contextMenuHost = self
         zoomIndicator.update(factor: enginePage.pageZoom)
+        configureEngineDevTools()
+    }
+
+    /// The DevTools divider follows the pane divider thickness setting, and the dock menu shows
+    /// the user's Toggle Developer Tools shortcut on its Close row (design review on #21029).
+    func configureEngineDevTools() {
+        guard let devTools = engineDevTools else { return }
+        let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
+        let thickness = workspace?.bonsplitController.configuration.appearance.dividerThickness
+            ?? BrowserDevToolsLayout.defaultLineThickness
+        let toggle = KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)
+        let shortcut = toggle.menuItemKeyEquivalent.map {
+            BrowserDevToolsMenuShortcut(key: $0, modifiers: toggle.modifierFlags)
+        }
+        devTools.configureDevTools(dividerThickness: thickness, closeShortcut: shortcut)
     }
 
     // MARK: DevTools
@@ -35,6 +50,8 @@ extension BrowserPanel {
     func performEngineDevTools(_ command: BrowserDevToolsCommand) -> Bool? {
         guard enginePage != nil else { return nil }
         guard let devTools = engineDevTools else { return false }
+        // Settings may have changed, and the panel may have joined its workspace since it was made.
+        configureEngineDevTools()
         devTools.performDevTools(command)
         return true
     }

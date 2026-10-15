@@ -25,6 +25,10 @@ public final class BrowserNativeFindSession: BrowserFinding {
     /// The active ordinal of the last answered request, kept for a step whose events report
     /// no ordinal at all.
     private var answeredActiveOrdinal = 0
+    /// Whether the pending request may still activate the first match: Chromium's new find
+    /// session counts matches without activating one (its final update reports ordinal 0),
+    /// while Chrome's find bar shows the first match active. One step forward activates it.
+    private var activatesFirstMatch = false
 
     /// Creates a session over an engine's native find.
     /// - Parameters:
@@ -80,6 +84,11 @@ public final class BrowserNativeFindSession: BrowserFinding {
         guard let continuation = pending else { return }
         if activeOrdinal > 0 { latestActiveOrdinal = activeOrdinal }
         guard isFinal else { return }
+        if activatesFirstMatch, count > 0, latestActiveOrdinal <= 0 {
+            activatesFirstMatch = false
+            if driver.find(needle, forward: true, matchCase: matchCase, findNext: true) { return }
+        }
+        activatesFirstMatch = false
         pending = nil
         let ordinal = latestActiveOrdinal > 0 ? latestActiveOrdinal : answeredActiveOrdinal
         answeredActiveOrdinal = ordinal
@@ -116,6 +125,7 @@ public final class BrowserNativeFindSession: BrowserFinding {
         cancelPending()
         latestActiveOrdinal = 0
         if !findNext { answeredActiveOrdinal = 0 }
+        activatesFirstMatch = !findNext
         let needle = self.needle
         return await withCheckedContinuation { continuation in
             pending = continuation

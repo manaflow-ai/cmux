@@ -19,9 +19,23 @@ public struct BrowserDevToolsLayout: Hashable, Sendable {
     public var bottomFraction: Double
     /// Tools width as a share of the content width, for the left and right docks.
     public var sideFraction: Double
+    /// Thickness of the divider line between page and tools: the pane divider thickness setting
+    /// (``resolvedLineThickness(_:)``), so it matches the pane dividers next to it.
+    public var lineThickness: CGFloat = Self.defaultLineThickness
 
-    /// Thickness of the drawn divider line between page and tools.
-    public static let lineThickness: CGFloat = 1
+    /// The divider line's thickness before the app passes its pane divider setting.
+    public static let defaultLineThickness: CGFloat = 1
+    /// The thickest divider line (the pane divider setting's range is 0 to 12).
+    public static let maximumLineThickness: CGFloat = 12
+
+    /// The line thickness for a pane divider thickness setting: clamped to 1...12 points, and
+    /// 1 point at 0 so the edge stays findable.
+    /// - Parameter value: The pane divider thickness setting.
+    /// - Returns: The divider line thickness.
+    public static func resolvedLineThickness(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite else { return defaultLineThickness }
+        return min(max(value, 1), maximumLineThickness)
+    }
     /// How far past the line, into the page and the tools, the divider still takes the mouse.
     public static let grabOutset: CGFloat = 3
     /// The smallest tools extent kept while the pane is large enough.
@@ -53,23 +67,23 @@ public struct BrowserDevToolsLayout: Hashable, Sendable {
         guard devToolsDocked, dock.isDocked else {
             return BrowserDevToolsLayoutFrames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
         }
-        let line = Self.lineThickness
+        let line = lineThickness
         let outset = Self.grabOutset
         switch dock {
         case .right:
-            let size = Self.devToolsExtent(fraction: sideFraction, extent: bounds.width)
+            let size = Self.devToolsExtent(fraction: sideFraction, extent: bounds.width, lineThickness: line)
             let devTools = CGRect(x: bounds.maxX - size, y: bounds.minY, width: size, height: bounds.height)
             let lineRect = CGRect(x: devTools.minX - line, y: bounds.minY, width: line, height: bounds.height)
             let page = CGRect(x: bounds.minX, y: bounds.minY, width: max(lineRect.minX - bounds.minX, 0), height: bounds.height)
             return BrowserDevToolsLayoutFrames(page: page, devTools: devTools, line: lineRect, grab: lineRect.insetBy(dx: -outset, dy: 0))
         case .left:
-            let size = Self.devToolsExtent(fraction: sideFraction, extent: bounds.width)
+            let size = Self.devToolsExtent(fraction: sideFraction, extent: bounds.width, lineThickness: line)
             let devTools = CGRect(x: bounds.minX, y: bounds.minY, width: size, height: bounds.height)
             let lineRect = CGRect(x: devTools.maxX, y: bounds.minY, width: line, height: bounds.height)
             let page = CGRect(x: lineRect.maxX, y: bounds.minY, width: max(bounds.maxX - lineRect.maxX, 0), height: bounds.height)
             return BrowserDevToolsLayoutFrames(page: page, devTools: devTools, line: lineRect, grab: lineRect.insetBy(dx: -outset, dy: 0))
         case .bottom, .window:
-            let size = Self.devToolsExtent(fraction: bottomFraction, extent: bounds.height)
+            let size = Self.devToolsExtent(fraction: bottomFraction, extent: bounds.height, lineThickness: line)
             let devTools = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: size)
             let lineRect = CGRect(x: bounds.minX, y: devTools.maxY, width: bounds.width, height: line)
             let page = CGRect(x: bounds.minX, y: lineRect.maxY, width: bounds.width, height: max(bounds.maxY - lineRect.maxY, 0))
@@ -82,8 +96,9 @@ public struct BrowserDevToolsLayout: Hashable, Sendable {
     /// - Parameters:
     ///   - fraction: The wanted share of the available extent.
     ///   - extent: The pane's extent along the dock axis.
+    ///   - lineThickness: The divider line's thickness. Defaults to ``defaultLineThickness``.
     /// - Returns: The tools extent in points, rounded to whole points.
-    public static func devToolsExtent(fraction: Double, extent: CGFloat) -> CGFloat {
+    public static func devToolsExtent(fraction: Double, extent: CGFloat, lineThickness: CGFloat = defaultLineThickness) -> CGFloat {
         let available = max(extent - lineThickness, 0)
         let wanted = (available * CGFloat(fraction)).rounded()
         guard available >= minimumDevToolsExtent + minimumPageExtent else { return (available * 0.5).rounded() }
@@ -97,16 +112,16 @@ public struct BrowserDevToolsLayout: Hashable, Sendable {
     public mutating func dragDivider(to point: CGPoint, in bounds: CGRect) {
         switch dock {
         case .right:
-            let available = max(bounds.width - Self.lineThickness, 1)
-            let size = Self.devToolsExtent(fraction: Double((bounds.maxX - point.x) / available), extent: bounds.width)
+            let available = max(bounds.width - lineThickness, 1)
+            let size = Self.devToolsExtent(fraction: Double((bounds.maxX - point.x) / available), extent: bounds.width, lineThickness: lineThickness)
             sideFraction = Double(size / available)
         case .left:
-            let available = max(bounds.width - Self.lineThickness, 1)
-            let size = Self.devToolsExtent(fraction: Double((point.x - bounds.minX) / available), extent: bounds.width)
+            let available = max(bounds.width - lineThickness, 1)
+            let size = Self.devToolsExtent(fraction: Double((point.x - bounds.minX) / available), extent: bounds.width, lineThickness: lineThickness)
             sideFraction = Double(size / available)
         case .bottom, .window:
-            let available = max(bounds.height - Self.lineThickness, 1)
-            let size = Self.devToolsExtent(fraction: Double((point.y - bounds.minY) / available), extent: bounds.height)
+            let available = max(bounds.height - lineThickness, 1)
+            let size = Self.devToolsExtent(fraction: Double((point.y - bounds.minY) / available), extent: bounds.height, lineThickness: lineThickness)
             bottomFraction = Double(size / available)
         }
     }

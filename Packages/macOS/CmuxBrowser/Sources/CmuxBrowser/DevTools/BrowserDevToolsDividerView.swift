@@ -4,8 +4,9 @@ import AppKit
 /// between dock sides and a window, like Chrome's DevTools dock-side control (CEF runs DevTools
 /// with its own docking off, so the frontend menu has no dock choices of its own).
 ///
-/// It draws a 1 point line in the system separator color and takes the mouse
-/// ``BrowserDevToolsLayout/grabOutset`` points past it on each side.
+/// It draws a line as thick as the pane dividers (``BrowserDevToolsLayout/lineThickness``) in
+/// the system separator color and takes the mouse ``BrowserDevToolsLayout/grabOutset`` points
+/// past it on each side (holes in the engine's page windows let the mouse reach it).
 final class BrowserDevToolsDividerView: NSView {
     weak var controller: BrowserDevToolsPaneController?
     private var dragging = false
@@ -31,7 +32,7 @@ final class BrowserDevToolsDividerView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.separatorColor.setFill()
-        let thickness = BrowserDevToolsLayout.lineThickness
+        let thickness = controller?.layout.lineThickness ?? BrowserDevToolsLayout.defaultLineThickness
         let line = isSide
             ? NSRect(x: bounds.midX - thickness / 2, y: 0, width: thickness, height: bounds.height)
             : NSRect(x: 0, y: bounds.midY - thickness / 2, width: bounds.width, height: thickness)

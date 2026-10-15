@@ -33,7 +33,7 @@ public final class BrowserDevToolsPaneController {
 
     private unowned let paneView: BrowserDevToolsPaneView
     private let store: BrowserDevToolsLayoutStore
-    private let makeWindow: (NSWindow?) -> any BrowserDevToolsWindowHosting
+    private let makeWindow: (NSWindow?, CGRect?) -> any BrowserDevToolsWindowHosting
     private let makeHostView: () -> NSView
     /// Between the engine's will-open and opened events: the layout keeps room.
     private var opening = false
@@ -48,14 +48,16 @@ public final class BrowserDevToolsPaneController {
     /// - Parameters:
     ///   - paneView: The view that holds the page and the docked tools.
     ///   - store: Remembers dock side and sizes across pages.
-    ///   - makeWindow: Makes the window for undocked tools near the given cmux window. Defaults
-    ///     to ``BrowserDevToolsWindow``.
+    ///   - makeWindow: Makes the window for undocked tools near the given cmux window, at the
+    ///     remembered frame when there is one. Defaults to ``BrowserDevToolsWindow``.
     ///   - makeHostView: Makes the view the engine's DevTools attach to. Engines whose pages
     ///     are child windows pass their tracked host view type. Defaults to a plain `NSView`.
     public init(
         paneView: BrowserDevToolsPaneView,
         store: BrowserDevToolsLayoutStore,
-        makeWindow: @escaping (NSWindow?) -> any BrowserDevToolsWindowHosting = { BrowserDevToolsWindow(near: $0) },
+        makeWindow: @escaping (NSWindow?, CGRect?) -> any BrowserDevToolsWindowHosting = {
+            BrowserDevToolsWindow(near: $0, remembered: $1)
+        },
         makeHostView: @escaping () -> NSView = { NSView() }
     ) {
         self.paneView = paneView
@@ -66,6 +68,23 @@ public final class BrowserDevToolsPaneController {
         self.layout = layout
         self.state = BrowserDevToolsState(isOpen: false, dock: layout.dock)
         paneView.devTools = self
+    }
+
+    /// The Toggle Developer Tools shortcut the dock menu shows on its Close row.
+    public private(set) var closeShortcut: BrowserDevToolsMenuShortcut?
+
+    /// Applies the app's settings: the divider follows the pane divider thickness, and the dock
+    /// menu shows the toggle shortcut.
+    /// - Parameters:
+    ///   - dividerThickness: The pane divider thickness setting (0 to 12 points).
+    ///   - closeShortcut: The Toggle Developer Tools shortcut, if it has a menu key equivalent.
+    public func configure(dividerThickness: CGFloat, closeShortcut: BrowserDevToolsMenuShortcut?) {
+        self.closeShortcut = closeShortcut
+        let thickness = BrowserDevToolsLayout.resolvedLineThickness(dividerThickness)
+        guard thickness != layout.lineThickness else { return }
+        layout.lineThickness = thickness
+        views?.divider.needsDisplay = true
+        paneView.needsLayout = true
     }
 
     // MARK: Commands
@@ -173,7 +192,8 @@ public final class BrowserDevToolsPaneController {
     }
 
     private func openWindow() -> any BrowserDevToolsWindowHosting {
-        let window = makeWindow(paneView.window)
+        let window = makeWindow(paneView.window, store.loadWindowFrame())
+        window.onFrameChange = { [weak self] frame in self?.store.saveWindowFrame(frame) }
         window.title = BrowserDevToolsWindow.title(forPage: pageTitle())
         window.onClose = { [weak self] in self?.perform(.close) }
         self.window = window
@@ -184,6 +204,7 @@ public final class BrowserDevToolsPaneController {
         guard let window else { return }
         self.window = nil
         window.onClose = nil
+        window.onFrameChange = nil
         window.dismiss()
     }
 
@@ -205,7 +226,7 @@ public final class BrowserDevToolsPaneController {
         } else {
             opening = false
             removeViews()
-            driver.setDevToolsPlacement(.ownWindow(Self.undockedFrame(near: paneView.window)))
+            driver.setDevToolsPlacement(.ownWindow(Self.undockedFrame(near: paneView.window, remembered: store.loadWindowFrame())))
         }
     }
 
@@ -245,14 +266,16 @@ public final class BrowserDevToolsPaneController {
         perform(.dock(dock))
     }
 
-    /// Where undocked DevTools open: over the cmux window, inset by 40 points, in Chromium screen
-    /// coordinates (top-left origin of the primary screen); `.zero` lets the engine choose.
-    /// - Parameter window: The cmux window the page shows in.
+    /// Where the engine's own DevTools window opens, by the same rule as
+    /// ``BrowserDevToolsWindow`` (beside the cmux window, or the remembered frame), in Chromium
+    /// screen coordinates (top-left origin of the primary screen); `.zero` lets the engine choose.
+    /// - Parameters:
+    ///   - window: The cmux window the page shows in.
+    ///   - remembered: The frame the user last left the DevTools window at.
     /// - Returns: The frame.
-    public static func undockedFrame(near window: NSWindow?) -> CGRect {
+    public static func undockedFrame(near window: NSWindow?, remembered: CGRect? = nil) -> CGRect {
         guard let window, let primary = NSScreen.screens.first else { return .zero }
-        let frame = window.frame.insetBy(dx: 40, dy: 40)
-        guard frame.width >= 400, frame.height >= 300 else { return .zero }
+        let frame = BrowserDevToolsWindow.frame(near: window, remembered: remembered)
         return CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
     }
 
