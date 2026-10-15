@@ -5,6 +5,9 @@
 //! stand-in cmux API on loopback (a debug-build-only origin).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -12,7 +15,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -119,11 +122,10 @@ impl Drop for Relay {
 
 /// `acpmux router serve` in `dir`, ready once its admin socket answers.
 fn start_relay(dir: &Path, test_origin: &str) -> Relay {
-    let child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let child = daemon_env::acpmux(dir)
         .args(["router", "serve"])
         .env("ACPMUX_HOME", dir)
         .env("CMUX_ROUTER_FREE_TEST_ORIGIN", test_origin)
-        .env_remove("CMUX_ROUTER_OWNER_FIFO")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
