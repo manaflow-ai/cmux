@@ -1694,6 +1694,17 @@ fi
 if [[ -n "$TAG" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="${BUNDLE_ID}.cmux.sidebar")
 fi
+# The optional Chromium engine (scripts/cef/embed-cef.sh): tagged dev builds
+# outside CI embed it, so fleet and local dogfood builds can open Chromium
+# pages. An explicit CMUX_EMBED_CEF, CMUX_SKIP_CEF or CMUX_REQUIRE_CEF wins.
+if [[ -z "${CMUX_EMBED_CEF:-}" && -n "$TAG" && "${CI:-}" != "true" ]]; then
+  XCODEBUILD_ARGS+=(CMUX_EMBED_CEF=1)
+fi
+for cef_setting in CMUX_EMBED_CEF CMUX_SKIP_CEF CMUX_REQUIRE_CEF; do
+  if [[ -n "${!cef_setting:-}" ]]; then
+    XCODEBUILD_ARGS+=("$cef_setting=${!cef_setting}")
+  fi
+done
 # Forward explicit CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)

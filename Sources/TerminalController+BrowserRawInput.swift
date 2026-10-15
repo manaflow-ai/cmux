@@ -73,6 +73,15 @@ extension TerminalController {
         context: V2BrowserPanelContext
     ) -> V2CallResult {
         switch failure {
+        case .notWebKit:
+            return .err(
+                code: "not_supported",
+                message: String(
+                    localized: "cli.browser.rawInput.engineUnsupported",
+                    defaultValue: "Raw input is not available for this browser engine yet"
+                ),
+                data: v2BrowserPanelFields(context)
+            )
         case .stale:
             return .err(
                 code: "stale_state",
