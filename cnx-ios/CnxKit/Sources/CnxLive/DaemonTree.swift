@@ -163,6 +163,7 @@ public struct DaemonTree: Sendable {
                 activeTabID: activeTabID
             )
             workspace.resourceID = ws["resource_id"] as? String
+            workspace.hasCustomTitle = (ws["title"] as? String).map { !$0.isEmpty && $0 != ws["name"] as? String } ?? false
             workspace.isPinned = legacyPinned.contains(key)
             result.append(workspace)
         }

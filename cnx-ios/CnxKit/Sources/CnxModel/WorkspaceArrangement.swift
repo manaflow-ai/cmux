@@ -156,6 +156,25 @@ public protocol WorkspaceArrangementBackend: AnyObject {
     func move(_ workspace: Workspace, by offset: Int, among visible: [Workspace]) async throws
     /// Mark Workspace as Read (false) / as Unread (true).
     func setUnread(_ workspace: Workspace, _ unread: Bool) async throws
+    /// Set Icon… (an SF Symbol name or one emoji) / Remove Icon (nil).
+    func setIcon(_ workspace: Workspace, _ icon: String?) async throws
+    /// Clear Workspace Name: the display name goes; the workspace's own name shows.
+    func clearName(_ workspace: Workspace) async throws
+}
+
+/// Workspace icons the phone offers: SF Symbols both the Mac and the phone draw
+/// (the Mac stores the symbol name), or one emoji typed by the person.
+public enum WorkspaceIcon {
+    public static let symbols = ["folder", "terminal", "globe", "star", "flame", "bolt", "hammer", "ladybug",
+                                 "book", "sparkles", "leaf", "heart", "cube", "gearshape", "doc.text", "server.rack"]
+
+    /// One emoji (one character with emoji presentation), as the Mac's icon check takes it.
+    public static func emoji(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 1, let first = trimmed.unicodeScalars.first,
+              first.properties.isEmojiPresentation || (first.properties.isEmoji && trimmed.unicodeScalars.count > 1) else { return nil }
+        return trimmed
+    }
 }
 
 /// Clear All Notifications on a Mac (its notification ledger).
@@ -215,6 +234,24 @@ extension WorkspaceCreator {
         if !unread { store.markSeen(workspace.id) }
         arrange(workspace, old: old, failure: unread ? "Couldn't mark \(workspace.title) as unread" : "Couldn't mark \(workspace.title) as read") {
             try await arranger.setUnread(workspace, unread)
+        }
+    }
+
+    /// Set Icon… / Remove Icon.
+    public func setIcon(_ workspace: Workspace, _ icon: String?) {
+        guard canArrange(workspace), let arranger else { return }
+        let old = store.updateWorkspace(workspace.id) { $0.icon = icon }
+        arrange(workspace, old: old, failure: "Couldn't change the icon of \(workspace.title)") {
+            try await arranger.setIcon(workspace, icon)
+        }
+    }
+
+    /// Clear Workspace Name: the Mac's own name comes back with its next list.
+    public func clearName(_ workspace: Workspace) {
+        guard canArrange(workspace), workspace.hasCustomTitle, let arranger else { return }
+        let old = store.updateWorkspace(workspace.id) { $0.hasCustomTitle = false }
+        arrange(workspace, old: old, failure: "Couldn't clear the name of \(workspace.title)") {
+            try await arranger.clearName(workspace)
         }
     }
 
@@ -295,6 +332,8 @@ extension MockWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
     public func setColor(_ workspace: Workspace, _ color: WorkspaceColor?) async throws { try await rename(workspace, to: workspace.title) }
     public func move(_ workspace: Workspace, by offset: Int, among visible: [Workspace]) async throws { try await rename(workspace, to: workspace.title) }
     public func setUnread(_ workspace: Workspace, _ unread: Bool) async throws { try await rename(workspace, to: workspace.title) }
+    public func setIcon(_ workspace: Workspace, _ icon: String?) async throws { try await rename(workspace, to: workspace.title) }
+    public func clearName(_ workspace: Workspace) async throws { try await rename(workspace, to: workspace.title) }
     public func canClearNotifications(on macID: String) -> Bool { true }
     public func clearAllNotifications(on macID: String) async throws {}
 }

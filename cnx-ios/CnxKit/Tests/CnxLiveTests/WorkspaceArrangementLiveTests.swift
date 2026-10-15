@@ -1,3 +1,4 @@
+import CnxAgentChat
 import CnxModel
 import Foundation
 import Testing
@@ -72,5 +73,43 @@ import Testing
         #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("~/code/app") == "cd ~/'code/app' && clear\n")
         #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("/tmp/bang!") == nil)
         #expect(!WorkspaceFolderPath.isTypable("/tmp/bang!"))
+    }
+}
+
+/// Parity round 2, batch 2: icon, Clear Workspace Name, New Agent Chat in a folder,
+/// the agent chat queue (Edit queued prompt, Send now, Move up / down).
+@Suite struct WorkspaceBatchTwoLiveTests {
+    @Test func customTitleIsTheDisplayNameOverTheName() throws {
+        let reply = Data(#"""
+        {"ok":true,"data":{"workspaces":[
+          {"key":"a","name":"proj","title":"Release","icon":"hammer","screens":[]},
+          {"key":"b","name":"proj","title":"","screens":[]},
+          {"key":"c","name":"proj","screens":[]}
+        ]}}
+        """#.utf8)
+        let tree = try DaemonTree(reply: reply, macID: "m")
+        #expect(tree.workspaces.map(\.hasCustomTitle) == [true, false, false])
+        #expect(tree.workspaces.map(\.title) == ["Release", "proj", "proj"])
+        #expect(tree.workspaces[0].icon == "hammer")
+    }
+
+    /// A chat workspace starts only in one of the Mac's workspace folders (acpmux's
+    /// remote guard takes those), given as the phone shows it or absolute.
+    @Test func chatFolderIsAMacWorkspaceFolder() {
+        let known: Set<String> = ["/Users/me/code/app", "/Users/me/notes"]
+        #expect(LiveWorkspaceCreationBackend.chatFolder("~/code/app", known: known) == "/Users/me/code/app")
+        #expect(LiveWorkspaceCreationBackend.chatFolder("/Users/me/notes", known: known) == "/Users/me/notes")
+        #expect(LiveWorkspaceCreationBackend.chatFolder("~/elsewhere", known: known) == nil)
+        #expect(LiveWorkspaceCreationBackend.chatFolder(nil, known: known) == nil)
+        #expect(LiveWorkspaceCreationBackend.chatFolderRefusal.contains("Open Folder…"))
+    }
+
+    @Test func queueRecordsMapToTheChat() throws {
+        let records = AcpmuxRecords(sessionID: "s1")
+        func json(_ string: String) -> JSONValue { try! JSONDecoder().decode(JSONValue.self, from: Data(string.utf8)) }
+        #expect(records.map(json(#"{"seq":1,"dir":"mux","kind":"queue_updated","msg":{"promptId":"p1","text":"new text"}}"#))
+                == [.queueUpdated(promptId: "p1", text: "new text")])
+        #expect(records.map(json(#"{"seq":2,"dir":"mux","kind":"queue_order","msg":{"promptId":"p2","order":["p2","p1"]}}"#))
+                == [.queueOrder(["p2", "p1"])])
     }
 }

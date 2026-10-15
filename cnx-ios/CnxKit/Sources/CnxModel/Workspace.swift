@@ -38,6 +38,9 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     public var sidebarIndex: Int?
     /// The workspace's public resource id on its Mac (`ws_…`), for layout refs.
     public var resourceID: String?
+    /// The Mac shows a display name over the workspace's own name (its `title`
+    /// field): Clear Workspace Name brings the own name back.
+    public var hasCustomTitle: Bool = false
 
     public init(
         id: String, macID: String, title: String, directory: String, branch: String? = nil,
@@ -67,7 +70,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
-        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -95,6 +98,7 @@ extension Workspace {
         pinItemID = try c.decodeIfPresent(String.self, forKey: .pinItemID)
         sidebarIndex = try c.decodeIfPresent(Int.self, forKey: .sidebarIndex)
         resourceID = try c.decodeIfPresent(String.self, forKey: .resourceID)
+        hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
     }
 }
 
