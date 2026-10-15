@@ -80,7 +80,7 @@ public struct BrowserEngineParityChecklist: Sendable {
               webkit: .notApplicable(reason: "WKWebView cannot load Chrome extensions"),
               chromium: .supported),
         entry("trustedInput", .trustedInput,
-              webkit: .notApplicable(reason: "WebKit offers no trusted input injection"),
+              webkit: .supported,
               chromium: .supported),
         entry("nativeFind", .nativeFind, webkit: .gap(owner: "devtools"), chromium: .supported),
         entry("findMatchCount", .findMatchCount, webkit: .supported, chromium: .supported),

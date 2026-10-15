@@ -6712,6 +6712,7 @@ extension BrowserPanel {
         if let enginePage { return enginePage }
         if let adapter = webKitPageAdapter, adapter.webView === webView { return adapter }
         let adapter = WebKitBrowserPage(webView: webView)
+        adapter.nativeInput = self
         webKitPageAdapter = adapter
         return adapter
     }

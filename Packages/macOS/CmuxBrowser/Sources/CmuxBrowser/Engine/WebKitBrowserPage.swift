@@ -22,6 +22,9 @@ public final class WebKitBrowserPage: BrowserPage {
     public weak var uiDelegate: (any BrowserPageUIDelegate)?
     /// Owner of Web Inspector state, usually the browser panel.
     public weak var devToolsController: (any WebKitBrowserPageDevToolsControlling)?
+    /// Delivers trusted input, usually the browser panel. While set, the page
+    /// declares ``BrowserEngineCapabilities/trustedInput``.
+    public weak var nativeInput: (any WebKitBrowserPageNativeInputDelivering)?
 
     private var addedUserScripts: [WKUserScript] = []
     private var observations: [NSKeyValueObservation] = []
@@ -44,9 +47,12 @@ public final class WebKitBrowserPage: BrowserPage {
     public var engineKind: BrowserEngineKind { .webkit }
 
     /// WebKit's features: Web Inspector, snapshots, downloads, user scripts,
-    /// muting and in-pane fullscreen.
+    /// muting and in-pane fullscreen, plus trusted input while
+    /// ``nativeInput`` is attached.
     public var capabilities: BrowserEngineCapabilities {
-        WebKitBrowserPage.engineCapabilities
+        nativeInput == nil
+            ? WebKitBrowserPage.engineCapabilities
+            : WebKitBrowserPage.engineCapabilities.union(.trustedInput)
     }
 
     /// The capabilities of every WebKit page.
@@ -273,11 +279,13 @@ public final class WebKitBrowserPage: BrowserPage {
     /// - Parameter visible: Ignored.
     public func setContentVisible(_ visible: Bool) {}
 
-    /// WebKit has no trusted input path.
-    /// - Parameter event: Ignored.
-    /// - Throws: ``BrowserEngineError/unsupported(_:)`` always.
+    /// Delivers the event through ``nativeInput`` as native AppKit events.
+    /// - Parameter event: The event.
+    /// - Throws: ``BrowserEngineError/unsupported(_:)`` without
+    ///   ``nativeInput``, or the delivery's error.
     public func dispatchInput(_ event: BrowserPageInputEvent) async throws {
-        throw BrowserEngineError.unsupported("trustedInput")
+        guard let nativeInput else { throw BrowserEngineError.unsupported("trustedInput") }
+        _ = try await nativeInput.deliverNativeInput(event.rawInputSteps, to: webView)
     }
 
     // MARK: Media, restore, teardown
