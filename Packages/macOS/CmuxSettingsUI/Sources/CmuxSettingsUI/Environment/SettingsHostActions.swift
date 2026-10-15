@@ -59,6 +59,10 @@ public protocol SettingsHostActions: AnyObject, CloudMachinesSettingsActions {
     /// omnibar autocomplete cache). Idempotent.
     func clearBrowserHistory()
 
+    /// Whether this build includes the Chromium runtime (Settings > Browser
+    /// shows the Browser Engine row). Defaults to `false`.
+    func isChromiumBrowserEngineBundled() -> Bool
+
     /// Opens the cmux JSON config file in the user's preferred
     /// external editor. The package's inline editor still works;
     /// this is the escape hatch for users who prefer their own
