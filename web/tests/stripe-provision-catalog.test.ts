@@ -136,7 +136,7 @@ describe("Stripe catalog provisioning", () => {
     const portalArgs = portalCreate!.args.join("\n");
     expect(portalArgs).toContain("metadata[purpose]=personal_plan_switch");
     expect(portalArgs).toContain("features[subscription_update][default_allowed_updates][]=price");
-    expect(portalArgs).not.toContain("features[subscription_update][products][3]");
+    expect(portalArgs).not.toContain("features[subscription_update][products][2]");
     expect(portalArgs).toContain("features[subscription_update][products][0][product]=prod_pro");
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_year_480");
@@ -147,8 +147,10 @@ describe("Stripe catalog provisioning", () => {
   });
 
   // The portal only switches a subscription whose current price is listed,
-  // so Pro yearly and Go subscribers need their prices here to reach Max.
-  test("lists Pro yearly and Go in the plan-switch portal, but never a grandfathered price", async () => {
+  // so Pro yearly subscribers need their price here to reach Max. Every
+  // listed price is also a choice for any subscriber, so the release-gated
+  // Go plan and grandfathered prices stay out (they switch in the dashboard).
+  test("lists Pro yearly in the plan-switch portal, but never Go or a grandfathered price", async () => {
     const result = await runProvision("test", "valid");
 
     expect(result.exitCode).toBe(0);
@@ -158,9 +160,9 @@ describe("Stripe catalog provisioning", () => {
         call.args.includes("POST"),
     );
     const portalArgs = portalCreate!.args.join("\n");
-    expect(portalArgs).toContain("features[subscription_update][products][2][product]=prod_go");
-    expect(portalArgs).toContain("features[subscription_update][products][2][prices][]=price_go_month_10");
-    expect(portalArgs).toContain("features[subscription_update][products][2][adjustable_quantity][enabled]=false");
+    expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_year_480");
+    expect(portalArgs).not.toContain("prod_go");
+    expect(portalArgs).not.toContain("price_go_month_10");
     // Every listed price is also a choice in the portal; a grandfathered
     // price must never be offered as a switch target.
     expect(portalArgs).not.toContain("=price_pro_month\n");

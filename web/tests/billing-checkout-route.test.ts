@@ -795,7 +795,9 @@ describe("billing checkout route", () => {
     expect(createStripeSession).not.toHaveBeenCalled();
   });
 
-  test("sends an active Go subscriber who asks for Max to the portal plan switch", async () => {
+  // Go is release-gated, so the shared switch portal never lists it; a Go
+  // subscriber switches in the dashboard.
+  test("sends an active Go subscriber who asks for Max to the dashboard switch", async () => {
     stripeConfigured = true;
     stripeCustomerRows = [{ id: "cus_go" }];
     stripeSubscriptionRows = [{
@@ -810,9 +812,7 @@ describe("billing checkout route", () => {
 
     const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max"));
 
-    expect(response.headers.get("location")).toBe(
-      "https://cmux.test/api/billing/portal?flow=switch_plan&plan=max",
-    );
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?change=max");
     expect(createStripeSession).not.toHaveBeenCalled();
   });
 
@@ -833,7 +833,7 @@ describe("billing checkout route", () => {
 
     const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max"));
 
-    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing");
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?change=max");
     expect(createStripeSession).not.toHaveBeenCalled();
   });
 

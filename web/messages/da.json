@@ -568,6 +568,7 @@
       "change": {
         "title": "Skift til {plan}?",
         "upgradeBody": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om måneden.",
+        "upgradeBodyYearly": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om året.",
         "downgradeBody": "{plan} starter nu. Den ubrugte del af din nuværende plan, {credit}, krediteres dine næste fakturaer. Din næste faktura den {date} er på {amount}.",
         "confirm": "Skift til {plan}",
         "keep": "Behold nuværende plan",

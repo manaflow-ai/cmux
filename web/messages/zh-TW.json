@@ -568,6 +568,7 @@
       "change": {
         "title": "切換至 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。目前方案未使用的部分 {credit} 會抵扣後續帳單。{date} 的下一張帳單為 {amount}。",
         "confirm": "切換至 {plan}",
         "keep": "保留目前方案",

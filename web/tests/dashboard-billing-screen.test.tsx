@@ -368,7 +368,8 @@ describe("dashboard billing screen", () => {
     const html = await renderBillingPage();
 
     expect(html).not.toContain("Switch to Max");
-    expect(html).not.toContain("Cancel plan");
+    // Cancelling does not need the payment fixed first.
+    expect(html).toContain("Cancel plan");
     expect(html).toContain("Update your payment method before changing plans.");
     expect(html).toContain('href="/api/billing/portal"');
   });

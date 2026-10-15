@@ -38,8 +38,8 @@ struct BillingPlanClientTests {
     @Test("billing source decodes", arguments: [
         ("\"billingSource\":\"apple\",", BillingSource.apple),
         ("\"billingSource\":\"stripe\",", BillingSource.stripe),
-        ("\"billingSource\":\"none\",", BillingSource.none),
-        ("", BillingSource.none),
+        ("\"billingSource\":\"none\",", BillingSource.unbilled),
+        ("", BillingSource.unbilled),
     ])
     func billingSourceDecodes(field: String, expected: BillingSource) async throws {
         let client = BillingPlanClient(session: BillingPlanStubURLProtocol.session(body: """

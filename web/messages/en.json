@@ -881,6 +881,7 @@
       "change": {
         "title": "Switch to {plan}?",
         "upgradeBody": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per month.",
+        "upgradeBodyYearly": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per year.",
         "downgradeBody": "{plan} starts now. The unused part of your current plan, {credit}, is credited to your next invoices. Your next invoice, on {date}, is {amount}.",
         "confirm": "Switch to {plan}",
         "keep": "Keep current plan",

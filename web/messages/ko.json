@@ -568,6 +568,7 @@
       "change": {
         "title": "{plan}(으)로 전환할까요?",
         "upgradeBody": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매월 {price}을(를) 결제합니다.",
+        "upgradeBodyYearly": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매년 {price}을(를) 결제합니다.",
         "downgradeBody": "{plan}이(가) 지금 시작됩니다. 현재 요금제의 사용하지 않은 부분 {credit}은(는) 다음 청구서에 적립됩니다. {date}의 다음 청구 금액은 {amount}입니다.",
         "confirm": "{plan}(으)로 전환",
         "keep": "현재 요금제 유지",

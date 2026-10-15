@@ -568,6 +568,7 @@
       "change": {
         "title": "Passare a {plan}?",
         "upgradeBody": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} al mese.",
+        "upgradeBodyYearly": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} all'anno.",
         "downgradeBody": "{plan} inizia ora. La parte non utilizzata del piano attuale, {credit}, viene accreditata sulle prossime fatture. La prossima fattura, il {date}, è di {amount}.",
         "confirm": "Passa a {plan}",
         "keep": "Mantieni il piano attuale",

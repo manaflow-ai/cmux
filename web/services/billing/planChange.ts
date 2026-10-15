@@ -41,6 +41,8 @@ export type PlanChangePreview = {
   readonly nextRenewalAt: string | null;
   /** Minor units of the next renewal invoice. */
   readonly nextInvoiceAmount: number;
+  /** How often the renewal charges; a switch keeps the subscription's interval. */
+  readonly interval: BillingInterval;
   /** Unix seconds; pass back to the change so Stripe prorates the same way. */
   readonly prorationDate: number;
 };
@@ -73,6 +75,7 @@ type Switch = {
   readonly subscription: Stripe.Subscription;
   readonly itemId: string;
   readonly price: string;
+  readonly interval: BillingInterval;
   readonly direction: "upgrade" | "downgrade";
   readonly periodEnd: number | null;
 };
@@ -98,11 +101,13 @@ async function resolveSwitch(
   if (current === target) throw new PlanChangeError("same_plan");
   const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
   if (!customerId) throw new PlanChangeError("no_subscription");
+  const interval: BillingInterval = item.price?.recurring?.interval === "year" ? "year" : "month";
   return {
     customerId,
     subscription,
     itemId: item.id,
-    price: await deps.priceFor(target, item.price?.recurring?.interval === "year" ? "year" : "month"),
+    price: await deps.priceFor(target, interval),
+    interval,
     direction: planTierRank(target) > planTierRank(current) ? "upgrade" : "downgrade",
     periodEnd: typeof item.current_period_end === "number" ? item.current_period_end : null,
   };
@@ -112,15 +117,47 @@ function prorationBehavior(direction: Switch["direction"]) {
   return direction === "upgrade" ? ("always_invoice" as const) : ("create_prorations" as const);
 }
 
-type PreviewLine = { readonly amount: number; readonly parent?: { readonly subscription_item_details?: { readonly proration?: boolean } | null } | null; readonly proration?: boolean };
+type PreviewLine = {
+  readonly amount: number;
+  readonly parent?: {
+    readonly subscription_item_details?: { readonly proration?: boolean; readonly subscription_item?: string | null } | null;
+  } | null;
+  readonly proration?: boolean;
+  readonly discount_amounts?: readonly { readonly amount: number }[] | null;
+  readonly taxes?: readonly { readonly amount: number; readonly tax_behavior?: string }[] | null;
+};
+
+function previewLines(invoice: Stripe.Invoice): readonly PreviewLine[] {
+  return (invoice.lines?.data ?? []) as unknown as readonly PreviewLine[];
+}
+
+const sumAmounts = (values: readonly { readonly amount: number }[] | null | undefined) =>
+  (values ?? []).reduce((total, value) => total + value.amount, 0);
+
+/**
+ * What the renewal charges for the plan itself: the plan item's regular
+ * (non-proration) line, net of its discounts plus exclusive tax. The preview's
+ * total would also spend the customer's balance and pending invoice items,
+ * which the immediate upgrade invoice uses up first, and metered usage, which
+ * is not part of the plan's price. Falls back to the total when the preview
+ * has no line for the plan item.
+ */
+function planRenewalAmount(invoice: Stripe.Invoice, itemId: string): number {
+  const lines = previewLines(invoice).filter((line) =>
+    line.parent?.subscription_item_details?.subscription_item === itemId &&
+    line.parent.subscription_item_details.proration !== true);
+  if (lines.length === 0) return invoice.amount_due;
+  return lines.reduce((total, line) =>
+    total + line.amount - sumAmounts(line.discount_amounts) +
+    sumAmounts(line.taxes?.filter((tax) => tax.tax_behavior === "exclusive")), 0);
+}
 
 /**
  * The credit a downgrade leaves: the unused time on the old plan minus the
  * remaining time charged on the new one (both are proration lines).
  */
 function prorationCredit(invoice: Stripe.Invoice): number {
-  const lines = (invoice.lines?.data ?? []) as unknown as readonly PreviewLine[];
-  const net = lines
+  const net = previewLines(invoice)
     .filter((line) => (line.parent?.subscription_item_details?.proration ?? line.proration) === true)
     .reduce((total, line) => total + line.amount, 0);
   return Math.max(0, -net);
@@ -136,9 +173,9 @@ export async function previewPersonalPlanChange(
   const items = [{ id: change.itemId, price: change.price }];
   const upgrade = change.direction === "upgrade";
   // An upgrade invoices its proration now, so the next renewal is a separate
-  // invoice: preview it on the new price with no proration, which carries any
-  // discount, tax, or balance Stripe will apply. A downgrade's prorations land
-  // on that renewal, so its one preview is already the renewal.
+  // invoice: preview it on the new price with no proration and read the plan
+  // line from it. A downgrade's prorations land on that renewal, so its one
+  // preview is already the renewal.
   const [invoice, renewal] = await Promise.all([
     client.invoices.createPreview({
       customer: change.customerId,
@@ -165,7 +202,8 @@ export async function previewPersonalPlanChange(
     credit: upgrade ? 0 : prorationCredit(invoice),
     // The interval is kept, so the billing period (and its end) is unchanged.
     nextRenewalAt: change.periodEnd === null ? null : new Date(change.periodEnd * 1000).toISOString(),
-    nextInvoiceAmount: (renewal ?? invoice).amount_due,
+    nextInvoiceAmount: renewal ? planRenewalAmount(renewal, change.itemId) : invoice.amount_due,
+    interval: change.interval,
     prorationDate,
   };
 }

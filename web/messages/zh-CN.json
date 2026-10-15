@@ -568,6 +568,7 @@
       "change": {
         "title": "切换到 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。当前套餐未使用的部分 {credit} 将抵扣后续账单。{date} 的下一张账单为 {amount}。",
         "confirm": "切换到 {plan}",
         "keep": "保留当前套餐",

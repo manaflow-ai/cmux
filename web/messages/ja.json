@@ -881,6 +881,7 @@
       "change": {
         "title": "{plan} に切り替えますか？",
         "upgradeBody": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは月額 {price} です。",
+        "upgradeBodyYearly": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは年額 {price} です。",
         "downgradeBody": "{plan} はすぐに開始します。現在のプランの未使用分 {credit} は、次回以降の請求に充当されます。{date} の次回請求額は {amount} です。",
         "confirm": "{plan} に切り替え",
         "keep": "現在のプランを続ける",

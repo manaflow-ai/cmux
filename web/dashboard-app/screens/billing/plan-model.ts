@@ -44,7 +44,8 @@ function otherAction(state: PickerState, card: PickerPlanId, current: PickerPlan
       return card === "pro" || card === "max" ? { kind: "switch", plan: card } : { kind: "unavailable", reason: "granted" };
     case "pastDue":
       // A switch needs a paid-up subscription; the payment is fixed first.
-      return { kind: "unavailable", reason: "paymentFailed" };
+      // Cancelling stays available.
+      return card === "free" ? { kind: "cancel" } : { kind: "unavailable", reason: "paymentFailed" };
     case "cancelling":
       return { kind: "unavailable", reason: "cancelScheduled" };
     case "granted":
@@ -96,7 +97,11 @@ function personalState(
 ): PickerState {
   if (!subscribed) return current === "free" ? "free" : "granted";
   if (subscription!.cancelAtPeriodEnd) return "cancelling";
-  return subscription!.status === "past_due" ? "pastDue" : "active";
+  // Only an active or trialing subscription can switch; any other status
+  // (past_due) has a payment to fix first. An older client without a status
+  // keeps the switch.
+  const status = subscription!.status;
+  return status === undefined || status === "active" || status === "trialing" ? "active" : "pastDue";
 }
 
 /** A team's plans: Free and Team. Only team admins change them. */

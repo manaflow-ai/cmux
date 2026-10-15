@@ -89,6 +89,7 @@ describe("dashboard billing procedures", () => {
       credit: 0,
       nextRenewalAt: "2026-10-20T00:00:00.000Z",
       nextInvoiceAmount: 20_000,
+      interval: "month",
       prorationDate: 1_790_000_000,
     };
     previewImpl = async () => preview;

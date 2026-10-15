@@ -434,9 +434,9 @@ async function stripePersonalCheckout(
 /**
  * An account that already pays for a personal plan never gets a second
  * subscription. A plan switch the hosted portal can do (the subscription is
- * on a price it lists) opens its switch flow; one it cannot (a grandfathered
- * price) goes to the dashboard, whose in-place switch prices any
- * subscription. Every other state opens the plain portal.
+ * on a price it lists) opens its switch flow; one it cannot (Go or a
+ * grandfathered price) opens the dashboard's switch dialog for that plan,
+ * which prices any subscription. Every other state opens the plain portal.
  */
 function existingSubscriptionRedirect(
   request: NextRequest,
@@ -450,7 +450,9 @@ function existingSubscriptionRedirect(
     !status.cancelAtPeriodEnd && status.activePlanId !== plan;
   if (wantsSwitch && !isPortalSwitchableLookupKey(status.planLookupKey) && status.subscriptionStatus !== "past_due") {
     captureCheckoutDecision(userId, plan, status.activePlanId, "switch_plan", attribution, interval);
-    return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
+    const dashboardURL = new URL("/dashboard/billing", requestOrigin(request));
+    dashboardURL.searchParams.set("change", plan);
+    return NextResponse.redirect(dashboardURL);
   }
   const portalURL = new URL("/api/billing/portal", requestOrigin(request));
   if (wantsSwitch) {

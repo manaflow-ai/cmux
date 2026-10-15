@@ -568,6 +568,7 @@
       "change": {
         "title": "Zu {plan} wechseln?",
         "upgradeBody": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Monat.",
+        "upgradeBodyYearly": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Jahr.",
         "downgradeBody": "{plan} beginnt sofort. Der ungenutzte Teil deines aktuellen Plans, {credit}, wird deinen nächsten Rechnungen gutgeschrieben. Deine nächste Rechnung am {date} beträgt {amount}.",
         "confirm": "Zu {plan} wechseln",
         "keep": "Aktuellen Plan behalten",

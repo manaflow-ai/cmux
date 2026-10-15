@@ -115,6 +115,7 @@ describe("personal plan change", () => {
       credit: 0,
       nextRenewalAt: new Date(PERIOD_END * 1000).toISOString(),
       nextInvoiceAmount: 20_000,
+      interval: "month",
       prorationDate: NOW,
     });
     const previewCall = calls.find((call) => call.method === "createPreview" && (call.args[0] as { subscription_details: { proration_behavior: string } }).subscription_details.proration_behavior !== "none")!;
@@ -190,6 +191,7 @@ describe("personal plan change", () => {
       // renewal charges the Max yearly price, not a monthly one.
       nextRenewalAt: new Date(PERIOD_END * 1000).toISOString(),
       nextInvoiceAmount: 192_000,
+      interval: "year",
     });
     const items = calls
       .filter((call) => call.method === "createPreview")
@@ -230,6 +232,32 @@ describe("personal plan change", () => {
     renewalPreview = { currency: "usd", amount_due: 15_000, lines: { data: [] } };
     const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
     expect(result.nextInvoiceAmount).toBe(15_000);
+  });
+
+  test("the renewal amount is the plan line, not credits or usage the upgrade invoice settles first", async () => {
+    const planLine = (amount: number, extra: Record<string, unknown> = {}) => ({
+      amount,
+      parent: { subscription_item_details: { subscription_item: "si_1", proration: false } },
+      ...extra,
+    });
+    renewalPreview = {
+      currency: "usd",
+      // A pending downgrade credit and metered usage both move the total.
+      amount_due: 11_500,
+      lines: {
+        data: [
+          planLine(20_000, { discount_amounts: [{ amount: 2_000 }], taxes: [{ amount: 900, tax_behavior: "exclusive" }] }),
+          { amount: -10_000, parent: { subscription_item_details: { subscription_item: "si_1", proration: true } } },
+          { amount: 1_500, parent: { subscription_item_details: { subscription_item: "si_usage", proration: false } } },
+        ],
+      },
+    };
+    const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
+    expect(result.nextInvoiceAmount).toBe(18_900);
+  });
+
+  test("the renewal preview asks Stripe for the next invoice on the new price", async () => {
+    await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
     const renewalCall = calls.find((call) =>
       call.method === "createPreview" &&
       (call.args[0] as { subscription_details: { proration_behavior: string } }).subscription_details.proration_behavior === "none")!;

@@ -568,6 +568,7 @@
       "change": {
         "title": "Basculer vers {plan} ?",
         "upgradeBody": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par mois.",
+        "upgradeBodyYearly": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par an.",
         "downgradeBody": "{plan} démarre maintenant. La partie non utilisée de votre forfait actuel, {credit}, est créditée sur vos prochaines factures. Votre prochaine facture, le {date}, est de {amount}.",
         "confirm": "Basculer vers {plan}",
         "keep": "Garder le forfait actuel",

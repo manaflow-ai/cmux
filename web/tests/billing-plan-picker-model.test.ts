@@ -71,7 +71,7 @@ describe("personal plan picker", () => {
       isPro: true,
       subscription: { plan: "pro", cancelAtPeriodEnd: false, status: "past_due" },
       goPlanEnabled: false,
-    }))).toEqual(["free:unavailable/paymentFailed", "pro*:current", "max:unavailable/paymentFailed"]);
+    }))).toEqual(["free:cancel", "pro*:current", "max:unavailable/paymentFailed"]);
   });
 });
 
@@ -105,8 +105,6 @@ describe("a reason every other card shares", () => {
     expect(sharedUnavailableReason(cancelling)).toBe("cancelScheduled");
     const granted = personalPlanCards({ planId: "max", isPro: true, subscription: null, goPlanEnabled: false });
     expect(sharedUnavailableReason(granted)).toBe("granted");
-    const pastDue = personalPlanCards({ planId: "pro", isPro: true, subscription: { plan: "pro", cancelAtPeriodEnd: false, status: "past_due" }, goPlanEnabled: false });
-    expect(sharedUnavailableReason(pastDue)).toBe("paymentFailed");
   });
 
   test("is null when the other cards have actions", () => {

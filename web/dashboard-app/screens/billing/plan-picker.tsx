@@ -26,6 +26,7 @@ export function PlanPicker({
   periodEnd,
   canManagePayment,
   currentPrice,
+  initialSwitch,
 }: {
   readonly cards: readonly PlanCard[];
   readonly scope: PickerScope;
@@ -40,10 +41,13 @@ export function PlanPicker({
    */
   /** The current subscription's own Stripe price; null when granted; undefined for the list price. */
   readonly currentPrice?: SubscriptionPrice | null;
+  /** Opens the switch dialog for this plan when its card offers a switch. */
+  readonly initialSwitch?: SwitchPlanId;
 }) {
   const t = useTranslations("dashboard.billing.picker");
   const locale = useLocale();
-  const [switchTo, setSwitchTo] = useState<SwitchPlanId | null>(null);
+  const [switchTo, setSwitchTo] = useState<SwitchPlanId | null>(() =>
+    cards.some((card) => card.action.kind === "switch" && card.action.plan === initialSwitch) ? initialSwitch ?? null : null);
   const [cancelling, setCancelling] = useState(false);
   const resume = useResumePlan();
   const teamId = scope.kind === "team" ? scope.teamId : undefined;

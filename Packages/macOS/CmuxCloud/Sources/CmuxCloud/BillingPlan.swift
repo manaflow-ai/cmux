@@ -7,8 +7,9 @@ public enum BillingSource: String, Sendable, Equatable {
     case stripe
     /// Billed through the App Store.
     case apple
-    /// Not billed: a free plan or a plan granted by cmux.
-    case none
+    /// Not billed: a free plan or a plan granted by cmux. Named so it can
+    /// never be confused with `Optional.none` (an unknown source).
+    case unbilled = "none"
 }
 
 /// The account-scoped billing entitlement used by Cloud access controls.
@@ -81,7 +82,7 @@ public struct BillingPlanDetails: Sendable, Equatable {
     public let canManageBilling: Bool
     /// The effective tier: the higher of the personal and active-team plans.
     public let tier: CmuxPlanTier
-    /// Who bills the personal plan. An older service that omits it reads as `none`.
+    /// Who bills the personal plan. An older service that omits it reads as unbilled.
     public let billingSource: BillingSource
 
     /// Creates decoded billing details.
@@ -89,7 +90,7 @@ public struct BillingPlanDetails: Sendable, Equatable {
         isPro: Bool,
         canManageBilling: Bool,
         tier: CmuxPlanTier? = nil,
-        billingSource: BillingSource = .none
+        billingSource: BillingSource = .unbilled
     ) {
         self.isPro = isPro
         self.canManageBilling = canManageBilling
@@ -156,7 +157,7 @@ public struct BillingPlanClient: Sendable {
             isPro: isPro,
             canManageBilling: canManageBilling,
             tier: tier,
-            billingSource: decoded.billingSource.flatMap(BillingSource.init(rawValue:)) ?? .none
+            billingSource: decoded.billingSource.flatMap(BillingSource.init(rawValue:)) ?? .unbilled
         )
     }
 

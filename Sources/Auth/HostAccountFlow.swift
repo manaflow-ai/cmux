@@ -39,7 +39,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         switch source {
         case .stripe: return .stripe
         case .apple: return .appStore
-        case .none: return .granted
+        case .unbilled: return .granted
         }
     }
     /// The account whose plan is known, or nil while the plan is unknown.
