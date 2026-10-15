@@ -9,12 +9,11 @@ struct BarSwipeTests {
         #expect(BarSwipe.axis(CGSize(width: 2, height: 15)) == .down)
     }
 
-    /// Safari's 270 pt / 0.2 s swipe (1350 pt/s): progress at 17-110 ms.
-    @Test func followsTheFingerLikeSafari() {
-        let safari: [(ms: Double, p: Double)] = [(17, 0.20), (33, 0.43), (50, 0.50), (70, 0.58), (90, 0.64), (110, 0.67)]
-        for s in safari {
-            let up = CGFloat(1350 * s.ms / 1000)
-            #expect(abs(BarSwipe.progress(up: up) - s.p) < 0.06, "\(s.ms) ms")
+    /// The page follows Safari's swipe-up curve at the reference speed.
+    @Test func followsSafarisCurve() {
+        for ms in [17.0, 50, 100, 200] {
+            let up = CGFloat(BarSwipe.referenceSpeed * ms / 1000)
+            #expect(abs(BarSwipe.progress(up: up) - SafariCurve.swipeUp.value(at: ms / 1000)) < 1e-9)
         }
         #expect(BarSwipe.progress(up: 0) == 0)
     }

@@ -58,13 +58,14 @@ struct TabZoomStateTests {
         #expect(o.spring == .toPage)
     }
 
-    /// The last tab closed: Safari's page edge, from the lone card's slot
-    /// (67.3 pt in from each side), is within 1 pt about 340 ms and at
-    /// rest about 500 ms after it starts.
-    @Test func lastTabStartPageFollowsSafari() {
+    /// The last tab closed: the page replays Safari's curve and settles
+    /// when it ends.
+    @Test func lastTabStartPageReplaysSafari() {
         var s = TabZoomState(overview: true)
         s.openNewTab(spring: .afterLastClose)
-        #expect(abs(timeTo(1 / 67.3, &s) - 340) <= 1000.0 / 60 * 2)
+        #expect(s.curve == .lastTab)
+        run(&s, seconds: SafariCurve.lastTab.duration + 0.02)
+        #expect(s.phase == .page)
     }
 
     @Test func newTabGrowsFromTheCentre() {
@@ -98,13 +99,12 @@ struct TabZoomStateTests {
         #expect(abs(s.progress - (q + 10.0 / 244)) < 1e-9 && s.spring == .reversalToOverview)
     }
 
-    /// Opening a card starts from rest, as simulator Safari: the first
-    /// 60 Hz frame covers 7–11 pt of the 225 pt card-to-page travel.
-    @Test func openStartsFromRest() {
+    /// Opening a card replays Safari's zoom in: its first 60 Hz frame moves
+    /// 7–11 pt of the 225 pt card-to-page travel, as Safari's.
+    @Test func openReplaysSafarisZoomIn() {
         var s = TabZoomState(overview: true)
         s.go(toOverview: false)
-        #expect(s.velocity == 0)
-        #expect(s.spring == .toPage)
+        #expect(s.curve == .zoomIn)
         s.step(1.0 / 60)
         let firstFrame = (1 - s.progress) * 225
         #expect(firstFrame >= 6 && firstFrame <= 11, "\(firstFrame) pt")

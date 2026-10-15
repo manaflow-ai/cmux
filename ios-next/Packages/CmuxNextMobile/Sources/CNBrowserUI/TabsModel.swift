@@ -180,7 +180,16 @@ final class TabsModel {
     func isPinned(_ key: String) -> Bool { pins.isPinned(key) }
     private var pinsHost: String { connection.hostId ?? "local" }
 
-    func loadPins() { pins = TabPins.load(host: pinsHost) }
+    func loadPins() {
+        pins = TabPins.load(host: pinsHost)
+        #if DEBUG
+        // Recordings (scripts/tabs-curves): start from an unpinned grid.
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_TABS_RESET_PINS"] == "1" {
+            pins = TabPins()
+            pins.save(host: pinsHost)
+        }
+        #endif
+    }
 
     /// Pin Tab / Unpin Tab: the item moves to or from the pinned area.
     func setPinned(_ keys: [String], _ pinned: Bool) {

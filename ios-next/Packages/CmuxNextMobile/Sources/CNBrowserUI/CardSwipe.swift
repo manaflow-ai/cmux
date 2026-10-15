@@ -48,8 +48,9 @@ struct CardSwipe: Equatable, Sendable {
     static func flyOffDuration(distance: CGFloat, velocity: CGFloat) -> Double {
         Double(abs(distance) / max(abs(velocity), flyOffMinSpeed))
     }
-    /// The tab leaves the grid one 60 Hz frame after the release.
-    static let flyOffRemovalDelay: Duration = .milliseconds(17)
+    /// The tab leaves the grid at the release (Safari's count changes 5-12 ms
+    /// after the finger ends; the card holds 2 frames meanwhile, as Safari's).
+    static let flyOffRemovalDelay: Duration = .zero
     /// Reduce Motion: no movement after release, a crossfade instead.
     static let reduceMotionFade = 0.18
 
