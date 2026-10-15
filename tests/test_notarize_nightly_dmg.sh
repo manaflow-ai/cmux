@@ -503,3 +503,54 @@ if [ ! -f "$FAST_IMMUTABLE" ] || ! cmp -s "$FAST_DMG" "$FAST_IMMUTABLE"; then
   exit 1
 fi
 echo "PASS: fast dogfood packaging skips notarization but retains signing"
+
+# The CI signing keychain must be gone before any launch smoke runs code from
+# the bundle. Give the helper a managed keychain (scripts/ci/signing-keychain.sh
+# state with a fake `security`), and record at each smoke whether it still
+# exists. The DMG signature must come first, then the keychain delete, then
+# the smokes.
+: > "$LOG"
+KEYCHAIN_STATE="$TMP_DIR/signing-keychain-state"
+mkdir -p "$KEYCHAIN_STATE"
+printf 'fixture-keychain-password' > "$KEYCHAIN_STATE/build.keychain.password"
+cat > "$FAKE_BIN/security" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'security %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+EOF
+cat > "$FAKE_BIN/smoke" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -e "$CMUX_SIGNING_KEYCHAIN_STATE_DIR/build.keychain.password" ]; then
+  printf 'smoke-with-keychain %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+else
+  printf 'smoke %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+fi
+EOF
+chmod +x "$FAKE_BIN/security" "$FAKE_BIN/smoke"
+KEYCHAIN_DMG="$TMP_DIR/cmux-keychain-order.dmg"
+KEYCHAIN_IMMUTABLE="$TMP_DIR/cmux-keychain-order-immutable.dmg"
+rm -f "$TMP_DIR/detach-retried"
+CMUX_SIGNING_KEYCHAIN_STATE_DIR="$KEYCHAIN_STATE" \
+CMUX_SECURITY_TOOL="$FAKE_BIN/security" \
+CMUX_KEYCHAIN_DIR="$TMP_DIR/keychains" \
+  run_helper "$APP" "$KEYCHAIN_DMG" "$KEYCHAIN_IMMUTABLE"
+if grep -q '^smoke-with-keychain ' "$LOG"; then
+  echo "FAIL: a launch smoke ran while the CI signing keychain still existed" >&2
+  exit 1
+fi
+if [ -e "$KEYCHAIN_STATE/build.keychain.password" ]; then
+  echo "FAIL: the helper did not delete the CI signing keychain" >&2
+  exit 1
+fi
+sign_line="$(grep -n "^codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $KEYCHAIN_DMG" "$LOG" | head -1 | cut -d: -f1)"
+unlock_line="$(grep -n '^security unlock-keychain .* build.keychain$' "$LOG" | head -1 | cut -d: -f1)"
+delete_line="$(grep -n '^security delete-keychain build.keychain$' "$LOG" | head -1 | cut -d: -f1)"
+smoke_line="$(grep -n '^smoke ' "$LOG" | head -1 | cut -d: -f1)"
+if [ -z "$sign_line" ] || [ -z "$unlock_line" ] || [ -z "$delete_line" ] || [ -z "$smoke_line" ] \
+  || [ "$unlock_line" -ge "$sign_line" ] || [ "$sign_line" -ge "$delete_line" ] || [ "$delete_line" -ge "$smoke_line" ]; then
+  echo "FAIL: expected unlock, DMG signature, keychain delete, then smoke (unlock=$unlock_line sign=$sign_line delete=$delete_line smoke=$smoke_line)" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+echo "PASS: the CI signing keychain is deleted after the DMG signature and before any smoke"
