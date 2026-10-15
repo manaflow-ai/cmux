@@ -652,3 +652,23 @@ fn stats_branches_keep_the_fifty_with_the_most_working_time() {
     assert_eq!(names.len(), 50);
     assert_eq!((names[0], names[49]), ("b55", "b6"));
 }
+
+#[test]
+fn stats_branches_skip_a_turn_a_fork_copied_while_it_ran() {
+    let store = MemoryStore::default();
+    let updated = DAY0 + 12 * HOUR;
+    // Forked mid-turn: the copied prompt and start have no result before
+    // `forked`, and the fork's own prompt closes that copy.
+    let mut fork = session(&store, on_branch("fork", Some("feat-x"), "/tmp/p", updated));
+    fork.prompt(DAY0 + HOUR);
+    fork.started(DAY0 + HOUR);
+    fork.push(DAY0 + 2 * HOUR, "mux", "forked", json!({"parentId": "parent", "forkSeq": 2}));
+    fork.turn(DAY0 + 3 * HOUR, DAY0 + 3 * HOUR + 10 * MIN, json!({"costUsd": 0.25}));
+    let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
+    let v = serde_json::to_value(&s).unwrap();
+    assert_eq!(
+        v["branches"],
+        json!([{"cwd": "/tmp/p", "branch": "feat-x", "sessions": 1, "turns": 1,
+                "workingMs": 10 * MIN, "costUsd": 0.25}])
+    );
+}

@@ -3,7 +3,10 @@
 //! read per merged PR.
 //!
 //! A session belongs to the branch its `cwd` had checked out when it started
-//! (`SessionMeta::git_branch`, `git_state.rs`). A row is keyed by that branch
+//! (`SessionMeta::git_branch`, `git_state.rs`), for all its turns: a session
+//! that switches branch later (an agent's own `git checkout -b`) stays on the
+//! one it started on. The cwd is taken as given, so a session in a subfolder
+//! of the same checkout is another row. A row is keyed by that branch
 //! and the session's `cwd`, not by repository: a repository's identity
 //! (`hub/adoption.rs` `repo_identity`) asks git about a folder that is often
 //! gone by the time its PR merges, so the cwd keeps one branch name in two
@@ -13,8 +16,8 @@
 //!
 //! Only turns in the range count, with the spend each `turn_result` recorded,
 //! never `SessionMeta::totals`, which spans the session's whole life. A
-//! fork's log starts with copies of its parent's turns: those count once, in
-//! the parent.
+//! fork's log starts with copies of its parent's turns: those count only in
+//! the parent's log (not at all once that log is deleted or unreadable).
 
 use crate::store::{SessionMeta, TurnUsage};
 use serde::Serialize;
