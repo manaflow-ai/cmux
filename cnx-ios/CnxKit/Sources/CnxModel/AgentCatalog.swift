@@ -74,7 +74,9 @@ public struct AgentCatalog: Hashable, Sendable {
     public var defaultChoice: AgentHarnessChoice? {
         if let mac = harnesses.first(where: { $0.isDefault && $0.canStart }) { return mac }
         let startable = harnesses.filter(\.canStart)
-        return startable.first { $0.family == "claude" } ?? startable.first
+        // The family's own profile (`claude`) before its variants (`claude-cr`).
+        return startable.first { $0.id == "claude" } ?? startable.first { $0.family == "claude" }
+            ?? startable.first { $0.id == $0.family } ?? startable.first
     }
 
     public func harness(_ id: String) -> AgentHarnessChoice? { harnesses.first { $0.id == id } }
