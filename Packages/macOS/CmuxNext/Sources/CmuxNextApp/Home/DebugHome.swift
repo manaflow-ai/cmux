@@ -27,7 +27,7 @@ enum DebugHome {
                                         "text": .string(draft.text)])
             }
             // The Chief's running run (`chief-live-v1`, HomeStore.live): the reply so far and its activity line.
-            if let live = home.homeStore.live[ConversationID(summary.id)] {
+            if let live = home.homeStore.liveRun(in: ConversationID(summary.id)) {
                 row["live"] = .object(["run": .string(live.run), "turn": .string(live.turn.rawValue),
                                        "author": .string(live.participant.rawValue), "text": .string(live.text),
                                        "activity": live.activity.map { .string($0.line) } ?? .null])

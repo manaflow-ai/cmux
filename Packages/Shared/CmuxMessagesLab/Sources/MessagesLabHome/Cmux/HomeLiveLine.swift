@@ -26,7 +26,7 @@ final class HomeLiveLine {
         if activity != nil {
             // A display clock for the elapsed seconds, not a synchronisation delay.
             let clock = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.tick() }
+                Task { @MainActor [weak self] in self?.tick() }
             }
             RunLoop.main.add(clock, forMode: .common)
             self.clock = clock
@@ -53,13 +53,13 @@ final class HomeLiveLine {
     }
 
     static func text(_ activity: HomeLiveActivity, now: Date) -> String {
-        let seconds = Int(now.timeIntervalSince(activity.since).rounded(.down))
-        guard seconds >= 1 else { return activity.line }
+        let seconds = now.timeIntervalSince(activity.since).rounded(.down)
+        guard seconds.isFinite, seconds >= 1 else { return activity.line }
         let formatter = DateComponentsFormatter()
         formatter.unitsStyle = .abbreviated
         formatter.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute, .second]
         formatter.maximumUnitCount = 2
-        guard let elapsed = formatter.string(from: TimeInterval(seconds)) else { return activity.line }
+        guard let elapsed = formatter.string(from: seconds) else { return activity.line }
         return "\(activity.line) · \(elapsed)"
     }
 }

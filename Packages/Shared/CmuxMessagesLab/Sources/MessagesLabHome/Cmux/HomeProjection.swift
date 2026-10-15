@@ -132,7 +132,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             deferredThreadRoot = nil
         }
         // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
-        let live = homeStore.live[conversation]
+        let live = homeStore.liveRun(in: conversation)
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
               typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])

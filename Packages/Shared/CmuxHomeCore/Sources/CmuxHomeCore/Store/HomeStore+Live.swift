@@ -13,6 +13,9 @@ extension HomeStore {
         }
     }
 
+    /// The running Chief run `id` shows (`live`), nil when none.
+    public func liveRun(in id: ConversationID) -> HomeLiveRun? { live[id] }
+
     /// Asks the owner for its `run.live` snapshot (it arrives as an event).
     func requestLive(_ conversation: ConversationID) {
         let owner = self.source
