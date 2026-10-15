@@ -35,6 +35,25 @@ import SwiftUI
         return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
     }
 
+    /// N2/A1: a shell tab running `sleep` (title "zsh") asks before its close kills it.
+    @Test func closingATabWithARunningProgramAsks() async throws {
+        let (store, source) = make(backend: ProgramsBackend(programs: ["sleep"]))
+        let close = Task { await source.close("t-zsh") }
+        for _ in 0..<200 where source.pendingClose == nil { await Task.yield() }
+        let pending = try #require(source.pendingClose)
+        #expect(pending.title == "Close \u{201C}zsh\u{201D}?")
+        #expect(pending.message == "Still running: sleep.")
+        source.resolvePendingClose(false)
+        #expect(await close.value == false)
+        #expect(store.workspaces.first { $0.id == "ws-cmux" }?.tabs.contains { $0.id == "t-zsh" } == true)
+    }
+
+    @Test func closingAnIdleShellDoesNotAsk() async {
+        let (_, source) = make(backend: ProgramsBackend(programs: []))
+        #expect(await source.close("t-zsh") == true)
+        #expect(source.pendingClose == nil)
+    }
+
     @Test func aCloseTheMacRefusesKeepsTheTab() async {
         let refusing = MockWorkspaceCreationBackend(latency: .zero)
         let (_, source) = make(backend: refusing)
@@ -568,6 +587,17 @@ import SwiftUI
     }
 }
 #endif
+
+/// A Mac whose terminals run `programs` (`process-info`).
+@MainActor final class ProgramsBackend: WorkspaceCreationBackend {
+    let programs: [String]
+    init(programs: [String]) { self.programs = programs }
+    func canCreate(on macID: String) -> Bool { true }
+    func options(on macID: String) -> WorkspaceCreationOptions { .basic }
+    func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace { placeholder }
+    func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {}
+    func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String] { programs }
+}
 
 /// acpmux refuses a Web fork of a Claude chat the Mac started (D13) with this reason.
 @MainActor final class RefusingForkBackend: WorkspaceCreationBackend {

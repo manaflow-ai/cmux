@@ -18,7 +18,7 @@ import Testing
         func append(_ object: [String: Any]) { lock.withLock { items.append(object) } }
         var all: [[String: Any]] { lock.withLock { items } }
         var mutations: [[String: Any]] {
-            all.filter { ["close-surface", "close-terminal"].contains($0["cmd"] as? String ?? "") }
+            all.filter { ["close-surface", "close-terminal", "close-tab-group"].contains($0["cmd"] as? String ?? "") }
         }
     }
 
@@ -31,7 +31,13 @@ import Testing
         {"surface":11,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_b"},
         {"surface":12,"kind":"remote-terminal","title":"ssh","dead":false,"terminal_id":"term_r"}]}]}]},
       {"id":2,"key":"wk2","name":"other","screens":[{"active":true,"active_pane":2,"panes":[{"id":2,"active_tab":0,"tabs":[
-        {"surface":13,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_b"}]}]}]}
+        {"surface":13,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_b"}]}]}]},
+      {"id":3,"key":"wk3","name":"grouped","screens":[{"active":true,"active_pane":3,"panes":[{"id":3,"active_tab":0,
+        "tab_groups":[{"id":"tgrp_9","name":"Jobs","color":"green","collapsed":false,"start":0,"count":2,"surfaces":[20,21]}],
+        "tabs":[
+        {"surface":20,"kind":"pty","title":"one","dead":false,"terminal_id":"term_c"},
+        {"surface":21,"kind":"pty","title":"two","dead":false,"terminal_id":"term_d"},
+        {"surface":22,"kind":"pty","title":"three","dead":false,"terminal_id":"term_d"}]}]}]}
     ]}
     """#
 
@@ -46,6 +52,10 @@ import Testing
                 case "list-workspaces":
                     // One line: the client splits replies on newlines.
                     line = #"{"id":"\#(id)","ok":true,"data":\#(tree.replacingOccurrences(of: "\n", with: ""))}"#
+                case "process-info":
+                    // s10 runs `sleep`, s13 an idle Codex, s20 `yes`; the rest sit at the shell.
+                    let program = [10: "sleep", 13: "codex", 20: "/usr/bin/yes"][object["surface"] as? Int ?? 0] ?? "zsh"
+                    line = #"{"id":"\#(id)","ok":true,"data":{"pid":1,"command":null,"foreground_executable":"\#(program)"}}"#
                 case "list-agents":
                     line = #"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#
                 default:
@@ -97,5 +107,31 @@ import Testing
         let (tab, workspace) = try tab("s12", in: sync)
         try await backend.closeTab(tab, in: workspace)
         #expect(seen.mutations.map { $0["cmd"] as? String } == ["close-surface"])
+    }
+
+    /// N2/A1: the close question reads the Mac's real foreground program
+    /// (`process-info`), as the Mac's own close does.
+    @Test func theRunningProgramsComeFromTheMac() async throws {
+        let seen = Requests()
+        let (backend, sync) = try await connected(seen)
+        let (sleeping, workspace) = try tab("s10", in: sync)
+        let (idle, _) = try tab("s11", in: sync)
+        #expect(await backend.runningPrograms(of: [sleeping, idle], in: workspace) == ["sleep"])
+        let (codex, other) = try tab("s13", in: sync)
+        #expect(await backend.runningPrograms(of: [codex], in: other) == ["codex"])
+        #expect(seen.all.filter { $0["cmd"] as? String == "process-info" }.count == 3)
+    }
+
+    /// A2: Close Tab Group ends each member's terminal as a tab close does, but
+    /// keeps one another tab still shows.
+    @Test func closingATabGroupEndsItsTerminals() async throws {
+        let seen = Requests()
+        let (backend, sync) = try await connected(seen)
+        let (tab, workspace) = try tab("s20", in: sync)
+        #expect(tab.group?.id == "tgrp_9")
+        try await backend.editTabGroup(.close, tab: tab, in: workspace)
+        let mutations = seen.mutations
+        #expect(mutations.map { $0["cmd"] as? String } == ["close-tab-group", "close-terminal"])
+        #expect(mutations.last?["terminal_id"] as? String == "term_c")
     }
 }
