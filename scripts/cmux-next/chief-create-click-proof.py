@@ -13,7 +13,7 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
    deactivate; the window stays in place). Immediately before the click the proof asserts that cmux is not active, no
    cmux window is key and the window server's front app is another app; else it sends no click. The Chief is created
    on the owner (chief list), the page shows no "needs a verified cmux app connection". Only the Home page accepts
-   the first mouse: Settings (its browsing-data Clear acts on one click) and History (no setting) do not.
+   the first mouse: Settings (its browsing-data Clear acts on one click) and every page with no setting do not.
 4. The owner restarts while the page is open: page relay calls during and after the restart answer within the relay
    deadline (16 s, checked at 18 s), and a second real
    click on Create Chief makes a Chief on the new owner (no page call left in flight).
@@ -544,14 +544,20 @@ try:
     # The answer is the view's own and depends only on the page it shows, so the page need not have painted.
     settings = until(lambda: (lambda s: s if "accepts_first_mouse" in s else None)(
         res(rpc("debug.page", {"page": "cmux.settings", "action": "state"}, 30)) or {}), 60) or {}
-    # History sets nothing: the fail-closed default (only Home Channels opts in).
+    # Pages that set nothing get the fail-closed default (only Home Channels opts in): every live page that is not
+    # Home Channels or Settings (History after history.show, the parked pooled spare), each by its instance.
     R["open_history"] = rpc("action.run", {"id": "history.show", "wait": True}, 30)
-    history = until(lambda: (lambda s: s if "accepts_first_mouse" in s else None)(
-        res(rpc("debug.page", {"page": "cmux.history", "action": "state"}, 30)) or {}), 60) or {}
+    def unset_pages():
+        rows = (res(rpc("debug.page", {"action": "list"}, 30)) or {}).get("pages") or []
+        rows = [r for r in rows if isinstance(r, dict) and r.get("page") not in ("cmux.home-channels", "cmux.settings")]
+        return {"%s#%s" % (r.get("page"), r.get("instance")): (res(rpc("debug.page", {
+            "page": r.get("page"), "instance": r.get("instance"), "parked": bool(r.get("parked")), "action": "state"}, 30))
+            or {}).get("accepts_first_mouse") for r in rows} or None
+    unset = until(unset_pages, 30) or {}
+    R["unset_pages"] = unset
     check("settings_page_refuses_first_mouse_home_accepts", home_fm is True and settings.get("accepts_first_mouse") is False,
           {"home_channels": home_fm, "settings": settings.get("accepts_first_mouse"), "settings_painted": settings.get("painted")})
-    check("page_without_setting_refuses_first_mouse", history.get("accepts_first_mouse") is False,
-          {"history": history.get("accepts_first_mouse"), "history_state": json.dumps(history)[:300]})
+    check("page_without_setting_refuses_first_mouse", bool(unset) and all(v is False for v in unset.values()), unset)
 finally:
     app_pid = app.pid
     shutdown_all(app)
