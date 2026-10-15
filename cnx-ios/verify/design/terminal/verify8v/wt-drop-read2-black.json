@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8v/wt-drop-read2.mp4",
+ "source_frames": 941,
+ "duration": 26.25,
+ "lit_median": 0.0431,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0638,
+ "max_gap_ms": 600.0
+}

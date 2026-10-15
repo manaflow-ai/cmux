@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8v/gd-drop-read1.mp4",
+ "source_frames": 891,
+ "duration": 23.65,
+ "lit_median": 0.041,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0865,
+ "max_gap_ms": 618.3
+}

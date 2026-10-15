@@ -1,0 +1,54 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8v/gd-jump1.mp4",
+ "source_frames": 7960,
+ "duration": 145.78,
+ "lit_median": 0.0405,
+ "black_runs": [
+  {
+   "start": 16.183,
+   "end": 16.197,
+   "dur_ms": 13.3,
+   "source_frames": 1
+  },
+  {
+   "start": 22.145,
+   "end": 22.163,
+   "dur_ms": 18.3,
+   "source_frames": 1
+  },
+  {
+   "start": 33.197,
+   "end": 33.213,
+   "dur_ms": 16.7,
+   "source_frames": 1
+  },
+  {
+   "start": 53.765,
+   "end": 53.787,
+   "dur_ms": 21.7,
+   "source_frames": 1
+  },
+  {
+   "start": 82.013,
+   "end": 82.03,
+   "dur_ms": 16.7,
+   "source_frames": 1
+  }
+ ],
+ "black_runs_over_17ms": [
+  {
+   "start": 22.145,
+   "end": 22.163,
+   "dur_ms": 18.3,
+   "source_frames": 1
+  },
+  {
+   "start": 53.765,
+   "end": 53.787,
+   "dur_ms": 21.7,
+   "source_frames": 1
+  }
+ ],
+ "frac_gaps_over_34ms": 0.0418,
+ "max_gap_ms": 183.3
+}

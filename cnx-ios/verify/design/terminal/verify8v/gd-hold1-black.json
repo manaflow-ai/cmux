@@ -1,0 +1,24 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8v/gd-hold1.mp4",
+ "source_frames": 6615,
+ "duration": 151.23,
+ "lit_median": 0.0392,
+ "black_runs": [
+  {
+   "start": 111.357,
+   "end": 111.377,
+   "dur_ms": 20.0,
+   "source_frames": 1
+  }
+ ],
+ "black_runs_over_17ms": [
+  {
+   "start": 111.357,
+   "end": 111.377,
+   "dur_ms": 20.0,
+   "source_frames": 1
+  }
+ ],
+ "frac_gaps_over_34ms": 0.1299,
+ "max_gap_ms": 548.3
+}

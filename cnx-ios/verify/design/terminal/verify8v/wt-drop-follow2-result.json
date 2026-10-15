@@ -1,0 +1,94 @@
+{
+ "tag": "wt-drop-follow2",
+ "mode": "follow2",
+ "gap": 3.4,
+ "kills_v": [
+  5.44,
+  9.01
+ ],
+ "hostd": [
+  [
+   1.64,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   2.59,
+   "NFO cnx_hostd::host: link up session_id=\"43384fb8-d6db-441b-8a5c-7065fdba989d\" kind=WebRtc path=Turn phone=\"0e42baa6-d13"
+  ],
+  [
+   6.41,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   7.67,
+   "NFO cnx_hostd::host: link up session_id=\"95fb27ae-c1a3-4f05-8309-24ed1d72914f\" kind=WebRtc path=Turn phone=\"0e42baa6-d13"
+  ]
+ ],
+ "before": [
+  "GEN-472",
+  "GEN-473",
+  "GEN-474",
+  "GEN-475",
+  "GEN-476",
+  "GEN-477"
+ ],
+ "before_plus1s": [
+  "GEN-555",
+  "GEN-556",
+  "GEN-557",
+  "GEN-558",
+  "GEN-559",
+  "GEN-560"
+ ],
+ "after": [
+  "GEN-132",
+  "GEN-1325",
+  "GEN-1326",
+  "GEN-1327",
+  "GEN-132",
+  "GEN-132"
+ ],
+ "after_plus3s": [
+  "GEN-1507",
+  "GEN-1508",
+  "GEN-150",
+  "GEN-1510",
+  "GEN-1511",
+  "GEN-1512"
+ ],
+ "jump_visible_after": false,
+ "replays": [
+  "surface 17: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 5,
+ "reading_marks": [],
+ "blank_page_lines": [],
+ "video_black_runs": [],
+ "video_black_over_1_frame": [],
+ "framelog_blank_runs_over_1": [
+  [
+   2.68,
+   2
+  ],
+  [
+   20.63,
+   2
+  ],
+  [
+   31.49,
+   2
+  ],
+  [
+   40.81,
+   3
+  ]
+ ],
+ "framelog_blank_frames": 141,
+ "dt_max": 156.75,
+ "frac_gaps_over_34ms": 0.0789,
+ "load": [
+  14.42,
+  25.12,
+  33.42
+ ]
+}

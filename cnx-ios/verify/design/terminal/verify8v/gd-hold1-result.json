@@ -1,0 +1,14 @@
+{
+ "tag": "gd-hold1",
+ "seconds": 150,
+ "prunes": 0,
+ "blank_page_lines": [],
+ "black_runs": [],
+ "flashes": 0,
+ "valid": false,
+ "load": [
+  94.76,
+  59.76,
+  45.31
+ ]
+}

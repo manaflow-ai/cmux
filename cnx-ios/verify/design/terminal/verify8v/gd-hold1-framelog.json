@@ -1,0 +1,138 @@
+{
+ "frames": 12935,
+ "blank_frames": 1,
+ "blank_runs": [
+  {
+   "t0": 1792056572.145,
+   "t1": 1792056572.145,
+   "frames": 1,
+   "surface": "e2e-t2"
+  }
+ ],
+ "blank_runs_over_1_frame": 0,
+ "dt_max": 214.19,
+ "dt_top10": [
+  214.19,
+  185.76,
+  172.93,
+  164.28,
+  157.83,
+  156.91,
+  155.78,
+  155.73,
+  154.45,
+  150.15
+ ],
+ "frames_over_100ms": 18,
+ "frames_over_250ms": 0,
+ "longest": [
+  {
+   "t": 1792056465.328,
+   "dt_ms": 214.19,
+   "phase": "following",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792056441.861,
+   "dt_ms": 185.76,
+   "phase": "following",
+   "work_ms": 0.16,
+   "parts": {
+    "did-scroll": 0.007,
+    "present": 0.149,
+    "present-read": 0.133
+   }
+  },
+  {
+   "t": 1792056642.863,
+   "dt_ms": 172.93,
+   "phase": "following",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792056541.428,
+   "dt_ms": 164.28,
+   "phase": "following",
+   "work_ms": 0.47,
+   "parts": {
+    "did-scroll": 0.003,
+    "output-batch": 0.02,
+    "scrollbar": 0.027,
+    "present-read": 0.237,
+    "present": 0.419
+   }
+  },
+  {
+   "t": 1792056480.811,
+   "dt_ms": 157.83,
+   "phase": "following",
+   "work_ms": 0.46,
+   "parts": {
+    "did-scroll": 0.004,
+    "output-batch": 0.009,
+    "scrollbar": 0.03,
+    "present-read": 0.236,
+    "present": 0.418
+   }
+  },
+  {
+   "t": 1792056556.578,
+   "dt_ms": 156.91,
+   "phase": "following",
+   "work_ms": 0.35,
+   "parts": {
+    "did-scroll": 0.004,
+    "output-batch": 0.025,
+    "scrollbar": 0.031,
+    "present-read": 0.127,
+    "present": 0.298
+   }
+  },
+  {
+   "t": 1792056511.111,
+   "dt_ms": 155.78,
+   "phase": "following",
+   "work_ms": 0.6,
+   "parts": {
+    "did-scroll": 0.003,
+    "output-batch": 0.008,
+    "present-read": 0.393,
+    "present": 0.554,
+    "scrollbar": 0.037
+   }
+  },
+  {
+   "t": 1792056526.261,
+   "dt_ms": 155.73,
+   "phase": "following",
+   "work_ms": 0.48,
+   "parts": {
+    "did-scroll": 0.004,
+    "output-batch": 0.009,
+    "scrollbar": 0.031,
+    "present-read": 0.27,
+    "present": 0.442
+   }
+  },
+  {
+   "t": 1792056448.931,
+   "dt_ms": 154.45,
+   "phase": "following",
+   "work_ms": 0.01,
+   "parts": {
+    "did-scroll": 0.007
+   }
+  },
+  {
+   "t": 1792056571.712,
+   "dt_ms": 150.15,
+   "phase": "following",
+   "work_ms": 0.02,
+   "parts": {
+    "output-batch": 0.016
+   }
+  }
+ ]
+}

@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv8v/gd-drop-follow2.mp4",
+ "source_frames": 959,
+ "duration": 26.18,
+ "lit_median": 0.0373,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0971,
+ "max_gap_ms": 601.7
+}
