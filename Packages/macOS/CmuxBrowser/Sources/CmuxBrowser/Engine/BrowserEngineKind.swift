@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The engine that renders a browser panel's page.
 ///
@@ -32,5 +32,18 @@ public enum BrowserEngineKind: String, CaseIterable, Hashable, Sendable, Codable
         default:
             return nil
         }
+    }
+
+    /// The name of the environment variable that forces every new browser
+    /// panel onto one engine (test harnesses run suites per engine with it).
+    public static let environmentVariableName = "CMUX_BROWSER_ENGINE"
+
+    /// The engine `CMUX_BROWSER_ENGINE` names in `environment`.
+    /// - Parameter environment: A process environment, usually
+    ///   `ProcessInfo.processInfo.environment`.
+    /// - Returns: The named engine, or `nil` when the variable is unset or
+    ///   names no engine.
+    public static func environmentOverride(_ environment: [String: String]) -> BrowserEngineKind? {
+        BrowserEngineKind(requestValue: environment[environmentVariableName])
     }
 }

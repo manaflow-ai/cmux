@@ -19,6 +19,13 @@ let package = Package(
             name: "CmuxCEF",
             targets: ["CmuxCEF"]
         ),
+        .library(
+            name: "CmuxCEFBrowser",
+            targets: ["CmuxCEFBrowser"]
+        ),
+    ],
+    dependencies: [
+        .package(path: "../CmuxBrowser"),
     ],
     targets: [
         .target(
@@ -28,6 +35,30 @@ let package = Package(
             resources: [
                 .copy("Shim/cmux_cef_shim.h"),
             ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        // The Chromium engine for cmux browser panels: CmuxBrowser's
+        // BrowserPage and BrowserEngineProviding over CmuxCEF's CEFBrowser.
+        // CmuxCEF itself never imports CmuxBrowser.
+        .target(
+            name: "CmuxCEFBrowser",
+            dependencies: [
+                "CmuxCEF",
+                .product(name: "CmuxBrowser", package: "CmuxBrowser"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxCEFBrowserTests",
+            dependencies: ["CmuxCEFBrowser", "CmuxCEF", .product(name: "CmuxBrowser", package: "CmuxBrowser")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

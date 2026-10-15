@@ -227,6 +227,7 @@ Embedded browser settings from Settings > Browser.
 |---|---|---|---|
 | `browser.defaultSearchEngine` | `"google"` or `"duckduckgo"` or `"bing"` or `"kagi"` or `"startpage"` | `"google"` | Default search engine for non-URL queries. |
 | `browser.showSearchSuggestions` | boolean | `true` | Show omnibar search suggestions. |
+| `browser.engine` | `"webkit"` or `"chromium"` | `"webkit"` | Engine new browser tabs open with. `chromium` is used only when the build includes the Chromium runtime; otherwise the tab opens in WebKit and says why. `CMUX_BROWSER_ENGINE` overrides it. |
 | `browser.theme` | `"system"` or `"light"` or `"dark"` | `"system"` | Embedded browser theme. |
 | `browser.defaultZoomLevel` | number | `1` | Default page zoom factor for newly opened browser pages (0.25–5; 1 = 100%). |
 | `browser.openTerminalLinksInCmuxBrowser` | boolean | `true` | Open clicked terminal links in the embedded browser. |

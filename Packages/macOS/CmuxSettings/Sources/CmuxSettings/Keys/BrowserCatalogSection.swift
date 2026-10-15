@@ -26,6 +26,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey
     )
 
+    /// The engine new browser tabs open with. WebKit unless set to Chromium.
+    public let engine = DefaultsKey<BrowserEngineSetting>(
+        id: "browser.engine",
+        defaultValue: .webkit,
+        userDefaultsKey: "browserEngine"
+    )
+
     public let theme = DefaultsKey<BrowserThemeMode>(
         id: "browser.theme",
         defaultValue: .system,

@@ -1687,6 +1687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // import); a no-op when this build has no Chromium. Before anything
         // can start Chromium, so deleted profiles are swept first.
         BrowserChromiumProfileEngineStore.registerIfAvailable()
+        BrowserEngineRuntime.shared.registerBundledEngines()
 #if DEBUG
         ChromiumDebugWindowController.shared.openFromEnvironmentIfRequested()
 #endif
