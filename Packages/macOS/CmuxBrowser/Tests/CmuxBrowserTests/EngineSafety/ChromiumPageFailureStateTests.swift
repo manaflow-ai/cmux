@@ -17,7 +17,8 @@ import Testing
         ))
         #expect(state.showsPrompt)
         // Hiding and showing the pane does not reload a page that crashed in view.
-        #expect(!state.paneShown())
+        let result1 = state.paneShown()
+        #expect(!result1)
         #expect(state.showsPrompt)
         state.userReloaded()
         #expect(state.failure == nil)
@@ -28,12 +29,14 @@ import Testing
         for index in 0..<BrowserCrashReloadGuard.limit {
             state.apply(crash, at: start.addingTimeInterval(Double(index) * 60), paneVisible: false)
             #expect(!state.showsPrompt)
-            #expect(state.paneShown())
+            let result2 = state.paneShown()
+            #expect(result2)
             #expect(state.failure == nil)
         }
         // Budget spent: the next hidden crash shows the crash page when shown.
         state.apply(crash, at: start.addingTimeInterval(300), paneVisible: false)
-        #expect(!state.paneShown())
+        let result3 = state.paneShown()
+        #expect(!result3)
         #expect(state.showsPrompt)
     }
 

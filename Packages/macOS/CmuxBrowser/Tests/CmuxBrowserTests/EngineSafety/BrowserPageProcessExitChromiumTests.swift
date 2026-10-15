@@ -47,10 +47,12 @@ import Testing
     @Test func visiblePaneNeverRestoresByItself() {
         var guardState = BrowserCrashReloadGuard()
         let now = Date(timeIntervalSince1970: 1_000)
-        #expect(!guardState.allowsAutomaticRestore(at: now, paneWasVisible: true))
+        let result1 = guardState.allowsAutomaticRestore(at: now, paneWasVisible: true)
+        #expect(!result1)
         // A visible crash does not spend the hidden budget.
         for index in 0..<BrowserCrashReloadGuard.limit {
-            #expect(guardState.allowsAutomaticRestore(at: now.addingTimeInterval(Double(index)), paneWasVisible: false))
+            let result2 = guardState.allowsAutomaticRestore(at: now.addingTimeInterval(Double(index)), paneWasVisible: false)
+            #expect(result2)
         }
     }
 
@@ -58,9 +60,11 @@ import Testing
         var guardState = BrowserCrashReloadGuard()
         let start = Date(timeIntervalSince1970: 1_000)
         for index in 0..<BrowserCrashReloadGuard.limit {
-            #expect(guardState.allowsAutomaticRestore(at: start.addingTimeInterval(Double(index)), paneWasVisible: false))
+            let result3 = guardState.allowsAutomaticRestore(at: start.addingTimeInterval(Double(index)), paneWasVisible: false)
+            #expect(result3)
         }
-        #expect(!guardState.allowsAutomaticRestore(at: start.addingTimeInterval(10), paneWasVisible: false))
+        let result4 = guardState.allowsAutomaticRestore(at: start.addingTimeInterval(10), paneWasVisible: false)
+        #expect(!result4)
     }
 
     @Test func oldRestoresLeaveTheWindow() {
@@ -70,7 +74,8 @@ import Testing
             _ = guardState.allowsAutomaticRestore(at: start.addingTimeInterval(Double(index)), paneWasVisible: false)
         }
         let later = start.addingTimeInterval(BrowserCrashReloadGuard.window + 5)
-        #expect(guardState.allowsAutomaticRestore(at: later, paneWasVisible: false))
+        let result5 = guardState.allowsAutomaticRestore(at: later, paneWasVisible: false)
+        #expect(result5)
     }
 
     @Test func explicitReloadResetsTheBudget() {
@@ -78,7 +83,8 @@ import Testing
         let now = Date(timeIntervalSince1970: 1_000)
         for _ in 0...BrowserCrashReloadGuard.limit { _ = guardState.allowsAutomaticRestore(at: now, paneWasVisible: false) }
         guardState.reset()
-        #expect(guardState.allowsAutomaticRestore(at: now, paneWasVisible: false))
+        let result6 = guardState.allowsAutomaticRestore(at: now, paneWasVisible: false)
+        #expect(result6)
     }
 }
 
