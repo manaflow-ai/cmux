@@ -28,8 +28,9 @@ final class ChromiumDebugWindowController: NSObject, NSWindowDelegate {
     }
 
     func show(url: URL = URL(string: "https://example.com")!, activate: Bool = true) {
-        if let window, let browser {
-            browser.load(url)
+        if let window {
+            // One probe window: reuse it (load in the live page if there is one).
+            browser?.load(url)
             if activate { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
             return
         }

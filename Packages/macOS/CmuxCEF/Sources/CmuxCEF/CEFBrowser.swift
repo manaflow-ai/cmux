@@ -109,6 +109,10 @@ public final class CEFBrowser {
     /// The about:blank page that created this popup's own window.
     private var placeholder: CEFBrowser?
     private weak var placeholderOwner: CEFBrowser?
+    /// This page only creates a popup's window (never shown as a page).
+    private var isPlaceholder = false
+    /// `.closed` was sent (once per page).
+    private var sentClosed = false
     private weak var opener: CEFBrowser?
 
     public convenience init(configuration: CEFBrowserConfiguration) {
@@ -143,6 +147,7 @@ public final class CEFBrowser {
         configuration = owner.configuration
         runtime = owner.runtime
         placeholderOwner = owner
+        isPlaceholder = true
         pendingURL = URL(string: "about:blank")
     }
 
@@ -169,7 +174,7 @@ public final class CEFBrowser {
     /// Creates the page now (starting CEF first when needed), also when
     /// `hostView` is in no window: a page an agent drives in the background.
     public func createNow() {
-        guard !isClosed, browserID == nil, !isCreationPending, !awaitsWindowMove else { return }
+        guard !isClosed, browserID == nil, !isCreationPending, !awaitsWindowMove, !runtime.isShuttingDown else { return }
         guard runtime.isRunning else {
             isCreationPending = true
             Task { @MainActor [weak self] in
@@ -198,7 +203,7 @@ public final class CEFBrowser {
     }
 
     private func createWindow(in view: CEFHostView, url: String) {
-        guard let shim = runtime.shim else { return creationFailed("CEF is not running") }
+        guard let shim = runtime.shim, !runtime.isShuttingDown else { return creationFailed("CEF is not running") }
         let key = contextKey
         if !configuration.offTheRecord, key.hasPrefix("/") {
             // CEF refuses a request context whose cache directory is missing.
@@ -219,7 +224,11 @@ public final class CEFBrowser {
         if started != 1 {
             runtime.pendingWindows[request] = nil
             isCreationPending = false
-            creationFailed("Chromium could not create the page")
+            if isPlaceholder {
+                placeholderOwner?.placeholderFailed()
+            } else {
+                creationFailed("Chromium could not create the page")
+            }
         }
     }
 
@@ -234,11 +243,18 @@ public final class CEFBrowser {
 
     /// The window this page created exists (OnAfterCreated of its request).
     func windowCreated() {
-        if let owner = placeholderOwner {
+        if isPlaceholder {
+            // Its popup closed meanwhile (or was freed): nothing moves in.
+            guard let owner = placeholderOwner, !owner.isClosed else { return close() }
             owner.placeholderReady()
             return
         }
         guard let id = browserID, let shim = runtime.shim else { return }
+        // Closed while Chromium was still creating it: close it now.
+        if isClosed {
+            shim.close(id)
+            return
+        }
         if state.zoom != 1 { shim.setZoomLevel(id, Self.zoomLevel(forFactor: state.zoom)) }
         if let restore = pendingRestore {
             pendingRestore = nil
@@ -270,7 +286,10 @@ public final class CEFBrowser {
     }
 
     private func placeholderReady() {
-        guard let shim = runtime.shim, let blank = placeholder, let anchor = blank.browserID, let id = browserID else { return }
+        guard let blank = placeholder else { return }
+        placeholder = nil
+        defer { blank.close() }
+        guard let shim = runtime.shim, let anchor = blank.browserID, let id = browserID, !isClosed else { return }
         if shim.tabMoveToWindow(id, anchor, -1) == 1 {
             awaitsWindowMove = false
             _ = shim.tabActivate(id)
@@ -280,14 +299,23 @@ public final class CEFBrowser {
             runtime.logger.error("CEF popup \(id) could not move into its own window; closing it")
             close()
         }
+    }
+
+    /// The placeholder could not create a window: a later presentation retries.
+    private func placeholderFailed() {
         placeholder = nil
-        blank.close()
     }
 
     func browserDidClose() {
         browserID = nil
         isClosed = true
-        if placeholderOwner == nil { emit(.closed) }
+        if !isPlaceholder { emitClosedOnce() }
+    }
+
+    private func emitClosedOnce() {
+        guard !sentClosed else { return }
+        sentClosed = true
+        emit(.closed)
     }
 
     /// Closes the page (idempotent). `.closed` follows once Chromium
@@ -297,8 +325,9 @@ public final class CEFBrowser {
         isClosed = true
         if let id = browserID {
             runtime.shim?.close(id)
-        } else {
-            emit(.closed)
+        } else if !isPlaceholder {
+            // Not created yet (a pending creation closes in windowCreated).
+            emitClosedOnce()
         }
     }
 
@@ -437,7 +466,7 @@ public final class CEFBrowser {
     }
 
     func handle(_ event: CEFShimEvent) {
-        if placeholderOwner != nil { return }
+        if isPlaceholder || isClosed { return }
         var changed = true
         switch event {
         case .address(_, let url):
