@@ -84,7 +84,14 @@ LINUX_ONLY_STEPS = {
 PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
-GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
+# Keep the local runner's condition grammar in sync with the workflow-group
+# extractor. Some CI-only steps also skip when the fast guard has already
+# produced its cached result; that predicate still belongs to the matrix
+# group and must not make the portable runner reject the whole plan.
+GROUP_CONDITION = re.compile(
+    r"matrix\.group\s*==\s*'([a-z0-9-]+)'"
+    r"\s*(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?"
+)
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it

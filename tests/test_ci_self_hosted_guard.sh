@@ -1042,6 +1042,10 @@ check_no_github_hosted_runners() {
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
     # pull_request_target with a write token (test_ci_fork_runner_routing).
     "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
+    # These pull_request_target helpers read only the trusted base checkout and
+    # use GitHub's write-capable token; keep them on GitHub-hosted runners.
+    "intent-familiar-review.yml:    runs-on: ubuntu-24.04"
+    "pr-red-checks-comment.yml:    runs-on: ubuntu-24.04"
     # Registry provenance and trusted publishing accept only GitHub-hosted runners.
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"

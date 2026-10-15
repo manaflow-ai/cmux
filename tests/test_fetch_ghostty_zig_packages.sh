@@ -27,6 +27,7 @@ run() { # <failures> -> status in $status
   rm -f "$TMP/count"
   status=0
   PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_FAILURES="$1" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" \
+    CMUX_ZIG="$TMP/bin/zig" \
     CMUX_ZIG_FETCH_ATTEMPTS=3 CMUX_ZIG_FETCH_RETRY_DELAY=0 \
     "$SCRIPT" "$TMP/src" >"$TMP/out" 2>&1 || status=$?
 }
