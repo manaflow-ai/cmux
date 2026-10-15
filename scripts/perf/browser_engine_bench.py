@@ -544,8 +544,19 @@ def open_tab(app: TaggedApp, workspace: str, url: str, params: dict[str, Any], t
     payload = app.rpc("browser.open_split", {"workspace_id": workspace, "url": url, "focus": False, **params})
     opened = (time.perf_counter() - start) * 1000
     sid = surface_id(payload)
-    app.cli(["browser", "--surface", sid, "wait", "--load-state", "complete", "--timeout-ms", str(timeout_ms)],
-            timeout=timeout_ms / 1000 + 10)
+    deadline = start + timeout_ms / 1000
+    while True:
+        remaining_ms = max(1, int((deadline - time.perf_counter()) * 1000))
+        try:
+            app.cli(["browser", "--surface", sid, "wait", "--load-state", "complete", "--timeout-ms", str(remaining_ms)],
+                    timeout=remaining_ms / 1000 + 10)
+            break
+        except BenchFailure as exc:
+            # A lazily started engine has no page to ask until its runtime and first
+            # window exist; that wait is the cold-start cost this measures.
+            if "not available" not in str(exc) or time.perf_counter() >= deadline:
+                raise
+            time.sleep(0.02)
     loaded = (time.perf_counter() - start) * 1000
     return sid, opened, loaded
 
@@ -631,7 +642,11 @@ def cmd_run(args: argparse.Namespace) -> int:
             result["launch"]["idle_cpu_percent"] = cpu_percent_over(app.pid, str(app_path), args.cpu_window_s)
             result["key_latency_ms_no_browser"] = key_latency(app, args)
             for engine in engines:
-                result["engines"][engine] = run_engine(app, engine, open_params.get(engine, {}), server, args)
+                try:
+                    result["engines"][engine] = run_engine(app, engine, open_params.get(engine, {}), server, args)
+                except BenchFailure as exc:
+                    # Keep the other engines' numbers; record why this one stopped.
+                    result["engines"][engine] = {"error": str(exc)}
             result["final"] = engine_snapshot(app.pid, str(app_path))
         finally:
             app.quit()
