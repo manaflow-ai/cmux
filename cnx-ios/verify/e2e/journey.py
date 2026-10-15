@@ -1540,7 +1540,13 @@ w("\r\x1b[2KSTREAMDONE\n")
             # --no-daemon: Codex 0.162's shared app-server daemon runs hooks outside
             # the terminal (no CMUX_TUI_HOOK/SOCKET), so its events never reach the
             # daemon; in-process hooks do (verify notes, feat-cnx-ios-feedterm).
-            self.mac_write(term, f"clear; cd {proj} && codex --no-daemon --sandbox read-only --ask-for-approval on-request\n")
+            # CNX_E2E_PLAIN_CODEX=1: plain `codex` (its shared app-server daemon), which
+            # the Codex hook routing fix (PR #20770) makes reach the Feed too.
+            # CNX_E2E_CODEX_HOME: a rig-only Codex home (its own auth), exported first.
+            daemon_flag = "" if os.environ.get("CNX_E2E_PLAIN_CODEX") == "1" else "--no-daemon "
+            home = os.environ.get("CNX_E2E_CODEX_HOME", "")
+            prefix = f"export CODEX_HOME={home}; " if home else ""
+            self.mac_write(term, f"{prefix}clear; cd {proj} && codex {daemon_flag}--sandbox read-only --ask-for-approval on-request\n")
             self.codex_ready(term)
             t = time.time()
             self.codex_prompt(term, "Reply with exactly one word: ready")

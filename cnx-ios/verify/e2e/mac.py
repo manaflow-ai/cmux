@@ -4,9 +4,10 @@ Isolation (nothing of the user's "cmux NEXT cnx", cmux NEXT or NIGHTLY is touche
 - its own bundle id (the fleet tag: com.cmuxterm.app.debug.<tag>), so its own
   Keychain items, preferences, Application Support, daemon session, acpmux home,
   Chief home and control socket (/tmp/cmux-debug-<tag>.sock);
-- its own settings file: LSEnvironment CMUX_NEXT_CONFIG_FILE=<rig>/config/cmux-next.json
-  (CmuxConfigFile.overrideKey; an override is never seeded from the user's files);
-- the fleet paths baked into LSEnvironment are rewritten to this copy;
+- its own settings file: CMUX_NEXT_CONFIG_FILE=<rig>/config/cmux-next.json, passed
+  with `open --env` (CmuxConfigFile.overrideKey; never seeded from the user's files);
+- the fleet paths baked into LSEnvironment are overridden at launch (open --env) with
+  this copy's; the bundle itself is never edited or re-signed;
 - sign-in: CMUX_AUTH_CREDENTIALS_FILE=<rig>/secrets/dev-auth.env (0600), read by
   DogfoodCredentials in DEBUG builds only. It holds the DEBUG dev credential of
   CmuxAuthRuntime (the iOS "42" shortcut), extracted from source, never printed.
@@ -157,20 +158,11 @@ class Mac:
                 shutil.rmtree(self.app)
             subprocess.run(["ditto", self.source_app, self.app], check=True)
             self._bundle = self._tag = None
-            p = self.info
-            res = os.path.join(self.app, "Contents/Resources")
-            pb(p, f"Set :LSEnvironment:CMUX_SHELL_INTEGRATION_DIR {res}/shell-integration")
-            pb(p, f"Set :LSEnvironment:CMUX_BUNDLED_CLI_PATH {res}/bin/cmux")
-            pb(p, f"Set :LSEnvironment:CMUXD_UNIX_PATH {os.path.expanduser('~')}/Library/Application Support/cmux/cmuxd-dev-{self.tag}.sock")
-            pb(p, "Delete :LSEnvironment:CMUXTERM_REPO_ROOT", check=False)
-            pb(p, "Delete :SUFeedURL", check=False)
-            pb(p, "Delete :SUPublicEDKey", check=False)
-            for key, value in (("CMUX_NEXT_CONFIG_FILE", self.config), ("CMUX_AUTH_CREDENTIALS_FILE", self.creds),
-                               ("CMUX_NEXT_IPHONE_PAIRING_SEED", self.pairing_seed)):
-                pb(p, f"Delete :LSEnvironment:{key}", check=False)
-                pb(p, f"Add :LSEnvironment:{key} string {value}")
-            subprocess.run(["codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,requirements,flags,runtime", self.app],
-                           check=True, capture_output=True)
+            # The copy stays byte-identical to the fleet build: its Info.plist is never
+            # edited and it is never re-signed. A changed bundle is a new ad hoc code
+            # identity, and the app's Keychain reads from an earlier run then wait on a
+            # prompt nobody sees (cnx-hostd never starts). Settings go in at launch
+            # (open --env, launch_settings below).
             subprocess.run(["xattr", "-dr", "com.apple.quarantine", self.app], capture_output=True)
             open(stamp, "w").write(src_id)
         # Settings: the documented person path for a test instance (hand edit of its own cmux-next.json).
@@ -221,7 +213,7 @@ class Mac:
             # launch_env (for example CNX_VIDEO_DROP_PERMILLE, which the app hands to
             # cnx-hostd) goes the same way.
             rb_host = os.environ.get("CNX_E2E_RB_HOST", "")
-            env = dict(self.launch_env, **({"CMUX_NEXT_RB_HOST": rb_host} if rb_host else {}))
+            env = dict(self.launch_settings(), **self.launch_env, **({"CMUX_NEXT_RB_HOST": rb_host} if rb_host else {}))
             flags = [x for k, v in env.items() for x in ("--env", f"{k}={v}")]
             subprocess.run(["open", "-g", "-j", "-n", *flags, self.app], check=True)
         deadline = time.time() + timeout
@@ -234,6 +226,21 @@ class Mac:
         else:
             raise RuntimeError("Mac app did not answer on its control socket")
         return t0
+
+    def launch_settings(self):
+        """The rig's settings, passed with open --env (never written into Info.plist):
+        this copy's own paths instead of the fleet machine's, the isolated settings
+        file, the DEBUG sign-in credential file and the DEBUG pairing seed."""
+        res = os.path.join(self.app, "Contents/Resources")
+        return {
+            "CMUX_SHELL_INTEGRATION_DIR": f"{res}/shell-integration",
+            "CMUX_BUNDLED_CLI_PATH": f"{res}/bin/cmux",
+            "CMUXD_UNIX_PATH": os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag}.sock"),
+            "CMUXTERM_REPO_ROOT": "",
+            "CMUX_NEXT_CONFIG_FILE": self.config,
+            "CMUX_AUTH_CREDENTIALS_FILE": self.creds,
+            "CMUX_NEXT_IPHONE_PAIRING_SEED": self.pairing_seed,
+        }
 
     def wait_hostd(self, timeout=120):
         deadline = time.time() + timeout
