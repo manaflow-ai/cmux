@@ -355,27 +355,19 @@ public final class ThemeScope {
     }
 
     private func repaint(animated: Bool) {
-        let fade = animated && Motion.animatesFades
+        let transition = ColorTransition.current
+        let fade = animated && !transition.isInstant
         for view in roots.allObjects {
-            if fade { Self.crossfade(view.layer) }
+            if fade { transition.crossfade(view.layer) }
             Self.invalidate(view)
         }
         for window in windows.allObjects {
             window.appearance = appearance
             guard let content = window.contentView else { continue }
-            if fade { Self.crossfade(content.layer) }
+            if fade { transition.crossfade(content.layer) }
             Self.invalidate(content)
             window.invalidateShadow()
         }
-    }
-
-    /// A theme switch crossfades in place: no layout change, no restart.
-    private static func crossfade(_ layer: CALayer?) {
-        guard let layer else { return }
-        let transition = Motion.crossfadeAction
-        transition.duration = Motion.duration(.theme)
-        transition.timingFunction = Motion.fadeCurve
-        layer.add(transition, forKey: "cmux.themeCrossfade")
     }
 
     /// Every view re-resolves its colors when its effective appearance

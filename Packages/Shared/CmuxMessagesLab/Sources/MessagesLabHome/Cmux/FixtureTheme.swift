@@ -57,8 +57,10 @@ struct FixtureTheme: Equatable {
             // Display P3 like its palette (Fixture.p3; the measurements are P3).
             typingDot = light ? c(p.typingDot) : Fixture.p3(91, 91, 94)
             typingDotHighlight = light ? c(p.typingDotHighlight) : Fixture.p3(133, 133, 135)
-            placeholder = light ? c(p.placeholder) : NSColor(white: 123 / 255, alpha: 1)
-            waveform = light ? c(p.placeholder) : NSColor(white: 144 / 255, alpha: 1)
+            // The dark placeholder and waveform are see-through inks over the field glass (MessagesLab
+            // compose-parity, Fixture.placeholderInk / waveformInk: white 0.316, 212 at 0.556).
+            placeholder = light ? c(p.placeholder) : NSColor(white: 1, alpha: 0.316)
+            waveform = light ? c(p.placeholder) : NSColor(white: 212 / 255, alpha: 0.556)
             caret = light ? c(p.caret) : Fixture.p3(63, 143, 247)
             chipFill = light ? NSColor(white: 0, alpha: 0.08) : NSColor(white: 1, alpha: 0.12)
         }
