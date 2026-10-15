@@ -26,6 +26,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/warm": (["sessionIds", "limit"], []),
         "_acpmux/kill": (["sessionId", "purge"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
+        "_acpmux/start_mode": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
         "_acpmux/harnesses": (["cwd"], []),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
