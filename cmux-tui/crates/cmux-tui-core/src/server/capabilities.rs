@@ -180,6 +180,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
+        conversations::HOME_INBOX_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,

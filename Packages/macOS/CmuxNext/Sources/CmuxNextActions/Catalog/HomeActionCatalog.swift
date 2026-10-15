@@ -44,6 +44,21 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // The docked Home's two views of the same data (Lawrence 2026-10-14: "iterate on both
+            // UIs at the same time"): Messages (native, the default) and Channels (the React page).
+            // The dock header's switch runs the same action. No `view`: the other view.
+            ActionDescriptor(
+                id: "home.switchView", title: t("action.home.switchView", "Switch Home View"),
+                keywords: ["home", "messages", "channels", "slack", "imessage", "view", "toggle", "switch", "layout"],
+                defaultShortcut: Shortcut("h", modifiers: [.control, .option, .command]),
+                category: .window, symbol: "arrow.left.arrow.right", surfaces: [.palette, .keyboard, .menu],
+                arguments: [ActionArgument(name: "view", title: t("argument.home.view", "View"),
+                                           kind: .enumeration([ActionEnumCase(value: "messages", title: t("argument.home.view.messages", "Messages")),
+                                                               ActionEnumCase(value: "channels", title: t("argument.home.view.channels", "Channels"))]),
+                                           isRequired: false)],
+                mainMenu: .view,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
                 keywords: ["home", "attach", "file", "photo", "video", "image", "upload", "message", "conversation"],
