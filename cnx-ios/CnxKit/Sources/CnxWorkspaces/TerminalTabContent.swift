@@ -39,6 +39,9 @@ public protocol TerminalTabContent: AnyObject {
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction]
     /// The tab grid is about to open with `tab` active: refresh its card.
     func overviewWillAppear(active tab: WorkspaceTab)
+    /// The tab grid is about to open: the other terminal cards ask the Mac
+    /// for its screen now, so none shows an old saved frame (T-TABS-01).
+    func overviewWillAppear(inactive tabs: [WorkspaceTab])
     /// The settled grid shows `tab`'s card (`card(for:)`, its snapshot) in
     /// place of its live page, so the active card shows the page's bottom
     /// like the others (VERIFY-round5 V5-6). True only with a snapshot.
@@ -56,6 +59,7 @@ extension TerminalTabContent {
     public func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView? { nil }
     public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
     public func overviewWillAppear(active tab: WorkspaceTab) {}
+    public func overviewWillAppear(inactive tabs: [WorkspaceTab]) {}
     public func showsStaticCard(for tab: WorkspaceTab) -> Bool { false }
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
