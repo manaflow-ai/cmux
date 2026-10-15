@@ -92345,6 +92345,268 @@
           }
         }
       }
+    },
+    "settings.labs.classicHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic Home"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفحة الرئيسية الكلاسيكية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasična početna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisk Hjem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisches Home"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio clásico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accueil classique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home classica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシックホーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រដើមបុរាណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 홈"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisk Hjem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasyczny Start"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Início clássico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Классическая главная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าหลักแบบคลาสสิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasik Ana Sayfa"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Класична головна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang chủ cổ điển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典主页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典主頁"
+          }
+        }
+      }
+    },
+    "settings.labs.classicHome.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الصفحة الرئيسية كصفحة كاملة بدلًا من مساحة عمل يكون فيها Chief مثبتًا على اليسار. يسري التغيير بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži početnu kao cijelu stranicu umjesto radnog prostora s Chiefom usidrenim lijevo. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Hjem som en hel side i stedet for et arbejdsområde med Chief fastgjort til venstre. Træder i kraft, når cmux genstartes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home als ganze Seite statt als Arbeitsbereich mit links angedocktem Chief anzeigen. Wirkt nach dem Neustart von cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra Inicio como una página completa en lugar de un espacio de trabajo con Chief acoplado a la izquierda. Se aplica después de reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l'Accueil en pleine page plutôt que comme un espace de travail avec Chief ancré à gauche. Prend effet après le redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra la Home come pagina intera invece che come spazio di lavoro con Chief agganciato a sinistra. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームを、Chief を左にドッキングしたワークスペースではなく、全画面のページとして表示します。cmux の再起動後に反映されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញទំព័រដើមជាទំព័រពេញ ជំនួសឱ្យកន្លែងធ្វើការដែលមាន Chief ភ្ជាប់នៅខាងឆ្វេង។ មានប្រសិទ្ធភាពបន្ទាប់ពីចាប់ផ្ដើម cmux ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 왼쪽에 고정된 작업 공간 대신 홈을 전체 페이지로 표시합니다. cmux를 다시 시작한 후 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Hjem som en hel side i stedet for et arbeidsområde med Chief festet til venstre. Trer i kraft når cmux startes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj Start jako pełną stronę zamiast obszaru roboczego z Chiefem zadokowanym po lewej. Zmiana działa po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o Início como uma página inteira em vez de um espaço de trabalho com o Chief encaixado à esquerda. Vale depois que o cmux for reiniciado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать главную как целую страницу, а не рабочее пространство с Chief, закреплённым слева. Применяется после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงหน้าหลักเป็นหน้าเต็มแทนพื้นที่ทำงานที่มี Chief ปักหมุดอยู่ทางซ้าย มีผลหลังจากเริ่ม cmux ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana Sayfa'yı, Chief'in solda sabitlendiği bir çalışma alanı yerine tam sayfa olarak göster. cmux yeniden başlatıldıktan sonra geçerli olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати головну як цілу сторінку, а не робочий простір із Chief, закріпленим ліворуч. Застосовується після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị Trang chủ dạng trang đầy đủ thay vì không gian làm việc có Chief neo bên trái. Có hiệu lực sau khi khởi động lại cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将主页显示为完整页面，而不是左侧停靠 Chief 的工作区。重新启动 cmux 后生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將主頁顯示為完整頁面，而非左側停駐 Chief 的工作區。重新啟動 cmux 後生效。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

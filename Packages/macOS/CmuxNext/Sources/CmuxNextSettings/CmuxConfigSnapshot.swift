@@ -36,8 +36,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserShowBookmarksBar = false
     /// `home.attachments.keepLocation`; off (strip location) when unset.
     public var homeKeepLocation = false
-    /// `labs.previewFeatures`; off when unset.
-    public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault
+    /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
+    public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -220,6 +220,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
+        snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(TerminalLinkRouting.parse(root), \.terminalLinkRouting)
