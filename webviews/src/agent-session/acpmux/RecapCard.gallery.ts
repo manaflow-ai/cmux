@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts and agent answers), not shipped UI.
-// The recap card above the composer (RecapCard.tsx, Labs): the last turn completed by asking
-// something, so the card shows the answer's last paragraph, the question and its yes. Light and
-// dark come from the gallery's appearance control.
+// The recap card above the composer (RecapCard.tsx, behind the agent.sessionStatus Debug toggle):
+// the last turn completed by asking something, so the card shows the answer's last paragraph, the
+// question and its yes. Light and dark come from the gallery's appearance control.
 import { agentPaneEntry } from "../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../gallery/fixtures/acpmux";
 
@@ -26,23 +26,23 @@ export default agentPaneEntry({
   id: "agent-pane.recap-card",
   title: "Recap card",
   area: "Agent pane",
-  // Labs only (preview features) until it ships.
+  // Behind the agent.sessionStatus Debug toggle until it ships.
   experimental: true,
   height: 520,
   covers: ["agent-session/acpmux/RecapCard.tsx"],
   variants: {
     "recap-card": {
       note: "The turn ends asking to open a PR: Yes, open PR (⌘↩), Not now and ×.",
-      labs: true,
+      sessionStatus: true,
       snapshot: turn(`${SUMMARY}\n\nShould I open a PR for this?`),
     },
     "recap-card-plain-yes": {
       note: "A question that offers no short action: a plain Yes.",
-      labs: true,
+      sessionStatus: true,
       snapshot: turn(`${SUMMARY}\n\nDoes the grid look right on your phone?`),
     },
-    "recap-card-labs-off": {
-      note: "Labs off: the same turn shows no card.",
+    "recap-card-off": {
+      note: "The toggle off: the same turn shows no card.",
       snapshot: turn(`${SUMMARY}\n\nShould I open a PR for this?`),
     },
   },

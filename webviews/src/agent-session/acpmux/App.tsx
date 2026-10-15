@@ -246,7 +246,7 @@ import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { OfferChip } from "./offer/OfferChip";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
-import { setSessionStatus } from "./sessionStatus";
+import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -4707,11 +4707,13 @@ function AcpmuxPane() {
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     (!trustPending && (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
   );
-  // Labs: a turn that ended on a question offers its yes above the composer (RecapCard.tsx).
+  // Behind the agent.sessionStatus Debug toggle: a turn that ended on a question offers its yes
+  // above the composer (RecapCard.tsx).
+  const sessionStatus = useSessionStatus();
   const recapCard = useRecapCard({
     rows: snapshot.rows,
     sessionId: snapshot.sessionId,
-    on: preview && !snapshot.isWorking,
+    on: sessionStatus && !snapshot.isWorking,
     // A chat the composer cannot send to (remoteEditing.ts) has no yes to offer.
     asking: hasBottomAsk || trustPending || Boolean(pendingFolder) || !remoteComposer(snapshot).canSend,
     send: (text) => addressThread(text),

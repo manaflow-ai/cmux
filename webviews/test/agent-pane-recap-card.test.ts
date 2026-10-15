@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// The recap card in the real agent pane (Claude desktop parity, its 10-14 release): with Labs on,
-// a turn that completed by asking "Should I open a PR for this?" shows a card above the composer
-// whose Yes, open PR sends that reply (a click, or ⌘Return on the empty composer), and whose Not
-// now hides it for that turn, across a reload. With Labs off nothing shows. The page is the pane's
+// The recap card in the real agent pane (Claude desktop parity, its 10-14 release): with the
+// agent.sessionStatus Debug toggle on, a turn that completed by asking "Should I open a PR for
+// this?" shows a card above the composer whose Yes, open PR sends that reply (a click, or ⌘Return
+// on the empty composer), and whose Not now hides it for that turn, across a reload. With the
+// toggle off nothing shows. The page is the pane's
 // dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -119,18 +120,19 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// The chat, its turn ended on the question; Labs on unless `labs` is false (the app's push).
-  async function openChat(labs = true): Promise<Page> {
+  /// The chat, its turn ended on the question; the toggle on unless `on` is false (the app's push).
+  async function openChat(on = true): Promise<Page> {
     prompts.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url());
     await page.locator(".acpmux-composer-prompt").waitFor();
     await page.getByText(QUESTION).first().waitFor();
-    if (labs) await setLabs(page);
+    await setSessionStatus(page, on);
     return page;
   }
-  /// Labs on, as the app's `labs.previewFeatures` push turns it on.
-  const setLabs = (page: Page) => page.evaluate(() => window.cmuxAcpmuxBridge?.applyPreview?.(true));
+  /// The in-session status toggle, as the app's `agent.sessionStatus` push sets it.
+  const setSessionStatus = (page: Page, on = true) =>
+    page.evaluate((value) => window.cmuxAcpmuxBridge?.applySessionStatus?.(value), on);
   const card = (page: Page) => page.locator(".acpmux-recap");
   /// Waits for the daemon to get a prompt.
   async function sent(): Promise<void> {
@@ -173,7 +175,7 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".acpmux-composer")))).toBe(true);
     await page.reload();
     await page.getByText(QUESTION).first().waitFor();
-    await setLabs(page);
+    await setSessionStatus(page);
     await page.waitForTimeout(300);
     expect(await card(page).count()).toBe(0);
     expect(prompts).toEqual([]);
@@ -202,14 +204,14 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     await page.setViewportSize({ width: 900, height: 760 - spare + 4 });
     await page.waitForTimeout(300);
     expect(await view()).toMatchObject({ overflows: false, below: 0 });
-    await setLabs(page);
+    await setSessionStatus(page);
     await card(page).waitFor();
     await page.waitForTimeout(300);
     expect(await view()).toMatchObject({ overflows: true, below: 0 });
     await page.close();
   });
 
-  test("with Labs off nothing shows", async () => {
+  test("with the toggle off nothing shows", async () => {
     const page = await openChat(false);
     await page.waitForTimeout(300);
     expect(await card(page).count()).toBe(0);

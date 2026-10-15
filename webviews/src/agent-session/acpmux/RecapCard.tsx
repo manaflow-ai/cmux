@@ -2,7 +2,8 @@
 // the last turn completed by asking the person something ("Should I open a PR for this?"), the
 // card shows the answer's last paragraph, the question, and its yes one click (or ⌘Return on an
 // empty composer) away. Not now and × hide it for that turn, kept per chat in the page's storage
-// as the pull request bars keep theirs (summary/PullRequestDock.tsx). Labs only (preview features).
+// as the pull request bars keep theirs (summary/PullRequestDock.tsx). Behind the agent.sessionStatus
+// Debug toggle.
 import { useMemo, useState } from "react";
 import { Close } from "./conversation/icons";
 import { useT } from "./i18n";
@@ -42,7 +43,8 @@ export type RecapCardState = {
   dismiss(): void;
 };
 
-/// The chat's recap card: `on` while Labs is on and nothing runs or waits for the person.
+/// The chat's recap card: `on` while the agent.sessionStatus Debug toggle is on and nothing runs or
+/// waits for the person.
 /// `send` sends a prompt as the composer does; `focusComposer` takes the keyboard back after.
 export function useRecapCard({
   rows,
