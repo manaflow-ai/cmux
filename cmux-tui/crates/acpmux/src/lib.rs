@@ -32,6 +32,7 @@ pub mod cua_v2;
 pub mod daemon;
 pub mod deliver;
 pub mod git_state;
+pub mod hand;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_health;
