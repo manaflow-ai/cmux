@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
 import { gatewayBaseUrl, mintRunToken } from "../src/model-gateway/run-token.ts"
 
@@ -18,6 +18,10 @@ import { gatewayBaseUrl, mintRunToken } from "../src/model-gateway/run-token.ts"
  */
 const testEnv = env as unknown as Record<string, any>
 const KEY = "chatmux_sk_test-not-a-real-key"
+const SAVED = ["CHIEF_BRAIN_CLAUDE_AUTH", "CHIEF_BRAIN_CLAUDE_SERVICE_KEY", "CHIEF_BRAIN_CLAUDE_MODELS", "CHIEF_BRAIN_FALLBACK_MODEL", "CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA"].map((k) => [k, testEnv[k]] as const)
+afterAll(() => {
+  for (const [k, v] of SAVED) v === undefined ? delete testEnv[k] : (testEnv[k] = v)
+})
 beforeAll(() => {
   Object.assign(testEnv, { CHIEF_BRAIN_CLAUDE_AUTH: "service-key", CHIEF_BRAIN_CLAUDE_SERVICE_KEY: KEY, CHIEF_BRAIN_CLAUDE_MODELS: "claude-opus-5-5,claude-sonnet-5-5", CHIEF_BRAIN_FALLBACK_MODEL: "claude-haiku-5-5" })
 })

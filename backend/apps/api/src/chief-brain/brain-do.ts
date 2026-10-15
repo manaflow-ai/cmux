@@ -199,7 +199,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
     if (record.display_name !== cfg.display_name) writeConfig(this.sql, { display_name: record.display_name })
-    if (turn && !(await creditsCanStart(this.env, cfg))) return { ok: false, reason: "credits_exhausted" }
+    const credits = turn ? await creditsCanStart(this.env, cfg) : "ok"
+    if (credits !== "ok") return { ok: false, reason: credits === "exhausted" ? "credits_exhausted" : "owner.unreachable" }
     if (turn) {
       const key = `turns:${new Date().toISOString().slice(0, 10)}`
       const used = Number(this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, key).toArray()[0]?.value ?? 0)

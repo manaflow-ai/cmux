@@ -51,6 +51,8 @@ export interface GatewayHooks {
 
 /** The pi-ai provider name of the in-process test model: never charged. */
 const FAKE_PROVIDER = "fake"
+/** models.ts's provider id of the Claude route. */
+const CLAUDE_ROUTE_PROVIDER = "claude-david"
 const nameOf = (m: Model<Api>) => (m.provider === FAKE_PROVIDER ? "fake" : `${m.provider}/${m.id}`)
 const safeId = (s: string) => s.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 128)
 
@@ -65,6 +67,8 @@ const failed = (model: Model<Api>, text: string): AssistantMessage =>
 
 export class ModelGatewayLive {
   private readonly gate: CreditsGate
+  /** Each call gets its own credits key, so a retry never settles or reuses another call's hold. */
+  private calls = 0
 
   constructor(
     private readonly env: Env,
@@ -84,12 +88,13 @@ export class ModelGatewayLive {
   streamSimple(model: Model<Api>, context: Context, options?: Parameters<MutableModels["streamSimple"]>[2]): AssistantMessageEventStream {
     const out = createAssistantMessageEventStream()
     const w = this.who()
-    const key = safeId(`${w.run ?? "norun"}:${w.generation ?? "nogen"}`)
+    const key = safeId(`${w.run ?? "norun"}:${w.generation ?? "nogen"}:${++this.calls}`)
     const name = nameOf(model)
-    const priced = creditsRequired(this.env, name === "fake" ? "fake" : name)
+    const priced = creditsRequired(this.env, name)
     void (async () => {
       let sent = false
       try {
+        if (priced && !w.owner) return this.finish(out, failed(model, "credits: this chief has no owner to bill"))
         if (priced) {
           const g = await this.gate.before(key, model, name, context.messages)
           if (!g.ok) {
@@ -98,18 +103,24 @@ export class ModelGatewayLive {
             return this.finish(out, failed(model, text))
           }
         }
-        const headers = { ...(options?.headers ?? {}), "x-cmux-team-id": payerTeam(w.owner ?? ""), ...(w.agent ? { "x-cmux-chief-id": w.agent } : {}), "x-request-id": safeId(`${this.scope}:${key}`) }
-        const src = this.upstream.streamSimple(model, context, { ...options, headers })
+        // Only the Claude route takes the payer team, chief and call id (its service key needs them); no other provider sees them.
+        const routed = model.provider === CLAUDE_ROUTE_PROVIDER
+        const headers = routed ? { ...(options?.headers ?? {}), "x-cmux-team-id": payerTeam(w.owner ?? ""), ...(w.agent ? { "x-cmux-chief-id": w.agent } : {}), "x-request-id": safeId(`${this.scope}:${key}`) } : options?.headers
+        const src = this.upstream.streamSimple(model, context, { ...options, ...(headers ? { headers } : {}) })
         sent = true
+        // The terminal event goes out after the charge: pi-durable may retry as soon as it sees it.
+        let terminal: AssistantMessageEvent | undefined
         for await (const e of src) {
           try {
             this.hooks.event?.(e)
           } catch {}
-          out.push(e)
+          if (e.type === "done" || e.type === "error") terminal = e
+          else out.push(e)
         }
         const final = await src.result()
-        if (priced) await this.gate.after(key, final).catch(() => undefined)
+        if (priced) await this.gate.after(key, final).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", call: key, error: String(e).slice(0, 200) })))
         if (w.run) this.hooks.usage?.(w.run, usageOf(final))
+        if (terminal) out.push(terminal)
         out.end(final)
       } catch (e) {
         if (priced && !sent) await this.gate.release(key).catch(() => undefined)

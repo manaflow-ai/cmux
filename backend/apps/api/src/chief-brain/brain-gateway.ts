@@ -42,8 +42,12 @@ export const gatewayOptions = (ctx: DurableObjectState, env: Env, now: () => Bra
 
 const gateOf = (env: Env, config: BrainConfig) => new CreditsGate(env, `admit:${config.agent ?? ""}`, () => ({ team: payerTeam(config.owner ?? ""), chief: config.agent, conversation: null }))
 
-/** Before a turn starts (the settings object's admit): the team has at least the minimum hold for its model (credits.ts). */
-export const creditsCanStart = (env: Env, config: BrainConfig): Promise<boolean> => gateOf(env, config).canStart(config.model).catch(() => false)
+/**
+ * Before a turn starts (the settings object's admit): the team has at least the minimum hold for its
+ * model (credits.ts). "unavailable" (the meter did not answer) is not "no credits": the turn waits.
+ */
+export const creditsCanStart = (env: Env, config: BrainConfig): Promise<"ok" | "exhausted" | "unavailable"> =>
+  !config.owner ? Promise.resolve("exhausted") : gateOf(env, config).canStart(config.model).then((ok) => (ok ? "ok" : "exhausted"), () => "unavailable")
 
 /** A turn refused for credits: the one out-of-credits notice in `conversation`, as the chief. */
 export const creditsNotice = async (env: Env, config: BrainConfig, conversation: string): Promise<void> => {

@@ -132,6 +132,8 @@ export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<
     const headers = new Headers(init?.headers)
     for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
     const service = route.auth === "service-key"
+    // The payer and call headers are the service-key route's contract; no other route gets them.
+    if (!service) for (const h of ["x-cmux-team-id", "x-cmux-chief-id", "x-request-id"]) headers.delete(h)
     if (service) {
       // The gateway set x-cmux-team-id (required), x-cmux-chief-id and x-request-id per call.
       if (!route.key || !headers.get("x-cmux-team-id")) throw new ClaudeAuthError()
