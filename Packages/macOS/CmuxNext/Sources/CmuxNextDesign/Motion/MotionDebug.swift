@@ -15,7 +15,10 @@ import CmuxNextWakeups
 /// The report lists the display links alive (`display_links`: 0 once every spring rests, so
 /// the window idles). Spans carry `at_ms` (from `start`); `samples` lists per-frame values
 /// (`clock.dt_ms`, and `tabs.travel`, `layout.travel`, `sidebar.open`: the points an
-/// animator has left to move); `notes` lists what an animator decided. `trace_start`, `trace_read` and `trace_stop` sample
+/// animator has left to move); `notes` lists what an animator decided. `trajectory` (answered
+/// by the app's wiring) returns the port's motion parity corpus (`MotionParityCorpus`), the
+/// document cmux-motion's `motion_trajectories` example prints; scripts/cmux-next/motion-parity.py
+/// compares the two. `trace_start`, `trace_read` and `trace_stop` sample
 /// animated geometry on every display frame instead (DEBUG builds, ``MotionFrameTrace``).
 /// Takes and returns `JSONSerialization` object graphs.
 public struct MotionDebug {

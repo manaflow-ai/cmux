@@ -24,15 +24,7 @@ import CmuxNextWakeups
 /// `content_intermediate` counts frames equal to neither. The pane's strip (its tabs slide) is left
 /// out of those and of `intermediate`; `strip_intermediate` counts its frames equal to neither, and
 /// `desync` those where one of strip and content shows the new tab and the other the old one.
-///
-/// Motion proofs (scripts/cmux-next/motion-proof.py, hq-1d): `gesture: "plus"` presses the
-/// focused strip's + (its intent) instead of a key, `gesture: "drag_new"` drags the strip's first
-/// tab while a CLI new tab lands. Outside the content and the strip, each frame's `progress`
-/// (0 = before, 1 = final) never goes back (`reversals`) or leaps (`jumps` over `jump`, default
-/// 0.6; `max_step`), and `moving` counts the frames between before and final. `content: "none"`
-/// (splits) takes no content area. Tab motion is judged from the strip's own `tabs.travel`
-/// samples while `debug.motion` records (`tabs_moving_frames`, `tabs_restarts`: a second motion
-/// in one gesture, `tabs_peak_travel`): a sliding cell is not monotonic in pixels.
+/// Motion proof knobs and fields: ``MotionFrameProgress``.
 @MainActor
 enum DebugFrameStrip {
     typealias Frame = WindowFrame
@@ -78,8 +70,7 @@ enum DebugFrameStrip {
         var rows: [JSONValue] = []
         var intermediate = 0, blank = 0, contentIntermediate = 0, desync = 0, stripIntermediate = 0
         var settledAt: Double?, firstChange: Double?
-        var moving = 0, reversals = 0, jumps = 0, previous: Double?, maxStep = 0.0, peak = 0.0
-        let jump = params["jump"]?.doubleValue ?? 0.6
+        var progress = MotionFrameProgress(jump: params["jump"]?.doubleValue)
         let shown = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
         // Off the main actor: six comparisons a frame stalled it past the watchdog in a Debug build.
         let measures = await WindowFrame.measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip)
@@ -94,16 +85,8 @@ enum DebugFrameStrip {
             // Neither the content before the key nor the settled one; blank: flat too (an empty terminal is flat).
             let isBlank = content != nil && m.flatness > 0.995 && insideBefore > tolerance && insideFinal > tolerance
             let isContentIntermediate = frame.milliseconds > sentAt && insideBefore > tolerance && insideFinal > tolerance
-            if isIntermediate { intermediate += 1; moving += 1 }
-            // Progress outside the content and the strip from before (0) to final (1).
-            let total = m.outsideBefore + m.outsideFinal
-            let progress = total > 0 ? m.outsideBefore / total : (m.outsideBefore > 0 ? 1 : 0)
-            if let previous {
-                maxStep = max(maxStep, progress - previous)
-                if progress - previous > jump, previous < 0.05 { jumps += 1 }
-                if progress < peak - 0.05 { reversals += 1 }
-            }
-            (peak, previous) = (max(peak, progress), progress)
+            if isIntermediate { intermediate += 1 }
+            progress.add(outsideBefore: m.outsideBefore, outsideFinal: m.outsideFinal)
             if isBlank { blank += 1 }
             if isContentIntermediate { contentIntermediate += 1 }
             if frame.milliseconds > sentAt {
@@ -121,11 +104,8 @@ enum DebugFrameStrip {
             ]))
         }
         WindowFrame.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
-        let tabs = MotionTravelSummary("tabs.travel", after: sentTime)
-        return .object([
-            "moving": .number(Double(moving)), "reversals": .number(Double(reversals)), "jumps": .number(Double(jumps)),
-            "max_step": .number((maxStep * 1000).rounded() / 1000), "tabs_moving_frames": .number(Double(tabs.movingFrames)),
-            "tabs_restarts": .number(Double(tabs.restarts)), "tabs_peak_travel": .number(tabs.peak.rounded()),
+        let motion = progress.fields(moving: intermediate, tabs: MotionTravelSummary("tabs.travel", after: sentTime)).mapValues(JSONValue.number)
+        return .object(motion.merging([
             "key": sent, "dir": .string(dir), "frames": .array(rows), "intermediate": .number(Double(intermediate)),
             "blank": .number(Double(blank)), "frame_count": .number(Double(rows.count)),
             "content_intermediate": .number(Double(contentIntermediate)), "desync": .number(Double(desync)),
@@ -133,7 +113,7 @@ enum DebugFrameStrip {
             "settled_ms": settledAt.map { .number($0.rounded()) } ?? .null, "first_change_ms": firstChange.map { .number($0.rounded()) } ?? .null,
             "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
-        ])
+        ]) { first, _ in first })
     }
 
     /// `gesture: "drag_new"`: drags the focused strip's first tab right in 12 steps, one per frame

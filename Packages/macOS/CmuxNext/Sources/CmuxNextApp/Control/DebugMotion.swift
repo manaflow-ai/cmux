@@ -5,9 +5,6 @@ import CmuxNextSidebar
 import CmuxNextTabs
 
 /// `debug.motion`: the wiring of `MotionDebug` (CmuxNextDesign), which documents its actions.
-/// `trajectory` returns this port's motion parity corpus (the resolved chrome springs and
-/// their frame paths), the same document cmux-motion's `motion_trajectories` example prints;
-/// scripts/cmux-next/motion-parity.py compares the two.
 enum DebugMotion {
     static func handle(_ params: [String: JSONValue], _ services: AppServices? = nil) -> JSONValue {
         if params["action"]?.stringValue == "trajectory" { return MotionParityCorpus().document }
