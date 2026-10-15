@@ -377,6 +377,7 @@ impl Mux {
                     optional_owned_string(fields, "name")?,
                     effect_cell_size(fields)?,
                     effect_on_exit(fields)?,
+                    None,
                 )
                 .map(|created| created.path)
             }
@@ -391,6 +392,7 @@ impl Mux {
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
                         None,
+                        tab_strip::tab_slot::effect_index(fields),
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -692,6 +694,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
         on_exit: Option<TerminalOnExit>,
+        index: Option<usize>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
         let workspace_key = self
             .workspace_key_for_pane(target)
@@ -717,10 +720,12 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let delta = match state.panes.get_mut(&target) {
                 Some(pane) => {
-                    pane.tabs.push(surface.id);
-                    pane.active_tab = pane.tabs.len() - 1;
+                    // At its end, or at the strip index the creation names
+                    // (`tab_slot`: Reopen Closed puts a tab back in place).
+                    let index = tab_strip::tab_slot::slot(index, pane.tabs.len());
+                    pane.tabs.insert(index, surface.id);
+                    pane.active_tab = index;
                     pane.active_at = active_at;
-                    let index = pane.tabs.len() - 1;
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     state.register_placed_tab_identity(surface.id);
                     let (workspace_index, screen_index) =

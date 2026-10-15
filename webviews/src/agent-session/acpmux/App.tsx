@@ -187,6 +187,7 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
+import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -2618,6 +2619,8 @@ function AcpmuxPane() {
     () => (trustBlocked ? new Set<string>() : groupAskedCalls(snapshot.permissionGroups)),
     [trustBlocked, snapshot.permissionGroups],
   );
+  // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
+  const codexRuns = useCodexToolRuns();
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
@@ -2628,7 +2631,7 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs },
+        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
@@ -2636,7 +2639,16 @@ function AcpmuxPane() {
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
     });
-  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, panelAsks]);
+  }, [
+    childRows,
+    sourceRows,
+    expanded,
+    snapshot.isWorking,
+    snapshot.clockOffsetMs,
+    codexRuns,
+    chatShellRuns,
+    panelAsks,
+  ]);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
@@ -3436,6 +3448,7 @@ function AcpmuxPane() {
       applyTheme(theme) {
         applyAgentTheme(theme as never);
         configureChatWidth(theme.chatWidth);
+        configureCodexToolRuns(theme.codexToolRuns);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));

@@ -77,9 +77,34 @@ export const mirrorDue = (sql: SqlStorage): number | null => {
   return Math.max(Number(m?.next_at ?? 0), Math.min(quiet, cap))
 }
 
+/**
+ * Before a team's first mirror run: when its ledger rows do not sum to its balance (charge rows pruned
+ * while no mirror ran), one `opening:<seq>` entry records the difference, so the billing database's
+ * ledger always sums to the balance. It never moves the balance. Returns the opening micros (0: none).
+ */
+export const openMirror = (storage: DurableObjectStorage, now: number): number => {
+  const sql = storage.sql
+  return storage.transactionSync(() => {
+    const m = sql.exec<{ opened: number }>(`SELECT opened FROM credit_mirror WHERE id = 1`).toArray()[0]
+    if (m && Number(m.opened) === 1) return 0
+    const st = sql.exec<{ balance: number }>(`SELECT balance FROM credit_state WHERE id = 1`).toArray()[0]
+    const sum = Number(sql.exec<{ s: number | null }>(`SELECT SUM(micros) AS s FROM credit_entry`).toArray()[0]?.s ?? 0)
+    const diff = st ? Number(st.balance) - sum : 0
+    if (diff !== 0) {
+      sql.exec(`UPDATE credit_state SET last_seq = last_seq + 1, version = version + 1, changed_at = ?, dirty_since = COALESCE(dirty_since, ?) WHERE id = 1`, now, now)
+      const seq = Number(sql.exec<{ s: number }>(`SELECT last_seq AS s FROM credit_state WHERE id = 1`).one().s)
+      sql.exec(`INSERT INTO credit_entry (key, kind, micros, actor, reason, at, seq) VALUES (?, 'opening', ?, 'mirror', 'balance before the mirror started', ?, ?)`, `opening:${seq}`, diff, now, seq)
+    }
+    sql.exec(`INSERT INTO credit_mirror (id, version, failures, next_at, opened) VALUES (1, -1, 0, 0, 1) ON CONFLICT (id) DO UPDATE SET opened = 1`)
+    return diff
+  })
+}
+
 /** One mirror run. Throws when the database refused (nothing is marked); the caller records the failure. */
 export const mirrorCredits = async (storage: DurableObjectStorage, team: string, client: MirrorClient): Promise<{ entries: number; version: number }> => {
   const sql = storage.sql
+  const opening = openMirror(storage, Date.now())
+  if (opening !== 0) console.log(JSON.stringify({ msg: "credits.mirror_opening", team, micros: opening }))
   const st = sql.exec<{ balance: number; version: number; last_seq: number; changed_at: number }>(`SELECT balance, version, last_seq, changed_at FROM credit_state WHERE id = 1`).toArray()[0]
   if (!st) return { entries: 0, version: 0 }
   // One snapshot before any await: other calls may run while the database answers.

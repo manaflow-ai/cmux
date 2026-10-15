@@ -8,6 +8,8 @@
 //! sees a group of another live window. A live window is one with a window
 //! record.
 
+use std::collections::HashSet;
+
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
@@ -34,8 +36,10 @@ fn in_scope(window: Option<&str>) -> &'static str {
 
 /// The public `ClosedTabRecord` of one stored tab. A page tab names its
 /// page, so Recently Closed can title it by the page rather than by its
-/// `about:blank` placeholder (cx-h7y9).
-fn public_tab(tab: &Value) -> Value {
+/// `about:blank` placeholder (cx-h7y9). A terminal in `evicted` lost its
+/// archived screen to the byte budget: its row says the scrollback was not
+/// kept (cx-gzh.4.4).
+fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
     let mut public = json!({
         "kind": tab["kind"],
         "name": tab["name"],
@@ -49,6 +53,9 @@ fn public_tab(tab: &Value) -> Value {
     }
     if reopens_empty(tab) {
         public["empty"] = json!(true);
+    }
+    if tab["terminal_id"].as_str().is_some_and(|id| evicted.contains(id)) {
+        public["scrollback_not_kept"] = json!(true);
     }
     public
 }
@@ -78,13 +85,14 @@ fn reopens_empty(tab: &Value) -> bool {
 }
 
 /// The public `ClosedMemberRecord` of one stored member.
-fn public_member(member: &Value) -> Value {
+fn public_member(member: &Value, evicted: &HashSet<String>) -> Value {
     let screens = member["screens"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|screen| {
-            let tabs = screen["tabs"].as_array().into_iter().flatten().map(public_tab);
+            let tabs =
+                screen["tabs"].as_array().into_iter().flatten().map(|tab| public_tab(tab, evicted));
             json!({"name": screen["name"], "tabs": tabs.collect::<Vec<_>>()})
         })
         .collect::<Vec<_>>();
@@ -101,8 +109,14 @@ fn public_member(member: &Value) -> Value {
 /// The public `ClosedItemSnapshot` of a stored group. The top-level fields
 /// of a v1 item mirror the first member, so older clients keep working.
 pub(crate) fn public_item(record: &Value) -> Value {
+    public_item_in(record, &HashSet::new())
+}
+
+/// [`public_item`], marking the tabs of `evicted` terminals.
+fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
     let members = record["members"].as_array().cloned().unwrap_or_default();
-    let first = members.first().map(public_member).unwrap_or_else(|| json!({}));
+    let first =
+        members.first().map(|member| public_member(member, evicted)).unwrap_or_else(|| json!({}));
     // A deleted space is named by the space, not its first workspace (cx-ncc.44).
     let room = &record["room"]["profile"][0]["name"];
     let mut item = json!({
@@ -123,7 +137,7 @@ pub(crate) fn public_item(record: &Value) -> Value {
         "screens": first["screens"].as_array().cloned().unwrap_or_default(),
         "window": record["window"],
         "member_count": members.len(),
-        "members": members.iter().map(public_member).collect::<Vec<_>>(),
+        "members": members.iter().map(|member| public_member(member, evicted)).collect::<Vec<_>>(),
     });
     // An ungrouped tab or screen group (no member) sits in its workspace.
     // No pane: the app would take it for a closed tab of that pane.
@@ -232,7 +246,11 @@ pub(crate) fn closed_items_in(
     let records = statement
         .query_map(params![window, limit], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
-    records.iter().map(|record| Ok(public_item(&serde_json::from_str(record)?))).collect()
+    let evicted = crate::workspace_registry::terminal_archive_store::evicted_terminals(connection)?;
+    records
+        .iter()
+        .map(|record| Ok(public_item_in(&serde_json::from_str(record)?, &evicted)))
+        .collect()
 }
 
 /// The group Reopen Closed takes when the caller names none: the newest
@@ -271,6 +289,24 @@ pub(crate) fn newest_for_window(
             |row| row.get::<_, String>(0),
         )
         .optional()?)
+}
+
+/// The public upserts of `closed_ids` (groups whose archive lost its
+/// screen), so a client that follows the change stream shows the note. A
+/// group already gone is skipped.
+pub(crate) fn closed_upserts(
+    connection: &Connection,
+    closed_ids: &[String],
+) -> anyhow::Result<Vec<Value>> {
+    let evicted = crate::workspace_registry::terminal_archive_store::evicted_terminals(connection)?;
+    let mut upserts = Vec::new();
+    for closed_id in closed_ids {
+        if let Some(record) = closed_record(connection, closed_id)? {
+            let item = public_item_in(&record, &evicted);
+            upserts.push(crate::state::store::state_upsert("closed", closed_id, item));
+        }
+    }
+    Ok(upserts)
 }
 
 /// The full stored group (including the terminal ids reopen uses).
@@ -324,5 +360,7 @@ pub(crate) fn keep_members(
         "UPDATE closed_groups SET kind = ?2, record_json = ?3 WHERE closed_id = ?1",
         params![closed_id, kind, serde_json::to_string(&record)?],
     )?;
-    Ok(public_item(&record))
+    let evicted =
+        crate::workspace_registry::terminal_archive_store::evicted_terminals(transaction)?;
+    Ok(public_item_in(&record, &evicted))
 }

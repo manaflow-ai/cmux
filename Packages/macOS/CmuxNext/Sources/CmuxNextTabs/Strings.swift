@@ -28,6 +28,18 @@ enum Strings {
     static var axNeedsInput: String { String(localized: "tabs.ax.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var axSuccess: String { String(localized: "tabs.ax.success", defaultValue: "Done", bundle: .module) }
     static var axFailure: String { String(localized: "tabs.ax.failure", defaultValue: "Failed", bundle: .module) }
+    static var hoverWorking: String { String(localized: "tabs.hoverCard.working", defaultValue: "Working", bundle: .module) }
+    static var hoverIdle: String { String(localized: "tabs.hoverCard.idle", defaultValue: "Idle", bundle: .module) }
+    static var hoverHibernated: String { String(localized: "tabs.hoverCard.hibernated", defaultValue: "Hibernated", bundle: .module) }
+    static func hoverHibernatedWasUsing(_ memory: String) -> String {
+        String(format: String(localized: "tabs.hoverCard.hibernatedWasUsing", defaultValue: "Hibernated · was using %@", bundle: .module), memory)
+    }
+    static func hoverMemory(_ memory: String) -> String {
+        String(format: String(localized: "tabs.hoverCard.memory", defaultValue: "Memory %@", bundle: .module), memory)
+    }
+    static func hoverMemoryCPU(_ memory: String, _ cpu: String) -> String {
+        String(format: String(localized: "tabs.hoverCard.memoryCPU", defaultValue: "Memory %1$@ · CPU %2$@", bundle: .module), memory, cpu)
+    }
     static var untitled: String { String(localized: "tabs.untitled", defaultValue: "Untitled", bundle: .module) }
     static var renameField: String { String(localized: "tabs.renameField", defaultValue: "Tab name", bundle: .module) }
     static var demoWindowTitle: String { String(localized: "tabs.demo.windowTitle", defaultValue: "Tab Strip Demo", bundle: .module) }
