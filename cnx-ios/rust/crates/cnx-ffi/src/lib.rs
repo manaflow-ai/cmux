@@ -250,11 +250,36 @@ impl LinkHandle {
         if !args.is_object() {
             return Err(CnxError::InvalidArgument { message: "args_json must be a JSON object".into() });
         }
+        let mut args = args;
         let link = self.link.clone();
         on_runtime(async move {
+            // With a media lane the page's video rides it (`video: "track"`:
+            // a WebRTC track or RTP in the WireGuard tunnel); an older hostd
+            // ignores the field and streams on the channel, which the viewer
+            // reads either way.
+            let lane = match link.media() {
+                Some(cnx_link::media::MediaLane::In(lane)) if args.get("video").is_none() => Some(lane),
+                _ => None,
+            };
+            // This tab's frames carry `video_tag` (media/tag.rs): the lane
+            // switches tabs without telling the phone when, and a refused
+            // `open` never switches it, so each viewer keeps its own frames
+            // beside the others instead of taking them from the tab before.
+            let tag = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().unwrap_or_default());
+            if lane.is_some() {
+                args["video"] = serde_json::Value::from("track");
+                args["video_tag"] = serde_json::Value::from(tag);
+            }
             let channel = link.open("browser", args).await?;
+            let track = match lane {
+                Some(lane) => {
+                    let frames = lane.subscribe_shared().await;
+                    Some(browser::Track { lane, frames, tag })
+                }
+                None => None,
+            };
             let (sender, receiver) = channel.split();
-            Ok(browser::start(Arc::new(sender), receiver, observer))
+            Ok(browser::start(Arc::new(sender), receiver, observer, track))
         })
         .await
     }
@@ -424,6 +449,10 @@ pub struct ConnectOptions {
     /// backend relay frames (path `Relay`).
     #[uniffi(default = false)]
     pub relay_only: bool,
+    /// Debug: do not offer the media lane, so browser video rides its
+    /// reliable channel on either transport (the comparison baseline).
+    #[uniffi(default = false)]
+    pub no_video_lane: bool,
 }
 
 /// Dial `mac_device_id` from this phone (`device_id`) over `transport`.
@@ -475,6 +504,7 @@ pub async fn connect_with_options(
         transport,
         include_loopback: false,
         relay_only: options.relay_only,
+        video_lane: !options.no_video_lane,
     };
     on_runtime(connect_inner(request, observer)).await
 }
@@ -495,6 +525,8 @@ pub struct ConnectRequest {
     pub transport: Transport,
     pub include_loopback: bool,
     pub relay_only: bool,
+    /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
+    pub video_lane: bool,
 }
 
 fn emit(observer: &Option<Arc<dyn LinkObserver>>, event: LinkEvent) {
@@ -825,10 +857,21 @@ async fn dial(
     let (ice_servers, socket) =
         tokio::join!(warm().ice_servers(&request.base_url, &request.token, timeline), socket);
     let (socket, reused) = socket?;
+    let mut ice_servers = ice_servers;
+    if std::env::var_os("CNX_DEV_NO_TURN").is_some() {
+        // Measurement support (simulator: SIMCTL_CHILD_CNX_DEV_NO_TURN=1):
+        // no TURN server, so a relay-only WireGuard link rides the backend's
+        // WebSocket relay instead of TURN.
+        for server in &mut ice_servers {
+            server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
+        }
+        ice_servers.retain(|server| !server.urls.is_empty());
+    }
     let options = DialOptions {
         ice_servers,
         include_loopback: request.include_loopback,
         relay_only: request.relay_only,
+        video_lane: request.video_lane,
         timeline: timeline.clone(),
         ..DialOptions::default()
     };

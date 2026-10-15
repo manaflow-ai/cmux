@@ -58,6 +58,7 @@ async fn round_trip(transport: Transport) {
             transport,
             include_loopback: true,
             relay_only: false,
+            video_lane: false,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
@@ -126,6 +127,7 @@ async fn wireguard_relay_only_stays_on_the_relay() {
             transport: Transport::WireGuard,
             include_loopback: true,
             relay_only: true,
+            video_lane: false,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
@@ -173,6 +175,7 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
             transport: Transport::WebRtc,
             include_loopback: true,
             relay_only: true,
+            video_lane: false,
         },
         None,
     )
@@ -195,6 +198,7 @@ fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequ
         transport: Transport::WebRtc,
         include_loopback: true,
         relay_only: false,
+        video_lane: false,
     }
 }
 

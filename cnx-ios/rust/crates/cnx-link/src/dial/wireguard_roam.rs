@@ -110,6 +110,9 @@ pub(super) struct Session {
     control_task: Mutex<Option<JoinHandle<()>>>,
     roaming: tokio::sync::Mutex<()>,
     last_roam: Mutex<Option<Timeline>>,
+    /// Counts network changes on either side (the media lane asks for a
+    /// keyframe after each).
+    path_epoch: Arc<watch::Sender<u64>>,
     closed: AtomicBool,
 }
 
@@ -152,10 +155,17 @@ impl Session {
             control_task: Mutex::new(None),
             roaming: tokio::sync::Mutex::new(()),
             last_roam: Mutex::new(None),
+            path_epoch: Arc::new(watch::channel(0).0),
             closed: AtomicBool::new(false),
         });
         lock(registry()).push(Arc::downgrade(&session));
         session
+    }
+
+    /// Counts this session's network changes: its own roams and the peer's
+    /// endpoint announcements.
+    pub(super) fn path_changes(&self) -> watch::Receiver<u64> {
+        self.path_epoch.subscribe()
     }
 
     pub(super) fn net(&self) -> Result<Arc<WgNet>, DialError> {
@@ -210,8 +220,14 @@ impl Session {
         };
         let (announce_tx, announce_rx) = mpsc::unbounded_channel();
         let peer = SocketAddr::new(IpAddr::V4(self.peer_ip), ROAM_PORT);
-        let task =
-            tokio::spawn(run_control(socket, peer, self.control.clone(), Arc::clone(&self.net), announce_rx));
+        let task = tokio::spawn(run_control(
+            socket,
+            peer,
+            self.control.clone(),
+            Arc::clone(&self.net),
+            announce_rx,
+            Arc::clone(&self.path_epoch),
+        ));
         *lock(&self.announce) = Some(announce_tx);
         if let Some(old) = lock(&self.control_task).replace(task) {
             old.abort();
@@ -289,6 +305,7 @@ impl Session {
             return timeline;
         }
         timeline.mark("roam_reasserted");
+        self.path_epoch.send_modify(|epoch| *epoch += 1);
         let mut endpoints = host_endpoints(port, &self.options);
         self.announce(offered(endpoints.iter().copied(), &self.options));
         let turn =
@@ -352,12 +369,19 @@ async fn run_control(
     control: mpsc::UnboundedSender<Control>,
     net: Arc<Mutex<Option<Arc<WgNet>>>>,
     mut announce: mpsc::UnboundedReceiver<Vec<String>>,
+    path_epoch: Arc<watch::Sender<u64>>,
 ) {
     let mut generation = 0u64;
     let mut pending: Option<RoamMessage> = None;
     let mut resends = 0usize;
     let mut resend_at: Option<Instant> = None;
     let mut applied = 0u64;
+    // The first endpoint the peer last announced (its new socket's host
+    // address, or its TURN address when relay only). A new one is a network
+    // change for the media lane; the same one again is not: a roam announces
+    // twice (host endpoints at once, then with the reflexive ones), and an
+    // empty list follows a mere signaling-socket move.
+    let mut peer_first: Option<String> = None;
     loop {
         let resend = async {
             match resend_at {
@@ -403,8 +427,16 @@ async fn run_control(
                             .filter(|text| text.parse::<SocketAddr>().is_ok())
                             .take(MAX_ENDPOINTS)
                             .collect();
+                        let moved = endpoints.first().is_some_and(|first| peer_first.as_ref() != Some(first));
+                        if moved {
+                            peer_first = endpoints.first().cloned();
+                        }
                         if control.send(Control::PeerEndpoints(endpoints)).is_err() {
                             return;
+                        }
+                        if moved {
+                            // The peer's network changed.
+                            path_epoch.send_modify(|epoch| *epoch += 1);
                         }
                         // Send at once, so the spray opens this side's NAT
                         // toward the peer's new address.

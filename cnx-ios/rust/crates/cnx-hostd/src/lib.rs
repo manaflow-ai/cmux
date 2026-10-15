@@ -9,6 +9,7 @@
 
 pub mod auth;
 pub mod browser;
+pub mod browser_track;
 pub mod chief_answers;
 pub mod chief_policy;
 pub mod config;
