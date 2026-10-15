@@ -290,24 +290,37 @@ impl HostAttachment {
         }
         // Held while writing, as `send_viewer_size` does, so a newer size
         // cannot be overtaken by this re-send of an older one.
-        let viewer_size = self.viewer_size.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let viewer_size =
+            self.viewer_size.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (cols, rows) = (*viewer_size)?;
         let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = sync_channel(1);
-        self.control_responses.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(
-            request_id,
-            ControlResponseWaiter::Blocking { kind: MessageKind::ResizeAck, sender },
-        );
+        self.control_responses
+            .waiters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                request_id,
+                ControlResponseWaiter::Blocking { kind: MessageKind::ResizeAck, sender },
+            );
         let mut payload = Vec::with_capacity(4);
         payload.extend_from_slice(&cols.to_le_bytes());
         payload.extend_from_slice(&rows.to_le_bytes());
         let mut frame = Frame::new(MessageKind::ViewerSize, payload);
         frame.version = self.protocol_version;
         frame.request_id = request_id;
-        let written = write_frame(&mut *self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner), &frame).is_ok();
+        let written = write_frame(
+            &mut *self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            &frame,
+        )
+        .is_ok();
         drop(viewer_size);
         if !written {
-            self.control_responses.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&request_id);
+            self.control_responses
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&request_id);
             return None;
         }
         // A late acknowledgement after the caller stops waiting still finds
