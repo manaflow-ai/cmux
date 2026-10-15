@@ -16,8 +16,8 @@ import Foundation
 /// (a child's lifecycle says nothing about whether the PARENT is working).
 ///
 /// Honest limits: without per-child ids from the CLI, a dedicated stop event
-/// can close the oldest open child, while a parent `stop`/`Stop` closes every
-/// open child (a stopped parent has no running foreground children).
+/// can close the oldest open child. Claude's parent stop ends only the current
+/// turn; its background children remain open until their own stop event.
 extension AgentChatSessionRegistry {
     nonisolated static func applyChildRunEvent(
         _ record: inout AgentChatSessionRecord,
@@ -44,12 +44,21 @@ extension AgentChatSessionRegistry {
             )
         case .subagentStop:
             closeChild(&record, id: event.requestId, at: event.receivedAt)
-        case .stop, .sessionEnd:
-            // The parent finished its turn (or ended); foreground children
-            // cannot still be running.
+        case .sessionEnd:
+            // SessionEnd retires the parent session and all of its children.
             for index in record.children.indices where record.children[index].endedAt == nil {
                 record.children[index].endedAt = event.receivedAt
             }
+        case .stop where event.source != "claude":
+            // Non-Claude adapters report parent Stop only after their nested
+            // work is complete, so retain their existing cleanup semantics.
+            for index in record.children.indices where record.children[index].endedAt == nil {
+                record.children[index].endedAt = event.receivedAt
+            }
+        case .stop:
+            // Claude's parent Stop ends the current turn, but background Task
+            // children continue until each child emits its own SubagentStop.
+            break
         default:
             break
         }
