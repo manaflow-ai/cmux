@@ -183,6 +183,17 @@ extension BrowserPanel {
         browserAutomationUserScripts.removeAll()
         browserAutomationInitScriptCount = 0
         browserAutomationStyleScriptCount = 0
+        browserEmulation.reset()
+    }
+
+    /// Applies a change to the automation emulation of the current web view
+    /// and every web view that later replaces it.
+    /// - Returns: The overrides now in effect.
+    @discardableResult
+    func updateBrowserEmulation(
+        _ change: (inout BrowserEmulationOverrides) -> Void
+    ) async throws -> BrowserEmulationOverrides {
+        try await browserEmulation.update(on: { self.webView }, change)
     }
 
     func makeReplacementWebView(
@@ -212,6 +223,7 @@ extension BrowserPanel {
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
         }
+        browserEmulation.install(on: replacement)
         if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.model?.target.host {
             replacement.configuration.userContentController.addUserScript(WKUserScript(
                 source: RemoteLoopbackRuntimeBridge.scriptSource(
