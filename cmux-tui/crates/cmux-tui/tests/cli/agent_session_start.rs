@@ -431,8 +431,7 @@ fn fake_acpmux(socket: PathBuf) -> mpsc::Receiver<Value> {
 /// The agent of a chat started on this machine works in the workspace of
 /// its tab (cx-ncc.5): the daemon names that workspace to acpmux on
 /// `session/new` (`_meta.acpmux.workspaceId`, which picks the session's
-/// display) and as the session's `CMUX_WORKSPACE_ID`, so the agent's own
-/// `cmux` calls target it. The client never names it.
+/// display), with no session env. The client never names it.
 #[test]
 fn agent_session_start_sends_the_tab_workspace_to_acpmux() {
     let daemon = Daemon::start_with("wsid", None, None);
@@ -452,7 +451,7 @@ fn agent_session_start_sends_the_tab_workspace_to_acpmux() {
     let new = new_sessions.recv_timeout(Duration::from_secs(5)).unwrap();
     let acpmux = &new["_meta"]["acpmux"];
     assert_eq!(acpmux["workspaceId"], json!(key), "{new}");
-    assert_eq!(acpmux["env"], json!({"CMUX_WORKSPACE_ID": key}), "{new}");
+    assert_eq!(acpmux.get("env"), None, "{new}");
     assert_eq!(acpmux["policy"], "ask", "{new}");
     let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }

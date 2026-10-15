@@ -18,10 +18,11 @@
 //! absolute; acpmux checks it). No command, env, policy, mode, peer, preset,
 //! workspace or MCP server param exists (unknown fields are a bad request).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
-//! (`_meta.acpmux.workspaceId`, which picks the session's display, and the
-//! session env `CMUX_WORKSPACE_ID`, so the agent's own `cmux` calls target
-//! it), from the tab's place in this store; a tab with no workspace whose key
-//! is a UUID sends neither, and acpmux then gives the session no display.
+//! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
+//! tab's place in this store; a tab with no workspace, or whose workspace key
+//! is not a UUID, sends none, and acpmux then gives the session no display.
+//! It sends no session env: `CMUX_WORKSPACE_ID` there would also change the
+//! agent-message hold, pooled starts and route bindings for these chats.
 //!
 //! Permissions: the session always starts with policy `ask`, whatever the
 //! daemon default is, and must end up in a mode acpmux's remote table
@@ -388,11 +389,9 @@ fn start_and_bind(
         meta["harness"] = json!(harness);
     }
     // The workspace of the tab, read here and never taken from the client:
-    // acpmux gives the session that workspace's display (none without it)
-    // and the agent's own `cmux` calls target it. No canonical key: neither.
+    // acpmux gives the session that workspace's display (none without it).
     if let Some(workspace) = mux.surface_workspace_key(params.surface) {
         meta["workspaceId"] = json!(workspace);
-        meta["env"] = json!({"CMUX_WORKSPACE_ID": workspace});
     }
     // The folder acpmux checked (its canonical path), so a symlink changed
     // after the trust answer cannot move the agent elsewhere.
