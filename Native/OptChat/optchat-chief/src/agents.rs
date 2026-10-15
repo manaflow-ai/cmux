@@ -101,6 +101,54 @@ pub fn end_own_sessions(home: &std::path::Path) -> Result<Vec<String>, String> {
     }
 }
 
+/// Who else uses the acpmux of the Chief at `home`, whose Chief home is
+/// `chief_home` (hq-6d 2026-10-14: the Chief home's acpmux stops only when
+/// its last user leaves): another Chief of that home whose host runs (its
+/// host lock held: the Chief home's own, the default Chief's, or one of
+/// `chief_home/c/*`), or another Chief's open session on the daemon (its
+/// turns and compactor, `cmux.chief`, or its children, `mux.parent`). The
+/// person's own sessions do not count. Names, for the log.
+pub fn other_users(
+    home: &std::path::Path,
+    chief_home: &std::path::Path,
+) -> Result<Vec<String>, String> {
+    let mut users = Vec::new();
+    let chiefs = std::fs::read_dir(chief_home.join("c"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| chief_home.join("c").join(entry.file_name()));
+    for chief in std::iter::once(chief_home.to_path_buf()).chain(chiefs) {
+        if chief != home && crate::lock::held(&chief.join("state/host.lock")) {
+            users.push(format!("host {}", chief.display()));
+        }
+    }
+    let (client, _) = connect()?;
+    let listed = sessions(&client);
+    client.close();
+    let me = crate::paths::home_id(home);
+    let my_parent = parent_tag(home);
+    for s in listed? {
+        if s.status == cmux_chief::acp::SessionStatus::Closed {
+            continue;
+        }
+        let other_chief = s
+            .tags
+            .get(crate::acpmux::CHIEF_TAG)
+            .is_some_and(|id| *id != me);
+        let other_child = s.tags.get(PARENT_TAG).is_some_and(|parent| {
+            parent
+                .strip_prefix(crate::brain::PARENT)
+                .is_some_and(|rest| rest.starts_with(':'))
+                && *parent != my_parent
+        });
+        if other_chief || other_child {
+            users.push(format!("session {}", s.name));
+        }
+    }
+    Ok(users)
+}
+
 /// How long [`end_own_sessions`] waits for all its kills.
 const END_SESSIONS_LIMIT: Duration = Duration::from_secs(3);
 

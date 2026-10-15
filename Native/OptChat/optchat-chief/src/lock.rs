@@ -98,6 +98,23 @@ pub trait ProcessProbe {
 /// than the recorded start (or the file's mtime) plus 1 s is an older host
 /// that is still running. A reused pid starts later, so the check is one-sided;
 /// an unknown start counts as the older host.
+/// Whether a host holds the lock at `path` now (a non-blocking probe on its
+/// own descriptor, released at once). A missing file or another error says
+/// no host. Also true for this process's own held lock.
+pub fn held(path: &Path) -> bool {
+    let Ok(file) = OpenOptions::new().read(true).open(path) else {
+        return false;
+    };
+    match file.try_lock() {
+        Ok(()) => {
+            let _ = file.unlock();
+            false
+        }
+        Err(TryLockError::WouldBlock) => true,
+        Err(TryLockError::Error(_)) => false,
+    }
+}
+
 pub fn older_host(text: &str, mtime_ms: i64, me: i32, probe: &dyn ProcessProbe) -> Option<i32> {
     let lines: Vec<&str> = text.trim().split('\n').collect();
     if lines.contains(&FLOCK_MARK) {
