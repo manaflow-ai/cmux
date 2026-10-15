@@ -69,7 +69,7 @@ button.acpmux-diff-scope:active,.acpmux-changes-retry:active,.acpmux-changes-ban
 .acpmux-file-menu-item:active{background:var(--acpmux-step-pressed)}
 button.acpmux-edited-file:active{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 .acpmux-file-menu-item[aria-disabled="true"]:active{background:none}
-.acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg))}
+.acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
 button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:-1.5px}
 /* The file filter is a field: its edge darkens on hover and takes the accent while typing. */
 .acpmux-diff-filter:hover{border-color:color-mix(in srgb,var(--agent-text) 22%,transparent)}

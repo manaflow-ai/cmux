@@ -46,6 +46,8 @@ public nonisolated struct HomeBrainHost: Sendable {
                                 bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                                 bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
                                                                                               isDebugBuild: DevTools.isDebugBuild)) -> Bool {
+        // The build-session kill switch: no Chief host, so no brain starts (cx-9ettq).
+        if AcpmuxEnvironment.agentLaunchDisabled(environment) { return false }
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
         return [override, bundled].compactMap { $0 }.contains { FileManager.default.isExecutableFile(atPath: $0) }
@@ -56,6 +58,7 @@ public nonisolated struct HomeBrainHost: Sendable {
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                         bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
                                                                                       isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
+        if AcpmuxEnvironment.agentLaunchDisabled(environment) { return nil }
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
         guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
@@ -106,7 +109,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             variables.merge(acpmux.childEnvironment) { $1 }
             variables["ACPMUX_BIN"] = acpmux.executable.path
         }
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "CMUX_MCP_COMMAND"] {
+        // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
+        // turns included, its own `cmux mcp serve` (one server per turn).
+        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
         return variables

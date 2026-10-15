@@ -83,6 +83,9 @@ pub struct Subject {
     pub env: BTreeMap<String, String>,
     /// The profile's `auth.login` command.
     pub login: Option<String>,
+    /// Env keys the profile sets to a value acpmux does not resolve here
+    /// (`${...}`), left out of `env`.
+    pub unresolved: Vec<String>,
     /// The hub's probe error for it (`Hub::probe_errors`).
     pub probe_error: Option<String>,
 }
@@ -130,6 +133,37 @@ fn builtin_login(family: &str) -> Option<&'static str> {
         "opencode" => "opencode auth login",
         _ => return None,
     })
+}
+
+/// Sign-in evidence for a harness with no `auth.check` (one acpmux found on
+/// PATH), when its program is the agent itself (not a wrapper that runs it
+/// elsewhere) and its home is the one named here: Codex answers
+/// `codex login status` (also behind codex-acp); Claude's sign-in sources
+/// (`claude_auth`) only ever prove a sign-in, so none found stays unknown,
+/// never a guess from a missing file.
+fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
+    // No credential read (Keychain, `codex login status`) while agent
+    // launches are off (cx-9ettq): the sign-in stays unknown.
+    if crate::launch_policy::agent_launch_disabled() {
+        return None;
+    }
+    let program = Path::new(&s.program).file_name()?.to_string_lossy().to_lowercase();
+    let home_named = |key: &str| !s.unresolved.iter().any(|k| k == key);
+    match s.family.as_str() {
+        "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
+            match probe::codex_login_status(&s.env)? {
+                true => Some((Auth::SignedIn, Some("`codex login status` passed".into()))),
+                false => {
+                    Some((Auth::SignedOut, Some("`codex login status`: not logged in".into())))
+                }
+            }
+        }
+        "claude" if program.contains("claude") && home_named("CLAUDE_CONFIG_DIR") => {
+            let found = crate::claude_auth::find(&s.env, true);
+            found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
+        }
+        _ => None,
+    }
 }
 
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
@@ -265,6 +299,9 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     };
     let update =
         channel::update_plan(&install, found.as_deref().map(Path::new), real.as_deref(), home);
+    // Without a profile check, the agent's own answer; a sign-in it proves
+    // outranks an older probe's sign-in error.
+    let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s)).flatten();
     let (auth, auth_detail) = match &s.probe_error {
         _ if !s.check.is_empty() && found.is_some() => {
             match probe::auth_check(&s.check, &s.env, &s.family) {
@@ -273,8 +310,11 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
                 Err(e) => (Auth::Unknown, Some(e)),
             }
         }
+        _ if matches!(builtin, Some((Auth::SignedIn, _))) => {
+            builtin.unwrap_or((Auth::Unknown, None))
+        }
         Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
-        _ => (Auth::Unknown, None),
+        _ => builtin.unwrap_or((Auth::Unknown, None)),
     };
     HarnessHealth {
         id: s.id,

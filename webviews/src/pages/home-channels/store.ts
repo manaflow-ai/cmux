@@ -6,9 +6,12 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService } from "./attachmentService";
+import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, threadOf } from "./model";
+import { conversationHash, hashConversation, setHash } from "./panes";
 import { RunBook } from "./runs";
+import { HomeSheets } from "./sheets";
 import {
   HomeOps,
   type HomeAttachment,
@@ -133,14 +136,32 @@ export class HomeChannelsStore {
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
 
+  /** Participants' pictures through this store's client (none without a client: initials). */
+  readonly avatars: AvatarService | undefined;
   /** Uploads and reads of attachments through this store's client (none without a client). */
   readonly attachments: AttachmentService | undefined;
+  /** The page's sheets (new message, new Chief, invite, archive) and the Chief records. */
+  readonly sheets: HomeSheets;
 
+  /** `host`: the page's host, when there is one (the app): it relays the person's click for a
+   * Chief's grant and delete. */
   constructor(
     private readonly client: PageClient | null,
     private readonly carry: PendingCarry = new PendingCarry(),
+    /** The page's host bridge (the app), or null in a browser: the page serves it hostSelection.ts. */
+    readonly host: PageClient | null = null,
   ) {
     this.attachments = client ? new AttachmentService(client) : undefined;
+    this.avatars = client ? new AvatarService(client) : undefined;
+    this.sheets = new HomeSheets(client, host, {
+      open: async (conversation) => {
+        await this.reloadInbox();
+        await this.select(conversation);
+        // The page shows the conversation the sheet made (the narrow page's pane follows the hash).
+        if (this.routed) setHash(conversationHash(conversation), true);
+      },
+      fail: (message) => this.set({ error: message }),
+    });
     this.snapshot = {
       connection: client ? "connecting" : "offline",
       loading: client !== null,
@@ -199,6 +220,7 @@ export class HomeChannelsStore {
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    void this.sheets.start();
     this.followHash();
   }
 
@@ -207,6 +229,16 @@ export class HomeChannelsStore {
   private followHash(): void {
     if (typeof window === "undefined") return;
     const open = () => {
+      // A sheet route (routes.ts) opens its sheet over the open conversation.
+      if (this.sheets.follow(window.location.hash)) return;
+      // A conversation the page knows opens at once (no link read: a Cloud conversation's link
+      // has no resolver yet); a message link, or one the page does not know, is resolved.
+      const known = hashConversation(window.location.hash);
+      if (known && this.snapshot.conversations.has(known)) {
+        // The page opened it already (a row click records the hash after it selects).
+        if (known !== this.snapshot.selected) void this.select(known);
+        return;
+      }
       const link = hashLink(window.location.hash);
       if (link) void this.openLink(link);
     };
@@ -356,7 +388,7 @@ export class HomeChannelsStore {
       });
       this.runs.noteMessages(messages);
       void this.loadRuns(id, messages, true);
-      this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
+      if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
     }
@@ -508,26 +540,6 @@ export class HomeChannelsStore {
     return left.length === this.snapshot.pending.length ? undefined : left;
   }
 
-  /** Creates a channel (a titled group) with these members and opens it. Resolves true when the
-   * owner created it. */
-  async createChannel(title: string, participants: readonly string[]): Promise<boolean> {
-    const name = title.trim();
-    if (!this.client || !name || participants.length === 0) return false;
-    try {
-      const result = await this.client.call<{ conversation?: string }>(HomeOps.createGroup, {
-        title: name,
-        participants,
-        idempotencyKey: this.key("create"),
-      });
-      await this.reloadInbox();
-      if (result.conversation) await this.select(result.conversation);
-      return true;
-    } catch (error) {
-      this.set({ error: describe(error) });
-      return false;
-    }
-  }
-
   /** Adds my reaction, or takes it back when I already reacted with it. */
   async react(message: HomeMessage, value: string): Promise<void> {
     if (!this.client) return;
@@ -668,8 +680,21 @@ export class HomeChannelsStore {
     this.set({ error: undefined });
   }
 
+  /** Whether the open conversation is on screen: the narrow page's list pane hides it, and a
+   * conversation nobody sees is not read (its unread count stays). */
+  private shown = true;
+  /** The page's hash names the open conversation (false: the gallery, which owns its window hash). */
+  routed = true;
+
+  setShown(shown: boolean): void {
+    if (shown === this.shown) return;
+    this.shown = shown;
+    if (shown) this.readOpen();
+  }
+
   /** Reads the open conversation through its newest loaded message. */
   private readOpen(): void {
+    if (!this.shown) return;
     const { selected, messages } = this.snapshot;
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open) this.markRead(open, messages.at(-1)?.seq ?? 0);
@@ -699,6 +724,7 @@ export class HomeChannelsStore {
     for (const entry of batch.typing ?? []) if (!entry.on) this.drafts.typingOff(entry.conversation, entry.participant);
     for (const message of batch.messages ?? []) this.drafts.posted(message);
     if (batch.runs?.length) this.runs.apply(batch.runs);
+    if (batch.avatars?.length) this.avatars?.changed(batch.avatars);
     if (batch.messages?.length) this.runs.noteMessages(batch.messages);
     let conversations: Map<string, HomeConversation> | undefined;
     for (const conversation of batch.conversations ?? []) {
@@ -754,7 +780,7 @@ export class HomeChannelsStore {
     this.set(patch);
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
-      this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
+      if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
     }
     if (batch.inboxStale) void this.reloadInbox();
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);

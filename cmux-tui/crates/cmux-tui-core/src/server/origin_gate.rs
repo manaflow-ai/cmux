@@ -141,6 +141,12 @@ pub(super) fn is_user(mux: &Mux, client: u64) -> bool {
     derived_origin(mux, client) == RequestOrigin::User
 }
 
+/// Whether `client` derives the page origin (a page WebSocket or the host's
+/// page relay, with or without a page id).
+pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
+    derived_origin(mux, client) == RequestOrigin::Page
+}
+
 /// The origin `client` derives; a client with no record is an agent.
 fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -241,14 +247,16 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 }
 
 /// The conversation events a page-bound connection of the Channels page
-/// hears; every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 5]> = std::sync::LazyLock::new(|| {
+/// hears (and `chief-changed`, its Chiefs); every other page-bound
+/// connection hears none.
+static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 6]> = std::sync::LazyLock::new(|| {
     [
         "conversation-changed",
         "conversation-typing",
         "conversation-draft",
         "conversation-run-changed",
         "conversation-inbox-changed",
+        "chief-changed",
     ]
     .map(String::from)
 });
@@ -322,6 +330,37 @@ pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.page = Some(page);
     }
+}
+
+/// The page id of `client` (a page WebSocket's handshake Origin, or a page
+/// relay's hello), or `None` (also for a client with no record). For the
+/// audit actor only: an access decision reads [`websocket_admission`].
+pub(super) fn connection_page(mux: &Mux, client: u64) -> Option<String> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.clients.get(&client).and_then(|record| record.origin.page.clone())
+}
+
+/// How a WebSocket connection was admitted, for the Chief registry
+/// (`chief-profile-ws-v1`): `None` for a client with no record or a poisoned
+/// registry lock (fail closed).
+pub(super) struct WebSocketAdmission {
+    /// A pairing-store credential (an approved pairing, or the verified app's
+    /// person page credential).
+    pub(super) person: bool,
+    /// The page of the handshake Origin.
+    pub(super) page: Option<String>,
+    /// Admitted with a credential bound to that page (`page-credential {page}`).
+    pub(super) scoped_page: bool,
+}
+
+pub(super) fn websocket_admission(mux: &Mux, client: u64) -> Option<WebSocketAdmission> {
+    let state = mux.control_clients.state.lock().ok()?;
+    let record = state.clients.get(&client)?;
+    matches!(record.transport, ClientTransport::WebSocket).then(|| WebSocketAdmission {
+        person: record.person,
+        page: record.origin.page.clone(),
+        scoped_page: record.origin.scoped_page,
+    })
 }
 
 /// Step 2 passed (prover B): `client`, a role-main connection, is the
@@ -501,3 +540,7 @@ mod page_access_tests;
 #[cfg(all(test, unix))]
 #[path = "pairing_gate_tests.rs"]
 mod pairing_gate_tests;
+
+#[cfg(all(test, unix))]
+#[path = "chief_profile_ws_tests.rs"]
+mod chief_profile_ws_tests;

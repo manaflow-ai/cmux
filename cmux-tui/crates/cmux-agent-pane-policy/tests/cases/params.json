@@ -482,11 +482,41 @@
    "id": 1,
    "method": "_acpmux/watch",
    "params": {
-    "enabled": 1
+    "enabled": 1,
+    "limit": 1
    }
   },
   "mode_fields": null,
   "breaks": false
+ },
+ {
+  "name": "_acpmux/sessions every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/sessions",
+   "params": {
+    "limit": 1,
+    "cursor": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/sessions unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/sessions",
+   "params": {
+    "limit": 1,
+    "cursor": "k1.2",
+    "query": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  },
  {
   "name": "_acpmux/events every known param",
@@ -923,6 +953,125 @@
     "updatedInput": {
      "x": 1
     }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/bookmark_get every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/bookmark_get",
+   "params": {
+    "sessionId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/bookmark_set every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/bookmark_set",
+   "params": {
+    "sessionId": 1,
+    "seq": 1,
+    "bookmarked": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/bookmark_set with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/bookmark_set",
+   "params": {
+    "sessionId": 1,
+    "seq": 1,
+    "bookmarked": 1,
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/bookmark_get with another param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/bookmark_get",
+   "params": {
+    "sessionId": 1,
+    "cwd": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "offer_respond known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/offer_respond",
+   "params": {
+    "sessionId": "a",
+    "offerId": "o",
+    "outcome": "accepted",
+    "childSessionId": "c"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "offer_respond unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/offer_respond",
+   "params": {
+    "sessionId": "a",
+    "offerId": "o",
+    "outcome": "accepted",
+    "prompt": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "subagent_stop known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_stop",
+   "params": {
+    "sessionId": "a",
+    "subagentSessionId": "t"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "subagent_stop unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_stop",
+   "params": {
+    "sessionId": "a",
+    "subagentSessionId": "t",
+    "command": "ls"
    }
   },
   "mode_fields": null,

@@ -10,7 +10,8 @@ import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { AcpmuxActivity, AcpmuxRow } from "../../agent-session/acpmux/model";
 import type { Strings } from "../shared/i18n";
 import { isStale, runCost, useLiveRuns, useRunEntry, type RunBook, type RunEntry } from "./runs";
-import type { HomeMessage, HomeRun, HomeRunStep } from "./types";
+import { Avatar } from "./Avatar";
+import type { HomeMessage, HomeParticipant, HomeRun, HomeRunStep } from "./types";
 
 /** How many of a run's newest steps the card shows. */
 const CARD_STEPS = 3;
@@ -124,6 +125,8 @@ export function RunMark({ status }: { status: HomeRun["status"] | "stale" }) {
 
 export interface RunCardProps {
   entry: RunEntry;
+  /** The run's author (a Chief): its picture leads the card. */
+  author?: HomeParticipant;
   strings: Strings;
   /** Opens the run sheet. */
   onOpen(run: HomeRun): void;
@@ -131,7 +134,7 @@ export interface RunCardProps {
   onLoad(run: HomeRun): void;
 }
 
-export function RunCard({ entry, strings, onOpen, onLoad }: RunCardProps) {
+export function RunCard({ entry, author, strings, onOpen, onLoad }: RunCardProps) {
   const { run, steps } = entry;
   const now = useNow(run.status === "running");
   const status = shownStatus(run, now);
@@ -155,14 +158,20 @@ export function RunCard({ entry, strings, onOpen, onLoad }: RunCardProps) {
     <section className={`lg-run ${status}`} aria-label={run.title || strings.t("run.title")} aria-busy={running}>
       <div className="lg-run-bar">
         <button type="button" className="lg-run-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {author && <Avatar participant={author} size={16} />}
           <RunMark status={status} />
           <span className="lg-run-label">{runLabel(run, now, strings)}</span>
-          {count > 0 && (
-            <span className="lg-run-meta">
-              {count === 1 ? strings.t("run.steps.one") : strings.format("run.steps.many", String(count))}
+          {(count > 0 || cost) && (
+            // One line with the label when the card is wide; its own line under it when narrow.
+            <span className="lg-run-metas">
+              {count > 0 && (
+                <span className="lg-run-meta">
+                  {count === 1 ? strings.t("run.steps.one") : strings.format("run.steps.many", String(count))}
+                </span>
+              )}
+              {cost && <span className="lg-run-meta">{cost}</span>}
             </span>
           )}
-          {cost && <span className="lg-run-meta">{cost}</span>}
           <ChevronRight size={14} strokeWidth={1.2} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />
         </button>
         <button type="button" className="lg-link-button lg-run-open" onClick={() => onOpen(run)}>
@@ -189,6 +198,8 @@ export function RunCard({ entry, strings, onOpen, onLoad }: RunCardProps) {
 export interface RunsContextValue {
   book: RunBook;
   strings: Strings;
+  /** The participants by id: a card shows its author's picture. */
+  people?: ReadonlyMap<string, HomeParticipant>;
   onOpen(run: HomeRun): void;
   onLoad(run: HomeRun): void;
 }
@@ -206,6 +217,7 @@ export function MessageRuns({ message }: { message: HomeMessage }) {
     <RunCard
       key={`${entry.run.author}:${entry.run.id}`}
       entry={entry}
+      author={context.people?.get(entry.run.author)}
       strings={context.strings}
       onOpen={context.onOpen}
       onLoad={context.onLoad}

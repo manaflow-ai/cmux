@@ -13,11 +13,12 @@
 //! request's result, so a retry with the same key replays it.
 
 use crate::Actor;
-use crate::mux::tab_groups::pane_by_public_id;
+use crate::mux::tab_groups::{group_members, pane_by_public_id};
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
 use crate::state::closed_history_query::{
-    closed_record, keep_members, newest_for_window, remove_closed,
+    closed_page, closed_record, keep_members, newest_for_window, public_item, remove_closed,
+    remove_other_closes,
 };
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::conversation_tabs::ConversationTabTarget;
@@ -63,6 +64,8 @@ struct Reopened {
     tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
     placements: Vec<(String, String)>,
+    /// A closed tab's id to the id it reopened as.
+    reopened_as: std::collections::HashMap<String, String>,
 }
 
 impl Reopened {
@@ -70,6 +73,14 @@ impl Reopened {
         if !self.workspaces.contains(&workspace) {
             self.workspaces.push(workspace);
         }
+    }
+
+    /// Note `tab`, reopened from the closed tab `record`.
+    fn note_tab(&mut self, record: &Value, tab: String) {
+        if let Some(closed) = record["tab_id"].as_str() {
+            self.reopened_as.insert(closed.to_string(), tab.clone());
+        }
+        self.tabs.push(tab);
     }
 }
 
@@ -130,8 +141,15 @@ fn commit_reopen(
     let tab_group = ["tab_group", "screen_group"]
         .iter()
         .any(|field| record.get(*field).is_some_and(Value::is_object));
+    // A page reopened is open again: every other close of it leaves with this one, so none
+    // takes its Recently Closed row or reopens it a second time (Leo 2026-10-14).
+    let page = if tab_group { None } else { closed_page(&public_item(&record)).map(str::to_owned) };
+    let mut others = Vec::new();
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
+        if let Some(page) = &page {
+            others = remove_other_closes(transaction, page)?;
+        }
         state_delete("closed", closed_id)
     } else {
         state_upsert("closed", closed_id, keep_members(transaction, closed_id, record, keep)?)
@@ -150,6 +168,7 @@ fn commit_reopen(
         })
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
+    changes.extend(others);
     let room_restored = match &room {
         Some(room) => {
             let local = crate::state::values::local_registry_id(transaction)?;
@@ -272,8 +291,31 @@ impl Mux {
         for member in &restore {
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
         }
-        if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
-            self.reopen_tab_group(&mutation.actor, group, &mut reopened)?;
+        // An ungrouped group (`tab_group`, no member) forms again whole. The
+        // groups a close took (`tab_groups`; `tab_group` on a Close Group
+        // recorded before cx-gzh.31) name their closed tabs: each forms
+        // again around those this reopen brought back.
+        let closed = !restore.is_empty();
+        let groups = record
+            .get("tab_group")
+            .filter(|group| group.is_object())
+            .into_iter()
+            .chain(record["tab_groups"].as_array().into_iter().flatten());
+        for group in groups {
+            let mut group = group.clone();
+            if closed {
+                let tabs = group["tab_ids"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|tab| reopened.reopened_as.get(tab.as_str()?).cloned())
+                    .collect::<Vec<_>>();
+                if tabs.is_empty() {
+                    continue;
+                }
+                group["tab_ids"] = serde_json::json!(tabs);
+            }
+            self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }
         if let Some(group) = record.get("screen_group").filter(|group| group.is_object()) {
             self.reopen_screen_group(&mutation.actor, group, &mut reopened)?;
@@ -323,15 +365,25 @@ impl Mux {
     /// of the first. A group formed since keeps its tabs.
     /// None still open forms nothing; a live group of that id (a retried
     /// reopen) is left as it is.
+    ///
+    /// `closed`: the archive is a closed group's (Close Group) and names the
+    /// tabs this reopen brought back, which are already in `reopened`. A
+    /// live group of that id (an earlier partial reopen formed it) takes
+    /// them in.
     fn reopen_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
         archive: &Value,
+        closed: bool,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
         let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
         let presentation = self.presentation_snapshot();
-        if !presentation.tab_groups.groups.contains_key(&id) {
+        // A group row a close left behind (no strip edit pruned it yet)
+        // holds no open tab: it is not live, and forms again.
+        let live = self
+            .with_state(|state| !group_members(state, &presentation.tab_groups, &id).is_empty());
+        if !live || closed {
             let wanted = archive["tab_ids"]
                 .as_array()
                 .into_iter()
@@ -355,6 +407,9 @@ impl Mux {
                             .find_map(|(surface, id)| (id.as_str() == tab).then_some(*surface))
                     })
                     .collect::<Vec<_>>();
+                if live {
+                    return open;
+                }
                 let pane = home
                     .as_deref()
                     .and_then(|pane| pane_by_public_id(state, pane))
@@ -369,18 +424,29 @@ impl Mux {
             if members.is_empty() {
                 return Ok(());
             }
-            self.tab_group_create(
-                StripRequest::local(actor, "closed.reopen"),
-                move |_| Ok(members),
-                archive["name"].as_str().map(str::to_string),
-                archive["color"].as_str().map(str::to_string),
-                id.clone(),
-                archive["icon"].as_str().map(str::to_string),
-            )?;
+            if live {
+                self.tab_group_add(
+                    StripRequest::local(actor, "closed.reopen"),
+                    &id,
+                    move |_| Ok(members),
+                    None,
+                )?;
+            } else {
+                self.tab_group_create(
+                    StripRequest::local(actor, "closed.reopen"),
+                    move |_| Ok(members),
+                    archive["name"].as_str().map(str::to_string),
+                    archive["color"].as_str().map(str::to_string),
+                    id.clone(),
+                    archive["icon"].as_str().map(str::to_string),
+                )?;
+            }
         }
         let outcome = self.tab_group_outcome(&id);
-        for surface in &outcome.members {
-            reopened.tabs.push(self.public_tab_of(*surface)?);
+        if !closed {
+            for surface in &outcome.members {
+                reopened.tabs.push(self.public_tab_of(*surface)?);
+            }
         }
         if let Some(pane) = outcome.pane {
             let (workspace, _) = self.public_screen_of_pane(pane)?;
@@ -622,7 +688,8 @@ impl Mux {
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
         reopened.note_workspace(workspace);
         reopened.screens.push(screen);
-        reopened.tabs.push(self.public_tab_of(surface)?);
+        // The member names the tab (its record does too since cx-gzh.31).
+        reopened.note_tab(record, self.public_tab_of(surface)?);
         Ok(())
     }
 
@@ -688,7 +755,7 @@ impl Mux {
             } else {
                 self.reopen_tab_record(actor, pane, tab, false)?
             };
-            reopened.tabs.push(self.public_tab_of(surface)?);
+            reopened.note_tab(tab, self.public_tab_of(surface)?);
         }
         if reused.is_none() {
             reopened.tabs.push(self.public_tab_of(first)?);

@@ -32,11 +32,19 @@ struct SidebarRowViewPool {
         return rowClass.init(key: key)
     }
 
-    /// Parks a view that left the list (already removed from its superview)
-    /// under its own row's key.
-    mutating func put(_ view: SidebarRowView) {
-        if views.updateValue(view, forKey: view.key) == nil { order.append(view.key) }
-        while order.count > Self.limit { views[order.removeFirst()] = nil }
+    /// Parks a view that left the list (hidden in it, or removed from its
+    /// superview) under its own row's key; returns the views it evicted.
+    @discardableResult
+    mutating func put(_ view: SidebarRowView) -> [SidebarRowView] {
+        if let replaced = views.updateValue(view, forKey: view.key) {
+            return replaced === view ? [] : [replaced]
+        }
+        order.append(view.key)
+        var evicted: [SidebarRowView] = []
+        while order.count > Self.limit {
+            if let old = views.removeValue(forKey: order.removeFirst()) { evicted.append(old) }
+        }
+        return evicted
     }
 
     private static func rowClass(for key: SidebarRowKey) -> SidebarRowView.Type {

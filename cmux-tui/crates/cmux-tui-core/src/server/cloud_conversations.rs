@@ -179,6 +179,17 @@ pub(super) struct RunParams {
     after_seq: Option<u64>,
 }
 
+/// `cloud-participant-avatar-get`: a Cloud participant's picture.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AvatarParams {
+    participant_id: String,
+    /// A conversation the person and the participant are both in: Cloud
+    /// answers another participant's picture only with one.
+    #[serde(default)]
+    conversation: Option<String>,
+}
+
 /// `cloud-conversation-subscribe` / `cloud-conversation-unsubscribe`.
 #[derive(Deserialize)]
 pub(super) struct TargetParams {
@@ -343,6 +354,15 @@ pub(super) fn run(mux: &Mux, client: u64, params: RunParams) -> anyhow::Result<V
     Ok(lease_user(mux, client)?.chief_run(&agent, &conversation, &run, after_seq)?)
 }
 
+pub(super) fn participant_avatar(
+    mux: &Mux,
+    client: u64,
+    params: AvatarParams,
+) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?
+        .participant_avatar(&params.participant_id, params.conversation.as_deref())?)
+}
+
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
     let service = lease_user(mux, client)?;
     check_origin(mux, client, params.origin.as_deref())?;
@@ -436,6 +456,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
             | Command::CloudConversationThread(_)
             | Command::CloudConversationRuns(_)
             | Command::CloudConversationRun(_)
+            | Command::CloudParticipantAvatarGet(_)
             | Command::CloudConversationOp(_)
             | Command::CloudInboxOp(_)
             | Command::CloudMuxAck(_)

@@ -109,16 +109,18 @@ enum PersonalSidebar {
     }
 
     /// Rowed workspaces by personal position, then the rest in daemon order.
+    /// One rank lookup per workspace, then an integer sort: the comparator
+    /// read each model's tracked `key` twice per comparison (O(n log n)
+    /// tracked reads, 260-280 ms per reconcile at 1,000 workspaces).
     private static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace]) -> [WorkspaceModel] {
-        workspaces.enumerated().sorted { lhs, rhs in
-            let l = rows[lhs.element.key?.rawValue ?? lhs.element.id]?.index
-            let r = rows[rhs.element.key?.rawValue ?? rhs.element.id]?.index
-            switch (l, r) {
+        let ranked = workspaces.enumerated().map { (rank: rows[rowKey($1)]?.index, offset: $0, workspace: $1) }
+        return ranked.sorted { lhs, rhs in
+            switch (lhs.rank, rhs.rank) {
             case let (l?, r?): return l == r ? lhs.offset < rhs.offset : l < r
             case (_?, nil): return true
             case (nil, _?): return false
             case (nil, nil): return lhs.offset < rhs.offset
             }
-        }.map(\.element)
+        }.map(\.workspace)
     }
 }

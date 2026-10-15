@@ -72,7 +72,8 @@ use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
-    AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
 
@@ -85,7 +86,9 @@ pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
 /// Permission ids remembered per attachment (announced, not yet answered).
 const MAX_PERMISSIONS: usize = 64;
-const MAX_KINDS: usize = 8;
+/// Record kinds or categories one page may ask for: the agent pane asks for all
+/// the kinds it draws (9 since prompt bookmarks, cx-kpd0v), with room to grow.
+const MAX_KINDS: usize = 32;
 /// Worker calls (pages, prompts, permission answers) per attachment.
 const MAX_CALLS: usize = 8;
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -379,6 +382,9 @@ pub(crate) enum Refusal {
     AboveHome,
     /// `agent-session-trust`: the home folder without the person's choice of it.
     HomeUnconfirmed,
+    /// `agent-session-start` with `require_person_key`: acpmux holds no
+    /// person key for the caller's run (cx-0w0jj).
+    NeedsKeyedStart,
 }
 
 impl Refusal {
@@ -401,6 +407,7 @@ impl Refusal {
             Self::HostUnverified => "agent_session.host_unverified",
             Self::AboveHome => "agent_session.above_home",
             Self::HomeUnconfirmed => "agent_session.home_unconfirmed",
+            Self::NeedsKeyedStart => "agent_session.needs_keyed_start",
         }
     }
 
@@ -428,6 +435,9 @@ impl Refusal {
             Self::AboveHome => "a folder above the home folder is never trusted from here",
             Self::HomeUnconfirmed => {
                 "the home folder is trusted only after the person chose it as the chat's folder"
+            }
+            Self::NeedsKeyedStart => {
+                "acpmux on this machine holds no person key for this caller; restart it with one first"
             }
         }
     }
@@ -1083,6 +1093,26 @@ fn refuse(writer: &MessageWriter, id: Option<Value>, refusal: Refusal) -> bool {
             id,
             ok: false,
             data: None,
+            error: Some(refusal.message().to_string()),
+            error_code: Some(refusal.code().to_string()),
+            error_delivery: None,
+        },
+    )
+}
+
+/// A refusal with its typed reason in `data` (`needs_keyed_start`).
+fn refuse_with_data(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    refusal: Refusal,
+    data: Value,
+) -> bool {
+    send_response(
+        writer,
+        Response {
+            id,
+            ok: false,
+            data: Some(data),
             error: Some(refusal.message().to_string()),
             error_code: Some(refusal.code().to_string()),
             error_delivery: None,

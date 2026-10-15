@@ -110,7 +110,7 @@ extension SidebarBridge {
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated:
             SidebarCardFeed.handle(intent, services: services)
-        case .nowPlaying(let command): services.cache.pageRequests.sidebarNowPlaying.perform(command)
+        case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):
