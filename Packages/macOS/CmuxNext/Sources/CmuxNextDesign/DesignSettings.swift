@@ -92,6 +92,12 @@ public final class DesignSettings {
     /// draws in it. Nil (no override; a font set only in the Ghostty config
     /// is not read) uses the system monospaced font.
     public var terminalFontFamily: String?
+    /// The Ghostty config files' own `font-family` (`GhosttyConfigFontFamily`), the terminal's
+    /// face when cmux.json sets none.
+    public var terminalConfigFontFamily: String?
+    /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
+    /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
+    public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or

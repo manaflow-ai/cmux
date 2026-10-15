@@ -26,7 +26,8 @@ const defined = new Set<string>();
 for (const { text } of sheets) for (const m of text.matchAll(/(--[\w-]+)\s*:/g)) defined.add(m[1]);
 // Set from script: setProperty("--x", …), or a `"--x":` style key.
 for (const text of scripts) {
-  for (const m of text.matchAll(/setProperty\(\s*["'`](--[\w-]+)["'`]|["'`](--[\w-]+)["'`]\s*:/g)) defined.add(m[1] ?? m[2]);
+  for (const m of text.matchAll(/setProperty\(\s*["'`](--[\w-]+)["'`]|["'`](--[\w-]+)["'`]\s*:/g))
+    defined.add(m[1] ?? m[2]);
 }
 
 test("every variable a font declaration reads is defined or has a fallback", () => {

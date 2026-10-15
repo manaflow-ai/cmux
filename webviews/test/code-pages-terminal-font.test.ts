@@ -28,8 +28,7 @@ function hostSends(fontFamily: string | null) {
 
 const codeFamily = () => document.documentElement.style.getPropertyValue("--cmux-diff-code-font-family").trim();
 const editorFamily = () =>
-  monacoOptions(EDITOR_DEFAULTS, undefined, { readOnly: false, large: false, ariaLabel: "code" })
-    .fontFamily as string;
+  monacoOptions(EDITOR_DEFAULTS, undefined, { readOnly: false, large: false, ariaLabel: "code" }).fontFamily as string;
 
 describe("code pages follow the terminal font", () => {
   test("the diff and markdown code font is the terminal's, and follows a change in place", () => {
