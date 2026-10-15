@@ -1179,13 +1179,14 @@ public final class LiveCoordinator {
         Task { @MainActor [weak self] in
             guard let self, !stopped else { return }
             feedSavePending = false
-            archive.save(feed.store.items)
+            // Encoded and written off the main thread (a save per change dropped frames while scrolling).
+            archive.saveInBackground(feed.store.items)
         }
     }
 
     private func place(sessionID: String) -> LiveFeed.Place? {
         guard let tree else { return nil }
-        for workspace in tree.workspaces {
+        for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs where tree.agentTabs[tab.id]?.session == sessionID {
                 return LiveFeed.Place(workspaceID: workspace.id, tabID: tab.id, workspaceTitle: workspace.title)
             }

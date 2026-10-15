@@ -224,7 +224,9 @@ final class PooledWebView: UIView, WKNavigationDelegate {
         onTap = nil
         renderedKey = nil
         contentHeight = 0
-        if isReady { webView.evaluateJavaScript("cnxRender('', false)") }
+        // No clearing render: the next `render` hides the view until its own
+        // content paints, and a JavaScript call per recycled cell cost the
+        // scroll a round trip to the web process.
     }
 
     /// What the view shows: content, style and the text size it laid out at.
