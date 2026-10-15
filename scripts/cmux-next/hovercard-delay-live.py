@@ -180,6 +180,8 @@ def tab_points():
     strips = (rpc("debug.tab_drag") or {}).get("strips") or []
     for strip in strips:
         tabs = strip.get("tabs") or []
+        # A New Tab page has no card (it would repeat its title): terminal tabs only.
+        tabs = [t for t in tabs if t.get("label") != "New Tab"]
         if len(tabs) >= 2:
             return [(t.get("label"), (lambda f: [f[0] + f[2] * 0.35, f[1] + f[3] / 2])(xywh(t["frame"]))) for t in tabs]
     return []
@@ -312,14 +314,12 @@ try:
     for attempt in range(3):
         if len(row_points()) >= 3:
             break
-        made = call("workspace.create", {"focus": False})
-        print(f"   workspace.create: {'ok' if made.get('ok') else made.get('error')}", flush=True)
-        if not made.get("ok"):
-            cli = os.path.join(HERE, "..", "cmux-debug-cli.sh")
-            run = subprocess.run([cli, "--app-socket", SOCKET, "workspace", "create"], capture_output=True, text=True, timeout=60)
-            print(f"   cmux workspace create: exit {run.returncode} {(run.stdout + run.stderr).strip()[-160:]}", flush=True)
+        run = subprocess.run([os.path.join(HERE, "..", "cmux-debug-cli.sh"), "--app-socket", SOCKET, "workspace", "create",
+                              "--name", f"hover-{attempt + 2}", "--json"], env=dict(os.environ, CMUX_TAG=opts.tag),
+                             capture_output=True, text=True, timeout=60)
+        print(f"   cmux workspace create: exit {run.returncode} {(run.stdout + run.stderr).strip()[-160:]}", flush=True)
         quiet_wait(lambda: len(row_points()) >= attempt + 2, 10, step=0.2)
-    for attempt in range(2):
+    for attempt in range(3):
         if len(tab_points()) >= 2:
             break
         print("   newSurface:", (rpc("action.run", {"action": "newSurface", "origin": "script"}) or {}), flush=True)
