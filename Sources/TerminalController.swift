@@ -9026,7 +9026,8 @@ class TerminalController {
     """
 
     private nonisolated func v2BrowserType(params: [String: Any]) -> V2CallResult {
-        guard let text = v2String(params, "text") else {
+        // The text is typed as given: whitespace is content (as for `fill`).
+        guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
         return v2BrowserSelectorAction(params: params, actionName: "type") { selectorLiteral in

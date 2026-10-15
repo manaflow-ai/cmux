@@ -169,6 +169,17 @@ struct BrowserChromiumAutomationTests {
             "Page.captureScreenshot", "Network.getAllCookies", "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
         ])
 
+        // `type` keeps the text as given, whitespace included, as `fill` does;
+        // a lone space is text, not a missing parameter.
+        for text in [" x y ", " "] {
+            let typed = try await call(method: "browser.type", params: [
+                "surface_id": surfaceID, "selector": "#a", "text": text,
+            ])
+            #expect((typed["error"] as? [String: Any])?["code"] as? String != "invalid_params", "\(typed)")
+            let literal = try #require(String(data: JSONSerialization.data(withJSONObject: [text]), encoding: .utf8))
+            #expect(page.evaluations.last?.script.contains(String(literal.dropFirst().dropLast())) == true)
+        }
+
         // On a Chromium internal page the person opened, automation is refused
         // and nothing reaches the page.
         panel.applyEnginePageState(BrowserPageState(url: URL(string: "chrome://settings/passwords")))
