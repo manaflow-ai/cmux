@@ -139,3 +139,16 @@ test("a render tool call with no title names its card by the page's <title>", as
     await act(async () => root.unmount());
   }
 });
+
+test("a render tool card's row has no row Copy over the card's Open; a prompt's row keeps its Copy", async () => {
+  const root = await pane({ html: PAGE, title: "Desk clamp" });
+  try {
+    const document = dom.window.document;
+    // The row's Copy sits at the row's top right, where a render row's card has its Open.
+    expect(document.querySelector("article.acpmux-render")).not.toBeNull();
+    expect(document.querySelector("article.acpmux-render .acpmux-row__copy")).toBeNull();
+    expect(document.querySelector("article.acpmux-user .acpmux-row__copy")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
