@@ -11142,127 +11142,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إرسال اختصارات النظام إلى هذا الـMac"
+            "value": "إرسال اختصارات النظام إلى الـMac البعيد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Šalji sistemske prečice na ovaj Mac"
+            "value": "Šalji sistemske prečice na udaljeni Mac"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Send systemgenveje til denne Mac"
+            "value": "Send systemgenveje til den eksterne Mac"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Systemkurzbefehle an diesen Mac senden"
+            "value": "Systemkurzbefehle an den entfernten Mac senden"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send System Shortcuts to This Mac"
+            "value": "Send System Shortcuts to the Remote Mac"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enviar atajos del sistema a este Mac"
+            "value": "Enviar atajos del sistema al Mac remoto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Envoyer les raccourcis système à ce Mac"
+            "value": "Envoyer les raccourcis système au Mac distant"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Invia le abbreviazioni di sistema a questo Mac"
+            "value": "Invia le abbreviazioni di sistema al Mac remoto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "システムショートカットをこのMacに送信"
+            "value": "システムショートカットをリモートのMacに送信"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ញើផ្លូវកាត់ប្រព័ន្ធទៅ Mac នេះ"
+            "value": "ផ្ញើផ្លូវកាត់ប្រព័ន្ធទៅ Mac ពីចម្ងាយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시스템 단축키를 이 Mac으로 보내기"
+            "value": "시스템 단축키를 원격 Mac으로 보내기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Send systemsnarveier til denne Macen"
+            "value": "Send systemsnarveier til den eksterne Macen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wysyłaj skróty systemowe do tego Maca"
+            "value": "Wysyłaj skróty systemowe do zdalnego Maca"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enviar atalhos do sistema para este Mac"
+            "value": "Enviar atalhos do sistema para o Mac remoto"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Отправлять системные сочетания клавиш на этот Mac"
+            "value": "Отправлять системные сочетания клавиш на удалённый Mac"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ส่งปุ่มลัดของระบบไปยัง Mac เครื่องนี้"
+            "value": "ส่งปุ่มลัดของระบบไปยัง Mac ระยะไกล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistem kısayollarını bu Mac’e gönder"
+            "value": "Sistem kısayollarını uzak Mac’e gönder"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Надсилати системні сполучення клавіш на цей Mac"
+            "value": "Надсилати системні сполучення клавіш на віддалений Mac"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gửi phím tắt hệ thống đến máy Mac này"
+            "value": "Gửi phím tắt hệ thống đến máy Mac từ xa"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "将系统快捷键发送到这台 Mac"
+            "value": "将系统快捷键发送到远程 Mac"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "將系統快速鍵傳送到這台 Mac"
+            "value": "將系統快速鍵傳送到遠端 Mac"
           }
         }
       }

@@ -200,7 +200,7 @@ struct MacScreenToolbar: View {
         Menu {
             if let shortcuts = model.systemShortcuts {
                 // The setting (macScreen.systemShortcuts): every Mac Screen tab follows it.
-                Toggle(L.t("macScreen.keys.systemShortcuts", "Send System Shortcuts to This Mac"),
+                Toggle(L.t("macScreen.keys.systemShortcuts", "Send System Shortcuts to the Remote Mac"),
                        isOn: Binding(get: { shortcuts.enabled }, set: { shortcuts.setEnabled($0) }))
                 if shortcuts.needsAccessibility {
                     Button(L.t("macScreen.keys.allowAccessibility", "Allow Accessibility for System Shortcuts…")) {
