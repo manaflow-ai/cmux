@@ -347,8 +347,7 @@ public struct DaemonCapabilities: Sendable {
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
     public let terminalClipboardRead = "terminal-clipboard-read-v1"
-    /// The page relay's origin claim (`ResourceRelay.originClaimCapability`,
-    /// `ClientHello.originClaimCapability`).
+    /// The page relay's origin claim (`ResourceRelay.originClaimCapability`, `ClientHello.originClaimCapability`).
     public let originClaim = "origin-claim-v1"
     /// Page ids on page relays and the per-page allow list (`page-router-v1`;
     /// `DaemonClientRole.pageRouterCapability`).
@@ -357,6 +356,7 @@ public struct DaemonCapabilities: Sendable {
     public let sessionJournal = "session-journal-v1"
     /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
     public let terminalResources = "terminal-resources-v1"
+    public let stash = "stash-v1" // stash.* (StateResourceClient+Stash.swift); no stash UI without it
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -376,7 +376,7 @@ public struct DaemonCapabilities: Sendable {
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, browserFit, projectList, splitClientKeys, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, stash] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
