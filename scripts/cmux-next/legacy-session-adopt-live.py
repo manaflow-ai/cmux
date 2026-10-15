@@ -111,7 +111,8 @@ class Home:
 
     def env(self, state_dir=None):
         env = dict(os.environ)
-        env.update({"HOME": self.home, "TMPDIR": self.stage.temp})
+        # CFFIXED_USER_HOME: Foundation's home (Application Support, preferences) follows it, not HOME.
+        env.update({"HOME": self.home, "CFFIXED_USER_HOME": self.home, "TMPDIR": self.stage.temp})
         env.pop("XDG_RUNTIME_DIR", None)
         env.pop("CMUX_TUI_STATE_DIR", None)
         if state_dir:
@@ -124,7 +125,7 @@ class Home:
         lines = [line for line in out.stdout.splitlines() if line.startswith("{")]
         return out.returncode, (json.loads(lines[-1]) if lines else {}), out.stderr.strip()
 
-    def daemon(self, session, state_dir, names, terminal=False):
+    def daemon(self, session, state_dir, names):
         """Starts `session` with workspaces `names` and waits for its launch snapshot to list them."""
         code, result, error = self.tui(session, state_dir, "server", "ensure")
         if code != 0 or not result.get("socket"):
@@ -151,24 +152,33 @@ class Home:
         return bounded(snapshot_lists_all, 60, f"{session} launch snapshot with {names}")
 
     def stop_all(self):
-        for session, state_dir in reversed(self.started):
-            code, _, error = self.tui(session, state_dir, "server", "stop", "--end-terminals")
-            print(f"  stop {session}: exit {code} {error[-200:]}")
+        """Stops every daemon of this HOME, the app's own channel session included."""
+        own = (f"cmux-app-{CHANNEL}", os.path.join(self.support, f"cmux/tags/{CHANNEL}/tui"))
+        failed = []
+        for session, state_dir in reversed(self.started + ([] if own in self.started else [own])):
+            code, result, error = self.tui(session, state_dir, "server", "stop", "--end-terminals")
+            print(f"  stop {session}: exit {code} {result.get('status')} {error[-200:]}")
+            if code != 0 and "not running" not in (error + json.dumps(result)).lower() and "no server" not in error.lower():
+                failed.append(session)
         self.started = []
+        if failed:
+            raise SystemExit(f"could not stop {failed}; refusing to run the next scenario on a live daemon")
 
     def marker(self):
         return os.path.join(self.support, f"cmux/tags/{CHANNEL}/legacy-session-adopted")
 
 
 class App:
-    def __init__(self, home):
+    def __init__(self, home, legacy_snapshot=None):
         read_fd, write_fd = os.pipe()
         env = home.env()
         env.update({"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
                     "CMUX_NEXT_CONFIG_FILE": os.path.join(home.home, "cmux.json"), "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd)})
         with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as config:
             config.write("{}\n")
-        self.process = subprocess.Popen([home.stage.binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        # The old NIGHTLY's own defaults named its snapshot; an argument-domain value stands in (no write).
+        arguments = ["-cmuxNext.launchSnapshotPath.cmux-app", legacy_snapshot] if legacy_snapshot else []
+        self.process = subprocess.Popen([home.stage.binary, *arguments], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                         start_new_session=True, pass_fds=(write_fd,))
         os.close(write_fd)
         self.read_fd, self.buffer, self.marks = read_fd, b"", {}
@@ -205,6 +215,9 @@ class App:
                 client.call("action.run", {"id": "quitKeepSessions"})
                 client.close()
             self.process.wait(timeout=45)
+        except subprocess.TimeoutExpired:
+            self.process.kill()  # the pid this script started, only
+            self.process.wait(timeout=15)
         finally:
             os.close(self.read_fd)
 
@@ -219,8 +232,8 @@ def _try_client(path):
 def adopt(stage, root, failures):
     home = Home(stage, root, "adopt")
     try:
-        home.daemon("cmux-app", None, LEGACY)
-        app = App(home)
+        legacy = home.daemon("cmux-app", None, LEGACY)
+        app = App(home, legacy)
         try:
             if not app.wait_mark("daemon_snapshot_loaded", 60):
                 failures.append("adopt: the app never loaded a live tree")
@@ -234,7 +247,7 @@ def adopt(stage, root, failures):
             failures.append("adopt: no adopt marker recorded")
         if glob.glob(os.path.join(home.support, f"cmux/tags/{CHANNEL}/tui/cmux-app-{CHANNEL}-*")):
             failures.append(f"adopt: a cmux-app-{CHANNEL} session was started anyway")
-        app = App(home)
+        app = App(home, legacy)
         try:
             snapshot_drawn = app.wait_mark("launch_snapshot_shown", 30)
             app.wait_mark("daemon_snapshot_loaded", 60)
@@ -253,11 +266,11 @@ def adopt(stage, root, failures):
 def keep(stage, root, failures):
     home = Home(stage, root, "keep")
     try:
-        home.daemon("cmux-app", None, LEGACY)
+        legacy = home.daemon("cmux-app", None, LEGACY)
         own_state = os.path.join(home.support, f"cmux/tags/{CHANNEL}/tui")
         os.makedirs(own_state)
         home.daemon(f"cmux-app-{CHANNEL}", own_state, ["own-1"])
-        app = App(home)
+        app = App(home, legacy)
         try:
             app.wait_mark("daemon_snapshot_loaded", 60)
             names = app.workspace_names()
@@ -278,9 +291,10 @@ def main():
             raise SystemExit(f"{path} exists: another staging app may run here; refusing")
     root = tempfile.mkdtemp(prefix="legacy-adopt-", dir=os.environ.get("NX_JOB_DIR"))
     stage = Stage(root)
-    legacy_socket = glob.glob(os.path.join(stage.temp, "cmux-tui-*", "cmux-app.sock"))
-    if legacy_socket:
-        raise SystemExit(f"{legacy_socket[0]} exists: a real cmux-app daemon runs for this user; refusing")
+    for name in ("cmux-app.sock", f"cmux-app-{CHANNEL}.sock"):
+        found = glob.glob(os.path.join(stage.temp, "cmux-tui-*", name))
+        if found:
+            raise SystemExit(f"{found[0]} exists: a daemon of that session may run for this user; refusing")
     failures = []
     for scenario in (adopt, keep):
         print(f"== {scenario.__name__}")

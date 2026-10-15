@@ -12,8 +12,11 @@ import Foundation
 /// terminals or agents, which stayed with the old `cmux-app` daemon.
 ///
 /// A channel build adopts `cmux-app` and the default root in place, once,
-/// when the old session has workspaces and its own session is untouched
-/// (never started, or only the launch's own unused New Tab page). Nothing is
+/// when this bundle itself ran the old session (its own defaults name the
+/// old session's launch snapshot, `cmuxNext.launchSnapshotPath.cmux-app`, so
+/// a release build's live `cmux-app` or another channel's is never taken),
+/// that snapshot lists workspaces, and its own session is untouched (never
+/// started, or only the launch's own unused New Tab page). Nothing is
 /// copied, so nothing can diverge; the decision is recorded beside the
 /// channel's state (`cmux/tags/<channel>/legacy-session-adopted`) so every
 /// later launch keeps it, also after the own session would no longer count
@@ -24,10 +27,18 @@ public struct LegacyChannelSession: Sendable {
     static let markerName = "legacy-session-adopted"
 
     let applicationSupport: URL
+    /// Where this bundle's last handshake put the old session's snapshot (its own defaults).
+    let rememberedSnapshot: @Sendable () -> String?
 
-    public init(applicationSupport: URL) {
+    public init(applicationSupport: URL,
+                rememberedSnapshot: @escaping @Sendable () -> String? = { LaunchSnapshotLocation().path(session: LegacyChannelSession.session) }) {
         self.applicationSupport = applicationSupport
+        self.rememberedSnapshot = rememberedSnapshot
     }
+
+    /// One answer per process and build: decided at the first ask (before the
+    /// daemon starts), so a snapshot written later never moves a running app.
+    private static let decisions = DecisionCache()
 
     /// The old shared registry root: cmux-tui's default state root on macOS.
     var legacyRoot: URL { applicationSupport.appendingPathComponent("cmux-tui/sessions", isDirectory: true) }
@@ -47,9 +58,15 @@ public struct LegacyChannelSession: Sendable {
     /// build's own names.
     public func adopts(bundleID: String?, session: String, stateDirectory: URL?) -> Bool {
         guard let channel = Self.channel(bundleID: bundleID, session: session), let stateDirectory else { return false }
+        return Self.decisions.answer("\(applicationSupport.path)|\(channel)") { decide(channel: channel, session: session, stateDirectory: stateDirectory) }
+    }
+
+    private func decide(channel: String, session: String, stateDirectory: URL) -> Bool {
         let marker = marker(channel: channel)
         if FileManager.default.fileExists(atPath: marker.path) { return true }
-        guard let legacy = LaunchSnapshotLocation.find(session: Self.session, in: legacyRoot),
+        guard let legacy = rememberedSnapshot(),
+              URL(fileURLWithPath: legacy).deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
+                == legacyRoot.standardizedFileURL.path,
               Self.workspaces(at: legacy, touchedOnly: false) > 0,
               isUntouched(session: session, in: stateDirectory) else { return false }
         let record = ["session": Self.session, "state_root": legacyRoot.path,
@@ -102,5 +119,20 @@ public struct LegacyChannelSession: Sendable {
         if let conversation = binding["conversation"], !(conversation is NSNull) { return true }
         let session = (binding["agent_session"] as? [String: Any])?["session"]
         return session != nil && !(session is NSNull)
+    }
+}
+
+/// `LegacyChannelSession`'s per-process answers.
+final class DecisionCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var answers: [String: Bool] = [:]
+
+    func answer(_ key: String, _ decide: () -> Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if let known = answers[key] { return known }
+        let value = decide()
+        answers[key] = value
+        return value
     }
 }
