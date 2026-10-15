@@ -26,6 +26,8 @@ use tokio::{
 };
 use tower_http::limit::RequestBodyLimitLayer;
 
+mod admin_socket;
+pub use admin_socket::{MAX_SOCKET_PATH_BYTES, admin_socket_path};
 pub mod free_tier;
 use free_tier::FreeTier;
 use zeroize::Zeroize;
@@ -467,7 +469,8 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     // gets an answer.
     let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
     let _ = INSTALL_SECRET_KIND.set(INSTALL_SECRET_EPHEMERAL);
-    let socket_path = router_dir.join("router.sock");
+    // `<home>/router/router.sock`, or a short path for a long home (admin_socket.rs).
+    let socket_path = admin_socket_path(home);
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = UnixListener::bind(&socket_path)?;
     #[cfg(unix)]

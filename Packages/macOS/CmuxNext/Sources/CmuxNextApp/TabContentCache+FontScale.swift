@@ -8,42 +8,40 @@ import Foundation
 // (keyboard, menu, palette, CLI, the workspace-wide verbs) is saved there.
 extension TabContentCache {
     /// A session for `tab` that follows its record's font scale.
-    func makeSession(io: DaemonTerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
+    func makeSession(io: any TerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
         let key = tab.id
         if daemon.store.session.known {
             if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }
         } else {
-            Self.applyFontScaleWhenKnown(tab: key, view: session.surfaceView, daemon: daemon)
+            session.closeCancels.append(applyFontScaleWhenKnown(tab: key, session: session, daemon: daemon))
         }
-        TerminalFontScale(session.surfaceView).observe { [weak daemon, weak surfaceView = session.surfaceView] scale in
+        TerminalFontScale(session.surfaceView).observe { [weak daemon, weak session] scale in
             guard let daemon else { return }
             Self.saveFontScale(scale, tab: key, daemon: daemon)
             // Ghostty handles Cmd+=/-/0 directly, so show the same transient readout
             // as the action/palette path when the changed terminal owns the key window.
-            if let surfaceView, surfaceView.window?.isKeyWindow == true {
+            if let surfaceView = session?.surfaceView, surfaceView.window?.isKeyWindow == true {
                 SurfaceZoomIndicator.show(percent: Int(((scale ?? 1) * 100).rounded()), in: surfaceView.window)
             }
         }
         return session
     }
 
-    /// A view made before the store knows its tab records takes its record's scale once the
-    /// session stream's first snapshot arrives (cx-mer6v: a relaunch draws the launch window
-    /// from the launch snapshot before the daemon answers, and the view outlives the handshake).
-    /// A view whose font changed in the meantime keeps that size and saves it instead.
-    private static func applyFontScaleWhenKnown(tab key: String, view: TerminalSurfaceView, daemon: DaemonService) {
-        // task-owner: ends once the store knows its records, or when the view or the daemon goes
-        Task { @MainActor [weak view, weak daemon] in
-            while let store = daemon?.store, !store.session.known {
-                await store.sessionStateResolved()
-                if view == nil { return }
-            }
-            guard let view, let daemon, daemon.store.servesStateResources, let tab = tabModel(key, daemon: daemon) else { return }
-            let fontScale = TerminalFontScale(view)
-            if let local = fontScale.current {
-                saveFontScale(local, tab: key, daemon: daemon)
+    /// A session made before the store knows its tab records gives its current surface (a replay may have
+    /// swapped it, cx-1bauj) its record's scale once the session stream's first snapshot arrives (cx-mer6v:
+    /// a relaunch draws the launch window from the launch snapshot before the daemon answers). A surface
+    /// whose font changed meanwhile (a reset too) saves its size instead; a replaced session does neither.
+    private func applyFontScaleWhenKnown(tab key: String, session: TerminalSession, daemon: DaemonService) -> Task<Void, Never> {
+        // task-owner: the session's close() cancels it; it also ends once the store knows its records or the daemon goes
+        Task { @MainActor [weak self, weak session, weak daemon] in
+            while daemon?.store.session.known == false, !Task.isCancelled { await daemon?.store.sessionStateResolved() }
+            guard !Task.isCancelled, let session, let daemon, self?.existingTerminal(key)?.session === session,
+                  daemon.store.servesStateResources, let tab = Self.tabModel(key, daemon: daemon) else { return }
+            let fontScale = TerminalFontScale(session.surfaceView)
+            if fontScale.changed {
+                Self.saveFontScale(fontScale.current, tab: key, daemon: daemon)
             } else if let zoom = tab.zoom {
                 fontScale.apply(zoom)
             }
