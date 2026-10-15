@@ -429,6 +429,9 @@ mod host_replacement;
 #[path = "program_status_rehost.rs"]
 mod program_status_rehost;
 
+#[path = "shell_activity_gap.rs"]
+mod shell_activity_gap;
+
 #[path = "dead_host_restart.rs"]
 mod dead_host_restart;
 

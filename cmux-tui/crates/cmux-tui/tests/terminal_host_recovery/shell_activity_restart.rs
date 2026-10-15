@@ -7,7 +7,7 @@
 use super::*;
 
 /// `extra` of the harness's only terminal record.
-fn terminal_extra(harness: &RecoveryHarness) -> serde_json::Value {
+pub(super) fn terminal_extra(harness: &RecoveryHarness) -> serde_json::Value {
     let terminals = resource_request(
         &harness.socket,
         "shell-activity-list",
@@ -21,7 +21,7 @@ fn terminal_extra(harness: &RecoveryHarness) -> serde_json::Value {
 }
 
 /// Waits until `ready` holds for the terminal's `extra`.
-fn wait_for_extra(
+pub(super) fn wait_for_extra(
     harness: &RecoveryHarness,
     what: &str,
     ready: impl Fn(&serde_json::Value) -> bool,
@@ -95,7 +95,7 @@ fn run_then_restart(
     (extra, killed_at, terminal_id, incarnation)
 }
 
-fn close(harness: &RecoveryHarness, terminal_id: String, incarnation: String) {
+pub(super) fn close(harness: &RecoveryHarness, terminal_id: String, incarnation: String) {
     request(
         &harness.socket,
         serde_json::json!({
