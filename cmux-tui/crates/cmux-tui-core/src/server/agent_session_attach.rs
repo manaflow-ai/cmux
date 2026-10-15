@@ -64,7 +64,7 @@ use serde_json::{Value, json};
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_start.rs"]
-mod agent_session_start;
+pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
@@ -447,7 +447,7 @@ impl Refusal {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Limit,
-            LinkError::Rpc(..) => Self::Refused,
+            LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
         }
     }
 }
