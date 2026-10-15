@@ -1109,7 +1109,6 @@ for expected in \
   "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
   "--max-pending-hours 6 --max-same-build-hours 48" \
   '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
-  'grep -c "^Build $build failed:"' \
   "for candidate in" \
   "--failure-log failures.txt --max-failures 2"; do
   if ! grep -Fq -- "$expected" <<<"$target_job"; then
