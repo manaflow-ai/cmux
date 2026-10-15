@@ -66,6 +66,8 @@ struct Reopened {
     placements: Vec<(String, String)>,
     /// A closed tab's id to the id it reopened as.
     reopened_as: std::collections::HashMap<String, String>,
+    /// A closed pane's id to the pane split off its neighbor again.
+    panes: std::collections::HashMap<String, PaneId>,
 }
 
 impl Reopened {
@@ -657,10 +659,23 @@ impl Mux {
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
         let tab = &record["screens"][0]["tabs"][0];
-        let pane = self.with_state(|state| {
-            record["pane_id"]
+        let closed_pane = record["pane_id"].as_str();
+        // The tab's own pane: live, or split off its neighbor again for an
+        // earlier tab of this reopen. With it gone, the neighbor it was
+        // split off takes the tab first, then splits again (cx-gzh.32).
+        let (home, neighbor) = self.with_state(|state| {
+            let home = closed_pane.and_then(|pane| pane_by_public_id(state, pane)).or_else(|| {
+                closed_pane
+                    .and_then(|pane| reopened.panes.get(pane).copied())
+                    .filter(|pane| state.panes.contains_key(pane))
+            });
+            let neighbor = record["split"]["neighbor"]
                 .as_str()
-                .and_then(|pane| pane_by_public_id(state, pane))
+                .and_then(|pane| pane_by_public_id(state, pane));
+            (home, neighbor)
+        });
+        let pane = self.with_state(|state| {
+            home.or(neighbor)
                 .or_else(|| {
                     let workspace = record["workspace_id"].as_str()?;
                     let workspace = state
@@ -682,7 +697,17 @@ impl Mux {
                 self.reopen_tab_record(actor, pane, tab, true)?
             }
         };
-        self.restore_tab_index(actor, surface, record, tab);
+        let home = match (home, neighbor) {
+            (None, Some(neighbor)) => {
+                let pane = self.split_closed_pane_again(actor, surface, neighbor, &record["split"]);
+                if let (Some(closed), Some(pane)) = (closed_pane, pane) {
+                    reopened.panes.insert(closed.to_string(), pane);
+                }
+                pane
+            }
+            (home, _) => home,
+        };
+        self.restore_tab_index(actor, surface, home, record, tab);
         let pane =
             self.with_state(|state| state.pane_of(surface)).context("reopened tab has no pane")?;
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
@@ -693,15 +718,17 @@ impl Mux {
         Ok(())
     }
 
-    /// Put a tab that reopened in its own pane back at its recorded index
-    /// (clamped). A pinned tab keeps the place its pin gave it. A reopened
-    /// tab is always the LAST tab of its pane (new tabs and reattached
-    /// views append), so `move_tab`'s insertion index equals the recorded
-    /// index (it only subtracts one for an index past the old position).
+    /// Put a tab that reopened in its own pane (`home`) back at its
+    /// recorded index (clamped). A pinned tab keeps the place its pin gave
+    /// it. A reopened tab is always the LAST tab of its pane (new tabs and
+    /// reattached views append), so `move_tab`'s insertion index equals the
+    /// recorded index (it only subtracts one for an index past the old
+    /// position).
     fn restore_tab_index(
         self: &Arc<Self>,
         actor: &Actor,
         surface: SurfaceId,
+        home: Option<PaneId>,
         record: &Value,
         tab: &Value,
     ) {
@@ -712,11 +739,8 @@ impl Mux {
         else {
             return;
         };
-        let original = self.with_state(|state| {
-            let pane =
-                record["pane_id"].as_str().and_then(|pane| pane_by_public_id(state, pane))?;
-            (state.pane_of(surface) == Some(pane)).then_some(pane)
-        });
+        let original =
+            home.filter(|pane| self.with_state(|state| state.pane_of(surface)) == Some(*pane));
         if let Some(pane) = original {
             self.move_tab_as(actor, surface, pane, index);
         }
