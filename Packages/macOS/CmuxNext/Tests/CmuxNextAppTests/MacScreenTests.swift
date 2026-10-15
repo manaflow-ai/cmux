@@ -653,3 +653,42 @@ struct MacScreenOneViewerTests {
         pane.close()
     }
 }
+
+/// The screen takes input only while it is live with no card. A card's button over the picture
+/// (Try Again, Reconnect) sometimes also reached the capture view under it, which forwarded the
+/// click to the other Mac and took the keyboard: the capture view stayed in control mode under
+/// every card once the gate was open.
+@MainActor
+struct MacScreenCardInputTests {
+    @Test func onlyALiveScreenWithNoCardTakesInput() {
+        #expect(MacScreenPaneView.takesInput(gate: .open, card: nil))
+        for card: MacScreenCard in [.connecting(reconnecting: false), .connecting(reconnecting: true), .waitingForPicture, .failed, .ended] {
+            #expect(!MacScreenPaneView.takesInput(gate: .open, card: card))
+        }
+        #expect(!MacScreenPaneView.takesInput(gate: .confirm, card: .confirm))
+        #expect(!MacScreenPaneView.takesInput(gate: .missing, card: .missing))
+    }
+
+    @Test func aClickBesideACardNeverReachesTheCaptureView() throws {
+        let pane = MacScreenPane(name: "Card", pairing: VNCPairing.generate(name: "Card", kind: "stream"),
+                                 preferences: ScreenPreferences(), confirmed: true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = try #require(window.contentView)
+        pane.view.frame = root.bounds
+        root.addSubview(pane.view)
+        root.layoutSubtreeIfNeeded()
+        // No picture yet: a card shows over the screen.
+        #expect(pane.model.card != nil)
+        #expect(!pane.view.input.controlMode)
+        #expect(pane.view.capture.isHidden)
+        let area = pane.view.screenRect
+        for local in [CGPoint(x: area.minX + 8, y: area.maxY - 8), CGPoint(x: area.midX, y: area.midY)] {
+            let hit = pane.view.hitTest(pane.view.convert(local, to: root))
+            #expect(hit !== pane.view.capture)
+        }
+        #expect(!pane.model.capturesKeyboard)
+        pane.close()
+    }
+}
