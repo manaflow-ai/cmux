@@ -56,9 +56,19 @@ public struct BrowserChromiumPermissionRequest: OptionSet, Hashable, Sendable {
     }
 
     /// Desktop audio or video capture from a media access request. Not a CEF
-    /// prompt bit (CEF reports it only through media access); kept outside
-    /// the prompt bit range so it never collides with one.
+    /// prompt bit (CEF reports it only through media access); bit 31, above
+    /// every CEF prompt bit (the highest is 29). Raw prompt bits must come
+    /// through ``init(rawValue:)`` masked to ``cefPromptBits``.
     public static let screenCapture = Self(rawValue: 1 << 31)
+
+    /// Every bit CEF may set in `requested_permissions` (bits 0...30).
+    public static let cefPromptBits = Self(rawValue: ~(UInt32(1) << 31))
+
+    /// A request from CEF's `OnShowPermissionPrompt` bits; bit 31 is never
+    /// taken from CEF, so it cannot pose as ``screenCapture``.
+    public init(cefPromptBits: UInt32) {
+        self.init(rawValue: cefPromptBits & Self.cefPromptBits.rawValue)
+    }
 
     /// The engine-neutral kinds of this request, in a stable order (camera
     /// before microphone, so one prompt reads "camera and microphone").
@@ -67,6 +77,9 @@ public struct BrowserChromiumPermissionRequest: OptionSet, Hashable, Sendable {
     public var pageKinds: [BrowserPagePermissionRequest.Kind] {
         var kinds: [BrowserPagePermissionRequest.Kind] = []
         var rest = self
+        // Pan-tilt-zoom upgrades a camera request (getUserMedia {pan: true}):
+        // asked as the camera. Alone it stays its own (denied) kind.
+        if rest.contains(.camera) { rest.remove(.cameraPanTiltZoom) }
         for (bit, kind) in Self.namedKinds where contains(bit) {
             kinds.append(kind)
             rest.remove(bit)
@@ -93,6 +106,31 @@ public struct BrowserChromiumPermissionRequest: OptionSet, Hashable, Sendable {
         (.clipboard, .clipboardRead),
         (.midiSysex, .midiSysex),
     ]
+
+    /// The shim's content-setting type name (`cmux_shim_set_content_setting`,
+    /// `shim_site.mm` `kContentTypes`) that Chromium saves a prompt answer
+    /// under, or `nil` for a kind cmux never asks about.
+    public static func contentSettingType(for kind: BrowserPagePermissionRequest.Kind) -> String? {
+        switch kind {
+        case .camera: "camera"
+        case .microphone: "microphone"
+        case .geolocation: "location"
+        case .notifications: "notifications"
+        case .clipboardRead: "clipboard"
+        case .midiSysex: "midi"
+        case .screenCapture, .other: nil
+        }
+    }
+
+    /// The content-setting type for a ``BrowserSitePermissionStore`` kind key.
+    public static func contentSettingType(forKindKey key: String) -> String? {
+        let kinds: [BrowserPagePermissionRequest.Kind] = [.camera, .microphone, .geolocation, .notifications, .clipboardRead, .midiSysex]
+        return kinds.first { BrowserSitePermissionStore.kindKey($0) == key }.flatMap(contentSettingType(for:))
+    }
+
+    /// `cef_content_setting_values_t`: DEFAULT clears a saved answer so
+    /// Chromium asks again.
+    public static let contentSettingDefault: Int32 = 0
 
     private static let otherNames: [Int: String] = [
         0: "ar-session", 1: "camera-pan-tilt-zoom", 3: "captured-surface-control", 5: "top-level-storage-access",

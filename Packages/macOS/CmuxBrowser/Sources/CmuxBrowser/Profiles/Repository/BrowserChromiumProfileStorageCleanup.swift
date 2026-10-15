@@ -41,16 +41,25 @@ public final class BrowserChromiumProfileStorageCleanup {
         save(pending)
     }
 
-    /// Takes the pending profiles Chromium has not opened in this process off
-    /// the list and returns their store directories for ``removeDirectories(_:)``.
+    /// The store directories of pending profiles Chromium has not opened in
+    /// this process, for ``removeDirectories(_:fileManager:)``. A profile stays
+    /// pending until its directory is gone, so a crash between this call and
+    /// the deletion never orphans a store: the next call (at the latest, the
+    /// next launch) finds it again.
     /// - Parameter isOpened: Whether Chromium opened the profile in this process.
     /// - Returns: Store directories to remove.
-    public func takeRemovable(isOpened: (UUID) -> Bool) -> [URL] {
+    public func takeRemovable(isOpened: (UUID) -> Bool, fileManager: FileManager = .default) -> [URL] {
         let pending = pendingProfileIDs
-        let ready = pending.filter { !isOpened($0) }
-        guard !ready.isEmpty else { return [] }
-        save(pending.filter { isOpened($0) })
-        return ready.map { storage.cachePath(forProfileID: $0) }
+        var keep: [UUID] = []
+        var removable: [URL] = []
+        for id in pending {
+            let directory = storage.cachePath(forProfileID: id)
+            guard fileManager.fileExists(atPath: directory.path) else { continue }
+            keep.append(id)
+            if !isOpened(id) { removable.append(directory) }
+        }
+        if keep != pending { save(keep) }
+        return removable
     }
 
     /// Deletes store directories (missing ones are fine). Each directory is
@@ -87,6 +96,33 @@ public final class BrowserChromiumProfileStorageCleanup {
             try? fileManager.removeItem(at: aside)
         }
         return removed
+    }
+
+    /// Renames items aside under the root (`.deleted-*`), so they leave their
+    /// profile at once; ``deleteAside(_:fileManager:)`` deletes them later and
+    /// ``removeLeftovers(in:fileManager:)`` finishes an interrupted deletion.
+    ///
+    /// Renaming is quick and atomic, so a caller on the main actor (where
+    /// Chromium opens profiles) checks that Chromium has not opened a profile
+    /// and moves its files aside in one turn, leaving no window in which a page
+    /// could open the files being deleted. Missing items are skipped.
+    /// - Returns: The renamed locations.
+    public nonisolated static func moveAside(
+        _ items: [URL],
+        in storage: BrowserChromiumProfileStorage,
+        fileManager: FileManager = .default
+    ) -> [URL] {
+        items.compactMap { item in
+            let aside = storage.root.appendingPathComponent(".deleted-\(UUID().uuidString)", isDirectory: false)
+            return (try? fileManager.moveItem(at: item, to: aside)) != nil ? aside : nil
+        }
+    }
+
+    /// Deletes items ``moveAside(_:in:fileManager:)`` renamed. Call off the main thread.
+    public nonisolated static func deleteAside(_ items: [URL], fileManager: FileManager = .default) {
+        for item in items {
+            try? fileManager.removeItem(at: item)
+        }
     }
 
     /// Deletes directories a previous run renamed aside but did not finish

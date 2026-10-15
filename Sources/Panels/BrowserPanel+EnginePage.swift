@@ -146,6 +146,8 @@ extension BrowserPanel {
         enginePageDelegate.panel = self
         enginePage.uiDelegate = enginePageDelegate
         attachEnginePageFeatures()
+        // Notifications answer "denied" as in WebKit tabs (Chromium runs with them off).
+        enginePage.addUserScript(BrowserNotificationDenialScript.userScript)
         applyEnginePageState(enginePage.state)
         let events = enginePage.events
         enginePageEventsTask = Task { @MainActor [weak self] in
@@ -186,6 +188,12 @@ extension BrowserPanel {
                 finishEngineNavigation(failure: "navigation failed")
             }
             applyEnginePageNavigationFailure(url: url)
+        case .navigationStarted:
+            // A question about the page being left goes with it (spec §4).
+            enginePageDelegate.permissionQueue.cancelAll()
+            enginePageDelegate.permissionCoordinator.pageWillLoad()
+        case .downloadUpdated(let download):
+            enginePageDelegate.applyDownload(download)
         default:
             break
         }
@@ -288,6 +296,7 @@ extension BrowserPanel {
         cancelChromiumHangRecovery()
         enginePageEventsTask?.cancel()
         enginePageEventsTask = nil
+        enginePageDelegate.endPageDownloads()
         enginePage?.close()
     }
 }
