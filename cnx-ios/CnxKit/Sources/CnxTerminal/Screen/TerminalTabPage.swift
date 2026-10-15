@@ -138,10 +138,13 @@ public struct TerminalTabCard: View {
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
                 case .snapshot:
                     if let image = model.snapshot {
+                    let crop = TerminalCardCrop(width: geo.size.width, imageHeight: geo.size.width * image.size.height / max(1, image.size.width))
+                    // The newest rows and the prompt at the card's bottom edge (V5-6).
                     Image(uiImage: image)
                         .resizable()
                         .interpolation(.medium)
-                        .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
+                        .frame(width: geo.size.width, height: crop.imageHeight)
+                        .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
                     }

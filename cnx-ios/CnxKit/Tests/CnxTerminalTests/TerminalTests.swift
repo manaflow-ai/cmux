@@ -244,4 +244,50 @@ import Testing
         // The same picture again: no move.
         #expect(match.top(previous: rows(top: t), current: rows(top: t)) == t)
     }
+    /// termqa round 6 (scroll while streaming): every present read the
+    /// frame's pixels on the main thread (about 1 ms a frame). While the page
+    /// reads scrollback, Ghostty does not move the viewport on its own, so once
+    /// a read frame confirmed the requested and reported viewport, the frames
+    /// after it show that viewport until a request, a report or the surface
+    /// (epoch) moves it: they are placed without a read.
+    @Test func aConfirmedViewportInScrollbackPlacesFramesWithoutAPixelRead() {
+        let match = TerminalPresentMatch(presentedTop: 400, reportedTop: 400, requestedTop: 400, recentRequests: [360],
+                                         activeTop: 900)
+        let result = match.match(previous: rows(top: 400), current: rows(top: 400))
+        #expect(result.top == 400)
+        #expect(result.matched)
+        let steady = match.confirmed(result, epoch: 7)
+        #expect(steady == TerminalSteadyViewport(top: 400, epoch: 7))
+        #expect(match.knownTop(steady: steady, epoch: 7) == 400)
+        // The surface moved its viewport (a request, a resize, a font change).
+        #expect(match.knownTop(steady: steady, epoch: 8) == nil)
+        // A report or a request for another viewport.
+        var moved = match
+        moved.reportedTop = 380
+        #expect(moved.knownTop(steady: steady, epoch: 7) == nil)
+        moved = match
+        moved.requestedTop = 420
+        #expect(moved.knownTop(steady: steady, epoch: 7) == nil)
+    }
+
+    /// Following (the viewport in the active area), Ghostty moves the
+    /// viewport with the output and stale frames arrive (D7): always read.
+    @Test func followingAlwaysReadsThePixels() {
+        let match = TerminalPresentMatch(presentedTop: 900, reportedTop: 900, requestedTop: 900, recentRequests: [],
+                                         activeTop: 900)
+        let result = match.match(previous: rows(top: 900), current: rows(top: 900))
+        #expect(match.confirmed(result, epoch: 1) == nil)
+        #expect(match.knownTop(steady: TerminalSteadyViewport(top: 900, epoch: 1), epoch: 1) == nil)
+    }
+
+    /// A frame placed by the fallback (no candidate matched) confirms nothing.
+    @Test func aFallbackPlacementConfirmsNothing() {
+        let match = TerminalPresentMatch(presentedTop: 400, reportedTop: 400, requestedTop: 400, recentRequests: [],
+                                         activeTop: 900)
+        let unrelated = (0..<120).map { UInt64(77_000 + $0 * 13) }
+        let result = match.match(previous: rows(top: 400), current: unrelated)
+        #expect(!result.matched)
+        #expect(result.top == 400)
+        #expect(match.confirmed(result, epoch: 1) == nil)
+    }
 }

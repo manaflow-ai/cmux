@@ -40,6 +40,10 @@ public struct TerminalScrollModel: Equatable, Sendable {
     private var touchedBottom = false
     /// Rows of slack after the gesture touched the bottom.
     public static let touchedBottomSlackRows: CGFloat = 8
+    /// The gesture's last move above the bottom edge was toward older rows
+    /// (V5-2: a fling up from the live bottom is not a fling into it).
+    private var movedUp = false
+    private var lastOffsetY: CGFloat?
 
     public init() {}
 
@@ -51,6 +55,8 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// A finger came down on the page (a drag begins).
     public mutating func began() {
         touchedBottom = false
+        movedUp = false
+        lastOffsetY = nil
         state = .interacting(startedFollowing: isFollowing || (isInteracting && startedFollowing))
     }
 
@@ -60,8 +66,14 @@ public struct TerminalScrollModel: Equatable, Sendable {
 
     /// The page moved under a finger or a deceleration.
     public mutating func scrolled(offsetY: CGFloat, bottomOffsetY: CGFloat) {
-        guard isInteracting, offsetY >= bottomOffsetY - 0.5 else { return }
-        touchedBottom = true
+        guard isInteracting else { return }
+        // The direction counts above the bottom edge only: a bounce back
+        // from past the end is not a move up.
+        if let last = lastOffsetY, offsetY < bottomOffsetY - 0.5 {
+            if offsetY < last - 0.5 { movedUp = true } else if offsetY > last + 0.5 { movedUp = false }
+        }
+        lastOffsetY = offsetY
+        if offsetY >= bottomOffsetY - 0.5 { touchedBottom = true }
     }
 
     /// The finger lifted with no deceleration, or a deceleration ended: rest
@@ -71,8 +83,10 @@ public struct TerminalScrollModel: Equatable, Sendable {
     public mutating func settled(offsetY: CGFloat, bottomOffsetY: CGFloat, layout: TerminalDocumentLayout?, rowHeight: CGFloat) {
         guard isInteracting else { return }
         guard let layout, rowHeight > 0 else { state = .following; return }
-        let slack = (touchedBottom ? Self.touchedBottomSlackRows : Self.followSlackRows) * rowHeight
+        let slack = (touchedBottom && !movedUp ? Self.touchedBottomSlackRows : Self.followSlackRows) * rowHeight
         touchedBottom = false
+        movedUp = false
+        lastOffsetY = nil
         if offsetY >= bottomOffsetY - slack {
             state = .following
         } else {
@@ -94,6 +108,14 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// (TerminalReadingMark), unless a finger took the page meanwhile.
     public mutating func restoreReading(_ anchor: Anchor) {
         guard state == .following else { return }
+        state = .reading(anchor)
+    }
+
+    /// Ghostty pruned `-rows` of its oldest rows (`TerminalHistoryPrune`):
+    /// the rows being read keep their identity under the new numbering.
+    public mutating func shiftRows(by rows: Int) {
+        guard case .reading(var anchor) = state else { return }
+        anchor.row = max(0, anchor.row + rows)
         state = .reading(anchor)
     }
 
