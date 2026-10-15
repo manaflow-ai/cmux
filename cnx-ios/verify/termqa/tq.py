@@ -26,7 +26,7 @@ ART = os.path.join(HERE, "artifacts")
 RAW = os.path.expanduser(os.environ.get("TQ_RAW", "~/cnx-ios-e2e/termqa-raw"))
 HOST = os.environ.get("TQ_HOST", "mini-cmuxs-mac-mini-2")
 RBASE = os.environ.get("TQ_RBASE", "~/cnx-ios-e2e/termqa")
-BUNDLE = "dev.cmux.cnx"
+BUNDLE = os.environ.get("TQ_BUNDLE", "dev.cmux.cnx")  # a tagged Demo build: dev.cmux.cnx.<tag>
 
 
 def load():
@@ -141,6 +141,8 @@ def ctx():
     st = load()
     sim = Sim(st["udid"], os.path.join(ART, "shots"))
     mac = LocalMac() if HOST == "local" else RemoteMac()
+    import journey
+    journey.BUNDLE = BUNDLE
     j = Journey(sim, mac, ART, st.get("app_path"), log)
     j.seed = st.get("seed", {})
     j.ws_name = st.get("ws_name", j.ws_name)
