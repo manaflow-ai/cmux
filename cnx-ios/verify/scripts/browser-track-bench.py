@@ -153,7 +153,7 @@ class Bench:
             time.sleep(1)
         raise RuntimeError("the streamed page never showed (no overlay or page clock)")
 
-    def run_config(self, name, mac, sim, j, out):
+    def run_config(self, name, mac, sim, j, out, warmup=0.0):
         wg = name.startswith("wg-")
         base = name[3:] if wg else name
         carrier = "channel" if base.startswith("channel") else ("wg-rtp" if wg else "track")
@@ -192,8 +192,20 @@ class Bench:
                 and not re.search(rf"\b{carrier}\b", shown):
             time.sleep(1)
             shown = " ".join(o[4] for o in sim.ocr())
+        if warmup:
+            # Not measured: the first stream after the browser host starts
+            # ran about 25 ms slower glass to glass on whichever carrier came
+            # first (175127 wg-track, 162551 track, order-d wg-channel).
+            self.log(f"    warm-up: streaming {warmup:.0f} s unmeasured")
+            time.sleep(warmup)
+            return None
         status = j.link_status() if j is not None else ""
         cfg_dir = os.path.join(out, name)
+        # A configuration listed twice keeps both recordings (name-2, ...).
+        run = 2
+        while os.path.exists(cfg_dir):
+            cfg_dir = os.path.join(out, f"{name}-{run}")
+            run += 1
         os.makedirs(cfg_dir, exist_ok=True)
         video = os.path.join(cfg_dir, "screen.mp4")
         sim.record_start(video)
@@ -215,7 +227,7 @@ class Bench:
         time.sleep(1.5)
         sim.record_stop()
         shot = sim.shot(f"{name}-end")
-        result = {"config": name, "transport": "wireguard" if wg else "webrtc", "no_turn": wss,
+        result = {"config": os.path.basename(cfg_dir), "transport": "wireguard" if wg else "webrtc", "no_turn": wss,
                   "carrier_expected": carrier, "relay_only": relay, "drop_permille": drop,
                   "hostd_env": env, "overlay_at_start": shown[:300], "link_status": status,
                   "recording_started_host": rec_t0, "taps_host": taps, "screenshot": shot}
@@ -300,6 +312,8 @@ def main():
     ap.add_argument("--seconds", type=float, default=12)
     ap.add_argument("--taps", type=int, default=10)
     ap.add_argument("--swipes", type=int, default=0, help="touch scrolls after the taps (end-to-end video)")
+    ap.add_argument("--warmup", type=float, default=30,
+                    help="seconds of unmeasured streaming (first configuration) after the host starts; 0: none")
     ap.add_argument("--page-scroll", type=int, default=6, help="the bench page's own scroll, css px per frame (0: still)")
     ap.add_argument("--sim-name", default="cnx-rbvideo-bench")
     ap.add_argument("--no-build", action="store_true")
@@ -381,6 +395,8 @@ def main():
             pass
         if a.skip_setup:
             bench = Bench(a, log)
+            if a.warmup:
+                bench.run_config(a.configs.split(",")[0], mac, sim, j, out, warmup=a.warmup)
             for name in a.configs.split(","):
                 try:
                     results.append(bench.run_config(name, mac, sim, j, out))
@@ -400,6 +416,8 @@ def main():
             if sid in ("fresh_install", "sign_in", "choose_space", "mac_discovered"):
                 j.step(sid, title, owner, fn)
         bench = Bench(a, log)
+        if a.warmup:
+            bench.run_config(a.configs.split(",")[0], mac, sim, j, out, warmup=a.warmup)
         for name in a.configs.split(","):
             try:
                 results.append(bench.run_config(name, mac, sim, j, out))
