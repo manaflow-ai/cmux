@@ -108,6 +108,8 @@ extension BrowserPanel {
         switch event {
         case .stateChanged(let state):
             applyEnginePageState(state)
+            // A reload, navigation or history step on a released page brought it back.
+            noteEnginePageContentRestoredIfLive()
         case .faviconChanged(let data):
             applyEnginePageFavicon(data)
         case .navigationFinished(let url):

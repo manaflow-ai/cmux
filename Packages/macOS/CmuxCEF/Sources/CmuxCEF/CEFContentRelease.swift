@@ -14,12 +14,15 @@ struct CEFContentRelease: Equatable {
     var loadAfterRestore: URL?
     /// `restoreContent()` was called while Chromium was still closing the browser.
     var restoreWhenReleased = false
+    /// Back (-1) or forward (+1) asked for while released, run once the history is back.
+    var historyStepAfterRestore = 0
 
     /// The pending load after a restore, clearing the release's leftovers.
     mutating func takeLoadAfterRestore() -> URL? {
         defer {
             loadAfterRestore = nil
             releasedURL = nil
+            historyStepAfterRestore = 0
         }
         return loadAfterRestore
     }

@@ -174,7 +174,7 @@ public final class CEFBrowser {
     /// Creates the page now (starting CEF first when needed), also when
     /// `hostView` is in no window: a page an agent drives in the background.
     public func createNow() {
-        guard !isClosed, browserID == nil, !isCreationPending, !awaitsWindowMove else { return }
+        guard !isClosed, browserID == nil, !isCreationPending, !awaitsWindowMove, !isContentReleased else { return }
         guard runtime.isRunning else {
             isCreationPending = true
             Task { @MainActor [weak self] in
@@ -250,7 +250,7 @@ public final class CEFBrowser {
             let restored = restore.withCString { shim.tabRestoreNavigation(id, $0) }
             let fallback = contentRelease.releasedURL ?? configuration.initialURL
             if restored != 1, let url = fallback { shim.loadURL(id, url.absoluteString) }
-            if let url = contentRelease.takeLoadAfterRestore() { shim.loadURL(id, url.absoluteString) }
+            applyAfterRestore(id, shim)
         } else if let url = pendingURL {
             pendingURL = nil
             shim.loadURL(id, url.absoluteString)
@@ -326,19 +326,19 @@ public final class CEFBrowser {
         }
     }
 
-    public func goBack() { browserID.map { runtime.shim?.goBack($0) } }
-    public func goForward() { browserID.map { runtime.shim?.goForward($0) } }
+    public func goBack() { if isContentReleased { return stepAfterRestoring(-1) }; _ = browserID.map { runtime.shim?.goBack($0) } }
+    public func goForward() { if isContentReleased { return stepAfterRestoring(1) }; _ = browserID.map { runtime.shim?.goForward($0) } }
     /// Reloads; a page whose content was released restores it instead
     /// (restoring loads the current entry).
     public func reload() {
-        if contentRelease.isReleased { return restoreContent() }
+        if isContentReleased { return restoreContent() }
         browserID.map { runtime.shim?.reload($0) }
     }
     public func stop() { browserID.map { runtime.shim?.stop($0) } }
 
     /// Chromium's navigation state for `CEFBrowserConfiguration.restoreState`.
     public func navigationState() -> String? {
-        guard let id = browserID, let shim = runtime.shim else { return nil }
+        guard let id = browserID, let shim = runtime.shim else { return isContentReleased ? pendingRestore : nil }
         return shim.takeString(shim.tabNavigationState(id))
     }
 

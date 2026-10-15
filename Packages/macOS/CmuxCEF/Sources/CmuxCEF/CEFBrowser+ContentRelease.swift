@@ -63,6 +63,24 @@ extension CEFBrowser {
         if restoreNow { restoreContent() }
     }
 
+    /// Back or forward while the content is released: restore, then step.
+    func stepAfterRestoring(_ step: Int) {
+        contentRelease.historyStepAfterRestore = step
+        restoreContent()
+    }
+
+    /// Runs what was asked for while the content was released, once its history is back.
+    func applyAfterRestore(_ id: Int32, _ shim: CEFShimLibrary) {
+        let step = contentRelease.historyStepAfterRestore
+        if let url = contentRelease.takeLoadAfterRestore() {
+            shim.loadURL(id, url.absoluteString)
+        } else if step < 0 {
+            shim.goBack(id)
+        } else if step > 0 {
+            shim.goForward(id)
+        }
+    }
+
     /// A load while the content is released: it runs on top of the restored history.
     func loadAfterRestoring(_ url: URL) {
         contentRelease.loadAfterRestore = url

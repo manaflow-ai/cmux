@@ -27,6 +27,8 @@ public final class CEFBrowserPage: BrowserPage {
     private var isClosed = false
     /// Finds the helper process of a renderer; set by the provider, shared by its pages.
     var rendererProcesses: CEFRendererProcessResolver?
+    /// Memory Saver's busy-probe bookkeeping (CEFBrowserPage+MemoryReclaiming).
+    var reclaimProbeState = BrowserPageReclaimProbe()
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [

@@ -6,8 +6,9 @@ import Foundation
 /// Browser Memory Saver discards hidden WebKit panels by swapping in a blank
 /// web view. A page of another engine adopts this protocol instead: the panel
 /// keeps the page object and its view, the engine closes the renderer, and
-/// showing the view (or ``restoreContent()``) recreates it with the same
-/// back/forward history.
+/// ``restoreContent()`` (or a load, reload or history step) recreates it with
+/// the same back/forward history. Showing the view alone does not, so the
+/// panel can wait for the person to ask.
 ///
 /// ```swift
 /// if let page = panel.enginePage as? any BrowserPageMemoryReclaiming,
@@ -23,6 +24,8 @@ public protocol BrowserPageMemoryReclaiming: AnyObject {
     var contentProcessIdentifier: Int? { get }
     /// `true` from ``releaseContent()`` until the content is recreated.
     var isContentReleased: Bool { get }
+    /// The panel's busy-probe bookkeeping, kept with the page.
+    var reclaimProbe: BrowserPageReclaimProbe { get set }
     /// Closes the page's renderer, keeping its URL, title and history.
     /// - Returns: `false` when there is nothing to release or the history
     ///   cannot be saved now; the page is then unchanged.
