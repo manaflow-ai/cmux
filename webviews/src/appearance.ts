@@ -60,7 +60,9 @@ const defaultDarkTheme: DiffViewerTheme = {
   type: "dark",
 };
 
-type HostThemeWindow = Window & { cmuxTheme?: { current?: { terminal?: HostTerminalTheme } | null } };
+type HostThemeWindow = Window & {
+  cmuxTheme?: { current?: { terminal?: HostTerminalTheme; codeFontFamily?: string | null } | null };
+};
 type HostTerminalTheme = {
   type?: string;
   background?: string;
@@ -78,6 +80,16 @@ export function hostTerminalFontFamily(): string | null {
   if (typeof window === "undefined") return null;
   const family = (window as HostThemeWindow).cmuxTheme?.current?.terminal?.fontFamily;
   return typeof family === "string" && family.trim() !== "" ? family.trim() : null;
+}
+
+/**
+ * The family code draws in (WebTheme.swift `codeFontFamily`: `appearance.fonts.code`, else the
+ * terminal's), or the terminal's from a host that predates it, or null.
+ */
+export function hostCodeFontFamily(): string | null {
+  if (typeof window === "undefined") return null;
+  const family = (window as HostThemeWindow).cmuxTheme?.current?.codeFontFamily;
+  return typeof family === "string" && family.trim() !== "" ? family.trim() : hostTerminalFontFamily();
 }
 
 /** The terminal theme the host sends with every theme change (WebTheme.swift `terminal`), or null. */
@@ -127,7 +139,7 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
   );
   return {
     backgroundOpacity: normalizedOpacity(appearance?.backgroundOpacity),
-    fontFamily: appearance?.fontFamily ?? hostTerminalFontFamily() ?? "Menlo",
+    fontFamily: appearance?.fontFamily ?? hostCodeFontFamily() ?? "Menlo",
     fontSize: metric(appearance?.fontSize, 10),
     lineHeight: metric(appearance?.lineHeight, 20),
     theme: {
