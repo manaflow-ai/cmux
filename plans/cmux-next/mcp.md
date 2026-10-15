@@ -72,6 +72,20 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     reach other agents' pending tool inputs: `agents_dialog_answer` only denies a
     permission (`mode: "deny"`; a person approves in cmux) or answers a question, and a
     reply whose transport drops after sending reports `in_progress`;
+  - `agents_chat_send` and `agents_chat_read` (`cmux agents chat send|read`,
+    `cli/agents/chat.rs`): one agent prompts another agent chat and reads its
+    transcript. Both reach only chats whose acpmux session runs in a workspace of this
+    cmux session (`sessionEnv.CMUX_WORKSPACE_ID` against the snapshot's `extra.key`); a
+    chat with none is refused (`chat.out_of_scope`). A send is a `cmux agent message`:
+    the daemon stores it under its policy and limits, then it reaches the chat as an
+    acpmux prompt with `_meta.acpmux.provenance`, so the chat shows it as another agent's
+    message. It never goes to the caller's own chat (`chat.own_chat`), refuses empty text
+    and text over 32 KiB, is `destructiveHint`, and answers `{action, origin, result:
+    {chat, message_id, state}, idempotency_key}`; a retry with the key is the same
+    message. A read answers items `{id, role, text}` (`user` with `origin`/`from` for an
+    agent's prompt, `assistant`, `tool` as title, kind and status only, `turn_end`),
+    paged with `after` = `next_after`; an item still being written is `partial`.
+    Waiting for the reply is `agents_wait` (#20810);
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
     the receipt (`rendered`, `bytes`, `title`);
