@@ -50,7 +50,14 @@ impl Hub {
             }
             agents.insert(name.clone(), v);
         }
-        json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "diagnostics": cfg.profile_diagnostics, "catalog": self.catalog_harnesses(&cfg)})
+        let mut view = json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "diagnostics": cfg.profile_diagnostics, "catalog": self.catalog_harnesses(&cfg)});
+        // The agent and model the person's app picked last for a new chat
+        // (`_acpmux/new_chat_picks_set`): a remote device's New Agent Chat
+        // starts there, as the app's does.
+        if let Some(picks) = self.person.new_chat_picks() {
+            view["lastPicks"] = picks;
+        }
+        view
     }
 }
 

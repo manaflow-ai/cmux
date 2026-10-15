@@ -35,6 +35,7 @@ extension IPhoneHostService {
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
                      agentTabHost: @escaping @MainActor () -> String? = { nil },
+                     newChatPicks: @escaping @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() },
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -58,7 +59,10 @@ extension IPhoneHostService {
         let browserHosts: (any CnxBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
-        defer { followWorkspaceFolders() }
+        defer {
+            followWorkspaceFolders()
+            followNewChatPicks()
+        }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         dependencies = Dependencies(
             executable: executable,
@@ -98,6 +102,7 @@ extension IPhoneHostService {
                 return folders
             },
             agentTabHost: agentTabHost,
+            newChatPicks: newChatPicks,
             computerName: computerName,
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
