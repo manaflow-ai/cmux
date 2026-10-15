@@ -11,12 +11,14 @@ struct BrowserEngineWarmupTests {
         var isRunning = false
         private(set) var preloads = 0
         private(set) var starts: [BrowserEngineWarmupReason] = []
+        var startSucceeds = true
 
         func preload() { preloads += 1 }
 
+        // Never suspends, so a few yields finish the warmup's start task.
         func warmStart(reason: BrowserEngineWarmupReason) async {
             starts.append(reason)
-            isRunning = true
+            isRunning = startSucceeds
         }
     }
 
@@ -220,6 +222,47 @@ struct BrowserEngineWarmupTests {
         #expect(!h.input.isMonitoring)
         #expect(!h.idle.isScheduled)
         #expect(!h.giveUp.isScheduled)
+
+        let never = Harness()
+        never.warmup.stop()
+        never.warmup.engineLikely(.palette)
+        #expect(never.warmup.phase == .abandoned)
+        #expect(never.engine.preloads == 0)
+        #expect(!never.input.isMonitoring)
+    }
+
+    @Test("A tracking loop that ends without a menu notification re-arms on the next input")
+    func trackingEndsWithoutMenuNotification() async {
+        let h = Harness()
+        h.warmup.engineLikely(.palette)
+        h.input.isTrackingMenu = true  // a held button or a dragged scroller
+        h.clock += 1
+        h.idle.fireNow()
+        #expect(!h.idle.isScheduled)
+
+        h.input.input()  // still tracking: keep waiting
+        #expect(!h.idle.isScheduled)
+
+        h.input.isTrackingMenu = false
+        h.input.input()  // the mouse-up that ended it
+        #expect(h.idle.delay == .milliseconds(750))
+        h.clock += 0.75
+        h.idle.fireNow()
+        await h.settle()
+        #expect(h.engine.starts == [.palette])
+        #expect(h.warmup.phase == .started)
+    }
+
+    @Test("A failed warm start leaves the engine to its first page")
+    func failedStart() async {
+        let h = Harness()
+        h.engine.startSucceeds = false
+        h.warmup.engineLikely(.restoredPage)
+        h.clock += 1
+        h.idle.fireNow()
+        await h.settle()
+        #expect(h.engine.starts == [.restoredPage])
+        #expect(h.warmup.phase == .abandoned)
     }
 
     @Test("The clock timer fires once, a reschedule replaces the pending deadline, and cancel drops it")
@@ -248,6 +291,9 @@ struct BrowserEngineWarmupTests {
                 done.resume()
             }
         }
+        // Using `cancelled` after the wait keeps it alive across it: a released
+        // timer never fires, which would pass even if cancel() were broken.
+        #expect(!cancelled.isScheduled)
         #expect(fired == [2, 4])
     }
 }
