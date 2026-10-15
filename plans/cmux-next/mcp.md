@@ -133,9 +133,13 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     ids, states and short titles; no terminal text, chat text or tool input, and notification title and
     body are cut to 80 and 160 characters (`truncated: true`). Kinds not asked for are
     skipped, not kept. Read-only;
-  - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
+  - `render` (`html`, `title`, `id`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
-    the receipt (`rendered`, `bytes`, `title`);
+    the receipt (`rendered`, `id`, `updated`, `bytes`, `title`). `id` is the page's render
+    id, which the chat derives from the call's input too. A render without `id` is always a
+    card of its own; one that passes an id this server returned shows its page in place in
+    the most recent card with that id, the earlier page a previous version in the side
+    panel (cx-ncc.94). An id it did not return is refused;
   - one tool per app action that `action.list` offers to the CLI and to MCP
     (`surfaces.cli` and `surfaces.mcp` are `offered`), named `app_` plus its
     CLI name (`app_new_window`, `app_workspace_move_to_window`), with the action's
