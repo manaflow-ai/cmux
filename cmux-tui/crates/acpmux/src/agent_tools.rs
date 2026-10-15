@@ -377,6 +377,7 @@ impl AgentTools {
             source: "cmux".into(),
             enabled: true,
             can_toggle,
+            status: None,
         };
         let mut rows: Vec<_> =
             self.servers.iter().map(|s| row(format!("mcp:{}", s.name), &s.name, toggles)).collect();

@@ -141,6 +141,24 @@ pub fn brain_home(home: &Path, chief: &str) -> PathBuf {
     home.join("c").join(tail.to_ascii_lowercase())
 }
 
+/// The tools socket of Chief `chief`'s brain (`optchat/tools.sock` in its
+/// directory), where `chief.engine.*` and `chief.stop` with `chief` go
+/// (chief-brains-v1). Refused with a reason and a message when this daemon
+/// runs no brains (`not_configured`) or the directory is not this Chief's
+/// (`unavailable`: never started here, or another id with the same tail). A
+/// brain that does not run now (idle stop, restart backoff) has a path whose
+/// socket does not answer: `chief_control::ask` says `unavailable`.
+pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
+    let config =
+        config().ok_or(("not_configured", "this daemon runs no Chief brains".to_owned()))?;
+    let mux_home = brain_home(&config.home, chief);
+    let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+    if owner.trim() != chief {
+        return Err(("unavailable", format!("Chief {chief}'s brain is not running")));
+    }
+    Ok(mux_home.join(LONGEST_SOCKET))
+}
+
 /// The longest socket path under a brain directory (the Chief home's acpmux
 /// has its own, the default Chief's). A home whose socket does not fit
 /// starts no brain.
@@ -286,9 +304,14 @@ enum Signal {
         participant: String,
         on: bool,
     },
-    Created(Box<ChiefRecord>),
+    /// A new Chief; `reply` hears what happened to its brain.
+    Created(Box<ChiefRecord>, Option<mpsc::Sender<BrainStart>>),
     Updated(Box<ChiefRecord>),
     Deleted(String),
+    /// `chief.engine.set` for this Chief: start its brain when it does
+    /// not run (as a message would); `reply` hears whether a brain process
+    /// runs now (or starts again after the one that is ending).
+    Control(String, Option<mpsc::Sender<bool>>),
     #[cfg_attr(not(unix), allow(dead_code))]
     Exited {
         chief: String,
@@ -308,6 +331,48 @@ pub(crate) struct Slot {
     /// still gets its brain. Kept only when brains are configured, at most
     /// [`EARLY_MAX`]; lock order: `sender`, then `early`.
     early: Mutex<Vec<Signal>>,
+}
+
+/// What happened to a new Chief's brain (`chief.profile.create` and
+/// `chief.profile.adopt` answer it as the record's `brain`): started, or not
+/// with the reason (`no_supervisor`: this daemon runs no brains;
+/// `launch_disabled`: agents are off in this build session;
+/// `supervisor_starting`: it starts once the supervisor runs; `error`: the
+/// start failed, see the daemon log; `unconfirmed`: the supervisor did not
+/// answer in time, it may still start).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BrainStart {
+    Started,
+    NotStarted(&'static str),
+}
+
+impl BrainStart {
+    pub(crate) fn wire(&self) -> serde_json::Value {
+        match self {
+            Self::Started => serde_json::json!({"state": "started"}),
+            Self::NotStarted(reason) => {
+                serde_json::json!({"state": "not_started", "reason": reason})
+            }
+        }
+    }
+}
+
+/// A new Chief's brain outcome, known or to wait for.
+pub(crate) enum BrainPending {
+    Ready(BrainStart),
+    Wait(mpsc::Receiver<BrainStart>),
+}
+
+impl BrainPending {
+    /// The outcome; a supervisor that does not answer in 5 s is an error.
+    pub(crate) fn resolve(self) -> BrainStart {
+        match self {
+            Self::Ready(start) => start,
+            Self::Wait(answer) => answer
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap_or(BrainStart::NotStarted("unconfirmed")),
+        }
+    }
 }
 
 /// The most signals [`Slot`] keeps before the supervisor starts.
@@ -348,15 +413,53 @@ impl Slot {
         self.send(signal);
     }
 
-    /// A committed registry write (not a replay).
-    pub(crate) fn chief_written(&self, record: &ChiefRecord, created: bool, deleted: bool) {
+    /// `chief.engine.set` names this Chief (chief_control.rs): start its
+    /// brain when it does not run now. The answer says whether a brain
+    /// process runs now; `None` while the supervisor has not started yet.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn start_for_control(&self, chief: &str) -> Option<mpsc::Receiver<bool>> {
+        let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
+            let (reply, answer) = mpsc::channel();
+            let sent = sender.send(Signal::Control(chief.to_owned(), Some(reply))).is_ok();
+            return sent.then_some(answer);
+        }
+        drop(sender);
+        self.send(Signal::Control(chief.to_owned(), None));
+        None
+    }
+
+    /// A committed registry write (not a replay). For a new Chief, what
+    /// happens to its brain: known now, or the supervisor's answer to wait
+    /// for (never under the registry lock: the supervisor reads it).
+    pub(crate) fn chief_written(
+        &self,
+        record: &ChiefRecord,
+        created: bool,
+        deleted: bool,
+    ) -> Option<BrainPending> {
         if deleted {
             self.send(Signal::Deleted(record.id.clone()));
-        } else if created {
-            self.send(Signal::Created(Box::new(record.clone())));
-        } else {
-            self.send(Signal::Updated(Box::new(record.clone())));
+            return None;
         }
+        if !created {
+            self.send(Signal::Updated(Box::new(record.clone())));
+            return None;
+        }
+        let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
+            let (reply, answer) = mpsc::channel();
+            if sender.send(Signal::Created(Box::new(record.clone()), Some(reply))).is_ok() {
+                return Some(BrainPending::Wait(answer));
+            }
+            return Some(BrainPending::Ready(BrainStart::NotStarted("error")));
+        }
+        drop(sender);
+        if config().is_none() {
+            return Some(BrainPending::Ready(BrainStart::NotStarted("no_supervisor")));
+        }
+        self.send(Signal::Created(Box::new(record.clone()), None));
+        Some(BrainPending::Ready(BrainStart::NotStarted("supervisor_starting")))
     }
 }
 
@@ -589,9 +692,22 @@ impl Supervisor {
                     }
                 }
             }
-            Signal::Created(record) => {
+            Signal::Created(record, reply) => {
                 if !is_default(&record) {
                     self.wake(&record.id);
+                }
+                if let Some(reply) = reply {
+                    let running = self.brains.get(&record.id).is_some_and(|b| b.process.is_some());
+                    let held = lock_held(
+                        &brain_home(&self.config.home, &record.id).join("state/host.lock"),
+                    );
+                    let _ = reply.send(if running || held {
+                        BrainStart::Started
+                    } else if crate::agent_launch::disabled() {
+                        BrainStart::NotStarted("launch_disabled")
+                    } else {
+                        BrainStart::NotStarted("error")
+                    });
                 }
             }
             Signal::Updated(record) => {
@@ -623,6 +739,15 @@ impl Supervisor {
                 stop_lock_holder(&mux_home.join("state/host.lock"));
                 self.end_sessions(&chief);
                 self.brains.remove(&chief);
+            }
+            Signal::Control(chief, reply) => {
+                // As a message: a brain that is ending (idle stop, exit 0)
+                // starts again after its exit (`pending_wake`).
+                self.wake(&chief);
+                if let Some(reply) = reply {
+                    let running = self.brains.get(&chief).is_some_and(|b| b.process.is_some());
+                    let _ = reply.send(running);
+                }
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
             Signal::Shutdown(_) => {}

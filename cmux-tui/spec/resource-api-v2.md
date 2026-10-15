@@ -1201,6 +1201,21 @@ harness refuses `fast` with `invalid_speed`), and `compactor_harness` and
 engine harness when it is a Claude one); the compactor fields apply at the
 next brain start. `chief.stop` takes an optional
 subagent `name` and then stops only that subagent.
+With capability `chief-brains-v1` all three take an optional `chief`, the
+Chief's id: for a live Chief other than the default, the daemon forwards to
+that Chief's own brain (its tools socket in the brain directory the daemon's
+brain supervisor gave it) and to no other Chief; absent, `null` or
+`agent_mux` reaches the default Chief's brain as before. A Chief that does not
+exist answers `operation.failed` reason `not_found`; a daemon that runs no
+Chief brains, `not_configured`. A Chief whose brain does not run now (never
+started here, stopped after 30 minutes idle, or between restarts):
+`chief.engine.set` starts it as a message to that Chief would (a brain in
+restart backoff starts only at its retry time), waits up to 15 s for its tools
+socket and then forwards (`unavailable` at once when no brain process starts,
+and when the socket does not answer in time); `chief.engine.get` and `chief.stop` never start a brain and
+answer `unavailable`. With agents
+off in the build session, the same agents-disabled refusal as the default
+Chief. The daemon advertises `chief-brains-v1` only when it runs Chief brains.
 Only the owner's trusted connection may call them: a registered Unix client
 with no link peer record whose principal is `user_local`, which is a local
 client or the link's `owner_session` splice. An agent-bound connection (the
@@ -1281,11 +1296,19 @@ own grant: the new or changed record's `tools` and `self_edit` are subsets of
 the Chief's, its `harnesses` are any when the Chief's are empty (every
 harness) and otherwise a non-empty subset, and each engine field the Chief has
 set (harness, model, effort) is the same. An edit also needs the target's
-current grant within the Chief's (`target_exceeds_caller`). A create fills the
+current grant within the Chief's (`target_exceeds_caller`). On a Chief the person made
+(every record no Chief created) a Chief changes only display_name, role and the
+picture (`chief_person_made_fields`); the daemon records which Chief created a
+Chief from the verified caller, never from a request. A create fills the
 grant fields it omits from the Chief's own grant. Refusals, before anything is
 written: `chief_manage_denied` (no `chiefs`), `grant_exceeds_caller` (with
 `extra.fields`), `target_exceeds_caller`, `chief_default_grant` (a grant field
-of the default Chief), `chief_delete_denied` (no Chief deletes a Chief) and `too_many_chiefs`. The ledger records such a write as `<agent id> via chief`.
+of the default Chief), `chief_delete_denied` (no Chief deletes a Chief) and `too_many_chiefs`. The ledger records such a write as `<agent id> via chief`. The answer of `chief.profile.create` and `chief.profile.adopt` (not a replay)
+carries the new record's `brain`: `{state: "started"}` or `{state: "not_started",
+reason}`, from the daemon's brain supervisor (`no_supervisor`: this daemon runs
+no Chief brains; `launch_disabled`: agents are off in this build session;
+`supervisor_starting`; `error`, see the daemon log; `unconfirmed`, the
+supervisor did not answer in time).
 An avatar is PNG, JPEG, GIF or WebP, at most 1 MiB, stored once by SHA-256.
 The policy tests are in `crates/cmux-tui/tests/cli/chief_registry.rs`.
 
