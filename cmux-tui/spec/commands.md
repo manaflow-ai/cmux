@@ -6896,7 +6896,8 @@ caller's own running run. The caller must be an agent participant
 
 Order: before it posts the run's reply message (`message.send` with
 `client_msg_id` = the run's `turn`), a producer sends every streaming step's
-last frame (`final`) and then the run's end (`conversation-run-append` with a
+last frame (`final`; a step whose stream stopped early, its row carrying the
+text, has none) and then the run's end (`conversation-run-append` with a
 terminal status), so a client sees the reply only after them and the reply
 replaces the streaming text with no jump.
 
