@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442";
+pub const ir_sha256 = "448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -930,6 +930,76 @@ pub const HistorySearchHit = struct {
 pub const HistorySearchRange = struct {
     end: u32,
     start: u32,
+};
+
+pub const HomeChiefState = enum {
+    working,
+    waiting,
+    idle,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "working")) return .working;
+        if (std.mem.eql(u8, value, "waiting")) return .waiting;
+        if (std.mem.eql(u8, value, "idle")) return .idle;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .working => "working",
+            .waiting => "waiting",
+            .idle => "idle",
+        };
+    }
+};
+
+pub const HomeInboxKind = enum {
+    chief,
+    direct,
+    channel,
+    group,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "chief")) return .chief;
+        if (std.mem.eql(u8, value, "direct")) return .direct;
+        if (std.mem.eql(u8, value, "channel")) return .channel;
+        if (std.mem.eql(u8, value, "group")) return .group;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .chief => "chief",
+            .direct => "direct",
+            .channel => "channel",
+            .group => "group",
+        };
+    }
+};
+
+pub const HomeInboxRow = struct {
+    activity_at: []const u8,
+    chief: ?[]const u8 = null,
+    chief_state: ?HomeChiefState = null,
+    id: []const u8,
+    kind: HomeInboxKind,
+    last_author: ?[]const u8 = null,
+    marked_unread: bool,
+    muted: bool,
+    name: []const u8,
+    owner: []const u8,
+    pin_position: ?u64 = null,
+    pinned: bool,
+    preview: ?[]const u8 = null,
+    unread: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "chief",
+        "chief_state",
+        "last_author",
+        "pin_position",
+        "preview",
+    };
 };
 
 pub const Id = u64;
@@ -5703,6 +5773,29 @@ pub fn historySearch(client: anytype, request: HistorySearchRequest) !wire.Decod
             .authority = "local-admin",
             .since = 12,
             .capability = "history-search-v1",
+        },
+        request,
+    );
+}
+
+pub const HomeInboxRequest = struct {
+    owners: wire.Field([]const []const u8) = .absent,
+};
+
+pub const HomeInboxResult = struct {
+    cloud: []const u8,
+    me: []const u8,
+    rows: []const HomeInboxRow,
+};
+
+pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeInboxResult) {
+    return client.callTyped(
+        HomeInboxResult,
+        .{
+            .name = "home-inbox",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "home-inbox-v1",
         },
         request,
     );
@@ -10841,7 +10934,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 269;
+pub const command_count: usize = 270;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10955,6 +11048,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "history-search", .authority = "local-admin", .since = 12, .capability = "history-search-v1", .stream = null },
+    .{ .name = "home-inbox", .authority = "local-admin", .since = 12, .capability = "home-inbox-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "ids", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "import-bookmarks", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },

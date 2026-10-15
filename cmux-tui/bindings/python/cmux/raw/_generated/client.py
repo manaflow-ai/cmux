@@ -348,6 +348,9 @@ class GeneratedClientMixin:
     def history_search(self, query: str, *, kinds: Union[List[str], MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> HistorySearchResult:
         return self._invoke_command('history-search', HistorySearchRequest(query=query, kinds=kinds, limit=limit))
 
+    def home_inbox(self, *, owners: Union[List[str], None, MissingType] = MISSING) -> HomeInboxResult:
+        return self._invoke_command('home-inbox', HomeInboxRequest(owners=owners))
+
     def identify(self) -> IdentifyResult:
         return self._invoke_command('identify', IdentifyRequest())
 
@@ -932,6 +935,7 @@ GeneratedClientMixin.get_frontend_browser_history.__cmux_command__ = COMMANDS['g
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
 GeneratedClientMixin.get_size_state.__cmux_command__ = COMMANDS['get-size-state']
 GeneratedClientMixin.history_search.__cmux_command__ = COMMANDS['history-search']
+GeneratedClientMixin.home_inbox.__cmux_command__ = COMMANDS['home-inbox']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']
 GeneratedClientMixin.import_bookmarks.__cmux_command__ = COMMANDS['import-bookmarks']
