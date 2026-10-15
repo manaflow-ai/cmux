@@ -2,18 +2,20 @@ import Foundation
 
 /// Picks the engine for a browser panel created by any entrypoint.
 ///
-/// The order is: an explicit request, then an inherited engine, then the
-/// `browser.engine` setting.
+/// The order is: an explicit request, then the `CMUX_BROWSER_ENGINE`
+/// environment override, then an inherited engine, then the `browser.engine`
+/// setting.
 ///
 /// - An explicit request for an unavailable engine is refused with the
 ///   reason. Automation that asked for Chromium never silently gets WebKit.
-/// - An inherited or configured Chromium that is unavailable opens WebKit
+/// - An environment, inherited or configured Chromium that is unavailable opens WebKit
 ///   and reports the reason as ``BrowserEngineChoice/fallback`` so the panel
 ///   shows a notice.
 ///
 /// ```swift
 /// let resolution = BrowserEngineResolver().resolve(
 ///     requested: BrowserEngineKind(requestValue: cliEngine),
+///     environment: BrowserEngineKind.environmentOverride(ProcessInfo.processInfo.environment),
 ///     inherited: nil,
 ///     setting: .chromium,
 ///     availability: { registry.availability(for: $0) }
@@ -26,6 +28,7 @@ public struct BrowserEngineResolver: Sendable {
     /// Resolves the engine for a new panel.
     /// - Parameters:
     ///   - requested: The engine the open request named, or `nil`.
+    ///   - environment: The `CMUX_BROWSER_ENGINE` override, or `nil`.
     ///   - inherited: The engine of the opener, restored record or duplicated
     ///     panel, or `nil`.
     ///   - setting: The `browser.engine` setting value.
@@ -34,6 +37,7 @@ public struct BrowserEngineResolver: Sendable {
     ///   request that cannot be honored.
     public func resolve(
         requested: BrowserEngineKind?,
+        environment: BrowserEngineKind? = nil,
         inherited: BrowserEngineKind?,
         setting: BrowserEngineKind,
         availability: (BrowserEngineKind) -> BrowserEngineAvailability
@@ -46,7 +50,9 @@ public struct BrowserEngineResolver: Sendable {
         }
         let wanted: BrowserEngineKind
         let source: BrowserEngineChoiceSource
-        if let inherited {
+        if let environment {
+            (wanted, source) = (environment, .environment)
+        } else if let inherited {
             (wanted, source) = (inherited, .inherited)
         } else {
             (wanted, source) = (setting, .setting)
