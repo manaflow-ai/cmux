@@ -1,0 +1,215 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextDaemon
+@testable import CmuxNextDaemonRecovery
+import CmuxNextDesign
+import Foundation
+import Testing
+
+/// cx-jniyz.1: a cmux-tui owner that accepts connections but never answers leaves the launch
+/// window on "cmux-tui is unavailable" with nothing to press. The window offers Retry Now, and,
+/// once a plain `server ensure` failed the way a stuck owner makes it fail (the daemon's restore
+/// bound passed, or no answer), Restart cmux-tui: after a confirm it runs the same `server ensure`
+/// with `--replace-unresponsive`, then tries to connect again. A refusal says so and leaves Retry.
+///
+/// The app runs its real startup path against a stand-in `cmux-tui` script (never a real daemon,
+/// never a signal): `server status` finds no owner, `server ensure` fails as the test says, and
+/// `server ensure --replace-unresponsive` answers `replaced` or a refusal.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
+struct DaemonRestartTests {
+    /// The stand-in's state: its call log and the files that pick its answers.
+    private struct StandIn {
+        let root: URL
+        var log: URL { root.appendingPathComponent("calls.log") }
+        /// Present: a plain ensure fails with `server.restore_timeout` (else `server.spawn_failed`).
+        var stuck: URL { root.appendingPathComponent("stuck") }
+        /// Present: `--replace-unresponsive` is refused (`server.replace_still_running`).
+        var refuse: URL { root.appendingPathComponent("refuse") }
+
+        /// Each call's arguments, in call order.
+        func calls() -> [[String]] {
+            let text = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+            return text.split(separator: "\n").map { $0.split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init) }
+        }
+
+        func ensures() -> [[String]] { calls().filter { $0.contains("ensure") } }
+
+        func mark(_ file: URL) { FileManager.default.createFile(atPath: file.path, contents: Data()) }
+    }
+
+    private struct Launched {
+        let services: AppServices
+        let standIn: StandIn
+
+        var view: DaemonConnectingView? { services.windows.controllers.first?.connectingView }
+
+        func stop() {
+            CmuxDialogCenter.shared.dismissAll()
+            services.daemon.shutdownConnection()
+            for controller in services.windows.controllers { controller.window?.close() }
+            try? FileManager.default.removeItem(at: standIn.root)
+        }
+    }
+
+    private static func standInScript(_ standIn: StandIn, session: String) -> String {
+        """
+        #!/bin/sh
+        line=""
+        for arg in "$@"; do line="$line$(printf '\\037')$arg"; done
+        printf '%s\\n' "${line#?}" >> '\(standIn.log.path)'
+        case " $* " in
+        *" --version "*) echo 'cmux-tui 0.1.0'; exit 0 ;;
+        *" server status "*) exit 1 ;;
+        *" --replace-unresponsive "*)
+            if [ -e '\(standIn.refuse.path)' ]; then
+                echo '{"code":"server.replace_still_running","message":"cannot replace the unresponsive session owner","details":{},"retryable":false}' >&2
+                exit 3
+            fi
+            echo '{"status":"replaced","session":"\(session)","socket":"\(standIn.root.path)/gone.sock","pid":4242,"generation":"g-2","replaced_pid":4141,"message":"replaced"}'
+            exit 0 ;;
+        *" server ensure "*)
+            if [ -e '\(standIn.stuck.path)' ]; then
+                echo '{"code":"server.restore_timeout","message":"the session owner is still restoring","details":{},"retryable":false}' >&2
+            else
+                echo '{"code":"server.spawn_failed","message":"could not start the session owner","details":{},"retryable":false}' >&2
+            fi
+            exit 3 ;;
+        esac
+        exit 64
+        """
+    }
+
+    /// The app's startup path (launch window, startup loop, first attempt) on the stand-in.
+    private static func launch(stuck: Bool, refuse: Bool = false) throws -> Launched {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-restart-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let standIn = StandIn(root: root)
+        if stuck { standIn.mark(standIn.stuck) }
+        if refuse { standIn.mark(standIn.refuse) }
+        let session = "cn-restart-\(UUID().uuidString.prefix(8).lowercased())"
+        let binary = root.appendingPathComponent("cmux-tui")
+        try standInScript(standIn, session: session).write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        // As the app's launcher: bundled (so `--restore-progress`) with page origins (`--ws-loopback`).
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state"),
+                                 binaryIsBundled: true, webSocketPageOrigins: ["http://127.0.0.1:1"]),
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin"] })
+        _ = NSApplication.shared
+        let environment = AppEnvironment.current([:])
+        let services = AppServices(environment: environment)
+        services.windows.ordersWindowsIn = false
+        let prestart = DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(terminalEnvironment: nil))
+        services.daemon.start(launch: environment.launch, terminalEnvironment: [:], terminalEnvironmentProvider: { [:] },
+                              prestart: prestart)
+        services.windows.restoreWhenLoaded()
+        return Launched(services: services, standIn: standIn)
+    }
+
+    /// Polls until `done` holds or `limit` passes (as `RapidWorkspaceCreateTests` does).
+    private static func wait(within limit: Duration, until done: () -> Bool) async {
+        let deadline = ContinuousClock.now + limit
+        while !done(), ContinuousClock.now < deadline, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    private static func control<T: NSView>(_ identifier: String, in view: NSView?, as type: T.Type) -> T? {
+        guard let view else { return nil }
+        if view.accessibilityIdentifier() == identifier, let match = view as? T { return match }
+        for subview in view.subviews {
+            if let match = control(identifier, in: subview, as: type) { return match }
+        }
+        return nil
+    }
+
+    private static func shown(_ identifier: String, in view: NSView?) -> NSButton? {
+        guard let button = control(identifier, in: view, as: NSButton.self), !button.isHiddenOrHasHiddenAncestor else { return nil }
+        return button
+    }
+
+    /// The button's own target and action (a click outside an ordered-in window may never dispatch).
+    private static func press(_ button: NSButton) throws {
+        let action = try #require(button.action)
+        _ = (try #require(button.target) as AnyObject).perform(action, with: button)
+    }
+
+    /// Waits for the launch window's failure, so a fixture that never got there fails here.
+    private static func unavailableView(_ launched: Launched) async throws -> DaemonConnectingView {
+        await wait(within: .seconds(40)) { launched.view?.state.isUnavailable == true }
+        let view = try #require(launched.view, "the launch window never showed the connecting view")
+        try #require(view.state.isUnavailable, "the launch window never showed the failure")
+        return view
+    }
+
+    /// Presses Restart cmux-tui and confirms the question it asks.
+    private static func restartAndConfirm(_ view: DaemonConnectingView) async throws {
+        try press(try #require(shown("daemon.restart", in: view)))
+        await wait(within: .seconds(5)) { CmuxDialogCenter.shared.records.contains { $0.spec.identifier == "cmux.dialog.restartDaemon" } }
+        let question = try #require(CmuxDialogCenter.shared.records.last { $0.spec.identifier == "cmux.dialog.restartDaemon" })
+        #expect(!question.spec.lines.isEmpty)
+        #expect(question.spec.cancelButton != nil)
+        #expect(CmuxDialogCenter.shared.press(question.id, button: "restart"))
+    }
+
+    @Test func restartIsOfferedOnlyAfterAPlainEnsureFailedAndReplacesThenConnectsAgain() async throws {
+        let launched = try Self.launch(stuck: false)
+        defer { launched.stop() }
+        let standIn = launched.standIn
+        let view = try await Self.unavailableView(launched)
+
+        // A start failure that is not a stuck owner: Retry Now only.
+        let retry = Self.shown("daemon.retryNow", in: view)
+        #expect(retry != nil)
+        #expect(Self.shown("daemon.restart", in: view) == nil)
+        #expect(standIn.ensures().allSatisfy { !$0.contains("--replace-unresponsive") })
+
+        // The owner is stuck now: Retry Now asks again, and the failure offers Restart.
+        standIn.mark(standIn.stuck)
+        let before = standIn.ensures().count
+        try Self.press(try #require(retry))
+        await Self.wait(within: .seconds(10)) { Self.shown("daemon.restart", in: view) != nil }
+        #expect(standIn.ensures().count > before)
+        #expect(Self.shown("daemon.restart", in: view) != nil)
+
+        try await Self.restartAndConfirm(view)
+        await Self.wait(within: .seconds(10)) {
+            let ensures = standIn.ensures()
+            guard let replace = ensures.firstIndex(where: { $0.contains("--replace-unresponsive") }) else { return false }
+            return ensures[(replace + 1)...].contains { !$0.contains("--replace-unresponsive") }
+        }
+        let ensures = standIn.ensures()
+        let replaceIndex = try #require(ensures.firstIndex { $0.contains("--replace-unresponsive") })
+        let plain = try #require(ensures[..<replaceIndex].last)
+        // The same ensure the app runs, plus the option.
+        #expect(ensures[replaceIndex] == plain + ["--replace-unresponsive"])
+        #expect(plain.contains("--restore-progress"))
+        #expect(plain.contains("--ws-loopback"))
+        // Then the app connects again (retryWake), with a plain ensure.
+        #expect(ensures[(replaceIndex + 1)...].contains { !$0.contains("--replace-unresponsive") })
+        #expect(ensures.filter { $0.contains("--replace-unresponsive") }.count == 1)
+    }
+
+    @Test func aRefusedRestartSaysSoAndLeavesRetry() async throws {
+        let launched = try Self.launch(stuck: true, refuse: true)
+        defer { launched.stop() }
+        let standIn = launched.standIn
+        let view = try await Self.unavailableView(launched)
+        await Self.wait(within: .seconds(10)) { Self.shown("daemon.restart", in: view) != nil }
+        #expect(Self.shown("daemon.restart", in: view) != nil)
+
+        try await Self.restartAndConfirm(view)
+        let status = { Self.control("daemon.recoveryStatus", in: view, as: NSTextField.self) }
+        await Self.wait(within: .seconds(10)) {
+            standIn.ensures().contains { $0.contains("--replace-unresponsive") } && status()?.isHidden == false
+        }
+        #expect(standIn.ensures().contains { $0.contains("--replace-unresponsive") })
+        let shownStatus = try #require(status())
+        #expect(!shownStatus.isHidden)
+        #expect(!shownStatus.stringValue.isEmpty)
+        #expect(!shownStatus.stringValue.contains("server.replace"))
+        let retry = Self.shown("daemon.retryNow", in: view)
+        #expect(retry != nil)
+        #expect(retry?.isEnabled == true)
+    }
+}

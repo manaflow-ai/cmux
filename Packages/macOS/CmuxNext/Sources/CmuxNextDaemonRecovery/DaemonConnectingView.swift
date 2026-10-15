@@ -1,5 +1,6 @@
-import AppKit
-import CmuxNextDaemon
+public import AppKit
+public import CmuxNextDaemon
+public import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -10,12 +11,14 @@ import CmuxNextWakeups
 /// "Connecting to cmux-tui" follows after `launchTextDelay`, so a fast
 /// launch replaces it before either shows. Once the startup deadline
 /// passes, it shows the failure at once, in plain words, with the raw error
-/// behind Copy Details for a bug report.
-final class DaemonConnectingView: NSView {
+/// behind Copy Details for a bug report, Retry Now and, for a stuck owner,
+/// Restart cmux-tui (`DaemonRecoveryControls`, cx-jniyz.1).
+public final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let copyDetailsButton = ThemedBezelButton(title: "", target: nil, action: nil)
+    private let recoveryControls: DaemonRecoveryControls?
     /// The failure's raw text, for Copy Details.
     private var failureDetails = ""
     /// Copy Details' write (tests read it instead of the clipboard).
@@ -29,14 +32,21 @@ final class DaemonConnectingView: NSView {
     /// The status line has waited out its delay (or a failure showed it).
     private var statusDue = false
 
-    convenience override init(frame: NSRect) {
+    public convenience override init(frame: NSRect) {
         self.init(frame: frame, clock: ContinuousClock())
     }
 
-    /// - Parameter clock: Times the mark and status delays (tests step it).
-    init(frame: NSRect, clock: any Clock<Duration>) {
+    public convenience init(frame: NSRect, recovery: DaemonRecovery) {
+        self.init(frame: frame, clock: ContinuousClock(), recovery: recovery)
+    }
+
+    /// - Parameters:
+    ///   - clock: Times the mark and status delays (tests step it).
+    ///   - recovery: The local daemon's Retry Now and Restart; nil shows neither.
+    init(frame: NSRect, clock: any Clock<Duration>, recovery: DaemonRecovery? = nil) {
         markTimer = DemandTimer(owner: "launch.mark", clock: clock)
         statusTimer = DemandTimer(owner: "launch.status", clock: clock)
+        recoveryControls = recovery.map(DaemonRecoveryControls.init(recovery:))
         super.init(frame: frame)
         // Layer-backed, so the status line's fade sets its model alpha at once.
         wantsLayer = true
@@ -47,12 +57,14 @@ final class DaemonConnectingView: NSView {
         detailLabel.maximumNumberOfLines = 4
         detailLabel.isSelectable = true
         detailLabel.focusRingType = .none
-        copyDetailsButton.title = Strings.daemonCopyDetails
+        copyDetailsButton.title = DaemonRecoveryStrings.copyDetails
         copyDetailsButton.controlSize = .small
         copyDetailsButton.target = self
         copyDetailsButton.action = #selector(copyDetails)
         copyDetailsButton.isHidden = true
-        let stack = NSStackView(views: [mark, titleLabel, detailLabel, copyDetailsButton])
+        var views: [NSView] = [mark, titleLabel, detailLabel]
+        if let recoveryControls { views.append(recoveryControls) }
+        let stack = NSStackView(views: views + [copyDetailsButton])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = Metrics.space2
@@ -70,9 +82,9 @@ final class DaemonConnectingView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func viewDidChangeEffectiveAppearance() {
+    public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme {
             titleLabel.textColor = Palette.textSecondary
@@ -80,7 +92,7 @@ final class DaemonConnectingView: NSView {
         }
     }
 
-    override func viewDidMoveToWindow() {
+    public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         viewDidChangeEffectiveAppearance()
         if window == nil {
@@ -113,15 +125,16 @@ final class DaemonConnectingView: NSView {
         statusTimer.cancel()
     }
 
-    func apply(_ state: DaemonStartupState) {
+    public func apply(_ state: DaemonStartupState) {
         self.state = state
         switch state {
         case .connecting, .connected:
-            titleLabel.stringValue = Strings.daemonConnecting
+            titleLabel.stringValue = DaemonRecoveryStrings.connecting
             titleLabel.alphaValue = statusDue ? 1 : 0
             detailLabel.stringValue = ""
             detailLabel.isHidden = true
             copyDetailsButton.isHidden = true
+            recoveryControls?.isOffered = false
             staggerIfConnecting()
         case .unavailable(let error):
             cancelStagger()
@@ -133,12 +146,13 @@ final class DaemonConnectingView: NSView {
                 titleLabel.stringValue = RefusalStrings.daemonRestoreTimedOut
                 detailLabel.stringValue = ""
             } else {
-                titleLabel.stringValue = Strings.daemonServiceUnavailable
+                titleLabel.stringValue = DaemonRecoveryStrings.serviceUnavailable
                 detailLabel.stringValue = Self.plainReason(error) ?? ""
             }
             detailLabel.isHidden = detailLabel.stringValue.isEmpty
             failureDetails = String(describing: error)
             copyDetailsButton.isHidden = false
+            recoveryControls?.isOffered = true
         }
         setAccessibilityLabel([titleLabel.stringValue, detailLabel.stringValue].filter { !$0.isEmpty }.joined(separator: ". "))
     }
@@ -149,16 +163,16 @@ final class DaemonConnectingView: NSView {
     /// app serves the socket, a bad launch tag): Copy Details carries the specifics.
     private static func plainReason(_ error: DaemonError) -> String? {
         switch error {
-        case .binaryNotFound: Strings.daemonReinstall
+        case .binaryNotFound: DaemonRecoveryStrings.reinstall
         case .unsupportedProtocol: RefusalStrings.restartToUpdateDaemon
         case .missingCapabilities, .sessionRestoreTimedOut: RefusalStrings.describe(error)
         case .endpointBlocked(let reason): reason
         case .wrongApp, .invalidSessionName: nil
-        default: DaemonStartup.shared.isPermanent(error) ? nil : Strings.daemonRetrying
+        default: DaemonStartup.shared.isPermanent(error) ? nil : DaemonRecoveryStrings.retrying
         }
     }
 
     @objc private func copyDetails() {
-        copyToClipboard(failureDetails)
+        copyToClipboard([failureDetails, recoveryControls?.restartFailure].compactMap { $0 }.joined(separator: "\n"))
     }
 }
