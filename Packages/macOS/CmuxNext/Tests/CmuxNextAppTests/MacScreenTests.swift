@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextDesign
 @testable import CmuxNextMacScreen
 import CmuxNextRemoteView
 import CmuxNextSettings
 import CmuxScreenKit
+import CmuxTheme
 import Foundation
 import Testing
 
@@ -401,4 +403,61 @@ struct MacScreenPageTabTests {
     @Test func macScreenAddressIsNotABrowserAppPage() {
         #expect(!TabContentCache.isAppPage(MacScreenRecord.homeURL))
     }
+}
+
+/// Every Mac Screen surface draws in its tab's theme scope and follows Settings > Appearance live
+/// (it used system styling: `.bar`, control background, system status colors).
+@MainActor @Suite(.serialized)
+struct MacScreenThemeTests {
+    private func paint(_ scope: ThemeScope, background: UInt32, foreground: UInt32) throws {
+        let input = ThemeInput(background: ThemeRGB(hex: background), foreground: ThemeRGB(hex: foreground))
+        scope.setOverride(try #require(ThemeSpec("Mac Screen Room")), input: input, animated: false)
+    }
+
+    @Test func homeToolbarAndCardsFollowTheirScope() throws {
+        let scope = ThemeScope(level: .room)
+        try paint(scope, background: 0x2B1650, foreground: 0xF4E3FF)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = try #require(window.contentView)
+        scope.root(root)
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file, secrets: MemoryMacScreenSecrets()))
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        root.addSubview(tab)
+        let home = try #require(tab.subviews.first as? MacScreenHostingView<MacScreenHomeView>)
+        let pane = MacScreenPane(name: "Theme Test", pairing: VNCPairing.generate(name: "Theme Test", kind: "stream"),
+                                 preferences: ScreenPreferences(), confirmed: false)
+        root.addSubview(pane.view)
+        let hosts: [any MacScreenThemedHost] = [home, pane.view.chrome.toolbar, pane.view.chrome.card]
+
+        for host in hosts {
+            #expect(host.resolvedColors == MacScreenColors.resolved(in: host.hostView))
+            #expect(host.resolvedColors.isDark)
+        }
+        let dark = home.themeAppearance.colors
+        try paint(scope, background: 0xF7F3E8, foreground: 0x1D1A14)
+        #expect(home.themeAppearance.colors != dark)
+        for host in hosts {
+            #expect(host.resolvedColors == MacScreenColors.resolved(in: host.hostView))
+            #expect(!host.resolvedColors.isDark)
+        }
+        pane.close()
+        pages.tabClosed("home")
+    }
+}
+
+/// The colors a Mac Screen hosting view resolved, whatever it hosts.
+@MainActor
+private protocol MacScreenThemedHost {
+    var resolvedColors: MacScreenColors { get }
+    var hostView: NSView { get }
+}
+
+extension MacScreenHostingView: MacScreenThemedHost {
+    var resolvedColors: MacScreenColors { themeAppearance.colors }
+    var hostView: NSView { self }
 }
