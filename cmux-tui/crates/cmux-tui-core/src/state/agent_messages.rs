@@ -221,8 +221,11 @@ impl Mux {
     }
 
     /// `agent.message.unsend` (agent_message_unsend.rs): the sender or the
-    /// person takes a message back. acpmux decides each acpmux recipient's
-    /// outcome before the commit; the pump hands nothing over meanwhile.
+    /// person takes a message back. A retry replays, and a reused key or a
+    /// stale revision is refused, before acpmux is asked anything; then
+    /// acpmux decides each acpmux recipient's outcome, and every answer
+    /// commits (a refusal is that recipient's `failed` outcome). The pump
+    /// hands nothing over meanwhile.
     pub(crate) fn agent_message_unsend(
         &self,
         mutation: &WorkspaceMutation,
@@ -231,20 +234,27 @@ impl Mux {
         message_id: &str,
         recipient: Option<&str>,
     ) -> anyhow::Result<StateCommit> {
+        const OPERATION: &str = "agent.message.unsend";
         let fingerprint = serde_json::json!({
-            "operation": "agent.message.unsend",
+            "operation": OPERATION,
             "selectors": selectors,
             "message_id": message_id,
             "recipient": recipient,
         });
         let session_id = self.session_public_id.as_str().to_owned();
         let _delivering = self.agent_message_delivery_lock();
+        if let Some(replayed) =
+            self.state_commit_replay(mutation, OPERATION, &fingerprint, expected_revision)?
+        {
+            return Ok(replayed);
+        }
         let (sender, targets) = self
             .read_registry_state(|connection| unsend::targets(connection, message_id, recipient))?;
         if let Some(agent) = policy::sender_address(&mutation.actor)
             && agent != sender
         {
-            return Err(unsend_refused(
+            return Err(policy::refused_by(
+                OPERATION,
                 "unsend_not_sender",
                 format!(
                     "{agent} did not send message {message_id}; only its sender or the person takes it back"
@@ -252,37 +262,27 @@ impl Mux {
                 serde_json::json!({}),
             ));
         }
-        let mut answers = HashMap::new();
+        let (mut answers, mut failures) = (HashMap::new(), HashMap::new());
         for target in targets.iter().filter(|target| target.asks_acpmux()) {
             let session = target.recipient.trim_start_matches("acp:");
+            let to = target.recipient.clone();
             match self.acp_withdraw_message(session, message_id) {
                 Ok(answer) => {
-                    answers.insert(target.recipient.clone(), answer);
+                    answers.insert(to, answer);
                 }
-                // Not running: what acpmux never took is unsent.
-                Err(WithdrawError::Unavailable) if !target.handed_over() => {}
+                // Not running, and no hand-over was ever tried: still ours.
+                Err(WithdrawError::Unavailable) if target.never_tried() => {}
                 Err(WithdrawError::Unavailable) => {
-                    return Err(unsend_refused(
-                        "acpmux_unavailable",
-                        format!("acpmux did not answer for {}; try again", target.recipient),
-                        serde_json::json!({"recipient": target.recipient}),
-                    ));
+                    failures.insert(to, unsend::unavailable(&target.recipient));
                 }
                 Err(WithdrawError::Refused(reason)) => {
-                    return Err(unsend_refused(
-                        "withdraw_refused",
-                        format!(
-                            "acpmux refused to withdraw it from {} ({reason})",
-                            target.recipient
-                        ),
-                        serde_json::json!({"recipient": target.recipient, "acpmux_reason": reason}),
-                    ));
+                    failures.insert(to, unsend::refused(&target.recipient, &reason));
                 }
             }
         }
         self.commit_state(
             mutation,
-            "agent.message.unsend",
+            OPERATION,
             &fingerprint,
             expected_revision,
             StateEffects::EVENTS_ONLY,
@@ -294,6 +294,7 @@ impl Mux {
                     message_id,
                     recipient,
                     &answers,
+                    &failures,
                     policy::now_ms(),
                 )?;
                 Ok(StateChanges::new(value, Vec::new()))
@@ -317,10 +318,6 @@ impl Mux {
         })
         .map_err(crate::resource_api::operation_failed)
     }
-}
-
-fn unsend_refused(reason: &str, message: String, extra: Value) -> anyhow::Error {
-    policy::refused_by("agent.message.unsend", reason, message, extra)
 }
 
 /// No acpmux off unix: no session's workspace is known, so a message to or

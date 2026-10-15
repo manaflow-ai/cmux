@@ -10,12 +10,18 @@
 //!   agent that does not steer); the delivery becomes `retracted`.
 //! - `too_late`: its turn ended, or the delivery path cannot take a message
 //!   back (a terminal agent's hooks, Codex); nothing changes.
+//! - `failed`: acpmux refused the withdraw (`withdraw_refused`), or did not
+//!   answer for a delivery it may hold (`acpmux_unavailable`); nothing
+//!   changes, and the entry carries `error {reason, message}`. One recipient
+//!   failing never undoes the others.
 //!
 //! An acpmux recipient's outcome is acpmux's (`_acpmux/prompt_withdraw`, asked
-//! before the commit): a queued delivery is asked too, because another
-//! delivery path may have handed it over already. A delivery already
-//! unsent or retracted answers the same again; a declined one never reached
-//! the agent and reads `unsent`.
+//! before the commit). A queued delivery is asked too: a pump hand-over that
+//! timed out may have reached acpmux (its attempt is counted). Only a queued
+//! delivery no hand-over was ever tried for is `unsent` without acpmux's
+//! answer: the daemon's pump is the one acpmux delivery path, and it waits
+//! for the unsend. A delivery already unsent or retracted answers the same
+//! again; a declined one never reached the agent and reads `unsent`.
 
 use std::collections::HashMap;
 
@@ -51,9 +57,16 @@ pub(crate) enum WithdrawError {
 pub(crate) struct Target {
     pub(crate) recipient: String,
     pub(crate) state: String,
+    attempts: i64,
 }
 
 impl Target {
+    /// Whether no hand-over of this delivery was ever tried, so without
+    /// acpmux's answer it is still the daemon's alone.
+    pub(crate) fn never_tried(&self) -> bool {
+        self.state == "queued" && self.attempts == 0
+    }
+
     /// Whether acpmux decides this delivery's outcome: an acpmux recipient
     /// the message may have reached.
     pub(crate) fn asks_acpmux(&self) -> bool {
@@ -81,12 +94,12 @@ pub(crate) fn targets(
         .optional()?;
     let Some(sender) = sender else { return Err(not_found(message_id)) };
     let mut statement = connection.prepare(
-        "SELECT recipient, state FROM agent_message_deliveries
+        "SELECT recipient, state, attempts FROM agent_message_deliveries
          WHERE message_id = ?1 AND (?2 IS NULL OR recipient = ?2) ORDER BY position",
     )?;
     let targets = statement
         .query_map(params![message_id, recipient], |row| {
-            Ok(Target { recipient: row.get(0)?, state: row.get(1)? })
+            Ok(Target { recipient: row.get(0)?, state: row.get(1)?, attempts: row.get(2)? })
         })?
         .collect::<Result<Vec<_>, _>>()?;
     if targets.is_empty() {
@@ -95,10 +108,23 @@ pub(crate) fn targets(
     Ok((sender, targets))
 }
 
+/// The `error` of a `failed` outcome: acpmux did not answer for `recipient`.
+pub(crate) fn unavailable(recipient: &str) -> Value {
+    json!({"reason": "acpmux_unavailable",
+        "message": format!("acpmux did not answer for {recipient}; try again")})
+}
+
+/// The `error` of a `failed` outcome: acpmux refused, with its `reason`.
+pub(crate) fn refused(recipient: &str, reason: &str) -> Value {
+    json!({"reason": "withdraw_refused", "acpmux_reason": reason,
+        "message": format!("acpmux refused to withdraw it from {recipient} ({reason})")})
+}
+
 /// Apply the unsend to every delivery of `message_id` (or `recipient`'s)
-/// with acpmux's `answers` by recipient, and return
-/// `{outcome, outcomes: [{recipient, outcome}], message}`. `outcome` is
-/// `too_late` when any delivery was too late, else `retracted` when any was
+/// with acpmux's `answers` and the `failures` (an `error` each) by
+/// recipient, and return `{outcome, outcomes: [{recipient, outcome,
+/// error?}], message}`. `outcome` is `failed` when any delivery failed, else
+/// `too_late` when any was too late, else `retracted` when any was
 /// retracted, else `unsent`.
 pub(crate) fn unsend(
     transaction: &Transaction<'_>,
@@ -106,12 +132,17 @@ pub(crate) fn unsend(
     message_id: &str,
     recipient: Option<&str>,
     answers: &HashMap<String, Withdrawn>,
+    failures: &HashMap<String, Value>,
     now_ms: i64,
 ) -> anyhow::Result<Value> {
     expire_held(transaction, now_ms)?;
     let (_, targets) = targets(transaction, message_id, recipient)?;
     let mut outcomes = Vec::with_capacity(targets.len());
     for target in &targets {
+        if let Some(error) = failures.get(&target.recipient) {
+            outcomes.push((target.recipient.clone(), Outcome::Failed, Some(error.clone())));
+            continue;
+        }
         let answer = answers.get(&target.recipient).copied();
         let outcome = outcome(&target.state, answer, target.handed_over());
         if let Some(state) = outcome.stored_state(&target.state) {
@@ -124,20 +155,24 @@ pub(crate) fn unsend(
                 params![message_id, target.recipient, state, now_ms, via],
             )?;
         }
-        outcomes.push((target.recipient.clone(), outcome));
+        outcomes.push((target.recipient.clone(), outcome, None));
     }
-    let overall = if outcomes.iter().any(|(_, o)| *o == Outcome::TooLate) {
-        Outcome::TooLate
-    } else if outcomes.iter().any(|(_, o)| *o == Outcome::Retracted) {
-        Outcome::Retracted
-    } else {
-        Outcome::Unsent
-    };
+    let any = |wanted: Outcome| outcomes.iter().any(|(_, outcome, _)| *outcome == wanted);
+    let overall = [Outcome::Failed, Outcome::TooLate, Outcome::Retracted]
+        .into_iter()
+        .find(|outcome| any(*outcome))
+        .unwrap_or(Outcome::Unsent);
     let message = snapshot(transaction, session_id, message_id, now_ms)?
         .ok_or_else(|| not_found(message_id))?;
     let outcomes: Vec<Value> = outcomes
         .iter()
-        .map(|(recipient, outcome)| json!({"recipient": recipient, "outcome": outcome.wire()}))
+        .map(|(recipient, outcome, error)| {
+            let mut entry = json!({"recipient": recipient, "outcome": outcome.wire()});
+            if let Some(error) = error {
+                entry["error"] = error.clone();
+            }
+            entry
+        })
         .collect();
     Ok(json!({"outcome": overall.wire(), "outcomes": outcomes, "message": message}))
 }
@@ -147,6 +182,7 @@ enum Outcome {
     Unsent,
     Retracted,
     TooLate,
+    Failed,
 }
 
 impl Outcome {
@@ -155,6 +191,7 @@ impl Outcome {
             Self::Unsent => "unsent",
             Self::Retracted => "retracted",
             Self::TooLate => "too_late",
+            Self::Failed => "failed",
         }
     }
 
@@ -163,7 +200,7 @@ impl Outcome {
         let state = match self {
             Self::Unsent => "unsent",
             Self::Retracted => "retracted",
-            Self::TooLate => return None,
+            Self::TooLate | Self::Failed => return None,
         };
         (current != state && current != "declined").then_some(state)
     }

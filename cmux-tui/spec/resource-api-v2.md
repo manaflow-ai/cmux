@@ -755,10 +755,13 @@ The daemon delivers a queued message to an acpmux recipient itself: its
 delivery pump hands it to the session as a prompt whose id is the message id,
 with `_meta.acpmux.provenance` naming the sender, once acpmux runs that
 session, and marks it `delivered` (`via` `acp.prompt`) when acpmux accepts the
-prompt or `failed` with acpmux's error. The pump runs on every send and
-release, at daemon start and whenever it reaches acpmux again; a held delivery
-waits for release. The CLI's own delivery sends the same prompt, and acpmux
-runs a prompt id once. An agent acpmux starts carries a launch credential for
+prompt or `failed` with acpmux's error. A prompt acpmux never accepted stays
+`queued` with the attempt counted (acpmux runs a prompt id once, so the retry
+is safe). The pump runs on every send and release, at daemon start, whenever
+it reaches acpmux again, and on a backoff timer (1 s doubling to 60 s) while a
+delivery waits for acpmux; a held delivery waits for release. It is the one
+acpmux delivery path: `cmux agent message` waits for it and reports how it
+went. An agent acpmux starts carries a launch credential for
 its own ACP session (acpmux mints it with `credential.mint` from the daemon its
 `CMUX_TUI_SOCKET` names), so its messages have a verified sender; without a
 daemon to mint one it starts without a credential.
@@ -772,13 +775,17 @@ the delivery becomes `unsent`), `retracted` when acpmux's turn ran it and
 acpmux told the agent it was withdrawn, steered into the turn or queued next
 for an agent that does not steer (the delivery becomes `retracted`), and
 `too_late` when its turn ended or the delivery path cannot take it back (a
-terminal agent's hooks; nothing changes). An acpmux recipient's outcome is
-acpmux's `_acpmux/prompt_withdraw` answer; a delivered message whose acpmux
-does not answer is refused (reason `acpmux_unavailable`), and a withdraw
-acpmux refuses is reason `withdraw_refused` with `details.extra.acpmux_reason`.
+terminal agent's hooks; nothing changes), and `failed` when it cannot be taken
+back now (nothing changes). An acpmux recipient's outcome is acpmux's
+`_acpmux/prompt_withdraw` answer. When acpmux does not answer for a delivery a
+hand-over may have reached, the outcome is `failed` with `error.reason`
+`acpmux_unavailable`; a withdraw acpmux refuses is `failed` with
+`error.reason` `withdraw_refused` and `error.acpmux_reason`. The other
+deliveries' outcomes still commit. A retry under the same key replays, and a
+reused key or stale `expected_revision` is refused, before acpmux is asked.
 The result names each delivery's outcome and the message; `outcome` is
-`too_late` when any delivery was too late, else `retracted` when any was
-retracted, else `unsent`. An unsend runs on this machine only; the remote CLI
+`failed` when any delivery failed, else `too_late` when any was too late, else
+`retracted` when any was retracted, else `unsent`. An unsend runs on this machine only; the remote CLI
 relay does not allow it.
 
 `terminal.viewport.scroll` changes the session's compatibility inspection

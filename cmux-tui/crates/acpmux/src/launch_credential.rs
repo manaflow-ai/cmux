@@ -25,9 +25,14 @@ const MINT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const MAX_REPLY_BYTES: u64 = 64 * 1024;
 
 /// Sets the agent's launch credential on `cmd`: one minted for `session`, or
-/// none (removed) without a session or a daemon that mints one.
+/// none (removed) without a session or a daemon that mints one. No agent acts
+/// as the terminal that started acpmux, not even through a preset, nor as the
+/// Chief whose host started it (`config::CHIEF_CREDENTIAL_ENV`).
 pub(crate) fn apply(cmd: &mut tokio::process::Command, session: Option<&str>) {
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+    for key in crate::config::CHIEF_CREDENTIAL_ENV {
+        cmd.env_remove(key);
+    }
     let Some(session) = session else { return };
     let Some(socket) = std::env::var_os(SESSION_SOCKET_ENV).filter(|s| !s.is_empty()) else {
         return;

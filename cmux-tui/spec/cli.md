@@ -848,11 +848,11 @@ workspace, or one whose workspace is unknown, may be held for the person
 A lone `-` reads the body from standard input. `--reply-to` answers a message:
 the reply goes to its sender and stays in its thread.
 
-For an acpmux recipient the command then prompts the session with the message,
-using the message id as the acpmux prompt id, and marks the receipt
-`delivered` (or `failed`, with the error). It first sends that recipient's
-older queued messages, oldest first; the prompt id keeps any of them from
-running twice. A `failed` message is not retried. It never starts the acpmux
+For an acpmux recipient the daemon's delivery pump prompts the session with
+the message, using the message id as the acpmux prompt id, and marks the
+receipt `delivered` (or `failed`, with acpmux's error); the command waits up
+to 15 seconds for it and reports a delivery still `queued` (acpmux is down or
+the session has not started; the pump retries). Neither starts the acpmux
 daemon. For a Codex terminal agent whose thread the shared Codex app-server
 daemon has loaded, it hands the agent's queued messages to Codex as one input
 (`turn/start` when the thread is idle, `turn/steer` when a turn is running)
@@ -869,13 +869,16 @@ app's Approve and Decline controls make the same request.
 `agent message unsend` takes `<message-id>` back, from every recipient or
 only `--recipient` (one `agent.message.unsend`), and prints each delivery's
 outcome: `unsent` (it never reached the agent), `retracted` (acpmux told the
-agent in its turn that it was withdrawn) or `too_late` (its turn ended, or the
-delivery path cannot take it back). Only the message's sender, or the person,
+agent in its turn that it was withdrawn), `too_late` (its turn ended, or the
+delivery path cannot take it back) or `failed` (acpmux refused or did not
+answer; try again). Only the message's sender, or the person,
 may take it back; there is no time limit.
 
-The daemon also delivers queued messages to acpmux recipients on its own (its
-delivery pump), so a message that waited for acpmux, or for the person's
-approval, goes out without another `agent message`.
+The daemon delivers messages to acpmux recipients (its delivery pump), and
+retries while acpmux is down or the session has not started, so a message that
+waited for acpmux, or for the person's approval, goes out without another
+`agent message`. `agent message` waits for the pump's hand-over to each acpmux
+recipient and reports one that failed or still waits.
 
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
 own address when it has one, else every message. `--state` is any delivery

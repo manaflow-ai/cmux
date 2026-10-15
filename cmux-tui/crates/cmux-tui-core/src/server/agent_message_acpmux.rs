@@ -84,11 +84,24 @@ impl crate::mux::Mux {
         }
         let handover = match hearing.recv_timeout(ACCEPT_TIMEOUT) {
             Ok(Heard::Accepted | Heard::Answered(Ok(_))) => Handover::Delivered,
+            // A session moving to another machine takes prompts again later.
+            Ok(Heard::Answered(Err(LinkError::Rpc(message, data))))
+                if message.starts_with("transfer.")
+                    || data
+                        .get("reason")
+                        .and_then(Value::as_str)
+                        .is_some_and(|reason| reason.starts_with("transfer.")) =>
+            {
+                Handover::Unreachable
+            }
             Ok(Heard::Answered(Err(LinkError::Rpc(message, _)))) => Handover::Failed(message),
-            // acpmux went away: a resend under the same id runs it once.
-            Ok(Heard::Answered(Err(LinkError::Closed))) => Handover::Unreachable,
+            // The prompt went out and no answer came: acpmux may run it, and
+            // a resend under the same id runs it once.
+            Ok(Heard::Answered(Err(LinkError::Closed))) => {
+                Handover::Unsettled("acpmux closed the link before accepting the prompt".into())
+            }
             Ok(Heard::Answered(Err(LinkError::Timeout | LinkError::Busy))) | Err(_) => {
-                Handover::Failed("acpmux did not accept the prompt in time".to_owned())
+                Handover::Unsettled("acpmux did not accept the prompt in time".into())
             }
         };
         link.close();
