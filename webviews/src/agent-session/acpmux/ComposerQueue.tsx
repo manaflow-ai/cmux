@@ -291,7 +291,8 @@ export function ComposerQueue({
           )}
         </li>
       )}
-      {shown.map((entry, index) => [
+      {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
+      {shown.flatMap((entry, index) => [
         // "Queued" heads the prompts that wait for the turn, under any sent now.
         index === steering && (
           <li key="queued" className="acpmux-queue-header" aria-hidden="true">
