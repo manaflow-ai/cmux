@@ -7,6 +7,10 @@ import Observation
 /// `agentPane.editedFiles.*`, `agentPane.showContextUsage` and `diff.colors`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
+    /// `labs.previewFeatures` for the acpmux daemon this app starts (`AcpmuxHost` reads it off the
+    /// main actor at each daemon start, so a toggle applies to the next one): on gives agents the
+    /// session offer tools (`ACPMUX_OFFER_TOOLS`, cx-lo9yf).
+    nonisolated static let daemonPreviewFeatures = Mutex<Bool>(false)
     private(set) var previewFeatures = false
     private(set) var editedFiles = AgentPaneEditedFilesSetting.fallback
     private(set) var zoom = AgentPaneZoomSetting.fallback
@@ -24,11 +28,14 @@ final class AgentPanePageSettings {
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
         self.settings = settings
+        // Now, not at the first observed value: the prewarm's daemon start may come first.
+        Self.daemonPreviewFeatures.withLock { $0 = settings.snapshot.previewFeatures }
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in
             for await on in ObservationStream({ settings.snapshot.previewFeatures }) {
                 guard let self else { return }
                 previewFeatures = on
+                Self.daemonPreviewFeatures.withLock { $0 = on }
                 push()
             }
         }
