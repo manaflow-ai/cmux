@@ -33,6 +33,15 @@ parser.add_argument("--profile-runs", type=int, default=2, help="per mode: expor
 parser.add_argument("--b-fleet-job", help="A/B in one job: the fleet build job of the second app (installed here)")
 parser.add_argument("--b-tag", help="the second app's tag")
 parser.add_argument("--b-label", default="b")
+parser.add_argument("--clean", action="store_true",
+                    help="one app at a time in the same frame: each run launches the app, records, and quits it (the others are"
+                         " not running); the order of the apps and modes alternates each round")
+parser.add_argument("--frame", default="40,40,1100,820", help="--clean: the window frame (points, top-left, last screen) of every app")
+parser.add_argument("--floors", default="plain",
+                    help="--clean: host floor variants (scripts/cmux-next/sidebar-scroll-floor.swift), comma list of plain, vib"
+                         " (behind-window sidebar material), vibfade (material + edge-fade mask); empty = none")
+parser.add_argument("--floor-frames", default="",
+                    help="--clean: extra frames for the plain floor (a window position probe), separated by ';'")
 opts = parser.parse_args()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -207,9 +216,11 @@ class Target:
     scale = 1.0
     point = screen_point = (0, 0)
 
+    bounds = None
+
     @classmethod
-    def find(cls):
-        pid = app_pid()
+    def find(cls, pid=None):
+        pid = pid or app_pid()
         if not pid:
             sys.exit(f"FAIL no process for the tagged app (socket {SOCKET})")
         started = cua("start_session", {})
@@ -224,7 +235,7 @@ class Target:
         shot = os.path.join(SCRATCH, "window.png")
         cua("get_window_state", {"pid": pid, "window_id": main["window_id"], "screenshot_out_file": shot}, timeout=120)
         width = int.from_bytes(open(shot, "rb").read()[16:20], "big") if os.path.exists(shot) else 0
-        cls.pid, cls.window_id = pid, main["window_id"]
+        cls.pid, cls.window_id, cls.bounds = pid, main["window_id"], main["bounds"]
         cls.scale = width / main["bounds"]["width"] if width else 1.0
         # The sidebar's row list: left column, below the window chrome.
         cls.point = (110 * cls.scale, 430 * cls.scale)
@@ -466,7 +477,7 @@ def record(name, ticks, terms, profile):
     except subprocess.TimeoutExpired:
         proc.terminate()
         out = "timeout"
-    result = {"name": name, "gesture_s": gesture_s, "wheel_errors": [json.dumps(b)[:200] for b in bad[:3]],
+    result = {"name": name, "gesture_s": gesture_s, "bounds": Target.bounds, "wheel_errors": [json.dumps(b)[:200] for b in bad[:3]],
               "xctrace_exit": proc.returncode}
     if not os.path.exists(path):
         shutil.rmtree(xct_tmp, ignore_errors=True)
@@ -585,6 +596,106 @@ def pty_count():
     return len([n for n in os.listdir("/dev") if n.startswith("ttys")])
 
 
+def build_floor():
+    """The host floor app (no cmux code), compiled here from scripts/cmux-next/sidebar-scroll-floor.swift."""
+    exe = os.path.join(SCRATCH, "sidebar-scroll-floor")
+    built = subprocess.run(["xcrun", "swiftc", "-O", "-o", exe, os.path.join(HERE, "sidebar-scroll-floor.swift")],
+                           capture_output=True, text=True, timeout=900)
+    if built.returncode != 0:
+        sys.exit(f"FAIL floor build: {built.stderr[-400:]}")
+    return exe
+
+
+def floor_run(exe, variant, frame, label, i):
+    """One plain-scroll gesture over the floor app in `frame`; the app quits after it."""
+    flags = {"plain": [], "vib": ["--vibrancy"], "vibfade": ["--vibrancy", "--fade"]}[variant]
+    proc = subprocess.Popen([exe, "--frame", frame, "--screen", "last", "--rows", str(opts.count), *flags],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        ready = proc.stdout.readline().strip()
+        if not ready.startswith("ready"):
+            return {"name": f"{label}-noticks-{i}", "error": f"floor did not start: {ready!r}"}
+        Target.find(proc.pid)
+        point_x, point_y = Target.bounds["x"] + 110, Target.bounds["y"] + 430
+        Target.point, Target.screen_point = (110 * Target.scale, 430 * Target.scale), (point_x, point_y)
+        time.sleep(2)  # harness: the window is on screen and idle before the recorder attaches
+        return record(f"{label}-noticks-{i}", False, [], False)
+    finally:
+        proc.stdin.close()  # the floor quits when its stdin ends
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.terminate()  # our own child process (exact pid)
+            proc.wait(timeout=30)
+
+
+def cmux_runs(app, i, first):
+    """Launches `app` in --frame, records both modes (order flipped by round), quits it."""
+    use(app)
+    launch(opts.frame)
+    make_workspaces()
+    Target.find()
+    app["terms"] = ticking_terminals()
+    note(len(app["terms"]) >= opts.ticking, f"{app['label']} round {i}: {len(app['terms'])} ticking terminals")
+    WHEEL.clear()
+    WHEEL.update({"hid": True})
+    out = {}
+    if first:
+        cpu0, t0 = cpu_ns(Target.pid), time.monotonic()
+        ticks = start_ticks(app["terms"], 10)
+        time.sleep(11)  # harness: the measured tick window (no input)
+        cpu1 = cpu_ns(Target.pid)
+        app["tick_window"] = {"ticks": ticks, "app_cpu_us_per_tick": round((cpu1 - cpu0) / 1000 / ticks, 1)
+                              if cpu0 and cpu1 and ticks else None}
+        print(f"{app['label']} tick window: {app['tick_window']}", flush=True)
+    else:
+        time.sleep(3)  # harness: the relaunched app settles before the recorder attaches
+    for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
+        out[mode] = record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i < opts.profile_runs)
+        time.sleep(2)  # harness: settle between runs
+    stop_b(app)
+    note(app_pid() is None, f"{app['label']} round {i}: the app quit")
+    return out
+
+
+def run_clean(apps):
+    """One app on screen at a time, all in the same frame; floors (no cmux code) in the same frame too."""
+    floors = [v for v in opts.floors.split(",") if v]
+    extra = [f for f in opts.floor_frames.split(";") if f]
+    exe = build_floor() if floors or extra else None
+    items = [("cmux", app) for app in apps] + [("floor", (v, opts.frame, f"floor-{v}")) for v in floors]
+    items += [("floor", ("plain", f, "floor-at-" + f.replace(",", "_"))) for f in extra]
+    runs = {}
+    for i in range(opts.repeats):
+        order = items if i % 2 == 0 else items[::-1]
+        print(f"round {i}: {[it[1]['label'] if it[0] == 'cmux' else it[1][2] for it in order]}", flush=True)
+        for kind, item in order:
+            if kind == "cmux":
+                for mode, result in cmux_runs(item, i, i == 0).items():
+                    runs.setdefault(item["label"], {}).setdefault(mode, []).append(result)
+            else:
+                variant, frame, label = item
+                runs.setdefault(label, {}).setdefault("noticks", []).append(floor_run(exe, variant, frame, label, i))
+            time.sleep(2)  # harness: settle between apps
+    return runs
+
+
+def summarize(runs, apps):
+    for label, modes in runs.items():
+        app = next((a for a in apps if a["label"] == label), {})
+        out = summary.setdefault("apps", {}).setdefault(label, {"tag": app.get("tag"), "tick_window": app.get("tick_window")})
+        for mode, rs in modes.items():
+            valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
+                     and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
+            totals = [r["total_ms"] for r in valid]
+            out[mode] = {"valid": len(valid), "hitch_total_ms": totals, "hitches": [r.get("hitches") for r in valid],
+                         "median_ms": statistics.median(totals) if totals else None,
+                         "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
+                         "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0]),
+                         "bounds": sorted({json.dumps(r.get("bounds"), sort_keys=True) for r in rs})}
+            print(f"{label} {mode}: {out[mode]}", flush=True)
+
+
 import signal
 signal.signal(signal.SIGTERM, lambda *_: sys.exit("FAIL ended by SIGTERM (job cancel or input cap)"))
 summary["ptys_before"] = pty_count()
@@ -595,30 +706,39 @@ apps = [A]
 try:
     if opts.b_fleet_job:
         apps.append(install_b())
-    for app in apps:
-        prepare(app)
-    runs = {app["label"]: {"noticks": [], "ticks": []} for app in apps}
-    for i in range(opts.repeats):
-        # Interleaved, the order flipped each round, so host drift lands on both apps alike.
-        for app in (apps if i % 2 == 0 else apps[::-1]):
-            use(app)
-            cua("bring_to_front", {"pid": Target.pid})
-            time.sleep(1)  # harness: the window is in front before the recorder attaches
-            for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
-                runs[app["label"]][mode].append(record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i < opts.profile_runs))
-                time.sleep(2)  # harness: settle between runs
-    summary["runs"] = runs
-    for app in apps:
-        out = summary.setdefault("apps", {}).setdefault(app["label"], {"tag": app["tag"], "tick_window": app.get("tick_window")})
-        for mode, rs in runs[app["label"]].items():
-            valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
-                     and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
-            totals = [r["total_ms"] for r in valid]
-            out[mode] = {"valid": len(valid), "hitch_total_ms": totals,
-                         "median_ms": statistics.median(totals) if totals else None,
-                         "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
-                         "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0])}
-            print(f"{app['label']} {mode}: {out[mode]}", flush=True)
+    if opts.clean:
+        A["frame"] = opts.frame
+        for app in apps[1:]:
+            app["frame"] = opts.frame
+        summary["method"] = {"clean": True, "frame": opts.frame, "floors": opts.floors, "floor_frames": opts.floor_frames}
+        runs = run_clean(apps)
+        summary["runs"] = runs
+        summarize(runs, apps)
+    else:
+        for app in apps:
+            prepare(app)
+        runs = {app["label"]: {"noticks": [], "ticks": []} for app in apps}
+        for i in range(opts.repeats):
+            # Interleaved, the order flipped each round, so host drift lands on both apps alike.
+            for app in (apps if i % 2 == 0 else apps[::-1]):
+                use(app)
+                cua("bring_to_front", {"pid": Target.pid})
+                time.sleep(1)  # harness: the window is in front before the recorder attaches
+                for mode in (("noticks", "ticks") if i % 2 == 0 else ("ticks", "noticks")):
+                    runs[app["label"]][mode].append(record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i < opts.profile_runs))
+                    time.sleep(2)  # harness: settle between runs
+        summary["runs"] = runs
+        for app in apps:
+            out = summary.setdefault("apps", {}).setdefault(app["label"], {"tag": app["tag"], "tick_window": app.get("tick_window")})
+            for mode, rs in runs[app["label"]].items():
+                valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
+                         and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
+                totals = [r["total_ms"] for r in valid]
+                out[mode] = {"valid": len(valid), "hitch_total_ms": totals,
+                             "median_ms": statistics.median(totals) if totals else None,
+                             "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
+                             "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0])}
+                print(f"{app['label']} {mode}: {out[mode]}", flush=True)
 finally:
     summary["failures"] = failures
     with open(os.path.join(opts.out, f"release-{opts.label}.json"), "w") as fh:
