@@ -30,8 +30,14 @@ enum ChiefStrings {
     static var firstRunAgentStatus: String {
         String(localized: "chief.firstRun.prompt.agentStatus", defaultValue: "What are my agents doing?")
     }
+    /// The memory chip's label.
     static var firstRunRemember: String {
-        String(localized: "chief.firstRun.prompt.remember", defaultValue: "Remember that I prefer…")
+        String(localized: "chief.firstRun.prompt.rememberPreference", defaultValue: "Remember a preference")
+    }
+    /// What the memory chip puts in the message box, for the user to finish
+    /// (a space and the cursor follow it).
+    static var firstRunRememberFill: String {
+        String(localized: "chief.firstRun.prompt.rememberFill", defaultValue: "Remember that I prefer")
     }
     static var firstRunOpenTerminal: String {
         String(localized: "chief.firstRun.openTerminal", defaultValue: "Open a terminal")

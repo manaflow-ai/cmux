@@ -25,8 +25,14 @@ final class ChiefPanel: Panel {
 
     var displayIcon: String? { Self.iconSystemName }
 
-    /// The SF Symbol for Chief tabs, the sidebar Home row and canvas cards.
+    /// The SF Symbol for canvas cards, and for tabs where the asset cannot draw.
     static let iconSystemName = "bubble.left.and.bubble.right"
+
+    /// The tab's leading mark: Chief's cat face (the bundled `ChiefAvatar`
+    /// art, ``ChiefAvatarArtwork/defaultFace``), so a Chief tab reads as
+    /// Chief rather than as a generic chat. Bonsplit draws host assets at
+    /// its compact mark size, beside the other tabs' glyphs.
+    static let iconAssetName = "ChiefAvatar"
 
     init(id: UUID = UUID(), conversationID: ConversationID? = nil) {
         self.id = id

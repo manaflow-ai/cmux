@@ -150,7 +150,8 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
             if case .approvalRequested(let id, let prompt, let options) = event {
                 #expect(id == "scripted-approval-1")
                 #expect(ChiefAllowRules.command(inPrompt: prompt) == ChiefScriptedBrain.approvalCommand)
-                #expect(options == ["Allow", "Deny"])
+                // The real brains' options: the dispatch card offers Always Allow "cmux chief dispatch".
+                #expect(options == ["Allow", "Deny", "always:cmux chief dispatch"])
                 answered = true
                 await brain.respond(toApproval: id, choice: choice, conversation: conversation)
             }
@@ -158,7 +159,7 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
         #expect(answered)
         let head = [
             "text: On it. That starts a coding agent, so I'll ask first.",
-            "approval scripted-approval-1: Allow/Deny",
+            "approval scripted-approval-1: Allow/Deny/always:cmux chief dispatch",
         ]
         let tail = allowed
             ? ["tool: \(ChiefScriptedBrain.approvalCommand)", "tool done: Codex is working in Scratch",
@@ -172,11 +173,38 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
         var events: [ChiefTurnEvent] = []
         for try await event in brain.run(request("show me an error")) { events.append(event) }
         #expect(summarize(events) == [
-            "text: On it. Let me look at what's running.",
+            "text: Let me check what's failing.",
             "tool: \(ChiefScriptedBrain.treeCommand)",
             "tool failed: The control socket closed",
             "failed: The cmux control socket closed before the tree came back.",
         ])
+    }
+
+    /// A "Remember …" turn answers about memory and runs `cmux chief memory add` itself.
+    @Test func rememberTurnSavesTheFactThroughTheMemoryCommand() async throws {
+        let home = ChiefFixture().home
+        var turn = request("Remember that I prefer 14 pt font.")
+        turn.environment = [ChiefHome.environmentKey: home.root.path]
+        let brain = ChiefScriptedBrain(clock: RecordingImmediateClock())
+        var events: [ChiefTurnEvent] = []
+        for try await event in brain.run(turn) { events.append(event) }
+        #expect(summarize(events) == [
+            "text: Got it. I'll save that to memory.",
+            "tool: cmux chief memory add \"Prefers 14 pt font\"",
+            "tool done: Saved",
+            "text: Saved: Prefers 14 pt font. I'll keep that in mind from now on.",
+            "finished",
+        ])
+        #expect(ChiefMemory(paths: ChiefMemoryPaths(home: home)).facts().map(\.text) == ["Prefers 14 pt font"])
+    }
+
+    @Test func rememberedFactAndItsCommand() {
+        #expect(ChiefScriptedBrain.rememberedFact(in: "What are my agents doing?") == nil)
+        #expect(ChiefScriptedBrain.rememberedFact(in: "remember: builds run on brave-otter")
+            == "Builds run on brave-otter")
+        #expect(ChiefScriptedBrain.rememberedFact(in: "Remember that ") == nil)
+        #expect(ChiefScriptedBrain.memoryCommand(for: #"Say "hi" for $5"#)
+            == #"cmux chief memory add "Say \"hi\" for \$5""#)
     }
 
     @Test func interruptReleasesAWaitingApproval() async throws {

@@ -7,35 +7,44 @@ import QuartzCore
 /// (cmux-next `HomeFirstRunView`). Hidden once the conversation has a
 /// message (``ChiefTranscriptView``), with a short fade and lift.
 ///
-/// A centered column, at most 340 pt wide and 48 pt narrower than the panel,
-/// bottom-aligned 24 pt above the chips so the rows, the hint and the chips
-/// sit together over the message box (the composer is the focus:
-/// design references `topics/home-and-empty.md`, Codex's prompt starters):
+/// One centered column for everything, as wide as the widest line of chips
+/// (at least 280 pt, at most 560 pt and 48 pt narrower than the panel), so
+/// the rows' edges and the chips' edges line up. The rows sit 24 pt above
+/// the chips, so the rows, the hint and the chips read as one group over the
+/// message box (the composer is the focus: design references
+/// `topics/home-and-empty.md`, Codex's prompt starters and Claude's code
+/// home; `topics/first-run.md`, Cursor's quiet getting-started card). In a
+/// tall pane the group rises up to 24 pt more, so the space under the header
+/// is not all void while the group stays anchored to the composer.
 /// 1. "Open a terminal" and "Start an agent" (when the app wires them), each
-///    with its configured shortcut at the trailing edge.
+///    with its configured shortcut at the trailing edge: bordered buttons.
 /// 2. "Your agents": up to five workspaces with an agent, most urgent first,
-///    each with its status word; a click shows the workspace. With no agent
-///    anywhere, "Your workspaces": the first five workspaces, "Idle".
-/// 3. A one-line keyboard hint: "⌃1…9 switches workspaces.", or while Home
-///    hides the workspace list, "⌘⇧C shows your workspaces." (the configured
-///    Open Chief shortcut, which toggles Home).
+///    each with a 6 pt status dot and its status word; a click shows the
+///    workspace. With no agent anywhere, "Your workspaces": the first five
+///    workspaces, "Idle". Borderless, so the section reads as status, not
+///    as more buttons.
+/// 3. A one-line keyboard hint, "⌃1…9 switches workspaces.", except while
+///    Home is selected: there the sidebar's back row already names the way
+///    back to the workspaces and its shortcut.
 ///
 /// Pinned just above the message box, three suggestion chips in the
 /// incoming bubble's colours, like Messages' suggested replies: one centered
-/// row when they fit, else 2 + 1 with the third centered (``ChipLines``),
-/// never cut.
+/// row when they fit the column, else 2 + 1 with the third centered
+/// (``ChipLines``), never cut.
 ///
 /// Nothing runs under the compose field: chips that do not fit are dropped
 /// from the end, then agent rows (least urgent first) with their heading,
 /// then the hint, then the action rows.
 final class ChiefFirstRunView: NSView {
-    static let maxWidth: CGFloat = 340
-    /// Wide enough for the three chips in one row (about 620 pt); they wrap below that.
-    static let chipsMaxWidth: CGFloat = 680
+    /// The column's widest; the three chips (about 600 pt) wrap 2 + 1 inside it.
+    static let maxWidth: CGFloat = 560
+    /// The column's narrowest when the chips' lines are narrower still (a narrow pane).
+    static let minWidth: CGFloat = 280
     /// Between the column's last line and the chips.
     static let columnToChips: CGFloat = 24
 
-    /// Whether the host hides the workspace list (Home selected); the hint then names the way back.
+    /// Whether the host hides the workspace list (Home selected); the sidebar's back row then
+    /// names the way back, so the panel shows no hint.
     var hidesWorkspaces = false { didSet { if hidesWorkspaces != oldValue { refreshShortcuts() } } }
 
     private(set) var starterRows: [ChiefFirstRunRow] = []
@@ -145,8 +154,7 @@ final class ChiefFirstRunView: NSView {
             ? ChiefStrings.firstRunAgentsHeader : ChiefStrings.firstRunWorkspacesHeader
         if agentsHeader.stringValue != header { agentsHeader.stringValue = header }
         agentRows = shown.map { glance in
-            let row = ChiefFirstRunRow(title: glance.title,
-                                       leading: glance.hasAgent ? .status(glance.status) : .glyph("terminal"))
+            let row = ChiefFirstRunRow(title: glance.title, leading: .status(glance.status))
             let word = ChiefStrings.firstRunAgentStatus(glance.status)
             row.trailing = word
             row.setAccessibilityValue(word)
@@ -174,9 +182,10 @@ final class ChiefFirstRunView: NSView {
             terminal.trailing = keys
             terminal.setAccessibilityHelp(keys)
         }
-        // While Home hides the workspaces, "⌃1…9 switches workspaces" names rows the user can't see.
-        let hintText = (hidesWorkspaces ? ChiefAgentGlanceSource.toggleHomeKeys().map(ChiefStrings.firstRunShowWorkspacesHint) : nil)
-            ?? ChiefAgentGlanceSource.workspaceNumberKeys().map(ChiefStrings.firstRunWorkspacesHint) ?? ""
+        // On Home the sidebar's back row ("‹ Workspaces", with the Open Chief shortcut) is the way
+        // back; a hint repeating it would make one action appear twice on one screen.
+        let hintText = hidesWorkspaces ? ""
+            : ChiefAgentGlanceSource.workspaceNumberKeys().map(ChiefStrings.firstRunWorkspacesHint) ?? ""
         if hint.stringValue != hintText {
             hint.stringValue = hintText
             needsLayout = true
@@ -205,7 +214,7 @@ final class ChiefFirstRunView: NSView {
     func apply(_ theme: ChiefTheme) {
         self.theme = theme
         // System tints (status dots, the focus ring) resolve for the terminal theme, not the OS.
-        appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        appearance = theme.appearance
         applyStoredColors()
     }
 
@@ -217,7 +226,12 @@ final class ChiefFirstRunView: NSView {
         let rowColors = ChiefFirstRunRow.Colors(text: theme.textPrimary, glyph: theme.textSecondary,
                                                 trailing: theme.textTertiary, fill: theme.raisedFill,
                                                 hover: theme.hoverFill, pressed: pressed, border: theme.hairline)
-        for row in columnRows { row.applyColors(rowColors) }
+        for row in actionRows { row.applyColors(rowColors) }
+        // Status rows: no fill and no border until the pointer is over them.
+        var statusColors = rowColors
+        statusColors.fill = .clear
+        statusColors.border = nil
+        for row in agentRows { row.applyColors(statusColors) }
         let palette = theme.palettes().active
         let bubble = NSColor(cgColor: palette.incomingBubble.cgColor) ?? theme.raisedFill
         let bubbleText = NSColor(cgColor: palette.incomingText.cgColor) ?? theme.textPrimary
@@ -352,10 +366,18 @@ final class ChiefFirstRunView: NSView {
         content.frame = bounds
         let rtl = userInterfaceLayoutDirection == .rightToLeft
 
-        // Chips: centered lines just above the field.
-        let chipsWidth = max(0, min(Self.chipsMaxWidth, bounds.width - 32))
+        // One column for the rows and the chips: as wide as the widest line
+        // of chips, so the edges line up (the chips keep their lines when
+        // laid out again in it, each line no wider than the column).
+        let available = max(0, min(Self.maxWidth, bounds.width - 48))
         let chipGap: CGFloat = 8, chipBottom: CGFloat = 12
-        let lines = ChipLines(gap: chipGap).layout(widths: starterRows.map(\.chipWidth), available: chipsWidth)
+        let chipWidths = starterRows.map(\.chipWidth)
+        let widest = ChipLines(gap: chipGap).layout(widths: chipWidths, available: available)
+            .map { line in (line.last.map { $0.x + $0.width } ?? 0) - (line.first?.x ?? 0) }.max() ?? 0
+        let width = min(available, max(widest, Self.minWidth))
+        let x = floor((bounds.width - width) / 2)
+        // Chips: centered lines just above the field.
+        let lines = ChipLines(gap: chipGap).layout(widths: chipWidths, available: width)
         let chipHeight = ChiefFirstRunRow.chipHeight
         let minimumColumn: CGFloat = 2 * ChiefFirstRunRow.height + 6
         // Lines that would leave no room for the action rows go, last first.
@@ -367,16 +389,15 @@ final class ChiefFirstRunView: NSView {
             shownLines -= 1
         }
         let groupHeight = shownLines == 0 ? 0 : chipsHeight(shownLines) - chipBottom
-        chipGroup.frame = CGRect(x: floor((bounds.width - chipsWidth) / 2), y: bounds.height - chipBottom - groupHeight,
-                                 width: chipsWidth, height: groupHeight)
+        chipGroup.frame = CGRect(x: x, y: bounds.height - chipBottom - groupHeight, width: width, height: groupHeight)
         setHidden(chipGroup, shownLines == 0)
         for (lineIndex, line) in lines.enumerated() {
             for placed in line {
                 let chip = starterRows[placed.index]
                 // Right to left mirrors each centered line.
-                let x = rtl ? chipsWidth - placed.x - placed.width : placed.x
+                let chipX = rtl ? width - placed.x - placed.width : placed.x
                 setHidden(chip, lineIndex >= shownLines)
-                chip.frame = CGRect(x: x, y: CGFloat(lineIndex) * (chipHeight + chipGap), width: placed.width, height: chipHeight)
+                chip.frame = CGRect(x: chipX, y: CGFloat(lineIndex) * (chipHeight + chipGap), width: placed.width, height: chipHeight)
             }
         }
 
@@ -385,8 +406,6 @@ final class ChiefFirstRunView: NSView {
         // composer instead of islands spread down a tall pane; the header
         // stays at the top. Blocks that do not fit go, as below.
         let room = (shownLines == 0 ? bounds.height - chipBottom : chipGroup.frame.minY) - Self.columnToChips
-        let width = max(0, min(Self.maxWidth, bounds.width - 48))
-        let x = floor((bounds.width - width) / 2)
         let row = ChiefFirstRunRow.height, gap: CGFloat = 6, group: CGFloat = 14
         let headerHeight = ceil(agentsHeader.intrinsicContentSize.height)
         let hintHeight = ceil(hint.intrinsicContentSize.height)
@@ -416,7 +435,11 @@ final class ChiefFirstRunView: NSView {
         if columnHeight() > room { showsActions = false }
 
         let column = columnHeight()
-        var y = max(0, floor(room - column))
+        // A tall pane: rise up to 24 pt more once the space above passes
+        // 120 pt, so the void under the header shrinks while the group
+        // stays close to the composer.
+        let lift = min(24, max(0, room - column - 120) / 4)
+        var y = max(0, floor(room - column - lift))
         var placedBlock = false
         for (index, actionRow) in actionRows.enumerated() {
             setHidden(actionRow, !showsActions)
@@ -430,7 +453,8 @@ final class ChiefFirstRunView: NSView {
         if agentCount > 0 {
             if placedBlock { y += group }
             agentsHeader.alignment = rtl ? .right : .left
-            agentsHeader.frame = CGRect(x: x + 2, y: y, width: max(0, width - 4), height: headerHeight)
+            // In line with the rows' leading glyphs and dots (12 pt in).
+            agentsHeader.frame = CGRect(x: x + 12, y: y, width: max(0, width - 24), height: headerHeight)
             y += headerHeight + gap
             placedBlock = true
         }

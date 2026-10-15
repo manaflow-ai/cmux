@@ -27,6 +27,7 @@ extension Workspace {
         guard let newTabId = bonsplitController.createTab(
             title: chiefPanel.displayTitle,
             icon: chiefPanel.displayIcon,
+            iconAsset: ChiefPanel.iconAssetName,
             kind: SurfaceKind.chief.rawValue,
             isDirty: false,
             isLoading: false,
@@ -50,6 +51,7 @@ extension Workspace {
             focused: shouldFocusNewTab
         )
         if shouldFocusNewTab {
+            leaveChiefHomeToShowChiefPane()
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
             applyTabSelection(tabId: newTabId, inPane: paneId)
@@ -121,6 +123,7 @@ extension Workspace {
         let tab = Bonsplit.Tab(
             title: chiefPanel.displayTitle,
             icon: chiefPanel.displayIcon,
+            iconAsset: ChiefPanel.iconAssetName,
             kind: SurfaceKind.chief.rawValue,
             isDirty: false,
             isLoading: false,
@@ -159,6 +162,7 @@ extension Workspace {
         )
 
         if focus {
+            leaveChiefHomeToShowChiefPane()
             suppressReparentFocusUntilLayoutFollowUp(
                 previousHostedView,
                 reason: "workspace.chiefSplitReparent"
@@ -172,5 +176,15 @@ extension Workspace {
             )
         }
         return chiefPanel
+    }
+
+    /// A focused new Chief pane in the window's selected workspace leaves
+    /// Chief Home first, so the pane shows at once instead of only after the
+    /// workspace is selected again (the palette's "New Chief Pane in Split"
+    /// runs from Home too). Unfocused creation (the socket's default) leaves
+    /// Home alone: it never takes the user's view.
+    private func leaveChiefHomeToShowChiefPane() {
+        guard let tabManager = owningTabManager, tabManager.selectedWorkspace === self else { return }
+        AppDelegate.shared?.leaveChiefHome(in: tabManager)
     }
 }

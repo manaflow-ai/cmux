@@ -30,12 +30,13 @@ struct ChiefStarterPrompt: Equatable {
                                symbol: "square.stack.3d.up", sends: true),
             ChiefStarterPrompt(title: ChiefStrings.firstRunCloudMachine, text: ChiefStrings.firstRunCloudMachine + " ",
                                symbol: "cloud", sends: false),
-            ChiefStarterPrompt(title: ChiefStrings.firstRunRemember, text: fillText(ChiefStrings.firstRunRemember),
+            ChiefStarterPrompt(title: ChiefStrings.firstRunRemember, text: fillText(ChiefStrings.firstRunRememberFill),
                                symbol: "bookmark", sends: false),
         ]
     }
 
-    /// "Remember that I prefer…" becomes "Remember that I prefer " to finish.
+    /// "Remember that I prefer" (or a translation ending in "…") becomes
+    /// "Remember that I prefer " to finish, the cursor after the space.
     static func fillText(_ title: String) -> String {
         var text = title
         while let last = text.last, last == "…" || last == "." || last == "。" { text.removeLast() }

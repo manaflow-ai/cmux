@@ -658110,61 +658110,120 @@
         }
       }
     },
-    "chief.firstRun.prompt.remember": {
+    "chief.firstRun.prompt.rememberFill": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remember that I prefer…"
+            "value": "Remember that I prefer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Merk dir, dass ich … bevorzuge"
+            "value": "Merk dir: Ich bevorzuge"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Souviens-toi que je préfère…"
+            "value": "Souviens-toi que je préfère"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تذكّر أنني أفضّل…"
+            "value": "تذكّر أنني أفضّل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recuerda que prefiero…"
+            "value": "Recuerda que prefiero"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "記住我偏好…"
+            "value": "記住我偏好"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "记住我偏好…"
+            "value": "记住我偏好"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내가 선호하는 것을 기억해 줘…"
+            "value": "기억해 줘: 내가 선호하는 것은"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "私の好みを覚えておいて…"
+            "value": "覚えておいて：私の好みは"
+          }
+        }
+      }
+    },
+    "chief.firstRun.prompt.rememberPreference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remember a preference"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Vorliebe merken"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retenir une préférence"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تذكّر تفضيلًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recordar una preferencia"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記住一項偏好"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记住一项偏好"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선호 사항 기억하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好みを覚えてもらう"
           }
         }
       }
@@ -663481,65 +663540,6 @@
         }
       }
     },
-    "chief.firstRun.showWorkspacesHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ shows your workspaces."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ zeigt deine Arbeitsbereiche."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ affiche vos espaces de travail."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "‏%@ يعرض مساحات العمل."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ muestra tus espacios de trabajo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 顯示你的工作區。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 显示你的工作区。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 키로 워크스페이스를 표시합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ でワークスペースを表示します。"
-          }
-        }
-      }
-    },
     "chief.memory.forget": {
       "extractionState": "manual",
       "localizations": {
@@ -666024,55 +666024,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                           [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                           [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                           (-- <task words...> | --prompt-file <path|->)\n\nStart one coding agent on one task in a new workspace. The workspace is titled\n--name (default: the task's first line) and has no description.\n\nThe task is passed to the agent as one argument and never through a shell, so\nquotes, $ and newlines arrive unchanged. --prompt-file - reads it from stdin.\n\nOptions:\n  --agent codex|claude   Default codex, started as `codex --yolo`; claude starts as `claude`.\n  --agent-arg <arg>      Append one argument to the agent's command (repeatable).\n  --cwd <dir>            The agent's directory (default: the app's default).\n  --worktree <repo>      First run `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         and start the agent there. <slug> comes from the title.\n  --branch <name>        The new branch for --worktree (default: <slug>).\n  --focus, --no-focus    Switch to the new workspace, or stay where you are. By default it\n                         switches only when a person runs the command in a terminal.\n  --wait-working         Wait until the terminal shows the agent working\n                         (Codex \"Working (…)\", a Claude Code spinner row).\n  --timeout <seconds>    How long --wait-working waits (default 60, max 600).\n  --json                 Print workspace_id, workspace_ref, surface_id, agent and status.\n\nstatus is working (seen working), started (not checked) or failed (with a reason:\ntimeout, trust_prompt, sign_in or agent_not_found). A failed check exits 1.\n\nExamples:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "Usage: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                           [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                           [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                           (-- <task words...> | --prompt-file <path|->)\n\nStart one coding agent on one task in a new workspace. The workspace is titled\n--name (default: the task's first line) and has no description.\n\nThe task is passed to the agent as one argument and never through a shell, so\nquotes, $ and newlines arrive unchanged. --prompt-file - reads it from stdin.\nThe task is the agent's last command-line argument, so `ps` and other tools\non this Mac can show it while the agent runs. Keep secrets out of it.\n\nOptions:\n  --agent codex|claude   Default codex, started as `codex --yolo`; claude starts as `claude`.\n  --agent-arg <arg>      Append one argument to the agent's command (repeatable).\n  --cwd <dir>            The agent's directory (default: the app's default).\n  --worktree <repo>      First run `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         and start the agent there. <slug> comes from the title.\n  --branch <name>        The new branch for --worktree (default: <slug>).\n  --focus, --no-focus    Switch to the new workspace, or stay where you are. By default it\n                         switches only when a person runs the command in a terminal.\n  --wait-working         Wait until the terminal shows the agent working\n                         (Codex \"Working (…)\", a Claude Code spinner row).\n  --timeout <seconds>    How long --wait-working waits (default 60, max 600).\n  --json                 Print workspace_id, workspace_ref, surface_id, agent and status.\n\nstatus is working (seen working), started (not checked) or failed (with a reason:\ntimeout, trust_prompt, sign_in or agent_not_found). A failed check exits 1.\n\nExamples:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                                [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                                [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                                (-- <task words...> | --prompt-file <path|->)\n\nStartet einen Coding-Agenten für eine Aufgabe in einem neuen Workspace. Der Workspace heißt\nwie --name (Standard: die erste Zeile der Aufgabe) und hat keine Beschreibung.\n\nDie Aufgabe geht als ein Argument an den Agenten und nie durch eine Shell, daher kommen\nAnführungszeichen, $ und Zeilenumbrüche unverändert an. --prompt-file - liest sie von stdin.\n\nOptionen:\n  --agent codex|claude   Standard codex, gestartet als `codex --yolo`; claude startet als `claude`.\n  --agent-arg <arg>      Hängt ein Argument an den Befehl des Agenten an (wiederholbar).\n  --cwd <dir>            Das Verzeichnis des Agenten (Standard: der Standard der App).\n  --worktree <repo>      Führt zuerst `git -C <repo> worktree add -b <branch> <repo>-<slug>` aus\n                         und startet den Agenten dort. <slug> stammt aus dem Titel.\n  --branch <name>        Der neue Branch für --worktree (Standard: <slug>).\n  --focus, --no-focus    Wechselt zum neuen Workspace oder bleibt, wo du bist. Standardmäßig wird\n                         nur gewechselt, wenn eine Person den Befehl in einem Terminal ausführt.\n  --wait-working         Wartet, bis das Terminal zeigt, dass der Agent arbeitet\n                         (Codex „Working (…)“, eine Spinner-Zeile von Claude Code).\n  --timeout <seconds>    Wie lange --wait-working wartet (Standard 60, höchstens 600).\n  --json                 Gibt workspace_id, workspace_ref, surface_id, agent und status aus.\n\nstatus ist working (bei der Arbeit gesehen), started (nicht geprüft) oder failed (mit einem Grund:\ntimeout, trust_prompt, sign_in oder agent_not_found). Eine fehlgeschlagene Prüfung endet mit Exit-Code 1.\n\nBeispiele:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "Verwendung: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                                [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                                [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                                (-- <task words...> | --prompt-file <path|->)\n\nStartet einen Coding-Agenten für eine Aufgabe in einem neuen Workspace. Der Workspace heißt\nwie --name (Standard: die erste Zeile der Aufgabe) und hat keine Beschreibung.\n\nDie Aufgabe geht als ein Argument an den Agenten und nie durch eine Shell, daher kommen\nAnführungszeichen, $ und Zeilenumbrüche unverändert an. --prompt-file - liest sie von stdin.\nDie Aufgabe ist das letzte Befehlszeilenargument des Agenten, daher können `ps` und andere\nWerkzeuge auf diesem Mac sie anzeigen, solange der Agent läuft. Keine Geheimnisse hineinschreiben.\n\nOptionen:\n  --agent codex|claude   Standard codex, gestartet als `codex --yolo`; claude startet als `claude`.\n  --agent-arg <arg>      Hängt ein Argument an den Befehl des Agenten an (wiederholbar).\n  --cwd <dir>            Das Verzeichnis des Agenten (Standard: der Standard der App).\n  --worktree <repo>      Führt zuerst `git -C <repo> worktree add -b <branch> <repo>-<slug>` aus\n                         und startet den Agenten dort. <slug> stammt aus dem Titel.\n  --branch <name>        Der neue Branch für --worktree (Standard: <slug>).\n  --focus, --no-focus    Wechselt zum neuen Workspace oder bleibt, wo du bist. Standardmäßig wird\n                         nur gewechselt, wenn eine Person den Befehl in einem Terminal ausführt.\n  --wait-working         Wartet, bis das Terminal zeigt, dass der Agent arbeitet\n                         (Codex „Working (…)“, eine Spinner-Zeile von Claude Code).\n  --timeout <seconds>    Wie lange --wait-working wartet (Standard 60, höchstens 600).\n  --json                 Gibt workspace_id, workspace_ref, surface_id, agent und status aus.\n\nstatus ist working (bei der Arbeit gesehen), started (nicht geprüft) oder failed (mit einem Grund:\ntimeout, trust_prompt, sign_in oder agent_not_found). Eine fehlgeschlagene Prüfung endet mit Exit-Code 1.\n\nBeispiele:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                                  [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                                  [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                                  (-- <task words...> | --prompt-file <path|->)\n\nLance un agent de code sur une tâche dans un nouvel espace de travail. L’espace prend le titre\n--name (par défaut : la première ligne de la tâche) et n’a pas de description.\n\nLa tâche est transmise à l’agent comme un seul argument, jamais via un shell : les guillemets,\n$ et les retours à la ligne arrivent intacts. --prompt-file - la lit depuis stdin.\n\nOptions :\n  --agent codex|claude   codex par défaut, lancé avec `codex --yolo` ; claude se lance avec `claude`.\n  --agent-arg <arg>      Ajoute un argument à la commande de l’agent (répétable).\n  --cwd <dir>            Le dossier de l’agent (par défaut : celui de l’app).\n  --worktree <repo>      Exécute d’abord `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         et y lance l’agent. <slug> vient du titre.\n  --branch <name>        La nouvelle branche pour --worktree (par défaut : <slug>).\n  --focus, --no-focus    Bascule vers le nouvel espace ou reste où vous êtes. Par défaut, ne bascule\n                         que si une personne lance la commande dans un terminal.\n  --wait-working         Attend que le terminal montre l’agent au travail\n                         (« Working (…) » de Codex, une ligne d’activité de Claude Code).\n  --timeout <seconds>    Durée d’attente de --wait-working (60 par défaut, 600 au maximum).\n  --json                 Affiche workspace_id, workspace_ref, surface_id, agent et status.\n\nstatus vaut working (vu au travail), started (non vérifié) ou failed (avec une raison :\ntimeout, trust_prompt, sign_in ou agent_not_found). Une vérification échouée sort avec le code 1.\n\nExemples :\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "Utilisation : cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                                  [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                                  [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                                  (-- <task words...> | --prompt-file <path|->)\n\nLance un agent de code sur une tâche dans un nouvel espace de travail. L’espace prend le titre\n--name (par défaut : la première ligne de la tâche) et n’a pas de description.\n\nLa tâche est transmise à l’agent comme un seul argument, jamais via un shell : les guillemets,\n$ et les retours à la ligne arrivent intacts. --prompt-file - la lit depuis stdin.\nLa tâche est le dernier argument de la ligne de commande de l’agent : `ps` et d’autres outils\nde ce Mac peuvent l’afficher pendant que l’agent tourne. N’y mettez aucun secret.\n\nOptions :\n  --agent codex|claude   codex par défaut, lancé avec `codex --yolo` ; claude se lance avec `claude`.\n  --agent-arg <arg>      Ajoute un argument à la commande de l’agent (répétable).\n  --cwd <dir>            Le dossier de l’agent (par défaut : celui de l’app).\n  --worktree <repo>      Exécute d’abord `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         et y lance l’agent. <slug> vient du titre.\n  --branch <name>        La nouvelle branche pour --worktree (par défaut : <slug>).\n  --focus, --no-focus    Bascule vers le nouvel espace ou reste où vous êtes. Par défaut, ne bascule\n                         que si une personne lance la commande dans un terminal.\n  --wait-working         Attend que le terminal montre l’agent au travail\n                         (« Working (…) » de Codex, une ligne d’activité de Claude Code).\n  --timeout <seconds>    Durée d’attente de --wait-working (60 par défaut, 600 au maximum).\n  --json                 Affiche workspace_id, workspace_ref, surface_id, agent et status.\n\nstatus vaut working (vu au travail), started (non vérifié) ou failed (avec une raison :\ntimeout, trust_prompt, sign_in ou agent_not_found). Une vérification échouée sort avec le code 1.\n\nExemples :\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                               [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                               [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                               (-- <task words...> | --prompt-file <path|->)\n\nيشغّل وكيل برمجة واحدًا على مهمة واحدة في مساحة عمل جديدة. يكون عنوان المساحة\nقيمة --name (افتراضيًا: السطر الأول من المهمة) ولا يكون لها وصف.\n\nتُمرَّر المهمة إلى الوكيل كوسيطة واحدة ولا تمر أبدًا عبر shell، لذا تصل علامات الاقتباس\nو$ والأسطر الجديدة كما هي. ‏--prompt-file - يقرأها من stdin.\n\nالخيارات:\n  --agent codex|claude   الافتراضي codex ويُشغَّل بالأمر `codex --yolo`؛ ويُشغَّل claude بالأمر `claude`.\n  --agent-arg <arg>      يضيف وسيطة واحدة إلى أمر الوكيل (قابل للتكرار).\n  --cwd <dir>            مجلد الوكيل (افتراضيًا: الافتراضي في التطبيق).\n  --worktree <repo>      ينفّذ أولًا `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         ثم يشغّل الوكيل هناك. يُشتق <slug> من العنوان.\n  --branch <name>        الفرع الجديد لـ --worktree (افتراضيًا: <slug>).\n  --focus, --no-focus    الانتقال إلى مساحة العمل الجديدة أو البقاء حيث أنت. افتراضيًا لا ينتقل\n                         إلا عندما يشغّل شخص الأمر في طرفية.\n  --wait-working         الانتظار حتى تُظهر الطرفية أن الوكيل يعمل\n                         (\"Working (…)\" في Codex، أو سطر نشاط في Claude Code).\n  --timeout <seconds>    مدة انتظار --wait-working (الافتراضي 60، والحد الأقصى 600).\n  --json                 يطبع workspace_id وworkspace_ref وsurface_id وagent وstatus.\n\nقيمة status هي working (شوهد يعمل) أو started (لم يُتحقق) أو failed (مع سبب:\ntimeout أو trust_prompt أو sign_in أو agent_not_found). ينتهي التحقق الفاشل برمز الخروج 1.\n\nأمثلة:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "الاستخدام: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                               [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                               [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                               (-- <task words...> | --prompt-file <path|->)\n\nيشغّل وكيل برمجة واحدًا على مهمة واحدة في مساحة عمل جديدة. يكون عنوان المساحة\nقيمة --name (افتراضيًا: السطر الأول من المهمة) ولا يكون لها وصف.\n\nتُمرَّر المهمة إلى الوكيل كوسيطة واحدة ولا تمر أبدًا عبر shell، لذا تصل علامات الاقتباس\nو$ والأسطر الجديدة كما هي. ‏--prompt-file - يقرأها من stdin.\nالمهمة هي آخر وسيطة في سطر أوامر الوكيل، لذا يمكن أن يعرضها `ps` وأدوات أخرى\nعلى هذا الـ Mac ما دام الوكيل يعمل. لا تضع فيها أي أسرار.\n\nالخيارات:\n  --agent codex|claude   الافتراضي codex ويُشغَّل بالأمر `codex --yolo`؛ ويُشغَّل claude بالأمر `claude`.\n  --agent-arg <arg>      يضيف وسيطة واحدة إلى أمر الوكيل (قابل للتكرار).\n  --cwd <dir>            مجلد الوكيل (افتراضيًا: الافتراضي في التطبيق).\n  --worktree <repo>      ينفّذ أولًا `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         ثم يشغّل الوكيل هناك. يُشتق <slug> من العنوان.\n  --branch <name>        الفرع الجديد لـ --worktree (افتراضيًا: <slug>).\n  --focus, --no-focus    الانتقال إلى مساحة العمل الجديدة أو البقاء حيث أنت. افتراضيًا لا ينتقل\n                         إلا عندما يشغّل شخص الأمر في طرفية.\n  --wait-working         الانتظار حتى تُظهر الطرفية أن الوكيل يعمل\n                         (\"Working (…)\" في Codex، أو سطر نشاط في Claude Code).\n  --timeout <seconds>    مدة انتظار --wait-working (الافتراضي 60، والحد الأقصى 600).\n  --json                 يطبع workspace_id وworkspace_ref وsurface_id وagent وstatus.\n\nقيمة status هي working (شوهد يعمل) أو started (لم يُتحقق) أو failed (مع سبب:\ntimeout أو trust_prompt أو sign_in أو agent_not_found). ينتهي التحقق الفاشل برمز الخروج 1.\n\nأمثلة:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\nInicia un agente de programación con una tarea en un espacio de trabajo nuevo. El espacio se titula\ncon --name (por defecto: la primera línea de la tarea) y no tiene descripción.\n\nLa tarea llega al agente como un solo argumento y nunca pasa por un shell, así que las comillas,\n$ y los saltos de línea llegan intactos. --prompt-file - la lee de stdin.\n\nOpciones:\n  --agent codex|claude   Por defecto codex, iniciado como `codex --yolo`; claude se inicia como `claude`.\n  --agent-arg <arg>      Añade un argumento al comando del agente (repetible).\n  --cwd <dir>            El directorio del agente (por defecto: el de la app).\n  --worktree <repo>      Primero ejecuta `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         e inicia el agente allí. <slug> sale del título.\n  --branch <name>        La rama nueva para --worktree (por defecto: <slug>).\n  --focus, --no-focus    Cambia al espacio nuevo o te quedas donde estás. Por defecto solo cambia\n                         cuando una persona ejecuta el comando en una terminal.\n  --wait-working         Espera hasta que la terminal muestre al agente trabajando\n                         (\"Working (…)\" de Codex, una fila de actividad de Claude Code).\n  --timeout <seconds>    Cuánto espera --wait-working (por defecto 60, máximo 600).\n  --json                 Imprime workspace_id, workspace_ref, surface_id, agent y status.\n\nstatus es working (visto trabajando), started (sin comprobar) o failed (con un motivo:\ntimeout, trust_prompt, sign_in o agent_not_found). Una comprobación fallida sale con código 1.\n\nEjemplos:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "Uso: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\nInicia un agente de programación con una tarea en un espacio de trabajo nuevo. El espacio se titula\ncon --name (por defecto: la primera línea de la tarea) y no tiene descripción.\n\nLa tarea llega al agente como un solo argumento y nunca pasa por un shell, así que las comillas,\n$ y los saltos de línea llegan intactos. --prompt-file - la lee de stdin.\nLa tarea es el último argumento de la línea de comandos del agente, así que `ps` y otras herramientas\nde este Mac pueden mostrarla mientras el agente se ejecuta. No incluyas secretos.\n\nOpciones:\n  --agent codex|claude   Por defecto codex, iniciado como `codex --yolo`; claude se inicia como `claude`.\n  --agent-arg <arg>      Añade un argumento al comando del agente (repetible).\n  --cwd <dir>            El directorio del agente (por defecto: el de la app).\n  --worktree <repo>      Primero ejecuta `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         e inicia el agente allí. <slug> sale del título.\n  --branch <name>        La rama nueva para --worktree (por defecto: <slug>).\n  --focus, --no-focus    Cambia al espacio nuevo o te quedas donde estás. Por defecto solo cambia\n                         cuando una persona ejecuta el comando en una terminal.\n  --wait-working         Espera hasta que la terminal muestre al agente trabajando\n                         (\"Working (…)\" de Codex, una fila de actividad de Claude Code).\n  --timeout <seconds>    Cuánto espera --wait-working (por defecto 60, máximo 600).\n  --json                 Imprime workspace_id, workspace_ref, surface_id, agent y status.\n\nstatus es working (visto trabajando), started (sin comprobar) o failed (con un motivo:\ntimeout, trust_prompt, sign_in o agent_not_found). Una comprobación fallida sale con código 1.\n\nEjemplos:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                        [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                        [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                        (-- <task words...> | --prompt-file <path|->)\n\n在新的工作區中啟動一個程式代理來處理一項任務。工作區標題為\n--name（預設：任務的第一行），且沒有描述。\n\n任務以單一參數傳給代理，從不經過 shell，因此引號、$ 和換行\n都會原樣送達。--prompt-file - 從 stdin 讀取任務。\n\n選項：\n  --agent codex|claude   預設 codex，以 `codex --yolo` 啟動；claude 以 `claude` 啟動。\n  --agent-arg <arg>      在代理的命令後加上一個參數（可重複）。\n  --cwd <dir>            代理的目錄（預設：App 的預設目錄）。\n  --worktree <repo>      先執行 `git -C <repo> worktree add -b <branch> <repo>-<slug>`，\n                         再於該處啟動代理。<slug> 取自標題。\n  --branch <name>        --worktree 使用的新分支（預設：<slug>）。\n  --focus, --no-focus    切換到新工作區，或留在原處。預設只在有人\n                         於終端機中執行此命令時切換。\n  --wait-working         等待終端機顯示代理正在工作\n                         （Codex 的 \"Working (…)\"，或 Claude Code 的活動列）。\n  --timeout <seconds>    --wait-working 的等待時間（預設 60，最多 600）。\n  --json                 輸出 workspace_id、workspace_ref、surface_id、agent 和 status。\n\nstatus 為 working（已看到在工作）、started（未檢查）或 failed（附原因：\ntimeout、trust_prompt、sign_in 或 agent_not_found）。檢查失敗時以結束代碼 1 結束。\n\n範例：\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "用法： cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                        [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                        [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                        (-- <task words...> | --prompt-file <path|->)\n\n在新的工作區中啟動一個程式代理來處理一項任務。工作區標題為\n--name（預設：任務的第一行），且沒有描述。\n\n任務以單一參數傳給代理，從不經過 shell，因此引號、$ 和換行\n都會原樣送達。--prompt-file - 從 stdin 讀取任務。\n任務是代理命令列的最後一個參數，因此代理執行期間，這台 Mac 上的 `ps` 等工具\n都能看到它。請勿在任務中放入機密資訊。\n\n選項：\n  --agent codex|claude   預設 codex，以 `codex --yolo` 啟動；claude 以 `claude` 啟動。\n  --agent-arg <arg>      在代理的命令後加上一個參數（可重複）。\n  --cwd <dir>            代理的目錄（預設：App 的預設目錄）。\n  --worktree <repo>      先執行 `git -C <repo> worktree add -b <branch> <repo>-<slug>`，\n                         再於該處啟動代理。<slug> 取自標題。\n  --branch <name>        --worktree 使用的新分支（預設：<slug>）。\n  --focus, --no-focus    切換到新工作區，或留在原處。預設只在有人\n                         於終端機中執行此命令時切換。\n  --wait-working         等待終端機顯示代理正在工作\n                         （Codex 的 \"Working (…)\"，或 Claude Code 的活動列）。\n  --timeout <seconds>    --wait-working 的等待時間（預設 60，最多 600）。\n  --json                 輸出 workspace_id、workspace_ref、surface_id、agent 和 status。\n\nstatus 為 working（已看到在工作）、started（未檢查）或 failed（附原因：\ntimeout、trust_prompt、sign_in 或 agent_not_found）。檢查失敗時以結束代碼 1 結束。\n\n範例：\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                        [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                        [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                        (-- <task words...> | --prompt-file <path|->)\n\n在新的工作区中启动一个编码代理来处理一项任务。工作区标题为\n--name（默认：任务的第一行），且没有描述。\n\n任务作为一个参数传给代理，从不经过 shell，因此引号、$ 和换行\n都会原样送达。--prompt-file - 从 stdin 读取任务。\n\n选项：\n  --agent codex|claude   默认 codex，以 `codex --yolo` 启动；claude 以 `claude` 启动。\n  --agent-arg <arg>      向代理命令追加一个参数（可重复）。\n  --cwd <dir>            代理的目录（默认：应用的默认目录）。\n  --worktree <repo>      先运行 `git -C <repo> worktree add -b <branch> <repo>-<slug>`，\n                         再在那里启动代理。<slug> 取自标题。\n  --branch <name>        --worktree 使用的新分支（默认：<slug>）。\n  --focus, --no-focus    切换到新工作区，或留在原处。默认仅在有人\n                         于终端中运行该命令时切换。\n  --wait-working         等待终端显示代理正在工作\n                         （Codex 的 \"Working (…)\"，或 Claude Code 的活动行）。\n  --timeout <seconds>    --wait-working 的等待时长（默认 60，最多 600）。\n  --json                 输出 workspace_id、workspace_ref、surface_id、agent 和 status。\n\nstatus 为 working（已看到在工作）、started（未检查）或 failed（附原因：\ntimeout、trust_prompt、sign_in 或 agent_not_found）。检查失败时以退出码 1 结束。\n\n示例：\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "用法： cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                        [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                        [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                        (-- <task words...> | --prompt-file <path|->)\n\n在新的工作区中启动一个编码代理来处理一项任务。工作区标题为\n--name（默认：任务的第一行），且没有描述。\n\n任务作为一个参数传给代理，从不经过 shell，因此引号、$ 和换行\n都会原样送达。--prompt-file - 从 stdin 读取任务。\n任务是代理命令行的最后一个参数，因此代理运行期间，这台 Mac 上的 `ps` 等工具\n都能看到它。请勿在任务中放入机密信息。\n\n选项：\n  --agent codex|claude   默认 codex，以 `codex --yolo` 启动；claude 以 `claude` 启动。\n  --agent-arg <arg>      向代理命令追加一个参数（可重复）。\n  --cwd <dir>            代理的目录（默认：应用的默认目录）。\n  --worktree <repo>      先运行 `git -C <repo> worktree add -b <branch> <repo>-<slug>`，\n                         再在那里启动代理。<slug> 取自标题。\n  --branch <name>        --worktree 使用的新分支（默认：<slug>）。\n  --focus, --no-focus    切换到新工作区，或留在原处。默认仅在有人\n                         于终端中运行该命令时切换。\n  --wait-working         等待终端显示代理正在工作\n                         （Codex 的 \"Working (…)\"，或 Claude Code 的活动行）。\n  --timeout <seconds>    --wait-working 的等待时长（默认 60，最多 600）。\n  --json                 输出 workspace_id、workspace_ref、surface_id、agent 和 status。\n\nstatus 为 working（已看到在工作）、started（未检查）或 failed（附原因：\ntimeout、trust_prompt、sign_in 或 agent_not_found）。检查失败时以退出码 1 结束。\n\n示例：\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\n새 워크스페이스에서 코딩 에이전트 하나를 작업 하나에 실행합니다. 워크스페이스 제목은\n--name(기본값: 작업의 첫 줄)이며 설명은 비어 있습니다.\n\n작업은 셸을 거치지 않고 에이전트에 인수 하나로 전달되므로 따옴표, $, 줄바꿈이\n그대로 전달됩니다. --prompt-file -는 stdin에서 작업을 읽습니다.\n\n옵션:\n  --agent codex|claude   기본값은 codex이며 `codex --yolo`로 시작합니다. claude는 `claude`로 시작합니다.\n  --agent-arg <arg>      에이전트 명령에 인수 하나를 덧붙입니다(반복 가능).\n  --cwd <dir>            에이전트의 디렉터리(기본값: 앱의 기본값).\n  --worktree <repo>      먼저 `git -C <repo> worktree add -b <branch> <repo>-<slug>`를 실행하고\n                         그곳에서 에이전트를 시작합니다. <slug>는 제목에서 만듭니다.\n  --branch <name>        --worktree에 쓸 새 브랜치(기본값: <slug>).\n  --focus, --no-focus    새 워크스페이스로 전환하거나 지금 위치에 머뭅니다. 기본적으로 사람이\n                         터미널에서 명령을 실행할 때만 전환합니다.\n  --wait-working         터미널에 에이전트가 작업 중으로 표시될 때까지 기다립니다\n                         (Codex의 \"Working (…)\", Claude Code의 활동 줄).\n  --timeout <seconds>    --wait-working이 기다리는 시간(기본값 60, 최대 600).\n  --json                 workspace_id, workspace_ref, surface_id, agent, status를 출력합니다.\n\nstatus는 working(작업 중 확인), started(확인 안 함) 또는 failed(사유 포함:\ntimeout, trust_prompt, sign_in, agent_not_found)입니다. 확인에 실패하면 종료 코드 1로 끝납니다.\n\n예시:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "사용법: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\n새 워크스페이스에서 코딩 에이전트 하나를 작업 하나에 실행합니다. 워크스페이스 제목은\n--name(기본값: 작업의 첫 줄)이며 설명은 비어 있습니다.\n\n작업은 셸을 거치지 않고 에이전트에 인수 하나로 전달되므로 따옴표, $, 줄바꿈이\n그대로 전달됩니다. --prompt-file -는 stdin에서 작업을 읽습니다.\n작업은 에이전트 명령줄의 마지막 인수이므로, 에이전트가 실행되는 동안 이 Mac의 `ps`와\n다른 도구에서 볼 수 있습니다. 비밀 정보는 넣지 마세요.\n\n옵션:\n  --agent codex|claude   기본값은 codex이며 `codex --yolo`로 시작합니다. claude는 `claude`로 시작합니다.\n  --agent-arg <arg>      에이전트 명령에 인수 하나를 덧붙입니다(반복 가능).\n  --cwd <dir>            에이전트의 디렉터리(기본값: 앱의 기본값).\n  --worktree <repo>      먼저 `git -C <repo> worktree add -b <branch> <repo>-<slug>`를 실행하고\n                         그곳에서 에이전트를 시작합니다. <slug>는 제목에서 만듭니다.\n  --branch <name>        --worktree에 쓸 새 브랜치(기본값: <slug>).\n  --focus, --no-focus    새 워크스페이스로 전환하거나 지금 위치에 머뭅니다. 기본적으로 사람이\n                         터미널에서 명령을 실행할 때만 전환합니다.\n  --wait-working         터미널에 에이전트가 작업 중으로 표시될 때까지 기다립니다\n                         (Codex의 \"Working (…)\", Claude Code의 활동 줄).\n  --timeout <seconds>    --wait-working이 기다리는 시간(기본값 60, 최대 600).\n  --json                 workspace_id, workspace_ref, surface_id, agent, status를 출력합니다.\n\nstatus는 working(작업 중 확인), started(확인 안 함) 또는 failed(사유 포함:\ntimeout, trust_prompt, sign_in, agent_not_found)입니다. 확인에 실패하면 종료 코드 1로 끝납니다.\n\n예시:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\n新しいワークスペースで、1 つのタスクに 1 つのコーディングエージェントを起動します。ワークスペースの\nタイトルは --name(既定: タスクの 1 行目)で、説明は空のままです。\n\nタスクはシェルを通さず 1 つの引数としてエージェントに渡されるため、引用符、$、改行は\nそのまま届きます。--prompt-file - は stdin からタスクを読み込みます。\n\nオプション:\n  --agent codex|claude   既定は codex で `codex --yolo` として起動します。claude は `claude` として起動します。\n  --agent-arg <arg>      エージェントのコマンドに引数を 1 つ追加します(繰り返し可)。\n  --cwd <dir>            エージェントのディレクトリ(既定: アプリの既定)。\n  --worktree <repo>      まず `git -C <repo> worktree add -b <branch> <repo>-<slug>` を実行し、\n                         そこでエージェントを起動します。<slug> はタイトルから作ります。\n  --branch <name>        --worktree で作る新しいブランチ(既定: <slug>)。\n  --focus, --no-focus    新しいワークスペースに切り替えるか、今の場所に留まります。既定では、\n                         人がターミナルでコマンドを実行したときだけ切り替えます。\n  --wait-working         ターミナルにエージェントの作業中表示が出るまで待ちます\n                         (Codex の \"Working (…)\"、Claude Code のアクティビティ行)。\n  --timeout <seconds>    --wait-working の待ち時間(既定 60、最大 600)。\n  --json                 workspace_id、workspace_ref、surface_id、agent、status を出力します。\n\nstatus は working(作業中を確認)、started(未確認)、failed(理由付き:\ntimeout、trust_prompt、sign_in、agent_not_found)のいずれかです。確認に失敗すると終了コード 1 で終わります。\n\n例:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "使用法: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\n新しいワークスペースで、1 つのタスクに 1 つのコーディングエージェントを起動します。ワークスペースの\nタイトルは --name(既定: タスクの 1 行目)で、説明は空のままです。\n\nタスクはシェルを通さず 1 つの引数としてエージェントに渡されるため、引用符、$、改行は\nそのまま届きます。--prompt-file - は stdin からタスクを読み込みます。\nタスクはエージェントのコマンドラインの最後の引数なので、エージェントの実行中は\nこの Mac の `ps` などのツールで見えます。秘密情報は含めないでください。\n\nオプション:\n  --agent codex|claude   既定は codex で `codex --yolo` として起動します。claude は `claude` として起動します。\n  --agent-arg <arg>      エージェントのコマンドに引数を 1 つ追加します(繰り返し可)。\n  --cwd <dir>            エージェントのディレクトリ(既定: アプリの既定)。\n  --worktree <repo>      まず `git -C <repo> worktree add -b <branch> <repo>-<slug>` を実行し、\n                         そこでエージェントを起動します。<slug> はタイトルから作ります。\n  --branch <name>        --worktree で作る新しいブランチ(既定: <slug>)。\n  --focus, --no-focus    新しいワークスペースに切り替えるか、今の場所に留まります。既定では、\n                         人がターミナルでコマンドを実行したときだけ切り替えます。\n  --wait-working         ターミナルにエージェントの作業中表示が出るまで待ちます\n                         (Codex の \"Working (…)\"、Claude Code のアクティビティ行)。\n  --timeout <seconds>    --wait-working の待ち時間(既定 60、最大 600)。\n  --json                 workspace_id、workspace_ref、surface_id、agent、status を出力します。\n\nstatus は working(作業中を確認)、started(未確認)、failed(理由付き:\ntimeout、trust_prompt、sign_in、agent_not_found)のいずれかです。確認に失敗すると終了コード 1 で終わります。\n\n例:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         }
       }

@@ -16,6 +16,10 @@ import Foundation
 /// - contains `two tools`: two tool calls back to back (``treeCommand``, then
 ///   ``sidebarCommand``), so the transcript folds them into one
 ///   "Ran 2 commands" run.
+/// - starts with `remember`: a memory turn. Chief says it will save the
+///   fact, runs ``memoryCommand(for:)`` (`cmux chief memory add "<fact>"`),
+///   saves the fact to the turn's Chief home when the request names one
+///   (`CMUX_CHIEF_HOME`, so the memory notice shows), and confirms it.
 /// - contains `error`: the (last) tool call fails and the turn fails.
 /// - otherwise: the answer, one of ``answers`` in turn, counting only the
 ///   turns that are not approval turns, so consecutive answers never repeat
@@ -32,10 +36,12 @@ public final class ChiefScriptedBrain: ChiefBrain {
         case event(ChiefTurnEvent)
         /// Asks for approval `id` and continues with `allowed` or `denied`.
         indirect case approval(id: String, prompt: String, allowed: [Step], denied: [Step])
+        /// Saves a fact to the request's Chief memory, as `cmux chief memory add` does.
+        case saveMemory(String)
     }
 
-    /// The approval options the script offers.
-    public static let approvalOptions = ["Allow", "Deny"]
+    /// The approval buttons the script offers (its cards add the command's Always Allow rule).
+    public static let approvalOptions = ChiefToolPolicy.approvalOptions
     /// The command the scripted tool call shows.
     public static let treeCommand = "cmux tree --all --json"
     /// The second command of a `two tools` turn.
@@ -82,7 +88,22 @@ public final class ChiefScriptedBrain: ChiefBrain {
                                    allowed: allowed, denied: denied))
             return steps
         }
-        steps += stream("On it. Let me look at what's running.")
+        if let fact = rememberedFact(in: userText) {
+            let save = "scripted-tool-\(turn)-memory"
+            steps += stream("Got it. I'll save that to memory.")
+            steps += [
+                .pause(.milliseconds(300)),
+                .event(.toolStarted(id: save, title: memoryCommand(for: fact), detail: "Saving one fact to Chief's memory")),
+                .pause(.milliseconds(900)),
+                .saveMemory(fact),
+                .event(.toolFinished(id: save, ok: true, preview: "Saved")),
+                .pause(.milliseconds(400)),
+            ]
+            steps += stream("Saved: \(fact). I'll keep that in mind from now on.")
+            steps.append(.event(.finished))
+            return steps
+        }
+        steps += stream(text.contains("error") ? "Let me check what's failing." : "On it. Let me look at what's running.")
         steps.append(.pause(.milliseconds(300)))
         var calls: [(id: String, title: String, detail: String, preview: String)] = [
             (tool, treeCommand, "Reading every window, workspace and pane", "3 workspaces, 4 panes, 2 agents"),
@@ -112,6 +133,35 @@ public final class ChiefScriptedBrain: ChiefBrain {
         steps += stream(answer(turn: turn - approval))
         steps.append(.event(.finished))
         return steps
+    }
+
+    /// The fact a `remember` turn saves: the message after "Remember (that)",
+    /// in the third person when it starts with "I" ("I prefer 14 pt font"
+    /// becomes "Prefers 14 pt font"); nil for any other message.
+    public static func rememberedFact(in userText: String) -> String? {
+        var rest = userText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard rest.lowercased().hasPrefix("remember") else { return nil }
+        rest = String(rest.dropFirst("remember".count)).trimmingCharacters(in: .whitespaces)
+        if rest.hasPrefix(":") || rest.hasPrefix(",") { rest = String(rest.dropFirst()).trimmingCharacters(in: .whitespaces) }
+        if rest.lowercased() == "that" || rest.lowercased().hasPrefix("that ") { rest = String(rest.dropFirst(4)) }
+        rest = rest.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!")))
+        let thirdPerson = ["i prefer ": "Prefers ", "i use ": "Uses ", "i like ": "Likes ", "i want ": "Wants "]
+        for (first, replacement) in thirdPerson where rest.lowercased().hasPrefix(first) {
+            rest = replacement + rest.dropFirst(first.count)
+        }
+        guard let head = rest.first else { return nil }
+        return head.uppercased() + rest.dropFirst()
+    }
+
+    /// The command a `remember` turn shows: `cmux chief memory add "<fact>"`,
+    /// the fact double-quoted for a POSIX shell.
+    public static func memoryCommand(for fact: String) -> String {
+        var quoted = ""
+        for character in fact {
+            if "\\\"$`".contains(character) { quoted.append("\\") }
+            quoted.append(character)
+        }
+        return "cmux chief memory add \"\(quoted)\""
     }
 
     /// The answers a plain turn ends with, in rotation.
@@ -161,7 +211,7 @@ public final class ChiefScriptedBrain: ChiefBrain {
                 let steps = Self.script(for: request.userText, turn: numbers.turn, approval: numbers.approval)
                 do {
                     try await Self.play(steps, conversation: request.conversation, clock: clock, state: state,
-                                        continuation: continuation)
+                                        environment: request.environment, continuation: continuation)
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -172,7 +222,7 @@ public final class ChiefScriptedBrain: ChiefBrain {
     }
 
     private static func play(_ steps: [Step], conversation: ConversationID, clock: any Clock<Duration>,
-                             state: ScriptedBrainState,
+                             state: ScriptedBrainState, environment: [String: String],
                              continuation: AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation) async throws {
         for step in steps {
             try Task.checkCancellation()
@@ -182,7 +232,9 @@ public final class ChiefScriptedBrain: ChiefBrain {
             case .event(let event):
                 continuation.yield(event)
             case .approval(let id, let prompt, let allowed, let denied):
-                continuation.yield(.approvalRequested(id: id, prompt: prompt, options: approvalOptions))
+                // The real brains' options: the Always Allow rule rides along (ChiefToolPolicy.approvalOptions(command:)).
+                continuation.yield(.approvalRequested(id: id, prompt: prompt,
+                                                       options: ChiefToolPolicy.approvalOptions(command: ChiefAllowRules.command(inPrompt: prompt))))
                 let choice = await withTaskCancellationHandler {
                     await state.awaitChoice(id: id, conversation: conversation)
                 } onCancel: {
@@ -191,7 +243,13 @@ public final class ChiefScriptedBrain: ChiefBrain {
                 }
                 guard let choice else { throw CancellationError() }
                 let next = choice.caseInsensitiveCompare("Allow") == .orderedSame ? allowed : denied
-                try await play(next, conversation: conversation, clock: clock, state: state, continuation: continuation)
+                try await play(next, conversation: conversation, clock: clock, state: state,
+                               environment: environment, continuation: continuation)
+            case .saveMemory(let fact):
+                // A fixture: with no Chief home (tests) or a failed write, the turn still reads as saved.
+                guard let root = environment[ChiefHome.environmentKey], !root.isEmpty else { continue }
+                let home = ChiefHome(root: URL(fileURLWithPath: root, isDirectory: true))
+                _ = try? ChiefMemory(paths: ChiefMemoryPaths(home: home)).add(fact, source: "cli")
             }
         }
     }

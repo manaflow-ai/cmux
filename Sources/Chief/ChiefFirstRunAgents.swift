@@ -46,14 +46,23 @@ struct ChiefAgentGlance: Equatable {
 
     /// The name a workspace row shows: the custom title, else the sidebar's
     /// title, except when that title is only a shell's path ("~", "~/src",
-    /// "/tmp"): then the folder's name, or "Home folder" for the home
-    /// directory, so the default workspace never reads as a bare "~".
+    /// "/tmp") or the new-workspace placeholder ("Terminal", what a restored
+    /// workspace shows before its shell reports a title): then the folder's
+    /// name (the working directory's, for the placeholder), or "Home folder"
+    /// for the home directory, so the default workspace never reads as a
+    /// bare "~" or "Terminal".
     static func displayTitle(customTitle: String?, title: String, currentDirectory: String,
                              home: String = NSHomeDirectory()) -> String {
         if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty { return custom }
         let shown = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard shown.isEmpty || shown == "~" || shown.hasPrefix("~/") || shown.hasPrefix("/") else { return shown }
-        let path = shown.isEmpty ? currentDirectory : (shown as NSString).expandingTildeInPath
+        let isPath = shown == "~" || shown.hasPrefix("~/") || shown.hasPrefix("/")
+        // `Workspace.init`'s default title.
+        let isPlaceholder = shown == "Terminal"
+        guard shown.isEmpty || isPath || isPlaceholder else { return shown }
+        let directory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The placeholder with no known directory stays as it is.
+        if isPlaceholder, directory.isEmpty { return shown }
+        let path = isPath ? (shown as NSString).expandingTildeInPath : (directory as NSString).expandingTildeInPath
         let standardized = (path as NSString).standardizingPath
         if standardized.isEmpty || standardized == (home as NSString).standardizingPath {
             return String(localized: "chief.firstRun.workspace.homeFolder", defaultValue: "Home folder")
@@ -118,12 +127,6 @@ enum ChiefAgentGlanceSource {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
         guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
         return shortcut.modifierDisplayString + "1…9"
-    }
-
-    /// The Open Chief shortcut, which toggles Home (and so shows the workspaces again); nil when unbound.
-    static func toggleHomeKeys() -> String? {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .openChief)
-        return shortcut.isUnbound ? nil : shortcut.displayString
     }
 
     /// The New Workspace shortcut ("Open a terminal" makes a workspace); nil when unbound.

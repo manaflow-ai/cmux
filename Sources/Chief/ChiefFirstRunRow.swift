@@ -5,9 +5,10 @@ import QuartzCore
 ///
 /// - ``Style/row``: cmux-next's `HomeFirstRunRow`. A 28 pt raised rect
 ///   (radius 8, continuous, 1 pt hairline; never a capsule) with a leading
-///   13 pt glyph or an agent's status indicator, a 13 pt label, and trailing
-///   12 pt text: the action's shortcut (tertiary) or the agent's status word
-///   (coloured by urgency).
+///   13 pt glyph or a workspace's 6 pt status dot, a 13 pt label, and
+///   trailing 12 pt text: the action's shortcut (tertiary) or the status word
+///   (coloured by urgency). Status rows get a clear fill and no border from
+///   their ``Colors``, so they read as status rather than as buttons.
 /// - ``Style/chip``: a suggestion above the message box in the incoming
 ///   bubble's fill and text colour, borderless and fully rounded like a
 ///   one-line Messages bubble (Messages' suggested replies).
@@ -28,6 +29,8 @@ final class ChiefFirstRunRow: NSView {
     static let height: CGFloat = 28
     static let chipHeight: CGFloat = 30
     static let cornerRadius: CGFloat = 8
+    /// A status row's dot (an idle one is a 1 pt ring).
+    static let dotSize: CGFloat = 6
     /// Every first-run glyph: one size and weight.
     static let glyphConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
 
@@ -81,7 +84,7 @@ final class ChiefFirstRunRow: NSView {
         backing.cornerRadius = style == .chip ? Self.chipHeight / 2 : Self.cornerRadius
         backing.borderWidth = style == .row ? 1 : 0
         layer?.addSublayer(backing)
-        dot.cornerRadius = 3.5
+        dot.cornerRadius = Self.dotSize / 2
         layer?.addSublayer(dot)
         glyph.imageScaling = .scaleProportionallyDown
         label.font = .systemFont(ofSize: 13)
@@ -223,7 +226,8 @@ final class ChiefFirstRunRow: NSView {
         let lead = CGRect(x: inset, y: (h - side) / 2, width: side, height: side)
         glyph.frame = place(lead)
         spinner?.frame = place(lead.insetBy(dx: 0.5, dy: 0.5))
-        dot.frame = place(CGRect(x: lead.midX - 3.5, y: lead.midY - 3.5, width: 7, height: 7))
+        dot.frame = place(CGRect(x: lead.midX - Self.dotSize / 2, y: lead.midY - Self.dotSize / 2,
+                                 width: Self.dotSize, height: Self.dotSize))
         let trailingWidth = trailingLabel.isHidden ? 0 : ceil(trailingLabel.attributedStringValue.size().width) + 2
         let trailingHeight = ceil(trailingLabel.intrinsicContentSize.height)
         trailingLabel.alignment = rtl ? .left : .right
