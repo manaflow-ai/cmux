@@ -31,8 +31,9 @@ impl StandbyTerminalHost {
         // shell get the open-file limit cmux started with: the host does
         // both as its first steps (`enter_terminal_host_process`).
         let session_env = host_session_env();
+        let orphan_env = host_orphan_env();
         let child = crate::host_exe::spawn_host(|command| {
-            if let Some((name, value)) = &session_env {
+            for (name, value) in session_env.iter().chain(&orphan_env) {
                 command.env(name, value);
             }
             command
