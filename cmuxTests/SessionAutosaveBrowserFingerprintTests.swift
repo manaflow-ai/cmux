@@ -16,9 +16,11 @@ final class SessionAutosaveBrowserFingerprintTests: XCTestCase {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        // No initial load: the panel's live web view URL would win over the
+        // reported page URL, and this test reports the page URL directly.
         let panel = try XCTUnwrap(workspace.newBrowserSurface(
             inPane: pane,
-            url: URL(string: "https://example.com/a"),
+            url: nil,
             focus: false,
             creationPolicy: .restoration
         ))
@@ -67,7 +69,7 @@ final class SessionAutosaveBrowserFingerprintTests: XCTestCase {
         let pane = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
         let panel = try XCTUnwrap(workspace.newBrowserSurface(
             inPane: pane,
-            url: URL(string: "https://example.com/a"),
+            url: nil,
             focus: false,
             creationPolicy: .restoration
         ))
