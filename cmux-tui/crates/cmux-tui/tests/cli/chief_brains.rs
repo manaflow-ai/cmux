@@ -515,3 +515,44 @@ fn a_daemon_with_agents_off_starts_no_brain_and_says_why() {
     let _ = owned.child.wait();
     let _ = fs::remove_dir_all(&files);
 }
+
+/// A Chief made the moment the daemon answers, before its brain supervisor
+/// is installed (the control socket accepts clients first): the create waits
+/// for the supervisor's real answer instead of saying "not started".
+#[test]
+fn a_chief_made_right_after_the_daemon_starts_reports_its_brain_started() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbe");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-early",
+        None,
+        None,
+        &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str())],
+    );
+    // No other request first: the create is the daemon's first client call.
+    let (scout, brain) = make_chief_with_brain(&owned, "Scout", "Researcher");
+    assert_eq!(brain, json!({"state": "started"}), "{brain}");
+    let pid: i32 = wait_file(&brain_dir(&chief_home, &scout).join("pid.1")).parse().unwrap();
+    assert!(alive(pid));
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    wait_gone(pid, "the brain after daemon shutdown");
+    let _ = fs::remove_dir_all(&files);
+}

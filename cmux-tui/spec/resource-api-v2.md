@@ -1292,7 +1292,7 @@ of the default Chief), `chief_delete_denied` (no Chief deletes a Chief) and `too
 carries the new record's `brain`: `{state: "started"}` or `{state: "not_started",
 reason}`, from the daemon's brain supervisor (`no_supervisor`: this daemon runs
 no Chief brains; `launch_disabled`: agents are off in this build session;
-`supervisor_starting`; `error`, see the daemon log; `unconfirmed`, the
+`error`, see the daemon log; `unconfirmed`, the
 supervisor did not answer in time).
 An avatar is PNG, JPEG, GIF or WebP, at most 1 MiB, stored once by SHA-256.
 The policy tests are in `crates/cmux-tui/tests/cli/chief_registry.rs`.

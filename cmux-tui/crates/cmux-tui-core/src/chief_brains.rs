@@ -315,7 +315,8 @@ pub(crate) struct Slot {
 /// `chief.profile.adopt` answer it as the record's `brain`): started, or not
 /// with the reason (`no_supervisor`: this daemon runs no brains;
 /// `launch_disabled`: agents are off in this build session;
-/// `supervisor_starting`: it starts once the supervisor runs; `error`: the
+/// a create made while the supervisor starts waits for its real answer;
+/// `error`: the
 /// start failed, see the daemon log; `unconfirmed`: the supervisor did not
 /// answer in time, it may still start).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,12 +417,23 @@ impl Slot {
             }
             return Some(BrainPending::Ready(BrainStart::NotStarted("error")));
         }
-        drop(sender);
         if config().is_none() {
             return Some(BrainPending::Ready(BrainStart::NotStarted("no_supervisor")));
         }
-        self.send(Signal::Created(Box::new(record.clone()), None));
-        Some(BrainPending::Ready(BrainStart::NotStarted("supervisor_starting")))
+        // The supervisor is still starting (the control socket accepts
+        // clients before the owner loop starts it): the signal waits in
+        // `early` with its reply, and `start` hands both to the supervisor,
+        // which answers the real state once it handles them. Still under the
+        // `sender` lock, so `start` cannot drain in between.
+        let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+        if early.len() >= EARLY_MAX {
+            return Some(BrainPending::Ready(BrainStart::NotStarted("unconfirmed")));
+        }
+        let (reply, answer) = mpsc::channel();
+        early.push(Signal::Created(Box::new(record.clone()), Some(reply)));
+        drop(early);
+        drop(sender);
+        Some(BrainPending::Wait(answer))
     }
 }
 
