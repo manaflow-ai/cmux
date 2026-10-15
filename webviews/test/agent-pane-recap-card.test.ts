@@ -146,7 +146,7 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
   const card = (page: Page) => page.locator(".acpmux-recap");
   /// Waits for the daemon to get a prompt.
   async function sent(): Promise<void> {
-    for (const deadline = Date.now() + 10_000; prompts.length === 0 && Date.now() < deadline; ) await Bun.sleep(50);
+    for (const deadline = Date.now() + 10_000; prompts.length === 0 && Date.now() < deadline;) await Bun.sleep(50);
   }
 
   test("a turn that ended on a question shows the card; its yes sends Yes, open PR", async () => {

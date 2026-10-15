@@ -70,7 +70,7 @@ export function recapAction(question: string): string | undefined {
   if (!match) return undefined;
   let phrase = match[1].replace(/[\s,;:.]+$/, "");
   if (/\bor\b/i.test(phrase)) return undefined;
-  for (let before = ""; before !== phrase; ) {
+  for (let before = ""; before !== phrase;) {
     before = phrase;
     phrase = phrase.replace(TRAILING, "");
   }
