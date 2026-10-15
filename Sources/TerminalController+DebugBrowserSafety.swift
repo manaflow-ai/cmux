@@ -77,6 +77,11 @@ extension TerminalController {
                 "workspace_id": workspaceId.uuidString,
                 "surface_id": surfaceId.uuidString,
                 "engine": panel.engineKind.rawValue,
+                // Where native UI covers a Chromium page (crash page, hang card, find bar): the
+                // page window leaves these holes so the overlay shows above it.
+                "occlusion_rects": ((panel.enginePage as? any BrowserPageOcclusionHosting)?.pageOcclusionRects ?? [])
+                    .map { NSStringFromRect($0) },
+                "floating_overlays_in_panels": panel.pageOverlays.hostsFloatingOverlaysInPanels,
                 "page_pid": pagePID,
                 "prompt": v2OrNull(promptName),
                 "crashed": promptName == "crashed",
