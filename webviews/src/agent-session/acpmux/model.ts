@@ -308,12 +308,18 @@ function chatSize(): number {
   const size = Number.parseFloat(document.documentElement.style.getPropertyValue("--cmux-font-chat-size"));
   return Number.isFinite(size) && size >= 8 && size <= 40 ? size : 14;
 }
+/** The chat's text face (`--cmux-font-ui`, appearance.fonts.ui), else system-ui, as `--cv-font`. */
+function chatFace(): string {
+  if (typeof document === "undefined") return "system-ui";
+  const face = document.documentElement.style.getPropertyValue("--cmux-font-ui").trim();
+  return face && face !== "initial" ? face : "system-ui";
+}
 let MEASURE_FONT = "14px system-ui";
 let MESSAGE_LINE_HEIGHT = 22.75;
 /// Reads the chat size again; a layout pass calls it once (`layoutConversation`).
 function readChatType() {
   const size = chatSize();
-  MEASURE_FONT = `${size}px system-ui`;
+  MEASURE_FONT = `${size}px ${chatFace()}`;
   MESSAGE_LINE_HEIGHT = size * 1.625;
 }
 /// Vertical padding of a user bubble (`.cv-user__bubble`).

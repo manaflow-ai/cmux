@@ -1128,7 +1128,7 @@ export function VirtualTranscript({
   >(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
   const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({ registry, heights: new WeakMap() });
-  // The chat size the host sends (appearance.fonts.chatSize): a change estimates every row again.
+  // The chat type the host sends (appearance.fonts.chatSize and .ui): a change estimates every row again.
   const chatSize = useHostChatSize();
   const estimatedChatSize = useRef(chatSize);
   const measurementSession = useRef(sessionId);
@@ -5477,9 +5477,16 @@ function AcpmuxPane() {
 
 /** The chat size on the root's inline style (`--cmux-font-chat-size`, WebTheme.swift), again after
  * every host theme (`cmux-theme`); "" when unset. */
+/** The chat's type as one key (`--cmux-font-chat-size` and `--cmux-font-ui`), so an unset value
+ * (`initial`, or none before the first theme) reads the same and only a real change re-estimates. */
 function useHostChatSize(): string {
-  const read = () =>
-    typeof document === "undefined" ? "" : document.documentElement.style.getPropertyValue("--cmux-font-chat-size");
+  const read = () => {
+    if (typeof document === "undefined") return "14|";
+    const style = document.documentElement.style;
+    const size = Number.parseFloat(style.getPropertyValue("--cmux-font-chat-size"));
+    const face = style.getPropertyValue("--cmux-font-ui").trim();
+    return `${Number.isFinite(size) ? size : 14}|${face === "initial" ? "" : face}`;
+  };
   const [size, setSize] = useState(read);
   useEffect(() => {
     const update = () => setSize(read());

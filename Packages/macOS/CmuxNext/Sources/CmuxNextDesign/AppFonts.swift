@@ -10,7 +10,7 @@ public nonisolated struct AppFonts: Equatable, Sendable {
     /// A system face design for text: the system font itself, or its rounded, serif or monospaced
     /// design (SF Pro Rounded, New York, SF Mono), which every Mac has and WebKit names as
     /// `ui-rounded`, `ui-serif` and `ui-monospace`.
-    public enum Design: String, CaseIterable, Sendable {
+    public nonisolated enum Design: String, CaseIterable, Sendable {
         case system, rounded, serif, mono
 
         /// The AppKit design (`NSFontDescriptor.SystemDesign`); nil for the plain system font.

@@ -1085,3 +1085,7 @@ mark {
   white-space: pre;
   overflow: hidden;
 }
+/* The UA sheet gives <code> its own monospace; the block's face is the preview's. */
+.font-preview-code code {
+  font: inherit;
+}

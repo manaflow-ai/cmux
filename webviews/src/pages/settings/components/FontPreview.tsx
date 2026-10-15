@@ -3,6 +3,7 @@
 // the stacks the app sends pages (AppFonts.swift `cssVariables`), so the preview shows what a chat
 // will look like without leaving Settings.
 import type { CSSProperties } from "react";
+import { hostCodeFontFamily } from "../../../appearance";
 import { useSettingsState } from "../context";
 import { valueOf } from "../store";
 import { t } from "../strings";
@@ -22,9 +23,10 @@ const UI_STACKS: Record<string, string> = {
 };
 const MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
 
-/** The preview's faces and size for the current values; an unset code face is the chat's own. */
+/** The preview's faces and size for the current values; an unset code face is the terminal's
+ * (the family the host sends, `hostCodeFontFamily`), else the chat's own. */
 function previewFonts(ui: unknown, code: unknown, size: unknown): { ui: string; code: string; size: number } {
-  const family = typeof code === "string" && code.trim() !== "" ? code.trim() : null;
+  const family = typeof code === "string" && code.trim() !== "" ? code.trim() : hostCodeFontFamily();
   const points = typeof size === "number" && Number.isFinite(size) ? size : 14;
   return {
     ui: UI_STACKS[typeof ui === "string" ? ui : "system"] ?? SYSTEM,
