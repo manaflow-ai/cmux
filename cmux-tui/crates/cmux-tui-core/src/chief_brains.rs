@@ -141,6 +141,24 @@ pub fn brain_home(home: &Path, chief: &str) -> PathBuf {
     home.join("c").join(tail.to_ascii_lowercase())
 }
 
+/// The tools socket of Chief `chief`'s brain (`optchat/tools.sock` in its
+/// directory), where `chief.engine.*` and `chief.stop` with `chief` go
+/// (chief-brains-v1). Refused with a reason and a message when this daemon
+/// runs no brains (`not_configured`) or the directory is not this Chief's
+/// (`unavailable`: never started here, or another id with the same tail). A
+/// brain that does not run now (idle stop, restart backoff) has a path whose
+/// socket does not answer: `chief_control::ask` says `unavailable`.
+pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
+    let config =
+        config().ok_or(("not_configured", "this daemon runs no Chief brains".to_owned()))?;
+    let mux_home = brain_home(&config.home, chief);
+    let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+    if owner.trim() != chief {
+        return Err(("unavailable", format!("Chief {chief}'s brain is not running")));
+    }
+    Ok(mux_home.join(LONGEST_SOCKET))
+}
+
 /// The longest socket path under a brain directory (the Chief home's acpmux
 /// has its own, the default Chief's). A home whose socket does not fit
 /// starts no brain.
@@ -290,6 +308,10 @@ enum Signal {
     Created(Box<ChiefRecord>, Option<mpsc::Sender<BrainStart>>),
     Updated(Box<ChiefRecord>),
     Deleted(String),
+    /// `chief.engine.set` for this Chief: start its brain when it does
+    /// not run (as a message would); `reply` hears whether a brain process
+    /// runs now (or starts again after the one that is ending).
+    Control(String, Option<mpsc::Sender<bool>>),
     #[cfg_attr(not(unix), allow(dead_code))]
     Exited {
         chief: String,
@@ -395,6 +417,22 @@ impl Slot {
             _ => return,
         };
         self.send(signal);
+    }
+
+    /// `chief.engine.set` names this Chief (chief_control.rs): start its
+    /// brain when it does not run now. The answer says whether a brain
+    /// process runs now; `None` while the supervisor has not started yet.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn start_for_control(&self, chief: &str) -> Option<mpsc::Receiver<bool>> {
+        let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
+            let (reply, answer) = mpsc::channel();
+            let sent = sender.send(Signal::Control(chief.to_owned(), Some(reply))).is_ok();
+            return sent.then_some(answer);
+        }
+        drop(sender);
+        self.send(Signal::Control(chief.to_owned(), None));
+        None
     }
 
     /// A committed registry write (not a replay). For a new Chief, what
@@ -728,6 +766,15 @@ impl Supervisor {
                 stop_lock_holder(&mux_home.join("state/host.lock"));
                 self.end_sessions(&chief);
                 self.brains.remove(&chief);
+            }
+            Signal::Control(chief, reply) => {
+                // As a message: a brain that is ending (idle stop, exit 0)
+                // starts again after its exit (`pending_wake`).
+                self.wake(&chief);
+                if let Some(reply) = reply {
+                    let running = self.brains.get(&chief).is_some_and(|b| b.process.is_some());
+                    let _ = reply.send(running);
+                }
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
             Signal::Shutdown(_) => {}
