@@ -1473,3 +1473,24 @@ an old host.json moves into the database once; `tests/backup.rs` pushes to a
 local bare repository (holds on a secret, retries offline, never forces).
 In optchat-host, `tests/bench.rs` is
 the ignored benchmark above.
+
+### First-turn cost guard
+
+A gate step of optchat-chief changes (not of every CI run): a new Chief's
+first turn must stay under 50,000 input tokens. `scripts/ci/chief-first-turn-cost.sh`
+runs the production trio on a scratch brain (`measure/chief_driver.py`,
+smoke turn `s01`) with Claude Code against a local stand-in
+(`measure/first_turn_cost.py proxy`) that answers with one canned reply,
+so no model runs and no credential reaches the worker. It then counts each
+recorded `/v1/messages` request with `count_tokens` on the team subrouter
+(the request's own `anthropic-beta`, so deferred tools count as the API
+counts them) and fails over the limit, or when no request names a cmux MCP
+tool (the server never reached the turn). `force_full_tools=1` proves it
+red: an inline `--settings` turns tool search off, the behavior before
+`session_dir::TURN_SETTINGS_ENV`, and every cmux MCP tool loads with the turn.
+
+```bash
+gate-run.sh --head "$HEAD_SHA" --out /tmp/gates/$HEAD_SHA.json -- \
+  ~/.local/bin/cmux-ci run --class isolated --script scripts/ci/chief-first-turn-cost.sh --ref "$HEAD_SHA" \
+  --key chief-first-turn-${HEAD_SHA:0:8} --arg=count_url=http://ROUTER:PORT --timeout 6000
+```
