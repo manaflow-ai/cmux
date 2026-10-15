@@ -148,7 +148,8 @@ export class HomeChannelsStore {
   constructor(
     private readonly client: PageClient | null,
     private readonly carry: PendingCarry = new PendingCarry(),
-    host: PageClient | null = null,
+    /** The page's host bridge (the app), or null in a browser: the page serves it hostSelection.ts. */
+    readonly host: PageClient | null = null,
   ) {
     this.attachments = client ? new AttachmentService(client) : undefined;
     this.avatars = client ? new AvatarService(client) : undefined;
