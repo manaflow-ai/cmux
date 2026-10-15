@@ -117,7 +117,8 @@ Error codes: 1 `UNKNOWN_KIND`, 2 `BAD_TOKEN`, 3 `NO_COMMON_VERSION`,
 ### 5.3 Output
 
 - The holder always reads the PTY (or both pipes) and appends to its log,
-  with or without a controller. It never blocks the child on the socket or
+  with or without a controller (decided 2026-10-14: drop oldest, never
+  block). It never blocks the child on the socket or
   on ACK. The log is an in-memory ring (`ring_bytes`, default 8 MiB)
   spilling to `<id>.log` beside its record (`log_bytes`, default 64 MiB);
   at the cap the oldest bytes are dropped and `oldest` moves up. ACK only
@@ -127,7 +128,8 @@ Error codes: 1 `UNKNOWN_KIND`, 2 `BAD_TOKEN`, 3 `NO_COMMON_VERSION`,
   new controller or the end. A controller that falls behind `oldest` while
   streaming gets GAP in the stream, then DATA from the new `oldest`.
 - pipes mode: stdout and stderr share one offset space in arrival order;
-  DATA flags bit 0 marks stderr bytes.
+  DATA flags bit 0 marks stderr bytes (decided 2026-10-14: one offset space,
+  not two offsets per frame).
 
 ### 5.4 Input and control
 
@@ -212,11 +214,11 @@ it with SIGKILL from the UI (the only pid use, from the user's action).
 `pid` fields are absent on purpose: no daemon finds or signals a holder by
 pid.
 
-Code identity (decision D6, pending): on macOS the holder also checks the
-connected peer's audit token (`LOCAL_PEERTOKEN`) against a code requirement
-passed at spawn (same Team ID + the cmux daemon's identifier). Ad hoc DEV
-builds (`orphan_grace_secs` set) skip it. The holder runs with the hardened
-runtime so a same-uid process cannot attach a debugger to it.
+Threat model (decision D6, Lawrence 2026-10-14): the holder protects
+against other users only. It checks the socket peer uid (section 2) and the
+owner token, and nothing else: no code-identity, code-signature or audit
+token check. A process of the same user is trusted the same way a shell of
+that user is.
 
 ## 8. Liveness and discovery
 
