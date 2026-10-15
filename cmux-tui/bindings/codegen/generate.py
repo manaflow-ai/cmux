@@ -40,6 +40,10 @@ DEFAULT_SCHEMA = DEFAULT_BINDINGS_ROOT.parent / "spec" / "sdk-schema.json"
 
 EmitterLoader = Callable[[str], Emitter]
 
+# emit_*.py modules that are not SDK languages. `--write`/`--check` never run
+# them; `emit_cpp_value.py` runs only through `--cpp-value`.
+NON_SDK_EMITTERS = frozenset({"cpp_value"})
+
 
 def available_languages(codegen_dir: Path = CODEGEN_DIR) -> tuple[str, ...]:
     return tuple(
@@ -47,6 +51,7 @@ def available_languages(codegen_dir: Path = CODEGEN_DIR) -> tuple[str, ...]:
             path.stem.removeprefix("emit_")
             for path in codegen_dir.glob("emit_*.py")
             if path.stem != "emit_"
+            and path.stem.removeprefix("emit_") not in NON_SDK_EMITTERS
         )
     )
 
@@ -163,7 +168,62 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print installed emitter names and exit",
     )
+    cpp_value = parser.add_argument_group(
+        "base::Value codec for cmux-browser (emit_cpp_value.py)"
+    )
+    cpp_value.add_argument(
+        "--cpp-value",
+        action="store_true",
+        help=(
+            "write cmux_daemon_types.{h,cc} for the commands and events in "
+            "--allowlist into --out (with --check: fail when they differ); "
+            "the SDK bindings are not touched"
+        ),
+    )
+    cpp_value.add_argument("--allowlist", type=Path, metavar="FILE")
+    cpp_value.add_argument("--out", type=Path, metavar="DIR")
+    cpp_value.add_argument(
+        "--include-path",
+        default=None,
+        metavar="PATH",
+        help=(
+            "include path of the generated header, also its include guard "
+            "(default: third_party/cmux_tui_spec/cmux_daemon_types.h)"
+        ),
+    )
     return parser
+
+
+def _load_cpp_value() -> ModuleType:
+    if __package__ in {None, ""}:
+        return importlib.import_module("codegen.emit_cpp_value")
+    return importlib.import_module(f"{__package__}.emit_cpp_value")
+
+
+def run_cpp_value(arguments: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if arguments.language:
+        parser.error("--cpp-value does not take --language")
+    if arguments.allowlist is None or arguments.out is None:
+        parser.error("--cpp-value needs --allowlist FILE and --out DIR")
+    emit_cpp_value = _load_cpp_value()
+    mode = "check" if arguments.check else "write"
+    include_path = arguments.include_path or emit_cpp_value.DEFAULT_INCLUDE_PATH
+    try:
+        changed = emit_cpp_value.run(
+            ir=load_ir(arguments.schema),
+            allowlist_path=arguments.allowlist,
+            out_dir=arguments.out,
+            mode=mode,
+            include_path=include_path,
+        )
+    except (GenerationError, ValidationError, ValueError) as error:
+        print(f"cpp-value generation failed: {error}", file=sys.stderr)
+        return 1
+    if mode == "check":
+        print(f"checked cpp-value {arguments.out}")
+    else:
+        print(f"wrote cpp-value {arguments.out} ({len(changed)} changed)")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -173,6 +233,10 @@ def main(argv: list[str] | None = None) -> int:
         for language in available_languages():
             print(language)
         return 0
+    if arguments.cpp_value:
+        return run_cpp_value(arguments, parser)
+    if arguments.allowlist or arguments.out or arguments.include_path:
+        parser.error("--allowlist, --out and --include-path need --cpp-value")
     if not arguments.write and not arguments.check:
         parser.error("one of --write or --check is required")
     mode = "write" if arguments.write else "check"
