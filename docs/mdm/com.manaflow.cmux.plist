@@ -4608,6 +4608,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The composer's reasoning menu shows a slider from Faster to Smarter instead of a list of levels.</string>
+			<key>pfm_name</key>
+			<string>agentPane.reasoningSlider</string>
+			<key>pfm_title</key>
+			<string>Use Reasoning Slider</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>1</integer>
 			<key>pfm_description</key>
 			<string>The display size for agent chat. Cmd-0 resets it.</string>

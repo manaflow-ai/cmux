@@ -472,6 +472,7 @@
               "agentPane.editedFiles.scope",
               "agentPane.showContextUsage",
               "agentPane.showDictation",
+              "agentPane.reasoningSlider",
               "agentPane.zoom",
               "app.warnBeforeClosingAgentSession"
             ],
@@ -22701,6 +22702,56 @@
       "title" : {
         "key" : "settings.agentPane.showDictation",
         "text" : "Show Dictation Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.reasoningSlider.help",
+        "text" : "The composer's reasoning menu shows a slider from Faster to Smarter instead of a list of levels."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.reasoningSlider",
+      "keywords" : [
+        "reasoning",
+        "effort",
+        "thinking",
+        "slider",
+        "level",
+        "composer",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "reasoningSlider"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.reasoningSlider",
+        "text" : "Use Reasoning Slider"
       },
       "validation" : "portable"
     },
