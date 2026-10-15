@@ -232,10 +232,12 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 /* A footer chip has no bezel, so the shared ring (desktop.css) set 2 px off it drew an empty
    rounded box around bare text, the heaviest mark in the row. Under keyboard focus the chip takes
-   its hover wash and the ring sits on the wash's own edge: one outline on a visible control, as
-   Send's ring circles its own disc. Increase Contrast keeps the shared offset ring. */
+   its hover wash (the row's own, --acpmux-row-hover in composerLocation.css, never the heavier pane
+   wash) and the ring sits on the wash's edge: one outline on a visible control, as Send's ring
+   circles its own disc. Press still takes the row's press step (composerLocation.css loads after this
+   file). Increase Contrast keeps the shared offset ring. */
 .acpmux-composer-bar .acpmux-picker-button:focus-visible {
-  background: var(--acpmux-composer-hover);
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
 }
 @media (prefers-contrast: more) {

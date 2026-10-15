@@ -227,8 +227,11 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       page.evaluate(() => {
         const element = document.getElementById("composer-chip")!;
         const style = getComputedStyle(element);
+        // The row's own hover wash (composerLocation.css), resolved in the chip's ink: the same
+        // color :hover paints, so focus and hover can't drift apart.
         const probe = document.createElement("div");
-        probe.style.background = "var(--acpmux-composer-hover)";
+        probe.style.color = style.color;
+        probe.style.background = "var(--acpmux-row-hover)";
         element.parentElement!.append(probe);
         const wash = getComputedStyle(probe).backgroundColor;
         probe.remove();
@@ -242,6 +245,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       });
     const keyboard = await chip();
     expect(keyboard.focused, "Tab reaches the chip").toBe(true);
+    expect(keyboard.wash, "the row's hover wash resolves").not.toBe("rgba(0, 0, 0, 0)");
     expect(keyboard.background, "the chip takes its hover wash").toBe(keyboard.wash);
     expect(keyboard.outline, "the shared ring still draws").toBe("solid");
     expect(keyboard.offset, "the ring sits on the wash's edge").toBe("0px");
