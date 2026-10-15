@@ -76,6 +76,7 @@ extension TabStripView {
 
     public override func mouseEntered(with event: NSEvent) {
         buttonReveal.pointerInStrip = true
+        closingModePointerReturned()
         updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
     }
 
@@ -94,11 +95,8 @@ extension TabStripView {
         buttonReveal.pointerInStrip = false
         clearHover()
         newTabButton.isHovered = false
-        if closingModeWidth != nil, drag == nil {
-            // Deferred relayout: tabs resize once the pointer leaves.
-            closingModeWidth = nil
-            relayout(animated: !reduceMotion)
-        }
+        // Deferred relayout: tabs resize once the pointer has left the extended strip for the delay.
+        if closingModeWidth != nil, drag == nil { closingModePointerLeft() }
     }
 
     // MARK: - Clicks

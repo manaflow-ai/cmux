@@ -77,6 +77,10 @@ public final class TabStripView: NSView {
     var scroll = Spring(value: 0, token: .scroll, kind: .position)
     var closingModeWidth: CGFloat?
     var closingHit = TabClosingModeHit()
+    /// Mouse closing mode ends `closingModeExitDelay` after the pointer leaves the strip's extended
+    /// area (`TabStripView+ClosingMode.swift`); the monitor follows it outside the strip meanwhile.
+    let closingExit = DemandTimer(owner: "TabStrip.closingModeExit")
+    var closingExitMonitor: Any?
     var hasSynced = false
     var lastSelectedID: TabID?
     var lastModelOrder: [TabID] = []
@@ -244,6 +248,7 @@ public final class TabStripView: NSView {
             groupEditor.hide()
             groups.holdTask?.cancel()
             removeEscapeMonitor()
+            endClosingModeWatch()
             endMenuTracking()
             buttonReveal.pointerInStrip = false
         }
