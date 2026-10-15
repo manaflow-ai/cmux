@@ -26,6 +26,7 @@ import CmuxPanes
 import CmuxSidebar
 import CmuxNotifications
 import Combine
+import CmuxProductAnalytics
 import CryptoKit
 import Darwin
 import Network
@@ -10252,6 +10253,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
         applyCloudBrowserCreationPlan(cloudBrowserPlan, to: browserPanel)
+        if creationPolicy == .userInitiated {
+            ProductAnalytics.app.featureUsed(.browserPane)
+        }
 
         return browserPanel
     }
@@ -10386,6 +10390,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
         applyCloudBrowserCreationPlan(cloudBrowserPlan, to: browserPanel)
+        if creationPolicy == .userInitiated {
+            ProductAnalytics.app.featureUsed(.browserPane)
+        }
 
         return browserPanel
     }
@@ -14914,7 +14921,9 @@ extension Workspace: BonsplitDelegate {
         }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {
-            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(workspaceId: id, panelId: panelId, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
+            let accepted = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(workspaceId: id, panelId: panelId, vertical: orientation == .vertical, focusIntent: .focusCreatedPane) ?? false
+            // tmux owns this split, so `didSplitPane` never runs for it.
+            if accepted { ProductAnalytics.app.featureUsed(.split) }
         }
         return false
     }
@@ -15157,6 +15166,8 @@ extension Workspace: BonsplitDelegate {
             scheduleTerminalGeometryReconcile()
             return
         }
+        // A split from the tab bar UI (drag to an edge, split button) is a user split.
+        ProductAnalytics.app.featureUsed(.split)
         // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
         //
         // In the "drag the only tab to split edge" case, bonsplit inserts a placeholder "Empty"

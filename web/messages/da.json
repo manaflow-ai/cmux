@@ -114,6 +114,16 @@
       "shapeMessage": "Go understøtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan}-regnekvote brugt op",
+      "computeMessage": "Din {plan}-plan har brugt sine {included} regnetimer i denne faktureringsperiode. En regnetime er 1 vCPU med 2 GB hukommelse i én time. Dine maskiner kan starte igen den {resetDate}.",
+      "computeAction": "Pausede maskiner beholder deres filer. Kontakt support, hvis du har brug for mere regnekraft før den {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan}-diskkvote brugt op",
+      "storageMessage": "Din {plan}-plan omfatter {included} GB disk på tværs af alle gemte maskiner. Gemte maskiner bruger {used} GB, og denne anmodning kræver {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressourcer",
       "memoryMessage": "Dine VM'er bruger allerede {used} af {pool} GB RAM. Denne VM skal bruge {requested} GB.",

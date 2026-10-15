@@ -13,6 +13,7 @@
 		D0B102040000000000000001 /* AboutPropertyRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103040000000000000001 /* AboutPropertyRow.swift */; };
 		D0B102050000000000000001 /* AboutVisualEffectBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103050000000000000001 /* AboutVisualEffectBackground.swift */; };
 		D0B102000000000000000001 /* AboutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103000000000000000001 /* AboutWindowController.swift */; };
+		EC5ED12CF24A42B4CAF095BC /* AccountAnalyticsState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588E300F55061640D4CBE53A /* AccountAnalyticsState.swift */; };
 		662000CBFF17033015D89968 /* AccountMacAdmissionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207C9B99F28EDA93DF17EDB6 /* AccountMacAdmissionPolicy.swift */; };
 		7B4286950FBA469A8C23431B /* AccountMacDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7EB40497FBD54553C6598A /* AccountMacDirectory.swift */; };
 		674B2758ED1A0B500EFFC9F6 /* AccountMacDirectoryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1278AF05232D11E39C32D4A /* AccountMacDirectoryClient.swift */; };
@@ -25,6 +26,7 @@
 		A5C017000000000000000009 /* AccountSignInPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C01700000000000000000A /* AccountSignInPanel.swift */; };
 		A5C01700000000000000000B /* AccountSignInPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C01700000000000000000C /* AccountSignInPanelView.swift */; };
 		A5C017000000000000000007 /* AccountSignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000008 /* AccountSignInView.swift */; };
+		73554A9CA0643B8F0DDCA371 /* AccountUpgradeOfferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */; };
 		D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103020000000000000001 /* AcknowledgmentsView.swift */; };
 		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
@@ -301,6 +303,7 @@
 		A5F100000000000000000003 /* AppDelegate+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000004 /* AppDelegate+NotificationScroll.swift */; };
 		6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */; };
 		71BC19E3211D86ED3333A772 /* AppDelegate+PaneNumberShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = B327EB76EA7CE66FFA2623B6 /* AppDelegate+PaneNumberShortcut.swift */; };
+		EAC9592A7318ADC630BF1FF9 /* AppDelegate+ProductAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */; };
 		2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */; };
 		797800010000000000000001 /* AppDelegate+RemoteSessionPower.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800010000000000000002 /* AppDelegate+RemoteSessionPower.swift */; };
 		C0DE74140000000000000001 /* AppDelegate+SavedLayoutMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE74140000000000000002 /* AppDelegate+SavedLayoutMenu.swift */; };
@@ -749,6 +752,7 @@
 		C78951D0E70B3BF25DFABD26 /* CLIVMLayoutEnvTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */; };
 		3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */; };
 		A5D4120DA1B2C3D4E5F60F01 /* CLIVMTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */; };
+		C11757000000000000000056 /* CLIWelcomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000055 /* CLIWelcomeTests.swift */; };
 		773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
 		C11757000000000000000046 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
 		C11757000000000000000035 /* CLIWindowHandleRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */; };
@@ -1125,6 +1129,7 @@
 		5189C042A99401477E4DE49A /* CloudVPNSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */; };
 		59FECE3AAB392E8976A8D16A /* CloudVPNSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */; };
 		D17243000000000000000002 /* CloudWelcome in Resources */ = {isa = PBXBuildFile; fileRef = D17243000000000000000001 /* CloudWelcome */; };
+		43D9F9F0098DE6E4F85936B0 /* CloudWelcomeAnalyticsSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335F00E37FFA52FF5624A936 /* CloudWelcomeAnalyticsSession.swift */; };
 		3B7661AE47EE36CB4BEBEEED /* CloudWelcomeDebugMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883EC42C240445DBCE78E8A7 /* CloudWelcomeDebugMenu.swift */; };
 		22D165EB062C603B0C3A0A82 /* CloudWelcomeHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */; };
 		6CDA457FF93E33F097EB4F7C /* CloudWelcomeMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDAC0E0F1B791CA9260310 /* CloudWelcomeMedia.swift */; };
@@ -1535,6 +1540,8 @@
 		F0C0A1000000000000000003 /* CmuxPhonePush in Frameworks */ = {isa = PBXBuildFile; productRef = F0C0A1000000000000000002 /* CmuxPhonePush */; };
 		F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */ = {isa = PBXBuildFile; productRef = F0C0A1000000000000000002 /* CmuxPhonePush */; };
 		CF6237863B42421E82388C27 /* CmuxPopoverGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96063440572D43F6AB2B499D /* CmuxPopoverGroupTests.swift */; };
+		CA9A10000000000000000003 /* CmuxProductAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = CA9A10000000000000000002 /* CmuxProductAnalytics */; };
+		CA9A10000000000000000004 /* CmuxProductAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = CA9A10000000000000000002 /* CmuxProductAnalytics */; };
 		A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */ = {isa = PBXBuildFile; productRef = A5C0DE0000000000000000A2 /* CMUXProjectModel */; };
 		CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE10000000000000000A2 /* CmuxRemoteDaemon */; };
 		CC0DE30000000000000000A3 /* CmuxRemoteSession in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE30000000000000000A2 /* CmuxRemoteSession */; };
@@ -2359,6 +2366,7 @@
 				800100000000000000000101 /* HiveAccountTokenSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000102 /* HiveAccountTokenSource.swift */; };
 				800100000000000000000103 /* HiveComputersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000104 /* HiveComputersService.swift */; };
 		140240000000000000000002 /* HookPromptLengthUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140240000000000000000001 /* HookPromptLengthUITests.swift */; };
+		AC2BB0797CA8D9098F4D2F5A /* HostAccountFlow+Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0A832803DD479693FA71A0 /* HostAccountFlow+Analytics.swift */; };
 		A4FF11E04A292AACEB803A41 /* HostAccountFlow+ReceivedInvitations.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD2711070DB004542E6B9C0 /* HostAccountFlow+ReceivedInvitations.swift */; };
 		40A965C25799A1B366F3F672 /* HostAccountFlow+TeamMembers.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFD17B8A4545F43B50EF504A /* HostAccountFlow+TeamMembers.swift */; };
 		13019B000000000000000002 /* HostAccountFlow+TeamSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */; };
@@ -2871,18 +2879,23 @@
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 		B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */; };
+		72ED5F6AB93363EDB369E867 /* PostHogContextCalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */; };
 		A7C0FF1D0000000000000001 /* PostHogIdentityObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0FF1D0000000000000002 /* PostHogIdentityObserver.swift */; };
+		6D7155E52FFDD7E47CF2E759 /* PostHogProductAnalyticsSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF00B6EA5F80726C036DA53 /* PostHogProductAnalyticsSink.swift */; };
 		B7F100060000000000000001 /* PreparedNotificationSound.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100060000000000000002 /* PreparedNotificationSound.swift */; };
 		D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */; };
 		DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */; };
 		D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B4 /* PresenceSettings.swift */; };
 		C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000E /* PricingPlansScreen.swift */; };
+		318A10362EFC47DB03BF1D5C /* ProBadgeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F89797AE49756191CC98B2C1 /* ProBadgeActions.swift */; };
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
 		AC0FCEFB6665CF134634D60B /* ProcessExitWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06E7588C05AC6A8659CFA51 /* ProcessExitWait.swift */; };
 		C11757000000000000000063 /* ProcessExitWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06E7588C05AC6A8659CFA51 /* ProcessExitWait.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
 		0A327C88E531C7E407CEF58C /* ProcessSnapshotMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4587EDAC6B63EF4846FB24A6 /* ProcessSnapshotMeasurement.swift */; };
+		BD54FBDB9B9175C3EC73C37E /* ProductAnalytics+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A46D27DF741643885DBBFA2 /* ProductAnalytics+App.swift */; };
+		0A9BC60ADCBC60AF3992E4CB /* ProductAnalyticsEvent+Upgrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0AFE40AA472BB58AEEBDB6E /* ProductAnalyticsEvent+Upgrade.swift */; };
 		D75280010000000000000001 /* ProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280010000000000000002 /* ProfilingSignposts.swift */; };
 		A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */; };
 		A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */; };
@@ -3151,6 +3164,7 @@
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
+		6E78170519FB498D386528A2 /* RightSidebarMode+ProductFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */; };
 		87272A2D0FCDDA4D798961D8 /* RightSidebarMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272B367E39A68B0DCDE9E182 /* RightSidebarMode.swift */; };
 		2472F1A7500F5B4FFF49740C /* RightSidebarModeBarDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC32D1CB3F917D805A2D845A /* RightSidebarModeBarDrag.swift */; };
 		D3282C34128369182EC5CC9A /* RightSidebarModeBarTabsLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4B976F4761E72540766E54 /* RightSidebarModeBarTabsLayout.swift */; };
@@ -4234,6 +4248,8 @@
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
+		9E333A705D5EA232771DA203 /* UpgradeAnalyticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA13D9C82962402EAA0FABC1 /* UpgradeAnalyticsTests.swift */; };
+		944FADDCC0FC5D78EB85E584 /* UpgradePromptImpression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0312C285F7C7C82024BF62 /* UpgradePromptImpression.swift */; };
 		0D5183AD0EC5E5C47A7E6E91 /* UserDefaults+CloudTreeExpansionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E7E938E768DFC9404CFA32 /* UserDefaults+CloudTreeExpansionPersistence.swift */; };
 		F6589022F0451794CFF2BEEF /* V2AccountMacAdmissionAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35954A0F602A2EDCF60449F /* V2AccountMacAdmissionAuthority.swift */; };
 		F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */; };
@@ -4739,6 +4755,7 @@
 		D0B103040000000000000001 /* AboutPropertyRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutPropertyRow.swift; sourceTree = "<group>"; };
 		D0B103050000000000000001 /* AboutVisualEffectBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutVisualEffectBackground.swift; sourceTree = "<group>"; };
 		D0B103000000000000000001 /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutWindowController.swift; sourceTree = "<group>"; };
+		588E300F55061640D4CBE53A /* AccountAnalyticsState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAnalyticsState.swift; sourceTree = "<group>"; };
 		207C9B99F28EDA93DF17EDB6 /* AccountMacAdmissionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Devices/Account/AccountMacAdmissionPolicy.swift; sourceTree = "<group>"; };
 		AE7EB40497FBD54553C6598A /* AccountMacDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Devices/Account/AccountMacDirectory.swift; sourceTree = "<group>"; };
 		B1278AF05232D11E39C32D4A /* AccountMacDirectoryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Devices/Account/AccountMacDirectoryClient.swift; sourceTree = "<group>"; };
@@ -4751,6 +4768,7 @@
 		A5C01700000000000000000A /* AccountSignInPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInPanel.swift; sourceTree = "<group>"; };
 		A5C01700000000000000000C /* AccountSignInPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInPanelView.swift; sourceTree = "<group>"; };
 		A5C017000000000000000008 /* AccountSignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInView.swift; sourceTree = "<group>"; };
+		FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountUpgradeOfferTests.swift"; sourceTree = "<group>"; };
 		D0B103020000000000000001 /* AcknowledgmentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsView.swift; sourceTree = "<group>"; };
 		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
@@ -5020,6 +5038,7 @@
 		A5F100000000000000000004 /* AppDelegate+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationScroll.swift"; sourceTree = "<group>"; };
 		6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneMemoryGuardrail.swift"; sourceTree = "<group>"; };
 		B327EB76EA7CE66FFA2623B6 /* AppDelegate+PaneNumberShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneNumberShortcut.swift"; sourceTree = "<group>"; };
+		02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ProductAnalytics.swift"; sourceTree = "<group>"; };
 		2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RecoverableMainWindowRoutes.swift"; sourceTree = "<group>"; };
 		797800010000000000000002 /* AppDelegate+RemoteSessionPower.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RemoteSessionPower.swift"; sourceTree = "<group>"; };
 		C0DE74140000000000000002 /* AppDelegate+SavedLayoutMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SavedLayoutMenu.swift"; sourceTree = "<group>"; };
@@ -5448,6 +5467,7 @@
 		7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMLayoutEnvTests.swift; sourceTree = "<group>"; };
 		BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMReadyPollIntervalTests.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMTransferTests.swift; sourceTree = "<group>"; };
+		C11757000000000000000055 /* CLIWelcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWelcomeTests.swift; sourceTree = "<group>"; };
 		773600000000000000000002 /* CLIWindowCommandMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowCommandMockServer.swift; sourceTree = "<group>"; };
 		C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowHandleRoutingTests.swift; sourceTree = "<group>"; };
 		846600000000000000000002 /* CLIWorkspaceGroupSafetyMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceGroupSafetyMockServer.swift; sourceTree = "<group>"; };
@@ -5820,6 +5840,7 @@
 		3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVPNSetupTests.swift"; sourceTree = "<group>"; };
 		EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupView.swift; sourceTree = "<group>"; };
 		D17243000000000000000001 /* CloudWelcome */ = {isa = PBXFileReference; lastKnownFileType = folder; path = CloudWelcome; sourceTree = "<group>"; };
+		335F00E37FFA52FF5624A936 /* CloudWelcomeAnalyticsSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeAnalyticsSession.swift; sourceTree = "<group>"; };
 		883EC42C240445DBCE78E8A7 /* CloudWelcomeDebugMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/CloudWelcomeDebugMenu.swift; sourceTree = "<group>"; };
 		3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeHero.swift; sourceTree = "<group>"; };
 		66CDAC0E0F1B791CA9260310 /* CloudWelcomeMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeMedia.swift; sourceTree = "<group>"; };
@@ -6920,6 +6941,7 @@
 				800100000000000000000102 /* HiveAccountTokenSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Hive/HiveAccountTokenSource.swift"; sourceTree = "<group>"; };
 				800100000000000000000104 /* HiveComputersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Hive/HiveComputersService.swift"; sourceTree = "<group>"; };
 		140240000000000000000001 /* HookPromptLengthUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookPromptLengthUITests.swift; sourceTree = "<group>"; };
+		BE0A832803DD479693FA71A0 /* HostAccountFlow+Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+Analytics.swift"; sourceTree = "<group>"; };
 		FDD2711070DB004542E6B9C0 /* HostAccountFlow+ReceivedInvitations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+ReceivedInvitations.swift"; sourceTree = "<group>"; };
 		EFD17B8A4545F43B50EF504A /* HostAccountFlow+TeamMembers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+TeamMembers.swift"; sourceTree = "<group>"; };
 		13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+TeamSelection.swift"; sourceTree = "<group>"; };
@@ -7422,17 +7444,22 @@
 		C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortTerminalDeviceLookup.swift; sourceTree = "<group>"; };
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
 		B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalyticsPropertiesTests.swift; sourceTree = "<group>"; };
+		34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogContextCalls.swift; sourceTree = "<group>"; };
 		A7C0FF1D0000000000000002 /* PostHogIdentityObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostHogIdentityObserver.swift; sourceTree = "<group>"; };
+		7BF00B6EA5F80726C036DA53 /* PostHogProductAnalyticsSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogProductAnalyticsSink.swift; sourceTree = "<group>"; };
 		B7F100060000000000000002 /* PreparedNotificationSound.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNotificationSound.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClient.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClientTests.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B4 /* PresenceSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000E /* PricingPlansScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PricingPlansScreen.swift; sourceTree = "<group>"; };
+		F89797AE49756191CC98B2C1 /* ProBadgeActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeActions.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
 		E06E7588C05AC6A8659CFA51 /* ProcessExitWait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessExitWait.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
 		4587EDAC6B63EF4846FB24A6 /* ProcessSnapshotMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessSnapshotMeasurement.swift"; sourceTree = "<group>"; };
+		7A46D27DF741643885DBBFA2 /* ProductAnalytics+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProductAnalytics+App.swift"; sourceTree = "<group>"; };
+		E0AFE40AA472BB58AEEBDB6E /* ProductAnalyticsEvent+Upgrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProductAnalyticsEvent+Upgrade.swift"; sourceTree = "<group>"; };
 		D75280010000000000000002 /* ProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilingSignposts.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectFilesTabView.swift; sourceTree = "<group>"; };
@@ -7694,6 +7721,7 @@
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
+		899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+ProductFeature.swift"; sourceTree = "<group>"; };
 		272B367E39A68B0DCDE9E182 /* RightSidebarMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode.swift"; sourceTree = "<group>"; };
 		DC32D1CB3F917D805A2D845A /* RightSidebarModeBarDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeBarDrag.swift; sourceTree = "<group>"; };
 		9C4B976F4761E72540766E54 /* RightSidebarModeBarTabsLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeBarTabsLayout.swift; sourceTree = "<group>"; };
@@ -8769,6 +8797,8 @@
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
+		BA13D9C82962402EAA0FABC1 /* UpgradeAnalyticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpgradeAnalyticsTests.swift"; sourceTree = "<group>"; };
+		6E0312C285F7C7C82024BF62 /* UpgradePromptImpression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpgradePromptImpression.swift; sourceTree = "<group>"; };
 		82E7E938E768DFC9404CFA32 /* UserDefaults+CloudTreeExpansionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UserDefaults+CloudTreeExpansionPersistence.swift"; sourceTree = "<group>"; };
 		F35954A0F602A2EDCF60449F /* V2AccountMacAdmissionAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Devices/Account/V2AccountMacAdmissionAuthority.swift; sourceTree = "<group>"; };
 		F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+CodexSessionCwd.swift"; sourceTree = "<group>"; };
@@ -9211,6 +9241,7 @@
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
 				F0C0A1000000000000000003 /* CmuxPhonePush in Frameworks */,
+				CA9A10000000000000000003 /* CmuxProductAnalytics in Frameworks */,
 				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
 				CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */,
 				CC0DE30000000000000000A3 /* CmuxRemoteSession in Frameworks */,
@@ -9326,6 +9357,7 @@
 				C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */,
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
 				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
+				CA9A10000000000000000004 /* CmuxProductAnalytics in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				D96970000000000000000003 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000005 /* CmuxSudoBrokerUI in Frameworks */,
@@ -9382,6 +9414,7 @@
 				C1175700000000000000001E /* CLIWorkspaceStableIDTests.swift */,
 				C5E77DFE66FE1C6A88ADD10F /* CLIVersionSkewErrorTests.swift */,
 				C1175700000000000000001F /* CMUXOpenHTMLFocusTests.swift */,
+				C11757000000000000000055 /* CLIWelcomeTests.swift */,
 				C11757000000000000000020 /* CampfireHookNotificationTests.swift */,
 				C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */,
 				C11757000000000000000022 /* CodexTeamsAppServerProcessTests.swift */,
@@ -10021,6 +10054,7 @@
 				5284AD113D5D3BC29608D4F4 /* InProcessMachineCreateLauncher.swift */,
 				B4E85236BC4E03F5BA8B908C /* CoderouterAccountState.swift */,
 				5ECF12C0C620A0999268B8BA /* CloudTuiManualMirrorHandshake.swift */,
+				335F00E37FFA52FF5624A936 /* CloudWelcomeAnalyticsSession.swift */,
 				A986CE6A5E2D281B2CE3C7E1 /* SidebarCloudButtonAction.swift */,
 			);
 			name = Cloud;
@@ -12295,6 +12329,16 @@
 				9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */,
 				603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */,
 				352D4A0BA53BF9B5B3480BE8 /* MainWindowHitTestMutationMonitor.swift */,
+				588E300F55061640D4CBE53A /* AccountAnalyticsState.swift */,
+				02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */,
+				BE0A832803DD479693FA71A0 /* HostAccountFlow+Analytics.swift */,
+				7BF00B6EA5F80726C036DA53 /* PostHogProductAnalyticsSink.swift */,
+				F89797AE49756191CC98B2C1 /* ProBadgeActions.swift */,
+				7A46D27DF741643885DBBFA2 /* ProductAnalytics+App.swift */,
+				E0AFE40AA472BB58AEEBDB6E /* ProductAnalyticsEvent+Upgrade.swift */,
+				6E0312C285F7C7C82024BF62 /* UpgradePromptImpression.swift */,
+				899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */,
+				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13869,9 +13913,11 @@
 				220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */,
 				DA688992ADFE3696B36EEC3D /* CloudStaleInventoryMaterializationTests.swift */,
 				BB0DDF5F330E26DA03118A56 /* ClaudeTranscriptlessRestoreTests.swift */,
+				BA13D9C82962402EAA0FABC1 /* UpgradeAnalyticsTests.swift */,
 				6F6A2754CDC4A872BCEFD3EA /* AgentAcknowledgedTurnNotificationTests.swift */,
 				2B8ACF56AB5811EEC9D0203F /* SidebarCloudButtonActionTests.swift */,
 				62038FEBE991E6F6022BD52F /* SSHTuiAttachRetryTests.swift */,
+				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14062,6 +14108,7 @@
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
 				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
 				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,
+				CA9A10000000000000000002 /* CmuxProductAnalytics */,
 				CE57E10000000000000000B2 /* CmuxSentryReporting */,
 				CE57E10000000000000000A2 /* CmuxSentryScrubbing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
@@ -14199,6 +14246,7 @@
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
 				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
 				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,
+				CA9A10000000000000000002 /* CmuxProductAnalytics */,
 				D0F4A0000000000000000002 /* CmuxCloudTunnelCore */,
 				A5001262 /* Bonsplit */,
 				D96973000000000000000001 /* CmuxSudoBroker */,
@@ -14335,6 +14383,7 @@
 				C01E00AA00000000000000A1 /* XCLocalSwiftPackageReference "CmuxSyntaxHighlighting" */,
 				D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */,
 				D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */,
+				CA9A10000000000000000001 /* XCLocalSwiftPackageReference "CmuxProductAnalytics" */,
 				D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
@@ -14650,6 +14699,7 @@
 				C11757000000000000000034 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */,
 				C5E74B39873F2DF220584A49 /* CLIVersionSkewErrorTests.swift in Sources */,
 				3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */,
+				C11757000000000000000056 /* CLIWelcomeTests.swift in Sources */,
 				C11757000000000000000046 /* CLIWindowCommandMockServer.swift in Sources */,
 				C11757000000000000000035 /* CLIWindowHandleRoutingTests.swift in Sources */,
 				C11757000000000000000047 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */,
@@ -14693,6 +14743,7 @@
 				D0B102040000000000000001 /* AboutPropertyRow.swift in Sources */,
 				D0B102050000000000000001 /* AboutVisualEffectBackground.swift in Sources */,
 				D0B102000000000000000001 /* AboutWindowController.swift in Sources */,
+				EC5ED12CF24A42B4CAF095BC /* AccountAnalyticsState.swift in Sources */,
 				662000CBFF17033015D89968 /* AccountMacAdmissionPolicy.swift in Sources */,
 				7B4286950FBA469A8C23431B /* AccountMacDirectory.swift in Sources */,
 				674B2758ED1A0B500EFFC9F6 /* AccountMacDirectoryClient.swift in Sources */,
@@ -14896,6 +14947,7 @@
 				A5F100000000000000000003 /* AppDelegate+NotificationScroll.swift in Sources */,
 				6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */,
 				71BC19E3211D86ED3333A772 /* AppDelegate+PaneNumberShortcut.swift in Sources */,
+				EAC9592A7318ADC630BF1FF9 /* AppDelegate+ProductAnalytics.swift in Sources */,
 				2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */,
 				797800010000000000000001 /* AppDelegate+RemoteSessionPower.swift in Sources */,
 				C0DE74140000000000000001 /* AppDelegate+SavedLayoutMenu.swift in Sources */,
@@ -15278,6 +15330,7 @@
 			549C9947A81C58B3F6402500 /* CloudVPNSetupPanel.swift in Sources */,
 			C8783B458C963A34D5A93FF3 /* CloudVPNSetupPanelView.swift in Sources */,
 			59FECE3AAB392E8976A8D16A /* CloudVPNSetupView.swift in Sources */,
+				43D9F9F0098DE6E4F85936B0 /* CloudWelcomeAnalyticsSession.swift in Sources */,
 				3B7661AE47EE36CB4BEBEEED /* CloudWelcomeDebugMenu.swift in Sources */,
 				22D165EB062C603B0C3A0A82 /* CloudWelcomeHero.swift in Sources */,
 				6CDA457FF93E33F097EB4F7C /* CloudWelcomeMedia.swift in Sources */,
@@ -15862,6 +15915,7 @@
 				A10348020000000000000001 /* HistoryMenuState.swift in Sources */,
 				800100000000000000000101 /* HiveAccountTokenSource.swift in Sources */,
 				800100000000000000000103 /* HiveComputersService.swift in Sources */,
+				AC2BB0797CA8D9098F4D2F5A /* HostAccountFlow+Analytics.swift in Sources */,
 				A4FF11E04A292AACEB803A41 /* HostAccountFlow+ReceivedInvitations.swift in Sources */,
 				40A965C25799A1B366F3F672 /* HostAccountFlow+TeamMembers.swift in Sources */,
 				13019B000000000000000002 /* HostAccountFlow+TeamSelection.swift in Sources */,
@@ -16179,13 +16233,18 @@
 				B79500060000000000000001 /* PortScanPublicationState.swift in Sources */,
 				9262420B51295D47DC7065BD /* PortTerminalDeviceLookup.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
+				72ED5F6AB93363EDB369E867 /* PostHogContextCalls.swift in Sources */,
 				A7C0FF1D0000000000000001 /* PostHogIdentityObserver.swift in Sources */,
+				6D7155E52FFDD7E47CF2E759 /* PostHogProductAnalyticsSink.swift in Sources */,
 				B7F100060000000000000001 /* PreparedNotificationSound.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
 				D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */,
 				C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */,
+				318A10362EFC47DB03BF1D5C /* ProBadgeActions.swift in Sources */,
 				C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */,
 				F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */,
+				BD54FBDB9B9175C3EC73C37E /* ProductAnalytics+App.swift in Sources */,
+				0A9BC60ADCBC60AF3992E4CB /* ProductAnalyticsEvent+Upgrade.swift in Sources */,
 				D75280010000000000000001 /* ProfilingSignposts.swift in Sources */,
 					A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,
 					A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */,
@@ -16338,6 +16397,7 @@
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
+				6E78170519FB498D386528A2 /* RightSidebarMode+ProductFeature.swift in Sources */,
 				87272A2D0FCDDA4D798961D8 /* RightSidebarMode.swift in Sources */,
 				2472F1A7500F5B4FFF49740C /* RightSidebarModeBarDrag.swift in Sources */,
 				D3282C34128369182EC5CC9A /* RightSidebarModeBarTabsLayout.swift in Sources */,
@@ -17126,6 +17186,7 @@
 			E7F100000000000000000001 /* UITestSocketSanityCoordinator.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
+				944FADDCC0FC5D78EB85E584 /* UpgradePromptImpression.swift in Sources */,
 				0D5183AD0EC5E5C47A7E6E91 /* UserDefaults+CloudTreeExpansionPersistence.swift in Sources */,
 				F6589022F0451794CFF2BEEF /* V2AccountMacAdmissionAuthority.swift in Sources */,
 				F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */,
@@ -17770,6 +17831,7 @@
 				49A07E13506067E94820A5CE /* AccountMacDirectoryClientTests.swift in Sources */,
 				9707E1A30E96E4DDD19BE85C /* AccountMacDirectoryTests.swift in Sources */,
 				A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */,
+				73554A9CA0643B8F0DDCA371 /* AccountUpgradeOfferTests.swift in Sources */,
 				2BA53AD928B8026FE8A0D3A9 /* AgentAcknowledgedTurnNotificationTests.swift in Sources */,
 				8EA083841777B442E3FA7E72 /* AgentAutoResumeScreenTests.swift in Sources */,
 				5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */,
@@ -18989,6 +19051,7 @@
 				0C8A1FB23FA2673EDA2BE6A4 /* UITestFixtureTeamsAuthClientTests.swift in Sources */,
 				CF67431916D254CC833A68CB /* UITestSocketCommandScriptTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
+				9E333A705D5EA232771DA203 /* UpgradeAnalyticsTests.swift in Sources */,
 				A36C009DF2E44501AA774136 /* VaultCheckpointForkTests.swift in Sources */,
 				C2A04B60729A4FA6B38C8BC1 /* VaultCheckpointHarnessTests.swift in Sources */,
 				469200054692000146920001 /* VaultNativeDragSourceTests.swift in Sources */,
@@ -19147,10 +19210,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.clitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -19163,10 +19226,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.clitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -19178,10 +19241,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -19269,7 +19332,7 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -19278,7 +19341,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
@@ -19320,7 +19383,7 @@
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -19329,7 +19392,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"-lc++",
@@ -19396,10 +19459,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -19414,7 +19477,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -19423,7 +19486,7 @@
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -19439,7 +19502,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -19448,7 +19511,7 @@
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -19463,11 +19526,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSPrincipalClass = CmuxTestsPrincipal;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -19484,11 +19547,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSPrincipalClass = CmuxTestsPrincipal;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -19506,7 +19569,7 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -19520,7 +19583,7 @@
 					"$(BUILT_PRODUCTS_DIR)",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug.tunnel;
 				PRODUCT_MODULE_NAME = cmuxTunnel;
 				PRODUCT_NAME = cmuxTunnel;
@@ -19539,7 +19602,7 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 109;
+				CURRENT_PROJECT_VERSION = 111;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -19553,7 +19616,7 @@
 					"$(BUILT_PRODUCTS_DIR)",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.65.1;
+				MARKETING_VERSION = 0.65.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.tunnel;
 				PRODUCT_MODULE_NAME = cmuxTunnel;
 				PRODUCT_NAME = cmuxTunnel;
@@ -19900,6 +19963,10 @@
 		D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloudBannerCore;
+		};
+		CA9A10000000000000000001 /* XCLocalSwiftPackageReference "CmuxProductAnalytics" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxProductAnalytics;
 		};
 		CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -20293,6 +20360,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */;
 			productName = CmuxCloudBannerCore;
+		};
+		CA9A10000000000000000002 /* CmuxProductAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA9A10000000000000000001 /* XCLocalSwiftPackageReference "CmuxProductAnalytics" */;
+			productName = CmuxProductAnalytics;
 		};
 		CE57E10000000000000000A2 /* CmuxSentryScrubbing */ = {
 			isa = XCSwiftPackageProductDependency;

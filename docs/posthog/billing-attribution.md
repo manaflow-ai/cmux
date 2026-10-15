@@ -55,7 +55,7 @@ All billing events use the Stack user id as `distinct_id` (teams: `stack-team:<i
 | `cmux_billing_checkout_expired` | `checkout.session.expired` (buyer never paid, ~24h) | `plan`, `billing_interval`, `amount_total` |
 | `cmux_billing_subscription_created/updated/deleted` | subscription webhooks; attribution read from subscription metadata | `subscription_status`, `cancel_at_period_end`, `cancellation_reason`, `cancellation_feedback` |
 | `cmux_billing_invoice_paid`, `cmux_billing_invoice_payment_failed`, `cmux_billing_charge_refunded` | unchanged | |
-| `cmux_upgrade_entrypoint_opened` | Mac client, on every upgrade click, anonymous PostHog id | `source`, `client`, `channel`, `app_version`, `app_build` |
+| `cmux_upgrade_entrypoint_opened` | Mac client, on every upgrade click; the Stack user id when signed in, else the install's anonymous id (linked on sign-in) | `source`, `client`, `plan`, `destination`, `channel`, `app_version`, `app_build`; the rest of the Mac funnel is in [mac-product-analytics.md](mac-product-analytics.md) |
 
 Person properties written on the first paid checkout and never overwritten: `first_paid_checkout_at`, `first_paid_checkout_source`, `first_paid_checkout_placement`, `first_paid_checkout_client`, `first_paid_checkout_channel`, `first_paid_checkout_app_version`, `first_paid_checkout_utm_source`, `first_paid_checkout_utm_campaign`.
 
