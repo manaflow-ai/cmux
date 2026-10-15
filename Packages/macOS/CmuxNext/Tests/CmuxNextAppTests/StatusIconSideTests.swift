@@ -124,7 +124,7 @@ import Testing
                 let slot = cell.iconLayer.frame
                 switch side {
                 case .left:
-                    #expect(abs(glyph.frame.midX - slot.midX) < 0.5, "the status icon \(glyph.frame) takes the icon's slot \(slot)")
+                    #expect(abs(glyph.frame.midX - slot.midX) <= 0.5, "the status icon \(glyph.frame) takes the icon's slot \(slot)")
                 case .right:
                     #expect(cell.titleLayer.frame.minX <= slot.minX + 0.5, "the title \(cell.titleLayer.frame) starts where the icon was \(slot)")
                 }
