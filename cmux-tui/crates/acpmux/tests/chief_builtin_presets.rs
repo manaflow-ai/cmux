@@ -163,9 +163,11 @@ async fn stored_env(c: &mut Rpc, name: &str) -> Value {
 #[tokio::test]
 async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     let d = Daemon::start("install");
+    // The default Chief: the id of the daemon's own Chief home.
+    let id = home_id(&d.dir.join("mux"));
     // A plain socket client: the brain's Chief host, not the person.
     let mut chief = Rpc::connect(&d.socket).await;
-    let compact = "optchat-compact-1a2b3c4d-slot-3";
+    let compact = &format!("optchat-compact-{id}-slot-3");
     let r = chief
         .call(
             "_acpmux/presets",
@@ -182,7 +184,7 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
             "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
             "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": "1",
             "DISABLE_AUTOUPDATER": "1",
-            "SUBROUTER_SESSION_KEY": "optchat-1a2b3c4d-compact",
+            "SUBROUTER_SESSION_KEY": format!("optchat-{id}-compact"),
         })
     );
     // A later change of another field keeps the built-in env.
@@ -192,19 +194,19 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(
         stored_env(&mut chief, compact).await["SUBROUTER_SESSION_KEY"],
-        "optchat-1a2b3c4d-compact"
+        format!("optchat-{id}-compact")
     );
 
     // Codex: the paths come from the daemon's own Chief home, never the client.
-    let turn = "optchat-chief-codex-1a2b3c4d";
+    let turn = &format!("optchat-chief-codex-{id}");
     let r =
         chief.call("_acpmux/presets", json!({"name": turn, "set": {"harness": "fcodex"}})).await;
     assert!(r.get("error").is_none(), "{r}");
     let env = stored_env(&mut chief, turn).await;
     let mux = d.dir.join("mux");
     assert_eq!(env["CODEX_HOME"], mux.join("optchat/turn-codex").display().to_string(), "{env}");
-    assert_eq!(env["CODEX_PROMPT_CACHE_KEY"], "optchat-1a2b3c4d-turn", "{env}");
-    let slot = "optchat-compact-1a2b3c4d-slot-0";
+    assert_eq!(env["CODEX_PROMPT_CACHE_KEY"], format!("optchat-{id}-turn"), "{env}");
+    let slot = &format!("optchat-compact-{id}-slot-0");
     let r =
         chief.call("_acpmux/presets", json!({"name": slot, "set": {"harness": "fcodex"}})).await;
     assert!(r.get("error").is_none(), "{r}");
@@ -221,7 +223,7 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     );
 
     // A subagent: the daemon's own cmux sockets and its bundle first on PATH.
-    let sub = "optchat-sub-1a2b3c4d";
+    let sub = &format!("optchat-sub-{id}");
     let r =
         chief.call("_acpmux/presets", json!({"name": sub, "set": {"harness": "fclaude"}})).await;
     assert!(r.get("error").is_none(), "{r}");
@@ -366,5 +368,31 @@ async fn no_session_gets_the_credential_of_the_chief_that_started_the_daemon() {
                 "{preset:?}: the session acts as its own Chief"
             );
         }
+    }
+}
+
+/// A built-in preset whose home id names no Chief of the daemon's Chief
+/// home (neither the Chief home nor one of its `c/<id>` Chiefs) is refused,
+/// for every role and family: it never falls back to the default Chief's
+/// homes (hq-6d 2026-10-14, fail closed).
+#[tokio::test]
+async fn a_built_in_preset_of_an_unknown_chief_is_refused() {
+    let d = Daemon::start("unknown");
+    std::fs::create_dir_all(d.dir.join("mux").join("c").join("aaaa1111")).unwrap();
+    let mut chief = Rpc::connect(&d.socket).await;
+    for (name, harness) in [
+        ("optchat-chief-0badc0de", "fclaude"),
+        ("optchat-chief-codex-0badc0de", "fcodex"),
+        ("optchat-compact-0badc0de-slot-1", "fclaude"),
+        ("optchat-compact-0badc0de-slot-2", "fcodex"),
+        ("optchat-sub-0badc0de", "fclaude"),
+        ("optchat-sub-0badc0de-codex", "fcodex"),
+    ] {
+        let r =
+            chief.call("_acpmux/presets", json!({"name": name, "set": {"harness": harness}})).await;
+        let message = r["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("0badc0de is not a Chief"), "{name}: {r}");
+        let r = chief.call("_acpmux/presets", json!({"name": name})).await;
+        assert!(r.get("error").is_some(), "{name} was stored: {r}");
     }
 }
