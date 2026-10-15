@@ -431,6 +431,10 @@ pub struct Brain {
     draft_failed: bool,
     /// A run append failed once: later failures are not logged.
     run_failed: bool,
+    /// A live frame (`chief-live-v1`) failed once: later failures are not logged.
+    live_failed: bool,
+    /// What the owner took of each streamed step (renumbers, restarts after a failure).
+    live_streams: crate::run::LiveStreams,
     /// The attachments uploaded for the running turn's steps (turn key, step id):
     /// every later append of the step names them again (a step is replaced whole).
     run_attachments: HashMap<(String, String), Vec<serde_json::Value>>,
@@ -562,6 +566,8 @@ impl Brain {
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,
+            live_failed: false,
+            live_streams: Default::default(),
             run_attachments: HashMap::new(),
             typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
