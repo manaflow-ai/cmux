@@ -724,6 +724,31 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.fonts.chatSize" : {
+      "default" : 14,
+      "description" : "The size of chat messages.",
+      "maximum" : 20,
+      "minimum" : 11,
+      "title" : "Chat Text Size",
+      "type" : "number"
+    },
+    "appearance.fonts.code" : {
+      "description" : "The face of code in chats, diffs and files. Unset, code uses the terminal's font.",
+      "title" : "Code Font",
+      "type" : "string"
+    },
+    "appearance.fonts.ui" : {
+      "default" : "system",
+      "description" : "The face of chats, the composer, pages and the window's own text.",
+      "enum" : [
+        "system",
+        "rounded",
+        "serif",
+        "mono"
+      ],
+      "title" : "Text Font",
+      "type" : "string"
+    },
     "appearance.glassTransparency" : {
       "default" : 0,
       "description" : "How much of the desktop or wallpaper shows through the glass.",
@@ -1167,14 +1192,6 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
-    "browser.omnibar.backgroundOpacity" : {
-      "default" : 0,
-      "description" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.",
-      "maximum" : 1,
-      "minimum" : 0,
-      "title" : "Address Bar Opacity",
-      "type" : "number"
-    },
     "browser.omnibar.calculator" : {
       "default" : true,
       "description" : "Shows the answer to arithmetic you type. Return copies it.",
@@ -1192,7 +1209,7 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "off",
+      "default" : "transparent",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
         "transparent",
@@ -1576,12 +1593,6 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
-      "type" : "boolean"
-    },
-    "home.channelsEnabled" : {
-      "default" : false,
-      "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
-      "title" : "Channels",
       "type" : "boolean"
     },
     "labs.classicHome" : {
