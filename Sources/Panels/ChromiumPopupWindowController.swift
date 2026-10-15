@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxFoundation
 import ObjectiveC
 
 /// Shows a sized popup a Chromium page opened (`window.open` with window
