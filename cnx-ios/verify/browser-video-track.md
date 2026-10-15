@@ -485,3 +485,61 @@ could not be installed there.
   - the carrier, from the overlay's `· track` or `· channel`.
 - Loss: hostd reads `$CNX_STATE_DIR/video-drop-permille` at each new link.
   The app passes no other environment to hostd.
+
+## Live run over WireGuard (2026-10-14, `feat-cnx-ios-wgmedia`): lane up, frames not measured
+
+### Builds
+
+- Phone: this branch's Demo simulator app and `CnxFFI.xcframework`, built on
+  `mini-cmuxs-mac-mini-3` (Xcode 26.6), run in one simulator
+  (`cnx-wgmedia-bench`, deleted afterwards).
+- Mac: the `cnx-e2e-1bd377aa` DEV app re-tagged `cnx-e2e-wgmedia1` (own
+  bundle id, sockets and ports), with this branch's `cnx-hostd` (release,
+  built on the same mini). For the rbfix workaround
+  (`feat-cnx-ios-rbfix` `d48308b3`, `--use-mock-keychain`) the bundled
+  host's executable became a script that execs the real host with that
+  argument.
+
+### What the real link showed
+
+- hostd: `link up kind=WireGuard path=Relay video=true` with
+  `video_lane=76.1ms` in the answer timeline. The lane was negotiated live
+  through the TeamHub signaling (`wg-init`/`wg-resp` `lanes`), and the
+  `browser` channel took it ("video on the link's media lane").
+- The same run's WebRTC links also came up with `video=true`.
+
+### What blocked the numbers
+
+1. The first wrapper renamed the host binary. CEF derives its helper app
+   names from the executable's name, so every helper launch failed
+   (`GPU process launch failed: error_code=1003`, then `GPU process isn't
+   usable. Goodbye.`). No frame was produced on either transport.
+2. The second wrapper keeps the unchanged host bundle under the original
+   name in `Contents/HelpersReal` (same depth, so the CEF framework symlink
+   resolves). It is untested: from then on the rig Mac app did not start
+   `cnx-hostd` in three launches, even with fresh rig and state folders,
+   and without `HelpersReal`. The phone listed only the other Macs on the
+   dev account. Not diagnosed. The app's unified log had no entries readable
+   from this session.
+3. The shared rig was busy. The terminal QA agent's rig app
+   (`cnx-e2e-1bd377aa`) ran from 16:27 to 16:52 and started again at 17:12.
+   This run backs off whenever another rig app is live.
+
+### To rerun
+
+- Use a host built from `feat-cnx-ios-rbfix` (or the rebuilt host pin)
+  instead of a wrapper, and a fresh tag (`cnx-e2e-wgmedia2` is prepared
+  under `~/cnx-ios-builds/20261014-wgmedia-e2e/app/`).
+- Then run:
+
+  ```
+  verify/scripts/browser-track-bench.py --mac-app APP --no-build \
+    --sim-name cnx-wgmedia-bench --record-only \
+    --configs wg-track,wg-channel,track,channel,wg-track-relay,wg-track-wss,wg-track-loss30,track-loss30
+  ```
+
+  Then `--analyze DIR`.
+- The `wg-*` configurations dial WireGuard. `wg-track-wss` removes TURN on
+  the phone (`CNX_DEV_NO_TURN`), so the link rides the WebSocket relay.
+- The overlay names the WireGuard lane `wg-rtp`.
+
