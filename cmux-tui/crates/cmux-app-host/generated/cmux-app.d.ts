@@ -4,14 +4,15 @@
 declare namespace Cmux {
   type AddressId = string
   type AgentId = string
-  type AgentMessageDelivery = { recipient: string; state: Cmux.AgentMessageState; attempts: string; updated_at_ms: string; via: string | null; error: string | null }
+  type AgentMessageDelivery = { recipient: string; state: Cmux.AgentMessageState; attempts: string; updated_at_ms: string; via: string | null; error: string | null; reason: string | null; created_at_ms: string; queued_at_ms: string | null; delivered_at_ms: string | null; acknowledged_at_ms: string | null; held_until_ms: string | null }
   type AgentMessageSnapshot = { id: string; session_id: string /* session_… */; thread_id: string; kind: "message" | "reply"; sender: string; sender_name: string | null; recipients: Array<string>; body: string; created_at_ms: string; in_reply_to: string | null; references: Array<string>; deliveries: Array<Cmux.AgentMessageDelivery> }
-  type AgentMessageState = "queued" | "delivered" | "acknowledged" | "failed"
+  type AgentMessageState = "held" | "queued" | "delivered" | "acknowledged" | "failed" | "unsent" | "retracted" | "declined"
   type AgentSnapshot = { id: string /* agent_… */; session_id: string /* session_… */; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket" | "detected" | "plugin"; updated_at_ms: string; source_session: string | null; extra?: Record<string, Cmux.JsonValue> }
   type AgentState = "working" | "blocked" | "idle" | "done" | "unknown"
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null }
   type AutomationId = string
   type AutomationSettings = { agent_run_default_seconds: number | null }
+  type AvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
   type Body = unknown
   type BrowserAttachFrame = { kind: "frame"; mime_type: "image/png" | "image/jpeg"; data_base64: string; width_px: number; height_px: number; pointer_frame_seq: string | null }
   type BrowserAttachItem = unknown
@@ -20,6 +21,10 @@ declare namespace Cmux {
   type BrowserDeviceAddResult = { device: Cmux.JsonValue }
   type BrowserDeviceList = { chrome: Cmux.JsonValue; devices: Array<Cmux.JsonValue> }
   type BrowserDeviceRemoveResult = { removed: boolean }
+  type BrowserProfile = { id: string; name: string; color: string | null; icon: string | null; index: number }
+  type BrowserProfileCreateResult = { browser_profile: Cmux.BrowserProfile; changed: boolean }
+  type BrowserProfileList = { browser_profiles: Array<Cmux.BrowserProfile> }
+  type BrowserProfileOpenResult = { tab_id: string /* tab_… */; browser_id: string /* browser_… */; pane_id: string /* pane_… */; profile_id: string }
   type BrowserSnapshot = { id: string /* browser_… */; tab_id: string /* tab_… */; url: string; title: string; loading: boolean; source: Cmux.BrowserSource; status: Cmux.BrowserStatus; error: string | null; frames_stalled: boolean; size: Cmux.Size; extra?: Record<string, Cmux.JsonValue> }
   type BrowserSource = "external" | "launched"
   type BrowserStatus = "starting" | "live" | "failed"
@@ -31,10 +36,11 @@ declare namespace Cmux {
   type ChiefAvatarPage = { chief: string; avatar: Cmux.ChiefAvatarImage | null }
   type ChiefAvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
   type ChiefBrainPlace = { host: Cmux.HostId; install: Cmux.InstallId }
+  type ChiefBrainStart = { state: string; reason?: string }
   type ChiefEngineChoice = { harness?: string; model?: string; effort?: string }
   type ChiefId = string
   type ChiefList = { chiefs: Array<Cmux.ChiefRecord> }
-  type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; is_default: boolean; rev: number; created_at: string; updated_at: string }
+  type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; is_default: boolean; rev: number; created_at: string; updated_at: string; brain?: Cmux.ChiefBrainStart }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
@@ -265,6 +271,9 @@ declare namespace Cmux {
   type PaletteUsageSnapshot = { revision: string; half_life_ms: string; pick_half_life_ms: string; entries: Array<Cmux.PaletteUsageRow>; picks: Array<Cmux.PaletteUsagePick>; imported: Array<string>; hidden: Array<string> }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
   type PaneSnapshot = { id: string /* pane_… */; screen_id: string /* screen_… */; name: string | null; focused: boolean; zoomed: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type ParticipantAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
+  type ParticipantAvatarPage = { participant_id: string; avatar: Cmux.ParticipantAvatarImage | null }
+  type ParticipantAvatarResult = { participant_id: string; avatar: Cmux.AvatarRef | null }
   type ParticipantId = string
   type PingResult = { alive: boolean; cursor: Cmux.Cursor }
   type PixelSize = { width_px: number; height_px: number }
@@ -349,7 +358,7 @@ declare namespace Cmux {
   type SidebarLayoutSnapshot = { revision: string; sections: Array<Cmux.JsonValue> }
   type SidebarPluginSnapshot = { id: string /* sidebar_plugin_… */; name: string; source: string; revision?: string; active: boolean; enabled: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarSectionPatch = { title?: string | null; look?: string; room?: string | null; max_rows?: number | null; shows_title?: boolean; layout?: string; align?: string; gap?: number | null; columns?: number | null }
-  type SidebarSectionSnapshot = { id: string; kind: Cmux.JsonValue; title?: string; shows_title: boolean; region: string; look: string; arrangement: string; columns?: number; max_rows?: number; scroll: string; room?: string; order: string; keeps_closed: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type SidebarSectionSnapshot = { id: string; kind: Cmux.JsonValue; title?: string; shows_title: boolean; region: string; look: string; arrangement: string; align: string; gap?: number; columns?: number; max_rows?: number; scroll: string; room?: string; order: string; keeps_closed: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarViewSnapshot = { id: string /* sidebar_view_… */; session_id: string /* session_… */; cols: number; rows: number; running: boolean; extra?: Record<string, Cmux.JsonValue> }
   type Size = { cols: number; rows: number }
   type SnapshotId = string
@@ -526,11 +535,19 @@ interface CmuxGlobal {
     list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string }, Array<Cmux.BrowserSnapshot>>
     /** `browser.navigate` (mutation, scope `browser:write`) */
     navigate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; url: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
+    profile: {
+      /** `browser.profile.create` (mutation, scope `browser:write`) */
+      create: CmuxOp<{ machine?: string; session?: string; name: string; color?: string; icon?: string; index?: number }, Cmux.MutationResult<Cmux.BrowserProfileCreateResult>>
+      /** `browser.profile.list` (read, scope `browser:read`) */
+      list: CmuxOp<{ machine?: string; session?: string }, Cmux.BrowserProfileList>
+      /** `browser.profile.open` (mutation, scope `browser:write`) */
+      open: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; url: string; profile: string; engine?: "webkit" | "cef"; title?: string; activate?: boolean }, Cmux.MutationResult<Cmux.BrowserProfileOpenResult>>
+    }
     /** `browser.reload` (mutation, scope `browser:write`) */
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
     tab: {
       /** `browser.tab.emulate` (mutation, scope `browser:write`) */
-      emulate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; device?: string; custom?: Cmux.JsonValue; orientation?: "vertical" | "horizontal" | "vertical-spanned" | "horizontal-spanned" | "portrait" | "landscape" | "unfolded-portrait" | "unfolded-landscape"; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>> & {
+      emulate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; device?: string; custom?: Cmux.JsonValue; orientation?: "vertical" | "horizontal" | "vertical-spanned" | "horizontal-spanned" | "portrait" | "landscape" | "unfolded-portrait" | "unfolded-landscape"; fit?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>> & {
         /** `browser.tab.emulate.clear` (mutation, scope `browser:write`) */
         clear: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
       }
@@ -577,13 +594,15 @@ interface CmuxGlobal {
     create: CmuxOp<{ display_name?: string; is_default?: boolean; brain_place?: Cmux.ChiefBrainPlace; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
     engine: {
       /** `chief.engine.get` (read, scope `chief:read`) */
-      get: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+      get: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.JsonValue>
       /** `chief.engine.set` (mutation, scope `chief:write`) */
-      set: CmuxOp<{ machine?: string; session?: string; harness?: string; model?: string; effort?: string; speed?: string; compactor_speed?: string }, Cmux.MutationResult<Cmux.JsonValue>>
+      set: CmuxOp<{ machine?: string; session?: string; chief?: string; harness?: string; model?: string; effort?: string; speed?: string; compactor_speed?: string; compactor_harness?: string; compactor_model?: string }, Cmux.MutationResult<Cmux.JsonValue>>
     }
     /** `chief.list` (read, scope `chief:read`): The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
     list: CmuxOp<{ include_archived?: boolean }, { chiefs: Array<Cmux.HomeChief>; tombstones: Array<{ id: Cmux.ChiefId; owner_user: string; archived_at: Cmux.Timestamp }> }>
     profile: {
+      /** `chief.profile.adopt` (mutation, scope `chief:write`) */
+      adopt: CmuxOp<{ machine?: string; session?: string; participant_id: string; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string }, Cmux.MutationResult<Cmux.ChiefRecord>>
       avatar: {
         /** `chief.profile.avatar.get` (read, scope `chief:read`) */
         get: CmuxOp<{ machine?: string; session?: string; chief: string }, Cmux.ChiefAvatarPage>
@@ -602,7 +621,7 @@ interface CmuxGlobal {
       update: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string }, Cmux.MutationResult<Cmux.ChiefRecord>>
     }
     /** `chief.stop` (mutation, scope `chief:write`) */
-    stop: CmuxOp<{ machine?: string; session?: string; name?: string }, Cmux.MutationResult<Cmux.ChiefStopResult>>
+    stop: CmuxOp<{ machine?: string; session?: string; chief?: string; name?: string }, Cmux.MutationResult<Cmux.ChiefStopResult>>
     /** `chief.update` (mutation, scope `chief:write`): Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false). */
     update: CmuxOp<{ chief: Cmux.ChiefId; expected_rev: unknown; display_name?: string; is_default?: true; harness?: string | null; archived?: false; brain_place?: Cmux.ChiefBrainPlace | null; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
   }
@@ -1092,6 +1111,14 @@ interface CmuxGlobal {
     /** `pane.zoom` (mutation, scope `workspace:write`) */
     zoom: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; enabled?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
   }
+  participant: {
+    avatar: {
+      /** `participant.avatar.get` (read, scope `participant:read`) */
+      get: CmuxOp<{ machine?: string; session?: string; participant_id: string }, Cmux.ParticipantAvatarPage>
+      /** `participant.avatar.set` (mutation, scope `participant:write`) */
+      set: CmuxOp<{ machine?: string; session?: string; participant_id: string; bytes?: string; clear?: boolean }, Cmux.MutationResult<Cmux.ParticipantAvatarResult>>
+    }
+  }
   participants: {
     /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
     add: CmuxOp<{ conversation: Cmux.ConversationId; participant: Cmux.HomeParticipantInput; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
@@ -1334,6 +1361,8 @@ interface CmuxGlobal {
       add: CmuxOp<{ machine?: string; session?: string; item: Cmux.JsonValue; to: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
       /** `sidebar.item.remove` (mutation, scope `sidebar:write`) */
       remove: CmuxOp<{ machine?: string; session?: string; id: string }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.item.remove_ref` (mutation, scope `sidebar:write`) */
+      remove_ref: CmuxOp<{ machine?: string; session?: string; ref: Cmux.SidebarItemRef }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
       /** `sidebar.item.update` (mutation, scope `sidebar:write`) */
       update: CmuxOp<{ machine?: string; session?: string; id: string; patch: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
     }
@@ -1341,6 +1370,8 @@ interface CmuxGlobal {
     move: CmuxOp<{ machine?: string; session?: string; items: Array<string>; to: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
     /** `sidebar.pin` (mutation, scope `sidebar:write`) */
     pin: CmuxOp<{ machine?: string; session?: string; items: Array<string> }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    /** `sidebar.reset` (mutation, scope `sidebar:write`) */
+    reset: CmuxOp<{ machine?: string; session?: string }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
     section: {
       /** `sidebar.section.add` (mutation, scope `sidebar:write`) */
       add: CmuxOp<{ machine?: string; session?: string; section: Cmux.JsonValue; place?: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>

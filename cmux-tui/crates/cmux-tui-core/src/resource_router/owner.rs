@@ -14,7 +14,8 @@ pub(super) enum OperationOwner {
     Git,
     /// The daemon history module (history_ops.rs).
     History,
-    /// `browser.tab.set_profile` (browser_profile_ops.rs).
+    /// `browser.tab.set_profile` and `browser.profile.*`
+    /// (browser_profile_ops.rs).
     BrowserProfile,
     Credential,
     Connection,
@@ -154,7 +155,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryVisitSummaries
         | ResourceOperation::HistoryVisitImport
         | ResourceOperation::HistoryTrailRecord => OperationOwner::History,
-        ResourceOperation::BrowserTabSetProfile => OperationOwner::BrowserProfile,
+        ResourceOperation::BrowserTabSetProfile
+        | ResourceOperation::BrowserProfileList
+        | ResourceOperation::BrowserProfileCreate
+        | ResourceOperation::BrowserProfileOpen => OperationOwner::BrowserProfile,
         ResourceOperation::WorkspaceOpenUrl => OperationOwner::OpenUrl,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
@@ -222,6 +226,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SidebarItemAdd
         | ResourceOperation::SidebarItemRemove
         | ResourceOperation::SidebarItemUpdate
+        | ResourceOperation::SidebarItemRemoveRef
         | ResourceOperation::SidebarSectionAdd
         | ResourceOperation::SidebarSectionUpdate
         | ResourceOperation::SidebarSectionMove
@@ -231,6 +236,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SidebarGroupUngroup
         | ResourceOperation::SidebarAdopt
         | ResourceOperation::SidebarApply
+        | ResourceOperation::SidebarReset
         | ResourceOperation::ProjectList
         | ResourceOperation::ProjectObserve
         | ResourceOperation::ProjectAdd
@@ -253,7 +259,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WorkspaceLogClear
         | ResourceOperation::AgentMessageSend
         | ResourceOperation::AgentMessageList
-        | ResourceOperation::AgentMessageMark => OperationOwner::State,
+        | ResourceOperation::AgentMessageMark
+        | ResourceOperation::AgentMessageRelease => OperationOwner::State,
         ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionJournalProducerList
@@ -292,10 +299,13 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefProfileList
         | ResourceOperation::ChiefProfileGet
         | ResourceOperation::ChiefProfileCreate
+        | ResourceOperation::ChiefProfileAdopt
         | ResourceOperation::ChiefProfileUpdate
         | ResourceOperation::ChiefProfileDelete
         | ResourceOperation::ChiefProfileAvatarSet
         | ResourceOperation::ChiefProfileAvatarGet
+        | ResourceOperation::ParticipantAvatarSet
+        | ResourceOperation::ParticipantAvatarGet
         | ResourceOperation::ConversationList
         | ResourceOperation::ConversationGet
         | ResourceOperation::ConversationHistory

@@ -107,7 +107,7 @@ extension AgentTabStore {
 
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
-        let tabs = AgentTabStore(tag: services.environment.tag, registry: services.registry,
+        let tabs = AgentTabStore(build: services.environment.build, registry: services.registry,
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
@@ -198,7 +198,8 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust))
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust),
+                                           servesKeyedReason: daemon.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -214,17 +215,20 @@ extension AgentTabStore {
                 guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else {
                     return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
                 }
-                host.start = { [weak tabs] cwd, harness in
+                host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
+                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
             if let link = services.machines.sshSession(daemon.machineID) ?? services.machines.server(daemon.machineID)?.link {
-                host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label) { [weak services, weak link] in
+                host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label, restart: { [weak services, weak link] in
                     guard let services, let link else { return .failed("") }
                     return await services.ssh.restartWithApprovals(link)
-                }
+                }, prepare: { [weak services, weak link] preparation in
+                    guard let services, let link else { return false }
+                    return await services.ssh.restartWithApprovalsIfIdle(link, preparation)
+                })
             } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil || cloud.appLink != nil {
                 // cx-psxg: a Cloud machine on the /api/vm link, through the web Cloud service; cx-kvmz:
                 // one on the Cloud app server link, through the API Worker with the person's session.
@@ -263,11 +267,11 @@ extension AgentTabStore {
                 }
             }
         }
-        tabs.bind = { [weak services] key, surface, expected, session in
+        tabs.bind = { [weak services] key, surface, expected, session, harness in
             guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else {
                 return (.failed, nil)
             }
-            let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected)
+            let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected, harness: harness)
             let outcome: AgentSessionBindOutcome, sequence: UInt64? // one return: swiftlang/swift#92698 (cx-21wc5)
             do {
                 _ = try await connection.request(request)

@@ -68,6 +68,7 @@ cmux terminal "$CMUX_TUI_TERMINAL_ID" write --text $'git status\n'
 cmux terminal term_… keys ctrl+c
 cmux terminal term_… screen read
 cmux terminal term_… screen wait --pattern 'passed|failed' --timeout-ms 60000
+cmux agents wait --until idle --target term_… --timeout 60   # another agent finished
 ```
 
 Do not send input, close terminals, or change focus in another workspace unless the user named that target.

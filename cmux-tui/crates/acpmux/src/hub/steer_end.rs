@@ -79,12 +79,9 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let text = prompt_text(&blocks);
-        self.append(
-            session,
-            "mux",
-            "user_message",
-            json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id}),
-        );
+        let msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        let msg = crate::prompt_provenance::marked(msg, opts.provenance.as_ref());
+        self.append_prompt(session, msg, &blocks);
         accept(
             json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
         );
@@ -101,6 +98,7 @@ impl Hub {
                     control,
                     trust_gate,
                     interrupt: opts.interrupt,
+                    provenance: opts.provenance,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;

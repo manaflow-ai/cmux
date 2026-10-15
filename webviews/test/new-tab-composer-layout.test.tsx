@@ -92,20 +92,24 @@ async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot 
   );
 }
 
-test("the New Tab card is the composer's: field, then model and Send, then the project row", async () => {
+test("the New Tab card is the composer's: the project strip on its top edge, then field, model and Send", async () => {
   await mount();
-  const card = host.querySelector<HTMLElement>(".nt-box")!;
-  const parts = [...card.querySelectorAll<HTMLElement>(".nt-field, .acpmux-chips, .nt-send, .acpmux-composer-context")];
+  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+  const card = composer.querySelector<HTMLElement>(".nt-box")!;
+  const parts = [
+    ...composer.querySelectorAll<HTMLElement>(".acpmux-composer-strip, .nt-field, .acpmux-chips, .nt-send"),
+  ];
   expect(parts.map((part) => part.className.split(" ")[0])).toEqual([
+    "acpmux-composer-strip",
     "nt-field",
     "acpmux-chips",
     "acpmux-send",
-    "acpmux-composer-context",
   ]);
-  // The project is the location row's, as in the agent composer, and never in the bar.
-  const row = card.querySelector<HTMLElement>(".acpmux-composer-context")!;
+  // The project is the location strip's (hq#1957 composer location strip), as in the agent
+  // composer: never in the card or its bar.
+  const row = composer.querySelector<HTMLElement>(".acpmux-composer-strip .acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
-  expect(card.querySelector('.nt-pickers [aria-label="Project"], .nt-pickers .acpmux-location-button')).toBeNull();
+  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
 });
 
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could
@@ -118,7 +122,7 @@ test("the location row names the machine the chat starts on and offers no other"
   const row = host.querySelector<HTMLElement>(".acpmux-composer-context")!;
   expect(row.textContent).toContain("studio");
   expect(row.textContent).not.toContain("This Mac");
-  const computer = row.querySelector<HTMLButtonElement>('button[aria-label="Computer"]');
+  const computer = row.querySelector<HTMLButtonElement>('button[aria-label="Computer: studio"]');
   expect(computer).not.toBeNull();
   await act(async () => computer!.click());
   const options = [...document.querySelectorAll(".acpmux-menu-label")].map((item) => item.textContent);

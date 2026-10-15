@@ -24,7 +24,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// tree libraries) show them at rest only for "Always".
     public let scrollers: String
     /// The terminal theme as hex (`type`, `background`, `foreground`, `palette` 0...15): pages
-    /// color code from its ANSI palette (syntax-theme.ts), as the agent chat and Ghostty do.
+    /// color code from its ANSI palette (syntax-theme.ts), as the agent chat and Ghostty do. Its
+    /// `fontFamily` is the terminal's face, which pages that show code draw it in (appearance.ts).
     public let terminal: Terminal
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
@@ -35,15 +36,22 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         public let background: String
         public let foreground: String
         public let palette: [String: String]
+        /// The terminal's font family (`DesignSettings.effectiveTerminalFontFamily`); nil when
+        /// neither cmux.json nor the Ghostty config names one.
+        public let fontFamily: String?
 
-        init(_ tokens: ThemeTokens) {
+        init(_ tokens: ThemeTokens, fontFamily: String?) {
             type = tokens.isDark ? "dark" : "light"
             background = WebTheme.hex(tokens.surfaceBackground)
             foreground = WebTheme.hex(tokens.textPrimary)
             palette = Dictionary(uniqueKeysWithValues: tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) })
+            self.fontFamily = fontFamily
         }
 
-        var json: [String: Any] { ["type": type, "background": background, "foreground": foreground, "palette": palette] }
+        var json: [String: Any] {
+            ["type": type, "background": background, "foreground": foreground, "palette": palette,
+             "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
+        }
     }
 
     /// - Parameter tokens: The theme tokens of the view's scope.
@@ -75,6 +83,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
             "--cmux-popup-surface": Self.css(tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)),
+            // The tooltip's frosted tint (`TooltipSurface`, the native tooltip's): the popup
+            // surface at the least alpha that keeps the text 4.5:1 over any backdrop.
+            "--cmux-tooltip-tint": Self.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint),
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
@@ -94,14 +105,21 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
+        let colors = ColorTransition.current
+        transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
-        terminal = Terminal(tokens)
+        terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal}`.
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal}`
+    /// (`terminal.fontFamily` is null when the terminal has no named face).
+    /// How the page's color variables move to new values (`appearance.colorTransition`, the same
+    /// duration, curve and blend space as native): `{duration, easing, space}`.
+    public let transition: [String: String]
+
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
-                                     "terminal": terminal.json]
+                                     "terminal": terminal.json, "transition": transition]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -124,16 +142,75 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           'body{background:transparent !important}';
         (document.head || document.documentElement).appendChild(style);
       }
+      // appearance.colorTransition: every color variable is a registered <color>, so a theme or
+      // workspace change transitions it (and everything that reads it) from the value on screen;
+      // a quick second change retargets from the blend in flight. OKLab blends need non-legacy
+      // color syntax (CSS Color 4 mixes two rgb() or hex values in sRGB). Code that reads computed
+      // colors gets a second `cmux-theme` event once the blend ends.
+      var registered = {};
+      var transitionStyle = null;
+      var rgba = /^rgba?\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*(?:,\\s*([\\d.]+)\\s*)?\\)$/;
+      var hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})?$/i;
+      function colorValue(value, space) {
+        if (space !== 'oklab') return value;
+        var m = rgba.exec(value);
+        if (m) return 'color(srgb ' + (m[1] / 255) + ' ' + (m[2] / 255) + ' ' + (m[3] / 255) + ' / ' + (m[4] === undefined ? 1 : m[4]) + ')';
+        m = hex.exec(value);
+        if (m) return 'color(srgb ' + (parseInt(m[1], 16) / 255) + ' ' + (parseInt(m[2], 16) / 255) + ' ' + (parseInt(m[3], 16) / 255) +
+          ' / ' + (m[4] === undefined ? 1 : parseInt(m[4], 16) / 255) + ')';
+        return value;
+      }
+      function register(name, value) {
+        if (registered[name] !== undefined) return registered[name];
+        var ok = !!(window.CSS && CSS.registerProperty && CSS.supports && value.indexOf('var(') < 0 && CSS.supports('color', value));
+        if (ok) {
+          try { CSS.registerProperty({ name: name, syntax: '<color>', inherits: true, initialValue: 'transparent' }); } catch (e) { ok = false; }
+        }
+        registered[name] = ok;
+        return ok;
+      }
+      function setTransition(transition, names) {
+        if (!transitionStyle) {
+          transitionStyle = document.createElement('style');
+          transitionStyle.id = 'cmux-theme-transition';
+          (document.head || document.documentElement).appendChild(transitionStyle);
+        }
+        var duration = (transition && transition.duration) || '0ms';
+        transitionStyle.textContent = names.length && duration !== '0ms'
+          ? 'html{transition-property:' + names.join(',') + ';transition-duration:' + duration +
+            ';transition-timing-function:' + ((transition && transition.easing) || 'ease-out') + '}'
+          : '';
+      }
+      function settled(payload) {
+        var root = document.documentElement;
+        var running = root.getAnimations ? root.getAnimations().filter(function (a) { return a.transitionProperty; }) : [];
+        if (!running.length) return;
+        Promise.allSettled(running.map(function (a) { return a.finished; })).then(function () {
+          if (window.cmuxTheme.current === payload) window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
+        });
+      }
       window.cmuxTheme = {
         current: null,
         apply: function (payload) {
           var root = document.documentElement;
           ensureStyle();
-          for (var name in payload.variables) root.style.setProperty(name, payload.variables[name]);
+          var first = window.cmuxTheme.current === null;
+          var space = payload.transition && payload.transition.space;
+          var names = [];
+          for (var key in payload.variables) if (register(key, payload.variables[key])) names.push(key);
+          // The first theme of a page shows at once (no fade in from transparent): the values
+          // land with no transition, a style read commits them, then the transition turns on.
+          if (first) setTransition(null, names);
+          for (var name in payload.variables) {
+            root.style.setProperty(name, registered[name] ? colorValue(payload.variables[name], space) : payload.variables[name]);
+          }
+          if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
+          setTransition(payload.transition, names);
           root.style.colorScheme = payload.colorScheme;
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
+          if (!first) settled(payload);
         }
       };
       ensureStyle();

@@ -103,6 +103,88 @@ import Testing
         #expect(players.count == 0, "a closed window keeps its video decoder")
     }
 
+    @Test func aVideoRestsWhileOtherWindowsHideNearlyAllOfItsWindow() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        defer { h.close() }
+        let frame = BackdropVideoView.screenFrame(h.window.frame)
+        var above: [BackdropCoverage.Window] = []
+        h.video.windowsAboveOverride = { above }
+        // A browser over all but a 3% sliver: AppKit still calls the window visible.
+        let browser = CGRect(x: frame.minX - 50, y: frame.minY - 50, width: frame.width * 0.97 + 50, height: frame.height + 100)
+        above = [.init(bounds: browser, owner: "Safari")]
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "one sample rested the video; a window passing over must not")
+        h.video.sampleCoverage()
+        #expect(!h.video.isPlaying, "a window hidden but for a sliver still decodes its video")
+        // Half of it shows again: the video resumes after two samples agree.
+        above = [.init(bounds: CGRect(x: browser.minX, y: browser.minY, width: frame.width / 2 + 50, height: browser.height), owner: "Safari")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "the video does not resume once the window shows again")
+        // A translucent window or the Dock over it hides nothing.
+        above = [.init(bounds: browser, alpha: 0.9, owner: "Terminal"), .init(bounds: browser, owner: "Dock")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "a translucent window or the Dock rested the video")
+    }
+
+    /// The window's own overlay panel (a clear, full-size child window over any browser page or
+    /// toast) and floating windows hide nothing, and a window brought to the front plays at once.
+    @Test func theWindowsOwnPanelsAndFloatingWindowsNeverRestTheVideo() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        defer { h.close() }
+        let panel = NSPanel(contentRect: h.window.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        h.window.addChildWindow(panel, ordered: .above)
+        panel.orderFrontRegardless()
+        defer { h.window.removeChildWindow(panel); panel.close() }
+        let frame = BackdropVideoView.screenFrame(h.window.frame)
+        var above: [BackdropCoverage.Window] = []
+        h.video.windowsAboveOverride = { above }
+        // The window server numbers windows only on a host with a display; elsewhere the panel stays
+        // unnumbered, and the browser below must still rest the video past it.
+        if panel.windowNumber > 0 {
+            above = [.init(bounds: frame, number: panel.windowNumber)]
+            h.video.sampleCoverage()
+            h.video.sampleCoverage()
+            #expect(h.video.isPlaying, "the window's own overlay panel rested its video")
+        }
+        above = [.init(bounds: frame, layer: Int(CGWindowLevelForKey(.floatingWindow)))]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "a floating window rested the video")
+        above = [.init(bounds: frame, owner: "Safari")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        try #require(!h.video.isPlaying, "a browser over the whole window did not rest the video")
+        h.window.becomeMain()
+        #expect(h.video.isPlaying, "a window brought to the front waits for coverage samples to play")
+    }
+
+    @Test func turningAnimationsOffHoldsTheVideoAtOnce() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        let speed = DesignSettings.shared.animationSpeed
+        defer {
+            DesignSettings.shared.animationSpeed = speed
+            h.close()
+        }
+        // The system's Reduce Motion stays pinned off; only ui.animationSpeed changes.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        h.video.reduceMotionOverride = nil
+        DesignSettings.shared.animationSpeed = .fast
+        #expect(h.video.isPlaying)
+        DesignSettings.shared.animationSpeed = .off
+        #expect(!h.video.isPlaying, "the video loops on after animations were turned off")
+        DesignSettings.shared.animationSpeed = .normal
+        #expect(h.video.isPlaying, "the video stays still after animations were turned back on")
+    }
+
     /// A Mac with Apple's moving wallpaper in a light, a dark and a portrait cut, and one downloaded aerial.
     func mac() async throws -> (pictures: URL, aerials: URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-moving-wallpapers-\(UUID().uuidString)", isDirectory: true)

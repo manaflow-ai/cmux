@@ -38,6 +38,13 @@ impl Hub {
             .clone()
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        // The fork's own folder as it is now, not the parent's start (`git_state.rs`).
+        let git = {
+            let cwd = cwd.clone();
+            tokio::task::spawn_blocking(move || crate::git_state::GitState::read(&cwd))
+                .await
+                .unwrap_or_default()
+        };
         let id = uuid::Uuid::now_v7().to_string();
         let turn_cut = {
             let cfg = self.config.read().await;
@@ -124,6 +131,8 @@ impl Hub {
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             title: None,
+            title_source: None,
+            title_prompt: None,
             last_prompt: parent_meta.last_prompt.clone(),
             preview: parent_meta.preview.clone(),
             event_count: 0,
@@ -144,6 +153,19 @@ impl Hub {
             adopted_cwd: None,
             harness_roots: vec![],
             composer_draft: None,
+            // Filled below with the fork's own seqs of the marked prompts it copies.
+            bookmarks: Default::default(),
+            // The fork keeps the chat's tools off (`hub/tools.rs`); its spawn lists them again.
+            tools: crate::store::ToolInventory {
+                off: parent_meta.tools.off.clone(),
+                ..Default::default()
+            },
+            git_branch: git.branch,
+            git_head: git.head,
+            // The fork's own spend. Claude Code restores the parent's running cost into a
+            // whole-chat fork; a fork through an earlier turn has no known baseline.
+            totals: None,
+            harness_cost_usd: if cut.is_none() { parent_meta.harness_cost_usd } else { None },
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {
@@ -171,7 +193,15 @@ impl Hub {
                 ) {
                     // Each keeps its time: a later fork through it cuts Claude's
                     // transcript there (`fork_at.rs`), and a replay plays it then.
-                    self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
+                    let marked = parent_meta.bookmarks.contains(&e.seq) && e.kind == "user_message";
+                    let (copy, _) = self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
+                    if marked {
+                        new.meta
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .bookmarks
+                            .insert(copy.seq);
+                    }
                 }
             }
         }

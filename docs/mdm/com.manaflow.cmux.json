@@ -594,7 +594,8 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone"
+        "two-tone",
+        "floating"
       ],
       "title" : "Window Style",
       "type" : "string"
@@ -641,6 +642,13 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Hue",
+      "type" : "number"
+    },
+    "appearance.interfaceScale" : {
+      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "maximum" : 1.25,
+      "minimum" : 0.9,
+      "title" : "Interface Size",
       "type" : "number"
     },
     "appearance.metrics.chromeFontSize" : {
@@ -924,6 +932,12 @@
       },
       "title" : "Theme Edits",
       "type" : "object"
+    },
+    "browser.builtInAdBlocker" : {
+      "default" : true,
+      "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
+      "title" : "Built-in uBlock Origin",
+      "type" : "boolean"
     },
     "browser.customSearchEngine.search" : {
       "default" : "",
@@ -1458,6 +1472,12 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
+    "labs.classicHome" : {
+      "default" : false,
+      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+      "title" : "Classic Home",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -2108,6 +2128,20 @@
       "default" : false,
       "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
       "title" : "Group Workspaces by Computer",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.delay" : {
+      "default" : 1300,
+      "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
+      "maximum" : 5000,
+      "minimum" : 0,
+      "title" : "Hover Card Delay",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.enabled" : {
+      "default" : true,
+      "description" : "A card with details opens when the pointer rests on a workspace or a tab.",
+      "title" : "Show Hover Cards",
       "type" : "boolean"
     },
     "sidebar.minimal" : {
@@ -2767,39 +2801,6 @@
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
     },
-    "tabs.tabBar.agent" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Agent Chats",
-      "type" : "string"
-    },
-    "tabs.tabBar.browser" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Browser Panes",
-      "type" : "string"
-    },
-    "tabs.tabBar.terminal" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Terminal Panes",
-      "type" : "string"
-    },
     "tabs.toolbarButtons" : {
       "default" : [
 
@@ -2841,6 +2842,28 @@
       "minimum" : 4,
       "title" : "Font Size",
       "type" : "number"
+    },
+    "ui.animations.bounce" : {
+      "default" : "none",
+      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
+      "enum" : [
+        "none",
+        "subtle"
+      ],
+      "title" : "Animation Bounce",
+      "type" : "string"
+    },
+    "ui.animations.newTab" : {
+      "default" : true,
+      "description" : "A new tab grows into its place in the tab bar. Off shows it there at once.",
+      "title" : "Animate New Tabs",
+      "type" : "boolean"
+    },
+    "ui.animations.newWorkspace" : {
+      "default" : false,
+      "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
+      "title" : "Animate New Workspaces",
+      "type" : "boolean"
     },
     "ui.animationSpeed" : {
       "default" : "fast",

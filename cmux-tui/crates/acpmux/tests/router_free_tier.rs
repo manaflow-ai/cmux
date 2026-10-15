@@ -5,6 +5,11 @@
 //! stand-in cmux API on loopback (a debug-build-only origin).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -12,7 +17,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -119,11 +124,10 @@ impl Drop for Relay {
 
 /// `acpmux router serve` in `dir`, ready once its admin socket answers.
 fn start_relay(dir: &Path, test_origin: &str) -> Relay {
-    let child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let child = daemon_env::acpmux(dir)
         .args(["router", "serve"])
         .env("ACPMUX_HOME", dir)
         .env("CMUX_ROUTER_FREE_TEST_ORIGIN", test_origin)
-        .env_remove("CMUX_ROUTER_OWNER_FIFO")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -484,4 +488,39 @@ fn free_tier_a_lease_in_flight_stores_no_token_after_the_setting_turns_off_or_an
         held.shutdown(std::net::Shutdown::Both).unwrap();
         drop(relay);
     }
+}
+
+#[test]
+fn free_tier_a_lost_attest_reply_is_followed_by_an_assertion_not_a_second_attestation() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    api.lock().unwrap().answers = vec![
+        // The server stored the grant, but the reply never arrives (a gateway error here).
+        (
+            "/v1/inference/free/attest".into(),
+            vec![(502, json!({"error": {"code": "bad_gateway"}}))],
+        ),
+        ("/v1/inference/free/token".into(), vec![token_answer("free-token-after-loss")]),
+        ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+    ];
+    let origin = start_api(api.clone());
+    let dir = scratch("lost");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let asked: Asked = Arc::default();
+    let _held = provider(&dir, &origin, false, asked.clone());
+
+    let (status, _) = chat(port, &key);
+    assert_ne!(status, 200);
+    // The relay waits out its first retry delay (2 s) before it asks again.
+    std::thread::sleep(Duration::from_millis(2300));
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 200, "{body}");
+    let kinds: Vec<_> =
+        asked.lock().unwrap().iter().map(|(req, _, _, fresh)| (req.clone(), *fresh)).collect();
+    assert_eq!(kinds, vec![("attest".to_owned(), Some(false)), ("assert".to_owned(), None)]);
+    let api = api.lock().unwrap();
+    assert_eq!(api.seen.iter().filter(|(p, _, _)| p == "/v1/inference/free/attest").count(), 1);
+    let chat_call = api.seen.iter().find(|(p, _, _)| p.ends_with("chat/completions")).unwrap();
+    assert_eq!(chat_call.1, "Bearer free-token-after-loss");
+    drop(relay);
 }

@@ -18,7 +18,7 @@ struct StatusAndGroupAssetIconsTests {
 
     /// The sidebar sections of one grouped workspace reporting a status entry, with the group
     /// and the entry both naming the stored icon.
-    func sections(asset: (String) -> SidebarFavicon?, groupAsset: ((String) -> SidebarFavicon?)? = nil,
+    func sections(asset: @escaping (String) -> SidebarFavicon?, groupAsset: ((String) -> SidebarFavicon?)? = nil,
                   extraEntries: Int = 0) -> [SidebarRowSection] {
         let store = DaemonStore()
         let group = WorkspaceGroupID(rawValue: "g1")

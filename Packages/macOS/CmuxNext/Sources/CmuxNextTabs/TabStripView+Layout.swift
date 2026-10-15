@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
 // Layout, frame application, edge fades, and the FrameScheduler animation client.
@@ -45,7 +45,10 @@ extension TabStripView {
         items.insert(placeholder, at: position)
     }
 
-    func relayout(animated: Bool, added: Set<TabID> = []) {
+    /// `growsAdded` (default false): the `added` tabs grow in from zero width (`ui.animations.newTab`
+    /// on, outside a gesture); otherwise they are there at once at full width (nx-cmdt-fix). `keepsSelectedInView`: the strip scrolls to the selected tab.
+    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, keepsSelectedInView: Bool = false) {
+        let grows = growsAdded
         result = TabLayoutEngine.layout(
             items: layoutItems(),
             availableWidth: viewportWidth,
@@ -56,7 +59,7 @@ extension TabStripView {
         // A new tab (Cmd-T, +, a script's tab) is there at once, at its slot and full width, and the
         // tabs make room for it in the same frame: no grow-in, no slide (Lawrence 2026-10-14: no big
         // animations by default). A drag or a torn-out tab's drop keeps every spring as it was.
-        let insertsAtOnce = !added.isEmpty && drag == nil && pendingDrop == nil
+        let insertsAtOnce = !added.isEmpty && drag == nil && pendingDrop == nil && !grows
         for slot in result.slots where slot.id != Self.placeholderID {
             guard var m = motion[slot.id] else { continue }
             if added.contains(slot.id) {
@@ -64,9 +67,15 @@ extension TabStripView {
                     m = TabMotion(x: pendingDrop.x, width: pendingDrop.width, alpha: 1)
                     self.pendingDrop = nil
                 } else {
-                    m = TabMotion(x: slot.x, width: slot.width, alpha: 1)
+                    // `ui.animations.newTab` on: it grows in from zero width at its slot (hq-1d).
+                    m = TabMotion(x: slot.x, width: grows ? 0 : slot.width, alpha: grows ? 0 : 1)
                 }
             }
+            // A tab growing in and the tabs right of it making room move on one spring (`tabOpen`),
+            // so the strip never overlaps; later moves go back to `move`.
+            if grows, !added.contains(slot.id) { (m.x.token, m.width.token) = (.tabOpen, .tabOpen) }
+            if !grows, m.x.token == .tabOpen, m.x.isSettled { m.x.token = .move }
+            if !grows, m.width.token == .tabOpen, m.width.isSettled { m.width.token = .move }
             if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
             if groups.isDragged(slot.id) { m.x.snap() }
             m.width.target = slot.width
@@ -76,6 +85,7 @@ extension TabStripView {
             motion[slot.id] = m
         }
         scroll.target = TabScrollMath.clamp(scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
+        if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) { scroll.target = TabScrollMath.offset(revealing: slot, current: scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth, margin: metrics.scrollFadeWidth) }
         if !animated {
             scroll.snap()
             for id in dying { removeTab(id) }
@@ -157,7 +167,7 @@ extension TabStripView {
         let clear = NSColor.clear.cgColor
         let colors = [edges.leading ? clear : opaque, opaque, opaque, edges.trailing ? clear : opaque]
         if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
-        let animates = window != nil && (wasFaded || isFaded)
+        let animates = window != nil && (wasFaded || isFaded) && !Motion.isLiveResizing // in a live resize the edge follows at once
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
@@ -180,9 +190,10 @@ extension TabStripView {
 
     func startAnimating() {
         guard window != nil else { return }
-        guard !animationClient.isActive else { return }
-        MotionTrace.begin("tabs")
-        animationClient.activate()
+        let clock = MotionClock.forView(self)
+        if let motionClock, motionClock !== clock { motionClock.stop(self) }
+        motionClock = clock
+        clock.run(self, trace: "tabs")
     }
 
     /// One animation frame; false when everything settled.
@@ -207,10 +218,17 @@ extension TabStripView {
         if autoscrollDuringDrag(dt) { active = true }
         scroll.step(dt)
         if !scroll.isSettled { active = true }
+        if MotionTrace.isEnabled {
+            // The points the strip's tabs have left to travel (x and width): its spring's path, for debug.motion.
+            MotionTrace.sample("tabs.travel", Double(motion.values.reduce(0) { $0 + abs($1.x.target - $1.x.value) + abs($1.width.target - $1.width.value) }))
+        }
         // Tabs sliding under a still pointer update hover (applyFrames ->
         // geometryDidChange).
         applyFrames()
-        if !active { MotionTrace.end("tabs") }
         return active
     }
+}
+
+extension TabStripView: MotionAnimating {
+    public func motionStep(_ dt: Double) -> Bool { advance(CGFloat(dt)) }
 }

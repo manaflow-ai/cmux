@@ -97,6 +97,10 @@ extension DaemonEvent {
         // change resyncs; dropping its `agent-changed` behind that snapshot left the row on
         // "working" (cx-ag5.6.8). Each event carries the whole state of one surface.
         case .agentChanged, .agentPresenceChanged: true
+        // A notification's text is in its event alone; the snapshot has only the tab's unread
+        // marker. The daemon follows each notification with `tree-changed`, so a second one often
+        // lands while that resync's snapshot is in flight, under its barrier.
+        case .notification: true
         // The app supervisor's events (apps-v1): scene batches, changes and provider calls.
         // And browser pairings (cx-hnmbt.2): a dropped request would never show its Approve dialog.
         case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name) || name.hasPrefix("pairing-")

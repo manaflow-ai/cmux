@@ -52,8 +52,16 @@ hq-99's rule (cmux#13742): `history.*` reads only for page `history`; a History 
 Page `home-channels` may call `workspace.open_url` (cx-ebm.59.3) only on the person's gesture: the
 host proves a click on a web link in the Chief chat with a confirmation for that request on the
 page relay, and the link opens on the right side of the home workspace. The page's own WebSocket
-has no confirmation, so the call is refused there (`gesture_required`). The page may call nothing
-else of the catalog.
+has no confirmation, so the call is refused there (`gesture_required`).
+
+With `chief-profile-ws-v1`, page `home-channels` also manages the person's Chiefs: it may call
+`chief.profile.list`, `chief.profile.get`, `chief.profile.avatar.get`, `chief.profile.avatar.set`
+and `chief.profile.update`, and `chief.profile.create` and `chief.profile.delete` only on the
+person's gesture. An update that names instructions, personality or a grant field (`tools`,
+`harnesses`, `harness`, `model`, `effort`, `self_edit`) needs the gesture too
+(`request_origin/page_access.rs`): without it the page changes only display_name, role and the
+avatar. Chief messages render links and rich text in this page, so injected content must not plant
+behavior a Chief acts on, widen its grant or delete it without the person's click. The page may call nothing else of the catalog.
 
 ## Events (`page-events-v1`)
 

@@ -18,7 +18,7 @@
 //! and starts new ones in the saved directory otherwise.
 
 use super::tab_drag::{TabDragDestination, TabDragIds, apply_tab_drag};
-use super::tab_strip::{StripRequest, StripResult};
+use super::tab_strip::{StripRequest, StripResult, group_archive};
 use super::*;
 use crate::workspace_registry::{
     DEFAULT_PROFILE_ID, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember, TabGroupRecord,
@@ -716,19 +716,7 @@ impl Mux {
                 .iter()
                 .map(|surface| tab_public_id(state, *surface))
                 .collect::<anyhow::Result<Vec<_>>>()?;
-            let workspace = pane_by_public_id(state, &record.pane_id)
-                .and_then(|pane| state.screen_of(pane))
-                .map(|(workspace, _)| state.workspaces[workspace].public_id.to_string());
-            edit.ungrouped = Some(serde_json::json!({
-                "id": group_id,
-                "pane_id": record.pane_id,
-                "workspace_id": workspace,
-                "name": record.name,
-                "color": record.color,
-                "collapsed": record.collapsed,
-                "icon": record.icon,
-                "tab_ids": tabs,
-            }));
+            edit.ungrouped = Some(group_archive(state, &group_id, &record, &tabs));
             edit.result = StripResult::Release { group: group_id, tabs };
             Ok(())
         })?;

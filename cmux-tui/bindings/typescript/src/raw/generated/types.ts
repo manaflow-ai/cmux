@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 38c3691de84847e31422c527d81d3f9b70bc8aba270ad3753612403464cd33b6. */
+/* cmux-tui mux protocol 12, IR 448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -314,8 +314,11 @@ export type ConversationSummary = {
   "id": string;
   "last_message"?: ConversationMessage;
   "last_seq": bigint;
+  "marked_unread"?: boolean;
   "owner": string;
   "participants": Array<ConversationParticipant>;
+  "pin_position"?: bigint;
+  "pinned"?: boolean;
   "read_cursors": Record<string, bigint>;
   "rev": bigint;
   "title": string;
@@ -503,6 +506,27 @@ export type HistorySearchHit = {
 export type HistorySearchRange = {
   "end": number;
   "start": number;
+};
+
+export type HomeChiefState = "working" | "waiting" | "idle";
+
+export type HomeInboxKind = "chief" | "direct" | "channel" | "group";
+
+export type HomeInboxRow = {
+  "activity_at": string;
+  "chief"?: string;
+  "chief_state"?: HomeChiefState;
+  "id": string;
+  "kind": HomeInboxKind;
+  "last_author"?: string;
+  "marked_unread": boolean;
+  "muted": boolean;
+  "name": string;
+  "owner": string;
+  "pin_position"?: bigint;
+  "pinned": boolean;
+  "preview"?: string;
+  "unread": bigint;
 };
 
 export type Id = bigint;

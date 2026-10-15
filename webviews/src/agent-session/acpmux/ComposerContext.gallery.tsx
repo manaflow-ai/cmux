@@ -48,11 +48,27 @@ const baseProps = {
 
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
+};
+
+// Leo's list (hq#1957 composer location strip): three checkouts of cmux, each named "cmux".
+const worktrees: Project[] = [
+  { cwd: "/Users/you/wt/lanes/cg-lane-adopt/cmux", label: "cmux" },
+  { cwd: "/Users/you/wt/lanes/fleet-ci/cmux", label: "cmux" },
+  { cwd: "/Users/you/src/cmux", label: "cmux" },
+  { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
+  { cwd: "/Users/you/src/relay", label: "relay" },
+];
+
+const worktreeProps = {
+  ...baseProps,
+  projectChoices: worktrees,
+  onNewWorktree: () => undefined,
+  summary: { sessionId: "", harness: "claude", cwd: worktrees[0]!.cwd, host: "This Mac", hostKind: "local" as const },
 };
 
 const openComputer: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Computer" });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
 };
 
@@ -60,7 +76,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
   id: "agent-pane.composer-context",
   title: "Composer scope row",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext"],
+  covers: [
+    "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
+    "agent-session/acpmux/FolderPopover.tsx#FolderPopover",
+  ],
   styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
   load: () => import("./ComposerContext").then((module) => module.ComposerContext),
   widths: { narrow: 400, normal: 620, wide: 760 },
@@ -86,9 +105,29 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "The folder menu shows recent projects with paths and keeps the row anchored below the composer.",
+      note: "The folder popover: a search field over the recent projects (paths on hover), then Add project and Choose folder….",
       props: baseProps,
       play: openFolder,
+    },
+    "duplicate-worktrees": {
+      note: "Three checkouts named cmux: each row adds its lane, the path shows on hover, the current one is checked.",
+      props: worktreeProps,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Folder" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
+      },
+    },
+    "duplicate-search": {
+      note: "The search field filters by name, lane and path: typing part of a lane leaves its checkout.",
+      props: worktreeProps,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Folder" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
+        await ctx.type("adopt");
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
+        );
+      },
     },
     "computer-menu": {
       note: "The computer menu keeps local and Cloud destinations together with SSH and cmux Cloud actions.",

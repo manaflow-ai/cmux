@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 38c3691de84847e31422c527d81d3f9b70bc8aba270ad3753612403464cd33b6. */
+/* cmux-tui mux protocol 12, IR 448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607. */
 
 
 import type * as T from "./types.js";
@@ -68,6 +68,12 @@ export type BrowserStateEvent = { event: "browser-state" } & {
   "url": string;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ChiefChangedEvent = { event: "chief-changed" } & {
+  "change": "created" | "updated" | "deleted";
+  "chief": string;
+};
+
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ClientAttachedEvent = { event: "client-attached" } & {
   "client": bigint;
@@ -110,6 +116,14 @@ export type CloudConversationResyncedEvent = { event: "cloud-conversation-resync
   "rev": bigint;
   "seq": bigint;
   "summary": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationRunChangedEvent = { event: "cloud-conversation-run-changed" } & {
+  "account"?: string;
+  "conversation": string;
+  "run": (T.JsonValue) | null;
+  "steps": Array<T.JsonValue>;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -186,6 +200,22 @@ export type ConversationDraftEvent = { event: "conversation-draft" } & {
   "conversation": string;
   "item": T.JsonValue;
   "participant": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationInboxChangedEvent = { event: "conversation-inbox-changed" } & {
+  "conversation": string;
+  "marked_unread": boolean;
+  "participant": string;
+  "pin_position"?: bigint;
+  "pinned": boolean;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationRunChangedEvent = { event: "conversation-run-changed" } & {
+  "conversation": string;
+  "run": (T.JsonValue) | null;
+  "steps": Array<T.JsonValue>;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -320,6 +350,12 @@ export type PaneClosedEvent = { event: "pane-closed" } & {
   "pane": T.Id;
   "screen": T.Id;
   "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ParticipantAvatarChangedEvent = { event: "participant-avatar-changed" } & {
+  "avatar": (T.JsonValue) | null;
+  "participant": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -639,11 +675,13 @@ export type KnownCmuxEvent =
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
+  | ChiefChangedEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationResyncedEvent
+  | CloudConversationRunChangedEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -654,6 +692,8 @@ export type KnownCmuxEvent =
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
   | ConversationDraftEvent
+  | ConversationInboxChangedEvent
+  | ConversationRunChangedEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
@@ -672,6 +712,7 @@ export type KnownCmuxEvent =
   | PairingResolvedEvent
   | PaneAddedEvent
   | PaneClosedEvent
+  | ParticipantAvatarChangedEvent
   | PersonalChangedEvent
   | ProgramStatusChangedEvent
   | RenderDeltaEvent
@@ -719,11 +760,13 @@ export type KnownSubscribeEvent =
   | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
+  | ChiefChangedEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationResyncedEvent
+  | CloudConversationRunChangedEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -733,6 +776,8 @@ export type KnownSubscribeEvent =
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
   | ConversationDraftEvent
+  | ConversationInboxChangedEvent
+  | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
@@ -747,6 +792,7 @@ export type KnownSubscribeEvent =
   | PairingResolvedEvent
   | PaneAddedEvent
   | PaneClosedEvent
+  | ParticipantAvatarChangedEvent
   | PersonalChangedEvent
   | ProgramStatusChangedEvent
   | ScreenAddedEvent

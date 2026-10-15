@@ -24,6 +24,9 @@ Usage (under `zsh -lic`, for the subrouter route):
   home-streaming-live.py --tag <tag> --app <path to cmux DEV <tag>.app> --out DIR [--late-turn]
 """
 import argparse, fcntl, glob, json, os, shutil, signal, socket, subprocess, sys, tempfile, threading, time
+import re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -162,10 +165,10 @@ def cleanup():
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
     # Both acpmux daemons of the tag: the Chief's (its home) and the app's
-    # agent daemon (~/.acpmux/tags/<slug>, AcpmuxEnvironment.tagSlug); a
+    # agent daemon (~/.acpmux/builds/<build key>, AcpmuxEnvironment); a
     # daemon left running keeps its agent harnesses (and their PTYs) alive.
-    for home in (os.path.join(MUX_HOME, "acpmux"), os.path.expanduser(f"~/.acpmux/tags/{tag_slug(TAG)}")):
-        done = subprocess.run([ACPMUX, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": home},
+    for home in (os.path.join(MUX_HOME, "acpmux"), os.path.expanduser("~/.acpmux/builds/com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip("."))):
+        done = subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": home},
                               capture_output=True, text=True, timeout=60)
         with open(os.path.join(opts.out, "cleanup.log"), "a") as log:
             log.write(f"acpmux daemon shutdown ACPMUX_HOME={home}: rc={done.returncode} "
@@ -296,7 +299,7 @@ def main():
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900", "MUX_HARNESS": os.environ.get("MUX_HARNESS", "claude-sr")}
+           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900", "MUX_HARNESS": os.environ.get("MUX_HARNESS", "claude-sr"), **home_classic.ENV}
     for name in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "SUBROUTER_URL"):
         if os.environ.get(name):
             env[name] = os.environ[name]
@@ -304,6 +307,8 @@ def main():
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 600):
         sys.exit("the tagged app did not come up")
+    if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     rpc("action.run", {"id": "home.show"})
     wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 20)
     if not wait(chief_row, 180):

@@ -15,6 +15,9 @@ Usage: home-api-live.py --tag <tag> [--out DIR] [--no-launch]
 Exit 0 when every check passes, 1 otherwise.
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -93,13 +96,15 @@ if not opts.no_launch:
         os.unlink(sock)
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
            "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local"}
+           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local", **home_classic.ENV}
     process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                                stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
     pid = process.pid
     print(f"launched pid {pid}", flush=True)
 
 try:
+    if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
@@ -183,8 +188,8 @@ finally:
     if pid:
         rpc("action.run", {"id": "quitEndSessions"})
         poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
-        acp = f"{home}/.acpmux/tags/{opts.tag}"
-        subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+        acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
+        subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                        env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)

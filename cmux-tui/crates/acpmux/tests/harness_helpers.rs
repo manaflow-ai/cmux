@@ -6,10 +6,15 @@
 //! gone it runs on with parent pid 1. Real binaries, a temporary home.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -50,7 +55,8 @@ impl Drop for Daemon {
 }
 
 fn start_daemon(home: &Path, probe: Option<&str>) -> Daemon {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    // Stand-in agents only: the probes and chats here run fake_agent.py.
+    let mut command = daemon_env::command(home, daemon_env::Agents::StandIn, &[]);
     command
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
@@ -59,10 +65,6 @@ fn start_daemon(home: &Path, probe: Option<&str>) -> Daemon {
         .env("ACPMUX_CATALOG_FETCH", "0")
         .env("ACPMUX_AGENT_HOSTS", "0")
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("ACPMUX_LOCAL_ROUTER")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("ACPMUX_IDLE_CHILD_SECS")
-        .env_remove("ACPMUX_PROBE_HARNESSES")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());

@@ -72,6 +72,8 @@ final class HomeService {
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
     @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
+    /// The owner's Home list rows (`home-inbox`), which the Messages list maps.
+    @ObservationIgnored let homeInbox = HomeInboxSource()
     /// Its durable copy is keyed by the Chief owner (one per Chief home), so
     /// a relaunch or another build shows the same history before the owner
     /// answers (home-state-ownership.md section 4).
@@ -134,6 +136,8 @@ final class HomeService {
             }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)
+                // The Chief's daemon link names this connection's socket, known only once it is up.
+                if homeWasOpened { publishAppLinks() }
             }
         }
         startCloud()
@@ -143,11 +147,12 @@ final class HomeService {
             for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection)
+                homeInbox.connectionChanged(connection)
                 guard let connection else { continue }
                 reloadList(connection)
                 // Home opened before the owner answered, or the owner came back
                 // after a stop: start the host now if it does not run.
-                if homeWasOpened { homeDidOpen() }
+                if homeWasOpened { homeDidOpen(asked: false) }
                 // The Chief tab may wait on this owner (a local Chief with history
                 // takes it back from a placed chief): check it again now.
                 if let local = services.machines.local.connection,
@@ -172,15 +177,15 @@ final class HomeService {
         if cloudChief != chief { cloudChief = chief }
     }
 
-    /// Home opened in a window (or its owner reconnected): start the Chief
-    /// home's brain host when none runs (ChiefBrainKeeper).
-    func homeDidOpen() {
+    /// Home opened in a window (or its owner reconnected, not `asked`): start
+    /// the Chief home's brain host when none runs (ChiefBrainKeeper).
+    func homeDidOpen(asked: Bool) {
         if !homeWasOpened {
             homeWasOpened = true
             publishAppLinks()
             observeActivation()
         }
-        brain.ensure()
+        brain.ensure(asked: asked)
     }
 
     /// The open session for `conversation`, loaded on first use.
@@ -214,6 +219,7 @@ final class HomeService {
     // MARK: Events
 
     private func handle(_ event: DaemonEvent) {
+        homeInbox.note(event)
         switch event {
         case .conversationChanged(let changed):
             updateList(changed)

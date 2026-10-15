@@ -113,22 +113,31 @@ def valgrind_build_step() -> str:
 def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
     build = valgrind_build_step()
 
-    assert re.findall(
-        r"(?m)^\s+-p ([A-Za-z0-9_-]+) --(bin|test) "
-        r"([A-Za-z0-9_-]+) \\\s*$",
-        build,
-    ) == [
-        ("cmux-tui", "bin", "cmux-tui"),
-        ("ghostty-vt", "test", "terminal"),
-    ]
+    # The startup tests live in the cmux_tui library (src/main.rs since the
+    # Windows thin-exe split); the cmux-tui bin's test binary has the same
+    # cmux_tui-<hash> name and none of them.
+    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text()
+    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "src/main.rs"', cargo_toml)
     assert re.search(
-        r"cargo test \\\s+-p cmux-tui --bin cmux-tui \\\s+"
+        r"cargo test \\\s+-p cmux-tui --lib \\\s+"
         r"-p ghostty-vt --test terminal \\\s+"
         r"--locked --no-run --message-format=json",
         build,
     )
+    assert "--bin cmux-tui" not in build
     assert "cargo test --workspace" not in build
     assert build.count("cargo test") == 1
+
+
+def test_valgrind_runner_refuses_an_ambiguous_or_stale_startup_binary() -> None:
+    job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
+    run_step = job.split("      - name: Run test binaries under valgrind", 1)[1]
+
+    # Two cmux_tui-<hash> binaries (lib and bin) must not resolve silently to
+    # whichever cargo listed last.
+    assert "more than one cmux_tui test binary" in run_step
+    # A listed test that is gone names the list and the cargo selector to fix.
+    assert "update startup_tests and the cargo selector in Build test binaries" in run_step
 
 
 def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
@@ -2315,7 +2324,9 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
     # build legs beside them take the owned side lane on attempt 1. Once every
     # same-repo branch push ran this workflow (#19169), 16 daemon-test jobs sat
     # queued on Blacksmith macOS at its cap while the minis had room. The first
-    # attempt uses the same route as the build legs; a rerun goes to the PR pool.
+    # attempt uses the same route as the build legs. 2026-10-14: a rerun stays
+    # on the minis too; it fell through to MACOS_RUNNER_PR, the nightly build's
+    # 12 vCPU macOS 26 label (tests/test_ci_tui_routes_avoid_nightly_label.py).
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     build_route = jobs["build"]["with"]["macos_runner"]
@@ -2326,15 +2337,30 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
     # of a feat-cmux-next push takes the reserved promote runners, after the
     # fork gate; otherwise the build legs' route.
     fork_gate = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+    # 2026-10-15: the daemon tests' own pool, when set, comes first in that
+    # slot; one mini serves the promote pool and the Release compile.
     promote = (
+        "vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && "
+        "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
+        "github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || "
         "vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && "
         "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
         "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "
     )
     assert fork_gate in build_route
-    assert daemon == build_route.replace(fork_gate, fork_gate + promote, 1), daemon
-    assert "github.run_attempt == 1" in daemon
-    assert retry_route.split("|| ", 1)[1] in daemon  # a rerun falls back to the PR pool
+    side_attempt_one = "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER"
+    assert side_attempt_one in build_route
+    # cx-urd.50: through the bot's attempt 3; its attempt 4 is the rescue's
+    # last resort and goes to Blacksmith macOS 15, never the nightly label.
+    every_attempt = build_route.replace(
+        side_attempt_one,
+        "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && "
+        "vars.CI_SIDE_LANE_RUNNER",
+        1,
+    )
+    assert daemon == every_attempt.replace(fork_gate, fork_gate + promote, 1), daemon
+    assert "MACOS_RUNNER_PR" not in daemon
+    assert retry_route.split("|| ", 1)[1] in daemon  # owned pools off: Blacksmith macOS 15
 
 
 if __name__ == "__main__":
@@ -2343,36 +2369,32 @@ if __name__ == "__main__":
 
 def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> None:
     # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
-    # so feat-cmux-next trees publish without them; nightly-next promotion still
-    # needs them, through the daemon-tests.json marker that publish-tree-tested
-    # writes. Chief 2026-10-14 (cx-kfbom): any other ref (branch pushes, pull
-    # requests) publishes a shared tree key only after its daemon tests passed,
-    # with the marker written first, because a feat-cmux-next push that finds
-    # the key published does not run them (tree c77d397b3a9f).
+    # so trees publish without them; nightly-next promotion still needs them,
+    # through the daemon-tests.json marker that publish-tree-tested writes.
+    # cx-y0nf2: that holds on every ref, pins, next-batch/*, main and pull
+    # requests included. cx-kfbom had made those publish after the tests,
+    # marker first, because a feat-cmux-next push that found tree c77d397b3a9f
+    # published did not test it; tree-preflight (daemon_tested) and
+    # tree-owner-wait (unmarked) now test such a tree, so no publisher needs
+    # the tests or writes the marker (tests/test_cmux_tui_feat_publish_order.py).
     import yaml
     jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())["jobs"]
     marker_script = "scripts/ci/cmux-tui-mark-daemon-tested.sh"
+    assert "publish-tree-daemon-tested" not in jobs
     for name in ("publish-tree", "publish-pr-tree"):
         job = jobs[name]
-        assert "cmux-next-daemon-tests" in job["needs"], name
-        assert "needs.cmux-next-daemon-tests.result == 'success'" in job["if"], name
-        assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in job["if"], name
-        names = [step.get("name", "") for step in job["steps"]]
-        mark = names.index("Mark the tree daemon-tested before publishing it")
-        publish = next(i for i, step in enumerate(names) if step.startswith("Publish the") and "trusted helper" in step)
-        assert mark < publish, name
-        assert marker_script in job["steps"][mark]["run"], name
-        # A pull_request_target run's github.ref is the base branch
-        # (feat-cmux-next): the PR publisher marks unconditionally.
-        expected_if = "${{ github.ref != 'refs/heads/feat-cmux-next' }}" if name == "publish-tree" else None
-        assert job["steps"][mark].get("if") == expected_if, name
-    # feat-cmux-next itself keeps publishing without waiting for the tests.
-    assert "github.ref == 'refs/heads/feat-cmux-next' || (needs.cmux-next-daemon-tests.result == 'success'" in jobs["publish-tree"]["if"]
+        assert "cmux-next-daemon-tests" not in job["needs"], name
+        assert "cmux-next-daemon-tests" not in job["if"], name
+        assert "daemon_tests" not in job["if"], name
+        assert marker_script not in str(job["steps"]), name
+        assert '"daemonTests": "separate"' in str(job["steps"]), name
     marker = jobs["publish-tree-tested"]
     assert {"publish-tree", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
+    assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in marker["if"]
     assert marker["environment"] == "artifacts"
     assert marker_script in str(marker["steps"])
+    assert [name for name, job in jobs.items() if marker_script in str(job.get("steps", ""))] == ["publish-tree-tested"]
     script_text = (ROOT / marker_script).read_text()
     assert "daemon-tests.json" in script_text
     assert "--write-once" in script_text
@@ -2380,8 +2402,6 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
-    for name in ("publish-tree", "publish-pr-tree"):
-        assert '"daemonTests": "separate"' in str(jobs[name]["steps"]), name
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
     assert "daemon-tests.json" in script and '"separate"' in script
 

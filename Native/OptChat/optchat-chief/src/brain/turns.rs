@@ -160,8 +160,12 @@ impl Brain {
                         let draft = |d: crate::draft::Draft| {
                             let _ = tx.send(Input::Draft(Box::new(d)));
                         };
+                        // The turn's run record, to the same clients.
+                        let run_update = |u: crate::run::RunUpdate| {
+                            let _ = tx.send(Input::Run(Box::new(u)));
+                        };
                         let outcome =
-                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft);
+                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -224,7 +228,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
                                 marker_refused.refused();
@@ -250,12 +254,12 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
                             _ => outcome,
                         };
                         crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
-                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft)
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                         })
                     }
                     Engine::Native(native) => {
@@ -554,7 +558,13 @@ impl Brain {
                 effort: engine.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
-                env: Default::default(),
+                // Only the Chief's own turn gets the seal its `chiefs`
+                // tool needs (chief_profile.rs TURN_KEY_ENV).
+                env: [(
+                    crate::chief_profile::TURN_KEY_ENV.to_owned(),
+                    crate::chief_profile::process_turn_seal().to_owned(),
+                )]
+                .into(),
                 fast: self.turn_fast(&engine, family),
             },
             blocks,

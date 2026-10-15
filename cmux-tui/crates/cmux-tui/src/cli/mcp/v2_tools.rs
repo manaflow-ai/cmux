@@ -50,6 +50,7 @@ const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux ch
 
 /// The person's Chiefs: the owner and each Chief itself (its own bound
 /// connection) use the registry; an MCP client is an agent acting as the user.
+const AVATAR_REASON: &str = "A person's picture is set by that person (cmux avatar set, Home) and a Chief's by the person or that Chief, never by an agent acting as the user.";
 const CHIEF_REGISTRY_REASON: &str = "The person's Chiefs are edited by the person (cmux chief new|edit|delete, Home) and by each Chief on its own bound connection, never by an agent acting as the user.";
 
 /// Launch credentials (identity.md section 2) are the session host's and the
@@ -95,10 +96,13 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.profile.list", CHIEF_REGISTRY_REASON),
     ("chief.profile.get", CHIEF_REGISTRY_REASON),
     ("chief.profile.create", CHIEF_REGISTRY_REASON),
+    ("chief.profile.adopt", CHIEF_REGISTRY_REASON),
     ("chief.profile.update", CHIEF_REGISTRY_REASON),
     ("chief.profile.delete", CHIEF_REGISTRY_REASON),
     ("chief.profile.avatar.set", CHIEF_REGISTRY_REASON),
     ("chief.profile.avatar.get", CHIEF_REGISTRY_REASON),
+    ("participant.avatar.set", AVATAR_REASON),
+    ("participant.avatar.get", AVATAR_REASON),
     ("machine.list", MACHINE_REASON),
     ("machine.get", MACHINE_REASON),
     ("session.list", MACHINE_REASON),
@@ -146,9 +150,11 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("sidebar.group.update", SIDEBAR_LAYOUT_REASON),
     ("sidebar.item.add", SIDEBAR_LAYOUT_REASON),
     ("sidebar.item.remove", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.remove_ref", SIDEBAR_LAYOUT_REASON),
     ("sidebar.item.update", SIDEBAR_LAYOUT_REASON),
     ("sidebar.move", SIDEBAR_LAYOUT_REASON),
     ("sidebar.pin", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.reset", SIDEBAR_LAYOUT_REASON),
     ("sidebar.section.add", SIDEBAR_LAYOUT_REASON),
     ("sidebar.section.move", SIDEBAR_LAYOUT_REASON),
     ("sidebar.section.remove", SIDEBAR_LAYOUT_REASON),
@@ -185,6 +191,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
+    ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
     ("history.entries.remove", HISTORY_MCP_PENDING_REASON),
     ("history.site.remove", HISTORY_MCP_PENDING_REASON),
@@ -200,6 +207,9 @@ pub(super) const CLI_ONLY: &[(&str, &str)] = &[
 const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent message` and `cmux \
      agent inbox`, which store, deliver and mark in one command; one operation alone would \
      store a message without delivering it or change another agent's delivery state.";
+
+const AGENT_MESSAGE_RELEASE_REASON: &str = "Releasing a held agent message is the person's \
+     decision (`cmux agent message release`); an agent gets no tool to approve messages.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =
@@ -703,6 +713,10 @@ fn summary(wire: &str, target: &str) -> String {
         "back" | "forward" => format!("Go {action} in a browser's history"),
         "reload" => "Reload a browser's page".into(),
         "activate" => format!("Activate a {target}"),
+        "profile list" => "List the browser profiles: names and ids, never their data".into(),
+        "profile create" => "Create an empty browser profile".into(),
+        "profile open" => "Open a browser tab in a browser profile".into(),
+        "tab set profile" => "Move a browser tab to another browser profile".into(),
         _ => format!("{} a {target}", capitalized(&action)),
     }
 }

@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // IME-KEYS (cx-dd5b4) in real engines (headless Chromium and WebKit from Playwright), on a real
 // page: the History page's dev entry (/history/?mock, the in-memory mock provider).
 //
@@ -17,6 +18,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("ime-composition-keys.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -56,7 +58,8 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/history/?mock");
+  }, 240_000);
 
   afterAll(() => {
     server?.kill();
@@ -67,7 +70,14 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
     return page.evaluate(
       ({ key, isComposing }) => {
         const target = document.activeElement ?? document.body;
-        const event = new KeyboardEvent("keydown", { key, code: key, keyCode: 229, isComposing, bubbles: true, cancelable: true });
+        const event = new KeyboardEvent("keydown", {
+          key,
+          code: key,
+          keyCode: 229,
+          isComposing,
+          bubbles: true,
+          cancelable: true,
+        });
         // Some engines ignore keyCode in the init dictionary.
         if (event.keyCode !== 229) Object.defineProperty(event, "keyCode", { get: () => 229 });
         target.dispatchEvent(event);
@@ -78,7 +88,9 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
   }
 
   const selectedRow = (page: Page) =>
-    page.evaluate(() => document.querySelector(".history-row[aria-selected='true'] .history-row-title")?.textContent ?? null);
+    page.evaluate(
+      () => document.querySelector(".history-row[aria-selected='true'] .history-row-title")?.textContent ?? null,
+    );
 
   for (const [name, engine] of installed) {
     describe(`IME composition keys (${name})`, () => {
@@ -100,7 +112,9 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
       test("Escape that cancels a composition keeps the search text; a plain Escape clears it", async () => {
         await page.focus(".history-search");
         await page.keyboard.type("re");
-        await page.waitForFunction(() => (document.querySelector(".history-search") as HTMLInputElement).value === "re");
+        await page.waitForFunction(
+          () => (document.querySelector(".history-search") as HTMLInputElement).value === "re",
+        );
 
         // Chromium and WebKit during composition.
         expect(await imeKey(page, "Escape", true)).toBe(false);
@@ -123,7 +137,8 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
 
         await page.keyboard.press("ArrowDown");
         await page.waitForFunction((was) => {
-          const now = document.querySelector(".history-row[aria-selected='true'] .history-row-title")?.textContent ?? null;
+          const now =
+            document.querySelector(".history-row[aria-selected='true'] .history-row-title")?.textContent ?? null;
           return now !== was;
         }, before);
       });

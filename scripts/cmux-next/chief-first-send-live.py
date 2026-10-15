@@ -16,8 +16,10 @@ which ends the app, the Chief host, its acpmux and the owner daemon.
 Prints one row per round and a total; exits 0 only when every round passed.
 
 Usage: chief-first-send-live.py --tag <tag> --app PATH [--rounds 20] [--deadline 120] [--mode both] [--keep-cache] [--out DIR]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -34,6 +36,11 @@ parser.add_argument("--keep-cache", action="store_true",
                          " Mac does when the Chief home is made again at the same path (cx-ebm.55); from round 2 on"
                          " the cache names the previous round's Chief conversation")
 opts = parser.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-first-send-live.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 TAG = opts.tag
 APP = opts.app
@@ -44,8 +51,8 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
 OPTCHAT = os.path.join(MUX_HOME, "optchat")
 ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
-# The app's own acpmux for its tag (AcpmuxEnvironment: ~/.acpmux/tags/<slug>).
-TAG_ACPMUX_HOME = os.path.expanduser(f"~/.acpmux/tags/{TAG}")
+# The app's own acpmux for its build (AcpmuxEnvironment: ~/.acpmux/builds/<build key>).
+TAG_ACPMUX_HOME = os.path.expanduser("~/.acpmux/builds/com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip("."))
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-first-send-{TAG}-")
 os.makedirs(opts.out, exist_ok=True)
 
@@ -136,10 +143,10 @@ def end_round(app, cache):
         os.kill(app.pid, signal.SIGKILL)
         app.wait(timeout=10)
     env = {**os.environ, "ACPMUX_HOME": ACPMUX_HOME, "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env=env, capture_output=True, timeout=30)
+    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=env, capture_output=True, timeout=30)
     tag_env = {k: v for k, v in os.environ.items() if not k.startswith("ACPMUX_")}
     tag_env["ACPMUX_HOME"] = TAG_ACPMUX_HOME
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env=tag_env, capture_output=True, timeout=30)
+    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=tag_env, capture_output=True, timeout=30)
     # Each acpmux daemon starts a detached local router (its own session); it stops on its admin socket.
     for home in (TAG_ACPMUX_HOME, ACPMUX_HOME):
         try:

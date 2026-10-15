@@ -24,6 +24,7 @@ daemon and stops the tag's cmux-tui session; leftovers of this tag's bundle
 are ended by exact PID.
 
 Usage: chief-subagents-live.py --tag <tag> --app PATH --debug-cli PATH --derived-data DIR [--out DIR] [--only a,b]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, glob, json, os, re, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 
@@ -44,6 +45,11 @@ parser.add_argument("--no-home-workarounds", action="store_true",
 parser.add_argument("--cli-first", action="store_true",
                     help="before the app: `cmux chief -p` (no app) spawns a subagent; the app must then show its live chat")
 opts = parser.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-subagents-live.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 TAG = opts.tag
 APP = opts.app
@@ -1125,7 +1131,7 @@ def cloud_chief():
                     p.wait(timeout=20)
                 except subprocess.TimeoutExpired:
                     p.kill()
-        subprocess.run([os.path.join(bins, "acpmux"), "daemon", "shutdown"], env={**base, **acp}, capture_output=True, timeout=30)
+        subprocess.run([os.path.join(bins, "acpmux"), "daemon", "shutdown", "--end-agents"], env={**base, **acp}, capture_output=True, timeout=30)
         shutil.copytree(os.path.join(brain, "logs"), os.path.join(opts.out, "brain-logs"), dirs_exist_ok=True)
         try:
             shutil.copy(os.path.join(mux, "host.log"), os.path.join(opts.out, "brain-host.log"))
@@ -1205,7 +1211,7 @@ def cleanup():
             app.wait(timeout=20)
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
-    acpmux("daemon", "shutdown", timeout=30)
+    acpmux("daemon", "shutdown", "--end-agents", timeout=30)
     stop_sessions()
     for _ in range(2):
         ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout

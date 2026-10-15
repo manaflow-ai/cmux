@@ -16,10 +16,13 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
+    capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
+        capabilities.push(cloud_attachments::CAPABILITY);
     }
     if mux.serves_ws_listen() {
         capabilities.push(WS_LISTEN_CAPABILITY);
@@ -38,6 +41,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
+        capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -52,6 +56,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
+    }
+    if crate::chief_brains::taken().is_some() {
+        capabilities.push(chief_control::CAPABILITY);
     }
     #[cfg(debug_assertions)]
     capabilities
@@ -171,9 +178,18 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
+        conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
+        conversations::HOME_INBOX_CAPABILITY,
+        conversation_runs::CONVERSATION_RUNS_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
+        conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,
+        participant_avatars::PARTICIPANT_AVATARS_CAPABILITY,
         conversations::WS_CONVERSATIONS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
+        conversation_attachments::WS_ATTACHMENTS_CAPABILITY,
+        chief_registry_resource::CHIEF_PROFILE_WS_CAPABILITY,
+        chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
+        chief_registry_resource::CHIEF_PROFILE_ADOPT_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -201,10 +217,13 @@ pub(super) fn advertised_capabilities(
         crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
         crate::state::sidebar_doc_store::CAPABILITY,
+        crate::state::placement_shift::CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
+        crate::state::browser_devices::FIT_CAPABILITY,
+        crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,

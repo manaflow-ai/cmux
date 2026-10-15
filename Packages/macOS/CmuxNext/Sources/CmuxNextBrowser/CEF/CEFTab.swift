@@ -87,10 +87,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var capturesTitleBeforeCommit = false
     /// The pending find-in-page request (`CEFFindRequests`).
     @ObservationIgnored var findRequests = CEFFindRequests()
-    /// The daemon's resolved emulation (`CEFTab+DeviceEmulation`), its last fit scale,
+    /// The daemon's resolved emulation (`CEFTab+DeviceEmulation`), its last layout size and scale,
     /// whether an override is on the page, and the calls in flight.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
-    @ObservationIgnored var deviceEmulationScale: CGFloat?
+    @ObservationIgnored var deviceEmulationViewport: BrowserEmulation.Viewport?
     @ObservationIgnored var deviceEmulationApplied = false
     @ObservationIgnored var deviceEmulationTask: Task<Void, Never>?
     @ObservationIgnored var deviceEmulationDirty = false
