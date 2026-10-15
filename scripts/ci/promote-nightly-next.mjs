@@ -91,7 +91,15 @@ async function firstParentChain(github, owner, repo, from, to) {
   let cursor = from;
   while (cursor !== to) {
     if (chain.length >= MAX_FIRST_PARENT_COMMITS) return null;
-    const { data } = await github.rest.repos.getCommit({ owner, repo, ref: cursor });
+    const { data } = await github.rest.repos.getCommit({ owner, repo, ref: cursor, per_page: 100, page: 1 });
+    // getCommit pages its file list; read every page (GitHub caps it at 3000).
+    let files = data.files || [];
+    for (let page = 2; files.length === (page - 1) * 100 && page <= 30; page += 1) {
+      const { data: more } = await github.rest.repos.getCommit({ owner, repo, ref: cursor, per_page: 100, page });
+      files = files.concat(more.files || []);
+    }
+    data.files = files;
+    data.filesTruncated = files.length >= 3000;
     chain.push(data);
     const parent = data.parents?.[0]?.sha;
     if (!parent) return null;
@@ -101,27 +109,28 @@ async function firstParentChain(github, owner, repo, from, to) {
 }
 
 async function pushActors(github, owner, repo, chainShas) {
-  // Map each first-parent commit to the actor of the push that brought it.
-  const pending = new Set(chainShas);
+  // Map each first-parent commit to every actor whose push brought it. The
+  // activity API pages with a cursor (Link header), so read it through
+  // github.paginate.iterator; stop once every commit has an actor.
   const order = new Map(chainShas.map((sha, index) => [sha, index]));
-  const actors = new Map();
-  for (let page = 1; page <= MAX_ACTIVITY_PAGES && pending.size; page += 1) {
-    const { data } = await github.request('GET /repos/{owner}/{repo}/activity', {
-      owner, repo, ref: `refs/heads/${SOURCE}`, per_page: 100, page,
-    });
-    if (!Array.isArray(data) || data.length === 0) break;
-    for (const event of data) {
+  const actors = new Map(chainShas.map((sha) => [sha, new Set()]));
+  const unresolved = () => chainShas.some((sha) => actors.get(sha).size === 0);
+  let pages = 0;
+  for await (const response of github.paginate.iterator('GET /repos/{owner}/{repo}/activity', {
+    owner, repo, ref: `refs/heads/${SOURCE}`, per_page: 100,
+  })) {
+    pages += 1;
+    for (const event of response.data || []) {
       if (!order.has(event.after)) continue;
-      // Every chain commit from `after` back to `before` arrived in this push.
+      // Every chain commit from `after` back to `before` arrived in this push
+      // (to the end of the chain when `before` is outside it, a force push).
       for (let index = order.get(event.after); index < chainShas.length; index += 1) {
         const sha = chainShas[index];
         if (sha === event.before) break;
-        if (!actors.has(sha)) {
-          actors.set(sha, event.actor?.login || '');
-          pending.delete(sha);
-        }
+        actors.get(sha).add(event.actor?.login || '');
       }
     }
+    if (!unresolved() || pages >= MAX_ACTIVITY_PAGES) break;
   }
   return actors;
 }
@@ -131,9 +140,9 @@ async function landersOf(github, owner, repo, commit, actors) {
   const add = (login) => { if (login && !BOT_LOGINS.has(login)) logins.add(login); };
   add(commit.author?.login);
   add(commit.committer?.login);
-  const actor = actors.get(commit.sha);
-  if (!actor) return null;
-  add(actor);
+  const pushers = actors.get(commit.sha);
+  if (!pushers || pushers.size === 0 || pushers.has('')) return null;
+  pushers.forEach(add);
   const { data: pulls } = await github.request('GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls', {
     owner, repo, commit_sha: commit.sha,
   });
@@ -142,6 +151,12 @@ async function landersOf(github, owner, repo, commit, actors) {
     add(pull.user?.login);
     const { data: full } = await github.rest.pulls.get({ owner, repo, pull_number: pull.number });
     add(full.merged_by?.login);
+    // Anyone whose commits are in the merged PR counts as a lander too.
+    const prCommits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pull.number, per_page: 100 });
+    for (const prCommit of prCommits) {
+      add(prCommit.author?.login);
+      add(prCommit.committer?.login);
+    }
   }
   return logins;
 }
@@ -217,24 +232,32 @@ export async function decide({
   // The compare API lists at most 300 files for the whole range.
   const { data: range } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}`, per_page: 1 });
   const rangeFiles = range.files || [];
-  const chain = mergeBase ? await firstParentChain(github, owner, repo, sha, mergeBase) : null;
-  if (!chain) {
-    return refuse(`cannot walk the first-parent history from ${sha} back to ${current} within ${MAX_FIRST_PARENT_COMMITS} commits`);
-  }
-  // A commit diff lists at most 300 files too; a larger one counts as touching.
-  const commitTouches = (commit) => (commit.files || []).length >= 300 || (commit.files || []).some(touches);
+  // Walk the first-parent history only when it is needed: a range too large
+  // for the compare API, or a surface change whose landers must be found.
+  let chain = null;
+  const walk = async () => {
+    chain = chain || (mergeBase ? await firstParentChain(github, owner, repo, sha, mergeBase) : null);
+    return chain;
+  };
+  const commitTouches = (commit) => commit.filesTruncated || (commit.files || []).some(touches);
   let surfaceFiles;
   if (rangeFiles.length < 300) {
     surfaceFiles = [...new Set(rangeFiles.filter(touches).flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean).filter(matches))].sort();
   } else if (!force) {
     // Every changed file was changed by a first-parent commit of the range.
+    if (!(await walk())) {
+      return refuse(`the range ${current}...${sha} changes 300 or more files and its first-parent history is longer than ${MAX_FIRST_PARENT_COMMITS} commits`);
+    }
     surfaceFiles = [...new Set(chain.flatMap((commit) => (commit.files || []).filter(touches).map((file) => file.filename)))].sort();
-    if (chain.some((commit) => (commit.files || []).length >= 300)) surfaceFiles.push('<a commit with 300 or more files>');
+    if (chain.some((commit) => commit.filesTruncated)) surfaceFiles.push('<a commit with 3000 or more files>');
   } else {
     return refuse(`the replaced baseline ${current} and ${sha} differ in 300 or more files; the change cannot be listed`);
   }
   if (surfaceFiles.length === 0) {
     return { action: 'promote', reason: 'no release surface file changed', sha, current, force, surfaceFiles, landers: [] };
+  }
+  if (!(await walk())) {
+    return refuse(`cannot walk the first-parent history from ${sha} back to ${current} within ${MAX_FIRST_PARENT_COMMITS} commits`);
   }
 
   // G4: who landed the surface change.
@@ -270,7 +293,8 @@ export async function approvedBy({ github, owner, repo, runId, environment = ACK
 }
 
 export function ackDecision({ decision, approvers, triggeringActor, expectedCurrent }) {
-  if (decision.action === 'promote') return { ok: true, reason: 'no release surface file changed any more' };
+  if (decision.action === 'skip') return { ok: true, move: false, reason: decision.reason };
+  if (decision.action === 'promote') return { ok: true, move: true, reason: 'no release surface file changed any more' };
   if (decision.action !== 'needs-ack') return { ok: false, reason: decision.reason };
   if (expectedCurrent && decision.current !== expectedCurrent) {
     return { ok: false, reason: `${TARGET} moved from ${expectedCurrent} to ${decision.current} after the approval was requested; request the promotion again` };
@@ -280,11 +304,21 @@ export function ackDecision({ decision, approvers, triggeringActor, expectedCurr
   if (valid.length === 0) {
     return { ok: false, reason: `no approval by a release approver who did not land the range (approvers: ${approvers.join(', ') || 'none'}; landers: ${[...blocked].join(', ')})` };
   }
-  return { ok: true, reason: `approved by ${valid.join(', ')}`, approver: valid[0] };
+  return { ok: true, move: true, reason: `approved by ${valid.join(', ')}`, approver: valid[0] };
 }
 
-export async function move({ writer, owner, repo, decision }) {
+export async function move({ writer, github = writer, owner, repo, decision }) {
   const { sha, current, force } = decision;
+  // Compare and swap: refuse when nightly-next moved after the decision.
+  let now = null;
+  try {
+    now = (await github.rest.git.getRef({ owner, repo, ref: `heads/${TARGET}` })).data.object.sha;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+  if (now !== (current || null)) {
+    throw new Error(`${TARGET} is at ${now} but the decision was made at ${current}; request the promotion again`);
+  }
   if (!current) {
     await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${TARGET}`, sha });
   } else {

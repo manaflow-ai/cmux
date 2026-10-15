@@ -56,17 +56,12 @@ on:
           - warp
           - r2
       promote_nightly_next_sha:
-        description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
+        description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it. Prefix it with "dry-run:" to only decide and print why, moving nothing.
         required: false
         default: ''
         type: string
       promote_nightly_next_debounce:
         description: Skip the promotion when a nightly-next build started within NIGHTLY_NEXT_MIN_INTERVAL_HOURS (set by the automatic request).
-        required: false
-        default: false
-        type: boolean
-      promote_dry_run:
-        description: With promote_nightly_next_sha, only decide (promote, needs approval, or refuse) and print why; move nothing.
         required: false
         default: false
         type: boolean
@@ -493,6 +488,8 @@ jobs:
     outputs:
       action: ${{ steps.decide.outputs.action }}
       current: ${{ steps.decide.outputs.current }}
+      sha: ${{ steps.decide.outputs.sha }}
+      dry_run: ${{ steps.decide.outputs.dry_run }}
     steps:
       - name: Checkout the promote guard from main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -516,14 +513,20 @@ jobs:
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
+            // The dispatch already has its maximum of inputs, so a dry run is
+            // the "dry-run:" prefix on the SHA.
+            const requested = (process.env.REQUESTED_SHA || '').trim();
+            const dryRun = requested.startsWith('dry-run:');
+            const sha = dryRun ? requested.slice('dry-run:'.length).trim() : requested;
             const decision = await guard.decide({
-              github, core, owner, repo,
-              sha: (process.env.REQUESTED_SHA || '').trim(),
+              github, core, owner, repo, sha,
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
               debounce: process.env.DEBOUNCE === 'true',
               minIntervalHours: Number(process.env.MIN_INTERVAL_HOURS),
             });
-            await core.summary.addRaw(guard.summary(decision)).write();
+            await core.summary.addRaw(`${dryRun ? '**Dry run: nothing moves.**\n\n' : ''}${guard.summary(decision)}`).write();
+            core.setOutput('dry_run', dryRun ? 'true' : 'false');
+            core.setOutput('sha', sha);
             core.setOutput('action', decision.action);
             core.setOutput('current', decision.current || '');
             core.setOutput('decision', JSON.stringify(decision));
@@ -532,7 +535,7 @@ jobs:
 
       - name: Mint release App token
         id: app-token
-        if: steps.decide.outputs.action == 'promote' && !inputs.promote_dry_run
+        if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
@@ -543,7 +546,7 @@ jobs:
           permission-workflows: write
 
       - name: Move nightly-next
-        if: steps.decide.outputs.action == 'promote' && !inputs.promote_dry_run
+        if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -553,7 +556,7 @@ jobs:
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
-            core.notice(await guard.move({ writer, owner, repo, decision: JSON.parse(process.env.DECISION) }));
+            core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
   # A release surface change waits here for one approval in the
   # release-surface-ack environment (required reviewers: release-approvers,
@@ -561,15 +564,18 @@ jobs:
   # surface-changing commit of the range or who started this run.
   promote-nightly-next-acked:
     needs: promote-nightly-next
-    if: needs.promote-nightly-next.outputs.action == 'needs-ack' && !inputs.promote_dry_run
+    if: needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
     environment: release-surface-ack
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
       actions: read
+    # Not in the nightly-next-promote group: a job that waits for approval
+    # there would block or be cancelled by later requests. The move is a
+    # compare-and-swap on nightly-next, so a concurrent promotion is safe.
     concurrency:
-      group: nightly-next-promote
+      group: nightly-next-promote-ack-${{ github.run_id }}
       cancel-in-progress: false
     steps:
       - name: Checkout the promote guard from main
@@ -586,7 +592,7 @@ jobs:
         id: ack
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
+          REQUESTED_SHA: ${{ needs.promote-nightly-next.outputs.sha }}
           EXPECTED_CURRENT: ${{ needs.promote-nightly-next.outputs.current }}
         with:
           script: |
@@ -609,11 +615,12 @@ jobs:
               core.setFailed(result.reason);
               return;
             }
-            core.setOutput('decision', JSON.stringify(decision));
+            if (result.move) core.setOutput('decision', JSON.stringify(decision));
             core.notice(result.reason);
 
       - name: Mint release App token
         id: app-token
+        if: steps.ack.outputs.decision != ''
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
@@ -624,6 +631,7 @@ jobs:
           permission-workflows: write
 
       - name: Move nightly-next
+        if: steps.ack.outputs.decision != ''
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -633,7 +641,7 @@ jobs:
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
-            core.notice(await guard.move({ writer, owner, repo, decision: JSON.parse(process.env.DECISION) }));
+            core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
   probe-nightly-tag-permission:
     permissions:

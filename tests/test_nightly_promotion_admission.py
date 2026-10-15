@@ -35,7 +35,8 @@ SHA = "a" * 40
 HARNESS = r"""
 const scenario = JSON.parse(process.env.SCENARIO);
 const guard = await import(process.env.GUARD);
-const calls = { runs: 0, jobs: 0 };
+const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0 };
+const pullsListCommits = Symbol('listCommits');
 const notices = [];
 const actions = { listWorkflowRuns: async () => ({ data: { workflow_runs: [] } }), listJobsForWorkflowRun: Symbol('jobs') };
 const commits = Object.fromEntries(scenario.commits.map((c) => [c.sha, c]));
@@ -61,9 +62,10 @@ const github = {
         return { data: commits[ref] };
       },
     },
-    pulls: { get: async ({ pull_number }) => ({ data: scenario.pulls[pull_number] }) },
+    pulls: { get: async ({ pull_number }) => ({ data: scenario.pulls[pull_number] }), listCommits: pullsListCommits },
   },
-  paginate: async (method, params) => {
+  paginate: Object.assign(async (method, params) => {
+    if (method === pullsListCommits) return scenario.prCommits[params.pull_number] || [];
     if (method === actions.listWorkflowRuns) {
       calls.runs += 1;
       return calls.runs <= scenario.emptyRuns ? [] : scenario.runs;
@@ -73,9 +75,17 @@ const github = {
       return scenario.jobs[params.run_id] || [];
     }
     throw new Error('unexpected paginate');
-  },
+  }, {
+    // The activity API pages with a cursor: one event per page here, so the
+    // guard must follow the pages instead of re-reading the first one.
+    iterator: (route, params) => {
+      if (route !== 'GET /repos/{owner}/{repo}/activity' || params.ref !== 'refs/heads/feat-cmux-next') throw new Error(`unexpected iterator ${route}`);
+      return (async function* () {
+        for (const event of scenario.activity) { calls.activityPages += 1; yield { data: [event] }; }
+      })();
+    },
+  }),
   request: async (route, params) => {
-    if (route === 'GET /repos/{owner}/{repo}/activity') return { data: params.page === 1 ? scenario.activity : [] };
     if (route === 'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls') return { data: scenario.commitPulls[params.commit_sha] || [] };
     if (route === 'GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals') return { data: scenario.approvals };
     throw new Error(`unexpected request ${route}`);
@@ -88,7 +98,17 @@ const decision = await guard.decide({
 });
 const approvers = await guard.approvedBy({ github, owner: 'manaflow-ai', repo: 'cmux', runId: 1 });
 const ack = guard.ackDecision({ decision, approvers, triggeringActor: scenario.triggeringActor, expectedCurrent: scenario.current });
-console.log(JSON.stringify({ decision, ack, calls, notices }));
+let moveError = null;
+if (scenario.movedTo !== undefined) {
+  const moved = { rest: { git: {
+    getRef: async () => ({ data: { object: { sha: scenario.movedTo } } }),
+    updateRef: async () => { calls.moves += 1; },
+    createRef: async () => { calls.moves += 1; },
+  } } };
+  try { await guard.move({ writer: moved, github: moved, owner: 'manaflow-ai', repo: 'cmux', decision }); }
+  catch (error) { moveError = error.message; }
+}
+console.log(JSON.stringify({ decision, ack, calls, notices, moveError }));
 """
 
 
@@ -127,6 +147,7 @@ def scenario(**overrides) -> dict:
         ],
         "commitPulls": {SHA: [{"number": 5, "merged_at": "2026-10-15T00:00:00Z", "user": {"login": "teamleaderleo"}}]},
         "pulls": {"5": {"merged_by": {"login": "teamleaderleo"}}},
+        "prCommits": {},
         "approvals": [],
         "triggeringActor": "github-actions[bot]",
         "surface": SURFACE,
@@ -134,6 +155,7 @@ def scenario(**overrides) -> dict:
     base.update(overrides)
     base["jobs"] = {str(k): v for k, v in base["jobs"].items()}
     base["pulls"] = {str(k): v for k, v in base["pulls"].items()}
+    base["prCommits"] = {str(k): v for k, v in base["prCommits"].items()}
     return base
 
 
@@ -238,13 +260,51 @@ def test_unknown_push_actor_fails_closed() -> None:
     assert "push actor" in out["decision"]["reason"]
 
 
+def test_activity_pages_are_followed_and_one_push_covers_its_commits() -> None:
+    case = surface_change()
+    # One push brought MID and SHA; an unrelated event comes first.
+    case["activity"] = [
+        {"before": "f" * 40, "after": "e" * 40, "actor": {"login": "austinywang"}},
+        {"before": CURRENT, "after": SHA, "actor": {"login": "lawrencecchen"}},
+    ]
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert "lawrencecchen" in out["decision"]["landers"]
+    assert out["calls"]["activityPages"] == 2
+
+
+def test_a_pr_contributor_is_a_lander() -> None:
+    case = surface_change()
+    case["prCommits"] = {5: [{"author": {"login": "azooz2003-bit"}, "committer": {"login": "azooz2003-bit"}}]}
+    case["approvals"] = [{"state": "approved", "user": {"login": "azooz2003-bit"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert "azooz2003-bit" in out["decision"]["landers"]
+    assert not out["ack"]["ok"]
+
+
+def test_move_refuses_when_nightly_next_moved_after_the_decision() -> None:
+    out = run(scenario(movedTo="9" * 40))
+    assert out["moveError"] and "request the promotion again" in out["moveError"]
+    assert out["calls"]["moves"] == 0
+    out = run(scenario(movedTo=CURRENT))
+    assert out["moveError"] is None and out["calls"]["moves"] == 1
+
+
+def test_already_promoted_is_a_quiet_no_op_after_approval() -> None:
+    out = run(scenario(current=SHA))
+    assert out["decision"]["action"] == "skip"
+    assert out["ack"]["ok"] and not out["ack"]["move"]
+
+
 def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "environment: nightly-next-promote" in WORKFLOW
     assert "environment: release-surface-ack" in WORKFLOW
-    assert "promote_dry_run:" in WORKFLOW
+    assert "requested.startsWith('dry-run:')" in WORKFLOW
     assert "ref: ${{ github.sha }}" in WORKFLOW
-    assert "if: steps.decide.outputs.action == 'promote' && !inputs.promote_dry_run" in WORKFLOW
-    assert "if: needs.promote-nightly-next.outputs.action == 'needs-ack' && !inputs.promote_dry_run" in WORKFLOW
+    assert "if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'" in WORKFLOW
+    assert "if: needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'" in WORKFLOW
+    assert "group: nightly-next-promote-ack-${{ github.run_id }}" in WORKFLOW
 
 
 def main() -> None:
