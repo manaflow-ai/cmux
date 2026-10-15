@@ -106,12 +106,18 @@ async function frameMessage(theme: typeof LIGHT, html: string): Promise<{ html: 
 }
 
 /// The frame's page, as AgentPaneRenderFrame.swift builds it: the HTML, then the card's styles first in its head.
-function framePage(message: { html: string; css: string }) {
+/// `browser` stands in for the browser's own stylesheet, under the card's (happy-dom has none).
+function framePage(message: { html: string; css: string }, browser = "") {
   const page = new Window();
   page.document.write(message.html);
   const theme = page.document.createElement("style");
   theme.textContent = message.css;
   page.document.head.insertBefore(theme, page.document.head.firstChild);
+  if (browser) {
+    const defaults = page.document.createElement("style");
+    defaults.textContent = browser;
+    page.document.head.insertBefore(defaults, theme);
+  }
   const style = (selector: string) => page.getComputedStyle(page.document.querySelector(selector)!);
   return { page, style, root: page.getComputedStyle(page.document.documentElement) };
 }
@@ -168,18 +174,54 @@ test("a page's own styles win over the base stylesheet", async () => {
   expect(ownStyle("body").color).toBe("rgb(5, 5, 5)");
 });
 
-test("a full-bleed page fills the frame: the base adds no body margin or padding", async () => {
+test("a full-bleed page fills the frame, and a plain page starts inset", async () => {
   // A three.js scene sizes its canvas to innerWidth x innerHeight under `body{margin:0}`.
   const scene = "<style>body{margin:0}canvas{display:block}</style><canvas></canvas>";
   const { page, style } = framePage(await frameMessage(LIGHT, scene));
   const body = style("body");
   // An unset padding reads "" here; the page's default is none.
   const px = (value: string) => parseFloat(value || "0");
+  const inset = (box: CSSStyleDeclaration) =>
+    ["marginTop", "marginRight", "marginBottom", "marginLeft", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].map(
+      (side) => px(box[side as keyof CSSStyleDeclaration] as string),
+    );
   expect(page.innerWidth - px(body.paddingLeft) - px(body.paddingRight)).toBe(page.innerWidth);
-  expect([px(body.paddingTop), px(body.paddingBottom), px(body.marginTop)]).toEqual([0, 0, 0]);
-  // A page with no CSS at all gets no inset either.
+  expect(inset(body)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+  // A page with no CSS of its own starts inset from the card's edges, by margin, not padding.
   const plain = framePage(await frameMessage(LIGHT, PAGE)).style("body");
-  expect([plain.marginLeft, plain.paddingLeft, plain.paddingTop].map(px)).toEqual([0, 0, 0]);
+  expect(inset(plain)).toEqual([12, 14, 12, 14, 0, 0, 0, 0]);
+});
+
+test("the base never changes the layout or colors a page set itself", async () => {
+  const styled =
+    "<style>.card{width:340px;padding:20px;border-radius:12px;background:rgb(109, 40, 217);color:rgb(255, 255, 255)}" +
+    ".card button{padding:10px;border:0;background:rgb(255, 255, 255);color:rgb(109, 40, 217)}.card small{opacity:0.7}</style>" +
+    '<div class="card"><b>$20</b><small>/month</small><button>Choose Pro</button></div>';
+  const plain = framePage({ html: styled, css: "" });
+  const based = framePage(await frameMessage(LIGHT, styled));
+  const read = (frame: typeof plain, selector: string) => {
+    const box = frame.style(selector);
+    return {
+      boxSizing: box.boxSizing,
+      width: box.width,
+      height: box.height,
+      minHeight: box.minHeight,
+      display: box.display,
+      padding: box.padding,
+      color: box.color,
+      opacity: box.opacity,
+    };
+  };
+  for (const selector of [".card", ".card button", ".card small", ".card b"])
+    expect([selector, read(based, selector)]).toEqual([selector, read(plain, selector)]);
+});
+
+test("a page without a doctype keeps its tables at the body's text size", async () => {
+  // Quirks mode resets a table's font to the browser default (16px); the base inherits the body's.
+  const quirks = "table{font-size:medium;line-height:normal}";
+  const { style } = framePage(await frameMessage(LIGHT, PAGE), quirks);
+  expect(style("td").fontSize).toBe(style("body").fontSize);
+  expect(style("td").lineHeight).toBe(style("body").lineHeight);
 });
 
 test("a dark theme changes the variables a page sees", async () => {
