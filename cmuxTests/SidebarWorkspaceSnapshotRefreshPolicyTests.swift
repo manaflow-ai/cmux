@@ -216,7 +216,7 @@ import Testing
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
         activeCodingAgentCount: Int = 0,
-        compactStatusGlyph: SidebarCompactStatusGlyph? = nil
+        compactStatusGlyph: SidebarCompactStatusGlyph? = nil,
         agentSessions: [SidebarAgentSessionSnapshot] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -255,7 +255,7 @@ import Testing
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
             checklistFirstUncheckedText: nil,
-            compactStatusGlyph: compactStatusGlyph
+            compactStatusGlyph: compactStatusGlyph,
             agentSessions: agentSessions
         )
     }
@@ -283,10 +283,9 @@ import Testing
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
             showsAgentActivity: showsAgentActivity,
+            showsAgentSessions: showsAgentSessions,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails,
             customColorHex: customColorHex
-            showsAgentSessions: showsAgentSessions,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
 
