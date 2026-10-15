@@ -239,8 +239,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let anchor = demo.anchorProbe
         let roots = HomeMapping.roots(in: shown, aliases: aliases, summary: shownSummary, media: core.media, links: core.links)
         let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links, roots: roots) }
+        let draft = core.shownDraft
         let pendingLocal = store.state.conversation.messages.filter { m in
             aliases.contains { $0.value == m.id } && !msgs.contains { $0.id == m.id }
+        }.map { m -> Message in
+            // cmux: the running reply's bubble takes its current content (styling included) in place,
+            // under its id (HomeProjection+Draft: never deleted and received again mid-stream).
+            guard let draft, m.id == draft.id else { return m }
+            var m = m
+            m.parts = draft.shown.parts
+            return m
         }
         controller.dispatch(.replaceWindow(msgs + pendingLocal, start: HomeMapping.window(shown).start))
         if pinned {

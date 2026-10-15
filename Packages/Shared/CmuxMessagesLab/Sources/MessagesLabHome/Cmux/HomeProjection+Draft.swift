@@ -8,11 +8,8 @@ struct ShownDraft: Equatable {
     var author: ParticipantID
     var id: ID
     var text: String
-    /// The text the bubble shows (the draft's Markdown rendered as a running reply), nil when it
-    /// is not one text bubble.
-    var shown: String? = nil
-    /// A draft that no longer extends the shown text gets a new bubble id.
-    var generation = 0
+    /// The bubble as it shows now (the draft's stable text rendered as a running reply).
+    var shown: Message
 }
 
 /// What `ProjectionCore.draft` asks of the projection store.
@@ -25,9 +22,7 @@ struct DraftStep {
 
 /// HomeStore.drafts through MessagesLab's bubble path (cx-k1uj): the first
 /// text `.receive`s the agent's bubble (the typing dots turn into it), more
-/// text `.appendText`s in place (cmux: what the bubble newly shows, the
-/// Markdown rendered as a running reply, so no marker shows raw; the styling
-/// of the appended words comes with the posted reply), the posted reply (same key) takes the
+/// text updates it in place, the posted reply (same key) takes the
 /// bubble's id and its final content, and a draft that ends without a reply
 /// `.delete`s its bubble. A draft of an ended turn never reaches here
 /// (HomeStore drops it), so a posted reply never gets its draft back.
@@ -45,6 +40,14 @@ extension ProjectionCore {
         return visible?.turn != shownDraft?.turn || visible.map(\.text) != shownDraft.map(\.text)
     }
 
+    /// cmux (round 8): the bubble shows the draft's stable text (`HomeMarkdown.stableStreamingText`: a
+    /// trailing marker run or an unfinished link is held back until the next update), rendered as a
+    /// running reply (an unclosed span on the last line is styled to its end). The bubble is never
+    /// deleted and received again while the reply runs: words that only add text are appended in place
+    /// (`.appendText`); a change of styling (a span that opens, closes or grows) or of text that does
+    /// not extend what shows replaces the bubble's content in place, under the same id, through the
+    /// projection's window replace (`rebuild`, which takes `shownDraft.shown`), so closed spans keep
+    /// their style while the reply streams.
     mutating func draft(_ want: HomeTurnDraft?, state: AppState) -> DraftStep {
         var step = DraftStep()
         if let live = shownDraft, want?.turn != live.turn {
@@ -60,30 +63,36 @@ extension ProjectionCore {
         guard let want, let text = Self.visibleText(want), !shown.contains(where: { $0.key == want.turn }) else {
             return step
         }
+        let stable = HomeMarkdown.stableStreamingText(text)
+        guard !stable.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return step }  // only a held-back marker so far
         if var live = shownDraft {
             guard text != live.text else { return step }
-            let shown = shownText(want, text: text)
-            if let shown, let old = live.shown, shown.hasPrefix(old) {
-                if shown != old { step.actions.append(.appendText(live.id, String(shown.dropFirst(old.count)))) }
-            } else {
-                step.actions.append(.delete(live.id))
-                live.generation += 1
-                live.id = Self.bubbleID(want.turn, generation: live.generation)
-                aliases[want.turn] = live.id
-                step.actions.append(.receive(bubble(want, text: text)))
-            }
             live.text = text
-            live.shown = shown
-            shownDraft = live
+            let next = bubble(want, text: stable)
+            defer { live.shown = next; shownDraft = live }
+            guard next.parts != live.shown.parts else { return step }
+            if case let .text(old, oldRuns)? = Self.onlyText(live.shown), case let .text(new, newRuns)? = Self.onlyText(next),
+               new.hasPrefix(old), newRuns == oldRuns {
+                step.actions.append(.appendText(live.id, String(new.dropFirst(old.count))))
+            } else {
+                step.rebuild = true
+            }
             return step
         }
         // An older window shows: the bubble comes with the posted reply at the newest.
         guard state.atNewest else { return step }
         let id = Self.bubbleID(want.turn, generation: 0)
         aliases[want.turn] = id
-        shownDraft = ShownDraft(turn: want.turn, author: want.participant, id: id, text: text, shown: shownText(want, text: text))
-        step.actions.append(.receive(bubble(want, text: text)))
+        let first = bubble(want, text: stable)
+        shownDraft = ShownDraft(turn: want.turn, author: want.participant, id: id, text: text, shown: first)
+        step.actions.append(.receive(first))
         return step
+    }
+
+    /// The bubble's one text part, nil when it shows as several parts (a link card) or none.
+    private static func onlyText(_ m: Message) -> Part? {
+        guard m.parts.count == 1, case .text? = m.parts.first else { return nil }
+        return m.parts.first
     }
 
     /// The draft's text, nil while it is only whitespace.
@@ -103,10 +112,4 @@ extension ProjectionCore {
         return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links, streaming: true)
     }
 
-    /// The text the running reply's bubble shows, when it is one text bubble.
-    private func shownText(_ draft: HomeTurnDraft, text: String) -> String? {
-        let parts = bubble(draft, text: text).parts
-        guard parts.count == 1, case let .text(t, _)? = parts.first else { return nil }
-        return t
-    }
 }

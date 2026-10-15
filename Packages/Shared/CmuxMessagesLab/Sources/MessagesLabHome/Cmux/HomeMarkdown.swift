@@ -20,6 +20,38 @@ import Foundation
 /// closer styles the rest of the line, so no raw marker is drawn while the reply grows. A posted
 /// message is never streaming: there an unclosed opener stays as written (`an *idea`).
 enum HomeMarkdown {
+    /// The part of a running reply's text that renders the same whatever arrives next (round 8): a
+    /// trailing run of marker characters (`*`, `_`, `` ` ``, `~`, a closer or opener split across
+    /// updates), a last line of only `#`s, and an unfinished link on the last line (from its `[`, until
+    /// its `](...)` is complete) wait for the next update.
+    static func stableStreamingText(_ text: String) -> String {
+        var t = Substring(text)
+        while let c = t.last, "*_`~".contains(c) { t = t.dropLast() }
+        let lineStart = t.lastIndex(of: "\n").map { t.index(after: $0) } ?? t.startIndex
+        let line = t[lineStart...]
+        if !line.isEmpty, line.allSatisfy({ $0 == "#" }) { t = t[..<lineStart] }
+        if let open = t[lineStart...].lastIndex(of: "[") {
+            let rest = t[t.index(after: open)...]
+            // Settled: `label](url)` with the `)` closing the `(` after the `]`, or a `]` followed by
+            // anything but `(` (not a link: `array[0] and`). Unsettled: no `]` yet, a `]` at the end (a `(`
+            // may follow), or `](` without its `)`.
+            var settled = false
+            if let close = rest.firstIndex(of: "]") {
+                let after = rest[close...].dropFirst()
+                if let next = after.first, next != "(" {
+                    settled = true
+                } else if after.first == "(" {
+                    var depth = 0
+                    for ch in after.dropFirst() {
+                        if ch == "(" { depth += 1 } else if ch == ")" { if depth == 0 { settled = true; break }; depth -= 1 }
+                    }
+                }
+            }
+            if !settled { t = t[..<open] }
+        }
+        return String(t)
+    }
+
     static func render(_ source: String, streaming: Bool = false) -> (text: String, runs: [TextRun]) {
         var out = Output()
         var inFence = false

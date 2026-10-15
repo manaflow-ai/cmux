@@ -56,4 +56,51 @@ import Testing
         #expect(HomeMapping.markdown("an *idea").text == "an *idea")
         #expect(HomeMapping.markdown("an *idea", streaming: true).text == "an idea")
     }
+
+    // MARK: Split points (round 8): a running reply renders stably whatever arrives next
+
+    /// The running reply as its bubble shows it after an update that ended at `text`.
+    static func shown(_ text: String) -> (text: String, runs: [TextRun]) {
+        HomeMarkdown.render(HomeMarkdown.stableStreamingText(text), streaming: true)
+    }
+
+    /// Every character prefix of the reply: what the bubble shows is a prefix of the posted reply's
+    /// text and holds no raw marker.
+    static func checkEverySplit(_ reply: String) {
+        let final = HomeMarkdown.render(reply).text
+        let chars = Array(reply)
+        for n in 0...chars.count {
+            let text = String(chars.prefix(n))
+            let shown = Self.shown(text).text
+            #expect(final.hasPrefix(shown), "split after \(n) chars: \"\(shown)\" is not a prefix of \"\(final)\"")
+            #expect(!shown.contains("*") && !shown.contains("`") && !shown.contains("]("), "split after \(n) chars shows a raw marker: \"\(shown)\"")
+        }
+    }
+
+    @Test func aSplitInsideBold() {
+        Self.checkEverySplit("Run the **focused** tests now.")
+        #expect(Self.shown("Run the **focused*").text == "Run the focused")
+        #expect(Self.styles(Self.shown("Run the **focused*")) == ["8+7:bold"])
+    }
+
+    @Test func aSplitInsideACodeSpan() {
+        Self.checkEverySplit("Then `swift build` and done.")
+        #expect(Self.shown("Then `swift bu").text == "Then swift bu")
+        #expect(Self.shown("Then `").text == "Then ")
+    }
+
+    @Test func aSplitInsideALink() {
+        Self.checkEverySplit("See [the docs](https://example.com/a(b)) first.")
+        #expect(Self.shown("See [the do").text == "See ")
+        #expect(Self.shown("See [the docs](https://exa").text == "See ")
+        #expect(Self.shown("See [the docs](https://example.com) ok").text == "See the docs ok")
+        // Brackets that are not a link settle at their next character.
+        #expect(Self.shown("index a[0] then").text == "index a[0] then")
+    }
+
+    @Test func aClosedSpanKeepsItsStyleWhileTheReplyGrows() {
+        let r = Self.shown("the **focused** tests and mo")
+        #expect(r.text == "the focused tests and mo")
+        #expect(Self.styles(r) == ["4+7:bold"])
+    }
 }
