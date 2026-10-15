@@ -37,6 +37,7 @@ fn start_daemon(dir: &Path) -> Child {
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .env("ACPMUX_LOCAL_ROUTER", "1")
         .env("ACPMUX_LOGIN_ENV", "0")
+        .env("CMUX_ROUTER_TEST_EPHEMERAL_INSTALL_SECRET", "1")
         .env_remove("ACPMUX_AGENT_HOSTS")
         .env_remove("XPC_SERVICE_NAME")
         .env_remove("CLAUDECODE")
