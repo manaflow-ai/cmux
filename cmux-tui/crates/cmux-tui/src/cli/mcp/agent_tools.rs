@@ -107,7 +107,8 @@ pub(super) const TOOLS: &[AgentTool] = &[
             and its agent reads it as input, not as its operator's instruction. Never the \
             caller's own chat. Answers {action, origin, result: {chat, message_id, state}, \
             idempotency_key}; state is delivered, queued, or held for a person's approval. \
-            Read the answer with agents_chat_read. When the message is stored but cannot be \
+            Wait for the answer with agents_wait (until idle, this chat as target) and read it \
+            with agents_chat_read. When the message is stored but cannot be \
             handed to the chat, the call is an error whose receipt says state failed.",
     },
     AgentTool {
@@ -496,7 +497,7 @@ impl Arguments<'_> {
 /// A receipt that fits the result limit: when the snapshot makes it too
 /// large, `state` alone gives way, so the action, its result (the new ids)
 /// and the idempotency key survive.
-fn fit_receipt(mut receipt: Value) -> Value {
+pub(super) fn fit_receipt(mut receipt: Value) -> Value {
     let size = serde_json::to_vec(&receipt).map(|bytes| bytes.len()).unwrap_or(usize::MAX);
     if size > super::MAX_RESULT_BYTES {
         receipt["state"] = json!({"truncated": true, "hint": "call agents_snapshot"});

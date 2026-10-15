@@ -10,15 +10,16 @@
  * theme's own hue with appearance.accent; the knob on it is --cmux-on-accent.
  */
 :root {
+  --settings-scale: var(--cmux-interface-scale, 1);
   --accent: var(--cmux-accent, var(--text));
   /* A highlighted list row (desktop.css --cmux-row-focus): hover's family, a touch stronger. */
   --row-focus: var(--cmux-row-focus, var(--accent-soft));
   --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
-  --row-pad-y: 3px;
-  --row-pad-x: 12px;
-  --row-min: 28px;
+  --row-pad-y: calc(3px * var(--settings-scale));
+  --row-pad-x: calc(12px * var(--settings-scale));
+  --row-min: calc(28px * var(--settings-scale));
   --card-radius: 10px;
   --sidebar-width: 208px;
   /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
@@ -29,16 +30,16 @@
   --motion-in: var(--cmux-motion-in, 120ms);
   --motion-out: var(--cmux-motion-out, 80ms);
   --motion-ease: cubic-bezier(0.2, 0, 0, 1);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--settings-scale));
 }
 
 :root[data-settings-look="dense"] {
   --row-pad-y: 2px;
   --row-pad-x: 2px;
-  --row-min: 26px;
+  --row-min: calc(26px * var(--settings-scale));
   --card-radius: 0;
   --sidebar-width: 188px;
-  font-size: 12px;
+  font-size: calc(12px * var(--settings-scale));
 }
 
 .settings {
@@ -46,12 +47,12 @@
 }
 
 .sidebar {
-  gap: 12px;
-  padding: 12px 10px;
+  gap: calc(12px * var(--settings-scale));
+  padding: calc(12px * var(--settings-scale)) calc(10px * var(--settings-scale));
 }
 
 .content {
-  padding: 26px var(--page-edge) 56px;
+  padding: calc(26px * var(--settings-scale)) var(--page-edge) calc(56px * var(--settings-scale));
 }
 
 .column {
@@ -121,7 +122,7 @@
 }
 
 .section-title {
-  font-size: 22px;
+  font-size: calc(22px * var(--settings-scale));
   font-weight: 650;
   letter-spacing: -0.01em;
   margin: 0 0 20px;

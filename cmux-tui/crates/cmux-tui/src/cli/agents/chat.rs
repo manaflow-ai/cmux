@@ -15,8 +15,8 @@
 //! CMUX_WORKSPACE_ID`, as the daemon's agent message policy reads it). A
 //! send never goes to the caller's own chat.
 //!
-//! Waiting for a reply is `agents_wait` (cx-ncc, PR #20810); until it lands,
-//! read again with `after` set to the last `next_after`.
+//! Waiting for a reply is `agents_wait` (`until: idle`, the chat as
+//! target, `agents/wait.rs`); then read on from the last `next_after`.
 
 use std::collections::{HashMap, HashSet};
 

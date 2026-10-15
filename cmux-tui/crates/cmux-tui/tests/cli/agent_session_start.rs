@@ -22,6 +22,8 @@ mod agent_home_reopen;
 mod agents_chat_tools;
 #[path = "agents_cli_receipt.rs"]
 mod agents_cli_receipt;
+#[path = "agents_wait_cli.rs"]
+mod agents_wait_cli;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 /// The app's install key, so one connection can prove itself the verified

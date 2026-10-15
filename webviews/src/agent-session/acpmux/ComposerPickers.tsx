@@ -19,6 +19,7 @@ import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
+import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -103,6 +104,8 @@ const browserSettleTimer: SettleTimer = (run, ms) => {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /** Granted folder trust and chat-wide permission state, folded into the Access menu. */
+  permissionAccess?: ComposerPermissionAccess;
   onModel(modelId: string): void;
   onMode(modeId: string): void;
   onEffort(configId: string, value: string): void;
@@ -137,6 +140,16 @@ type Props = {
   pickerCatalog?: PickerCatalog;
 };
 
+export type ComposerPermissionGrant = {
+  id: string;
+  label: string;
+  onRemove(): void;
+};
+
+export type ComposerPermissionAccess = {
+  grants: readonly ComposerPermissionGrant[];
+};
+
 /// The composer bar's controls after the + button: the model chip (its tooltip says how much of
 /// the context window the chat has used), effort, the permission mode (in the warning color when
 /// it skips approvals) and a Plan/Build toggle. Each control shows only when the agent offers it.
@@ -144,6 +157,7 @@ type Props = {
 /// Send/Stop alone.
 export function ComposerPickers({
   snapshot,
+  permissionAccess,
   onModel,
   onMode,
   onEffort,
@@ -205,6 +219,7 @@ export function ComposerPickers({
   }));
   const plan = allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
+  const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
   const currentId = summary?.modes?.currentModeId;
   const planning = plan !== undefined && currentId === plan.id;
   // Leaving Plan returns to the permission mode this session had before it, never another session's.
@@ -441,9 +456,10 @@ export function ComposerPickers({
     defaulted || unreported
       ? (starting ?? resolvedName ?? t(PICKER_LABELS.model))
       : (model?.name ?? summary?.model ?? starting);
-  // Until the session reports its options (a new chat, an agent still starting), the effort and
-  // the access controls draw what this harness's chats last showed (chipMemory.ts), never grey
-  // bars; the session's values then replace them in place (cx-ncc.58, Leo 2026-10-13).
+  // Until the session reports its options (a new chat, an agent still starting), the effort chip
+  // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
+  // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
+  // place (cx-ncc.58, Leo 2026-10-13).
   const awaiting =
     chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
   // The agent's own level ("default") names the level it resolves to: the running model's default
@@ -460,19 +476,32 @@ export function ComposerPickers({
       : undefined;
   // An unresolved level is not remembered: the next chat would paint it as a pick.
   const effortShown = effortChoice || ultracodeOn ? effortLabel : undefined;
-  const shownMode = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0]) : undefined;
-  const modeLabel = shownMode?.name;
-  const modeId = shownMode?.id;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start), so Reasoning never goes missing.
   const startEffort = awaiting ? snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort : undefined;
   const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
   const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
+  // Before a chat reports its modes, the access chip names the mode acpmux answers it will start
+  // the chat in (`_acpmux/start_mode`: its kept answer on the first frame, then the one asked for),
+  // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
+  // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
+  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
+  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
+  // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
+  // place: this folder's profile or preset may start the chat in another mode, so it names none.
+  const startModeName = startMode?.borrowed
+    ? t(PICKER_LABELS.mode)
+    : startMode
+      ? (startMode.name ??
+        harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)
+          ?.name ??
+        startMode.modeId)
+      : undefined;
   useEffect(() => {
-    if (!awaiting && chipHarness && summary?.sessionId && (effortShown || modeLabel))
-      rememberLastChips(chipHarness, { effort: effortShown, mode: modeLabel, modeId });
-  }, [awaiting, chipHarness, summary?.sessionId, effortShown, modeLabel, modeId]);
+    if (!awaiting && chipHarness && summary?.sessionId && effortShown)
+      rememberLastChips(chipHarness, { effort: effortShown });
+  }, [awaiting, chipHarness, summary?.sessionId, effortShown]);
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -550,16 +579,18 @@ export function ComposerPickers({
         />
       )}
       {!(effort && efforts.length > 1) && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />}
-      {modes.length === 0 && lastChips?.mode && (
-        <PendingChip kind="mode" label={lastChips.mode} modeId={lastChips.modeId} />
+      {modes.length === 0 && !hasGrants && startMode && startModeName && (
+        <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
       )}
-      {modes.length > 0 && (
+      {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
+      {(modes.length > 0 || hasGrants) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
           modes={modes}
           current={mode?.id}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
+          permissionAccess={permissionAccess}
           onMode={onMode}
         />
       )}
@@ -624,6 +655,7 @@ function AccessMenu({
   current,
   sessionId,
   warning,
+  permissionAccess,
   onMode,
 }: {
   label: string;
@@ -631,8 +663,10 @@ function AccessMenu({
   current?: string;
   sessionId?: string;
   warning: string;
+  permissionAccess?: ComposerPermissionAccess;
   onMode(modeId: string): void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
@@ -644,8 +678,11 @@ function AccessMenu({
     if (optimistic?.sessionId === sessionId && optimistic?.modeId === current) setOptimistic(undefined);
   }, [current, optimistic, sessionId]);
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
-  const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
+  // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
+  // and every mode, the first included, is a pick.
+  const value = optimisticMode ?? current ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
+  const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
     setOptimistic({ sessionId, modeId: next });
     onMode(next);
@@ -656,7 +693,14 @@ function AccessMenu({
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
-          <span className="acpmux-mode-text">{currentMode?.name ?? label}</span>
+          <span className="acpmux-mode-text">
+            {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
+          </span>
+          {grants.length > 0 && (
+            <span className="acpmux-access-grant-count" aria-hidden="true">
+              {grants.length}
+            </span>
+          )}
           <ChevronIcon />
         </MenuButton>
         <MenuPopup
@@ -673,26 +717,46 @@ function AccessMenu({
             else pick(choice.id);
           }}
         >
-          <MenuRadioGroup value={value} onValueChange={pick}>
-            {modes.map((choice, index) => (
-              <MenuRadioItem
-                key={choice.id}
-                value={choice.id}
-                shortcut={index < 9 ? String(index + 1) : undefined}
-                className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-              >
-                <span className="acpmux-access-item-icon" aria-hidden="true">
-                  {choice.icon ?? <ShieldIcon />}
-                </span>
-                <span className="acpmux-menu-text">
-                  <span className="acpmux-menu-label">{choice.name}</span>
-                  {choice.description || unrestricted(choice.id) ? (
-                    <span className="acpmux-menu-description">{choice.description ?? warning}</span>
-                  ) : null}
-                </span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
+          {modes.length > 0 && (
+            <MenuRadioGroup value={value} onValueChange={pick}>
+              {modes.map((choice, index) => (
+                <MenuRadioItem
+                  key={choice.id}
+                  value={choice.id}
+                  shortcut={index < 9 ? String(index + 1) : undefined}
+                  className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                >
+                  <span className="acpmux-access-item-icon" aria-hidden="true">
+                    {choice.icon ?? <ShieldIcon />}
+                  </span>
+                  <span className="acpmux-menu-text">
+                    <span className="acpmux-menu-label">{choice.name}</span>
+                    {choice.description || unrestricted(choice.id) ? (
+                      <span className="acpmux-menu-description">{choice.description ?? warning}</span>
+                    ) : null}
+                  </span>
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          )}
+          {grants.length > 0 && (
+            <fieldset className="acpmux-access-grants" aria-label={t("permission.grants")}>
+              <div className="acpmux-access-grants-heading">{t("permission.grants")}</div>
+              {grants.map((grant) => (
+                <div className="acpmux-access-grant" key={grant.id}>
+                  <span className="acpmux-access-grant-label">{grant.label}</span>
+                  <button
+                    type="button"
+                    className="acpmux-access-grant-remove"
+                    aria-label={`${t("permission.revoke")}: ${grant.label}`}
+                    onClick={grant.onRemove}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </fieldset>
+          )}
         </MenuPopup>
       </Menu>
     </span>
