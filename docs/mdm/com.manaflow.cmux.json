@@ -1461,6 +1461,12 @@
       "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
+    "labs.classicHome" : {
+      "default" : false,
+      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+      "title" : "Classic Home",
+      "type" : "boolean"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
