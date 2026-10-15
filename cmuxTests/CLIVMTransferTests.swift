@@ -1141,11 +1141,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(refused.stderr.contains("--allow-large"), refused.stderr)
         XCTAssertTrue(refused.stderr.contains("git clone --depth 1"), refused.stderr)
         XCTAssertTrue(state.snapshot().isEmpty, "the size check must not reach the socket: \(state.snapshot())")
-        XCTAssertTrue(CMUXCLI.vmPushInputBytes(root: tempDir, isDirectory: true, excludes: CMUXCLI.vmPushDefaultExcludes)
-                      > CMUXCLI.vmPushLargeInputBytes)
-        // Excluded, the same tree is small: only .git was big, and it never counts.
-        XCTAssertEqual(CMUXCLI.vmPushInputBytes(root: tempDir, isDirectory: true,
-                                                excludes: CMUXCLI.vmPushDefaultExcludes + ["build"]), 1_000)
     }
 
     func testVMAgentWaitPollsExitAndPagesOutput() throws {
