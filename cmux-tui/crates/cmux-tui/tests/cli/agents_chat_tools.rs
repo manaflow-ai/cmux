@@ -407,7 +407,8 @@ fn a_chat_send_refuses_its_own_chat_unknown_or_unscoped_chats_and_bad_text() {
     // that only acpmux names (ACPMUX_SESSION_ID).
     let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": sender}));
     let name = info["result"]["name"].as_str().unwrap_or_else(|| panic!("{info}")).to_owned();
-    for own_name in [name.as_str(), &sender[..8]] {
+    // Chat ids share their time prefix: a unique prefix is most of one.
+    for own_name in [name.as_str(), &sender[..sender.len() - 4]] {
         let (code, own) =
             agents_chat(&daemon, Some(&sender), &["send", own_name, "--", "hello me"]);
         assert_eq!(code, Some(3), "{own_name}: {own}");
