@@ -1,4 +1,5 @@
 import { Context, Schema, type Stream } from "effect"
+import type { Credits } from "../credits.ts"
 
 /**
  * The Brain contract: what any Chief brain implementation produces for one wake, and the live frames
@@ -210,13 +211,3 @@ export interface HandsShape {
   readonly call: (hand: string, request: { readonly type: string } & Record<string, unknown>) => Promise<{ readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string }>
 }
 export class Hands extends Context.Service<Hands, HandsShape>()("cmux/chief/Hands") {}
-
-/**
- * Placeholder for worker C (UsageMeterDO prepaid credits): reserve a call's max cost before the
- * upstream request, settle the real cost after; a refusal at zero balance stops the run.
- */
-export interface CreditsShape {
-  readonly reserve: (input: { readonly team: string; readonly model: string; readonly max_usd: number; readonly request: string }) => Promise<{ readonly ok: true; readonly reservation: string } | { readonly ok: false; readonly code: "credits_exhausted" | string }>
-  readonly settle: (input: { readonly reservation: string; readonly cost_usd: number }) => Promise<void>
-}
-export class Credits extends Context.Service<Credits, CreditsShape>()("cmux/chief/Credits") {}
