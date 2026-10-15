@@ -8,7 +8,7 @@ import Foundation
 // (keyboard, menu, palette, CLI, the workspace-wide verbs) is saved there.
 extension TabContentCache {
     /// A session for `tab` that follows its record's font scale.
-    func makeSession(io: DaemonTerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
+    func makeSession(io: any TerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
         let key = tab.id
