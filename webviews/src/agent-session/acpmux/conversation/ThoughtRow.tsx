@@ -42,10 +42,20 @@ export function ThoughtRow({
   // Find opens a folded thought that holds its match (chatFind.ts).
   useFindReveal([item], () => setOpen(true));
   useLayoutEffect(() => {
-    // A thought's text only grows, so one that folded stays folded.
+    // A thought's text only grows, so one that folded stays folded. Until then it measures again
+    // whenever its text draws at a new size: a row mounted in a hidden pane first measures 0, and
+    // a narrower pane wraps it taller.
     if (long) return;
     const element = textRef.current;
-    if (element && element.scrollHeight > THOUGHT_FOLD_PX) setLong(true);
+    if (!element) return;
+    const measure = () => {
+      if (element.scrollHeight > THOUGHT_FOLD_PX) setLong(true);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
   }, [long, text]);
   if (!text) return null;
 

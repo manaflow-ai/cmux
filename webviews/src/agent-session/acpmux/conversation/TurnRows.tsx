@@ -3,7 +3,7 @@
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useMemo, useState, type ReactNode } from "react";
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { ToolGroupRow } from "./ToolGroupRow";
@@ -64,14 +64,21 @@ function groupNode(row: AcpmuxRow, group: ToolGroup, index: number): ReactNode {
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
         <ThoughtRow
-          key={index}
+          key={`thought-${itemAt(row, group.item, index)}`}
           item={group.item}
           streaming={row.streaming === true && group.item === row.items?.at(-1)}
-          openKey={`${row.id}:${index}`}
+          openKey={`${row.id}:${itemAt(row, group.item, index)}`}
         />
       );
   }
 }
+
+/// Where `item` sits in its row: items only append or change in place, so a thought keeps this
+/// place while groups before it regroup (a call's update can split a run).
+const itemAt = (row: AcpmuxRow, item: AcpmuxActivity, fallback: number) => {
+  const at = row.items?.indexOf(item) ?? -1;
+  return at >= 0 ? at : `g${fallback}`;
+};
 
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
 /// ended turn's open "Worked for", a run of two or more entries folds under one summary line
