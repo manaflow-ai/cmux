@@ -36,4 +36,9 @@ struct TerminalFrameCover: Equatable {
     func covers(visibleTop: Int, visibleBottom: Int) -> Bool {
         visibleTop >= presentedTop && visibleBottom <= presentedTop + surfaceRows
     }
+
+    /// None of the visible rows are in the frame: a jump, not a step.
+    func isDisjoint(visibleTop: Int, visibleBottom: Int) -> Bool {
+        visibleBottom <= presentedTop || visibleTop >= presentedTop + surfaceRows
+    }
 }

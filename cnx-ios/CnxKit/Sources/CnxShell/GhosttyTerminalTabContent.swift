@@ -280,6 +280,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts[tab.id]?.prepareCard()
     }
 
+    func showsStaticCard(for tab: WorkspaceTab) -> Bool {
+        guard let model = hosts[tab.id]?.model, model.pageStarted else { return false }
+        return model.snapshot != nil
+    }
+
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {
         let model = host(for: tab, in: workspace).model
         // The keyboard toggle and ^C live on the key bar, and Back leaves

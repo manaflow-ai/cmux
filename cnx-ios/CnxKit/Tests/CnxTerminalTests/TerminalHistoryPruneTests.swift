@@ -93,3 +93,12 @@ import Testing
         #expect(!TerminalFrameCover(presentedTop: 16849, surfaceRows: 150).covers(visibleTop: 16950, visibleBottom: 17000))
     }
 }
+
+extension TerminalFrameCoverTests {
+    @Test func followingAStepIsNotAJump() {
+        let cover = TerminalFrameCover(presentedTop: 16850, surfaceRows: 150)
+        #expect(!cover.isDisjoint(visibleTop: 16955, visibleBottom: 17003))
+        #expect(cover.isDisjoint(visibleTop: 17000, visibleBottom: 17050))
+        #expect(TerminalFrameCover(presentedTop: 1000, surfaceRows: 150).isDisjoint(visibleTop: 16950, visibleBottom: 17000))
+    }
+}

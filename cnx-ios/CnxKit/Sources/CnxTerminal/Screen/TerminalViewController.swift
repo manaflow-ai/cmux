@@ -120,6 +120,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// have no earlier primary-screen frame to be matched against, and the
     /// first report after the switch can still describe the alternate screen.
     private var placesFromReport = false
+    /// V5-1 rule switch for A/B on the rig (`-CnxNoJumpAwait` turns it off).
+    private static let jumpAwaitsFrame = !CommandLine.arguments.contains("-CnxNoJumpAwait")
     private var refreshAfterTUI = false
     private(set) var started = false
     private var fling: FlingAnimator?
@@ -553,10 +555,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A move whose rows the frame on screen does not show (Jump to
         // bottom from deep history, a restore) waits for the frame that
         // does; moved at once, the page was black for a frame (V5-1).
-        if !forceScroll, freezeView == nil, document != nil, surfaceRows > 0, abs(scrollView.contentOffset.y - target) > 0.5,
-           !TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows)
-               .covers(visibleTop: originRow + Int(floor(max(0, target) / cell.height)),
-                       visibleBottom: originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height))) {
+        // Only a jump: none of the target's rows are in the frame on screen
+        // (following output moves a row or a few and keeps its own rule).
+        if Self.jumpAwaitsFrame, !forceScroll, !fromOutput, freezeView == nil, let document, surfaceRows > 0, abs(scrollView.contentOffset.y - target) > 0.5,
+           TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows)
+               .isDisjoint(visibleTop: min(document.endRow - 1, originRow + Int(floor(max(0, target) / cell.height))),
+                           visibleBottom: min(document.endRow, originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height)))) {
             followAwaitsPresent = true
             armFollowFallback(ticks: 6)
             updateViewport(visibleMinY: target)
