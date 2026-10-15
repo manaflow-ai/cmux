@@ -119,14 +119,22 @@ enum CloudPortShareFlow {
                 } catch {
                     // The authoritative list is unavailable, so do not repeat
                     // a create/delete whose commit status is unknown.
+                    store.invalidate()
                     throw mutationError
                 }
                 let refreshed = store.plan(machineID: context.machineID, port: context.port)
                 if refreshed.steps(to: target).isEmpty { return }
                 current = refreshed
-                if attempt == 2 { throw mutationError }
+                if attempt == 2 {
+                    store.invalidate()
+                    throw mutationError
+                }
             }
         }
+        // A successful read that never converged still leaves the mutation
+        // outcome uncertain to the rest of the app; make the next observation
+        // fetch again instead of serving this snapshot until its TTL expires.
+        store.invalidate()
         throw lastError ?? CloudPortShareError.mutationDidNotConverge
     }
 

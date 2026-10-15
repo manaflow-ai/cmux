@@ -36,9 +36,9 @@ final class CloudOpenRepositoryPresenter {
         if let model, sheetWindow != nil {
             if repository != nil {
                 model.repositoryText = prefill
-                if let agent { model.agent = agent }
-                if let prompt { model.prompt = prompt }
             }
+            if let agent { model.agent = agent }
+            if let prompt { model.prompt = prompt }
             (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
             return
         }

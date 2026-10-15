@@ -1657,6 +1657,10 @@ extension CMUXCLI {
         do {
             try waitForVMReady(vmID: id, timeoutSeconds: Self.vmRunCreateWaitSeconds, client: client)
         } catch {
+            // A restore can become ready after this timeout. Remove it from the
+            // reusable pool and destroy it now so the snapshot's workspace graph
+            // and environment cannot leak into a later cold fallback.
+            discardVMCloneWarmStart(id: id, client: client)
             let reason = Self.vmCloneWarmFailureReason((error as? CLIError)?.message ?? String(describing: error))
             return (nil, String(
                 format: String(localized: "cli.vm.clone.warm.notReady", defaultValue: "%1$@ did not start: %2$@"),
@@ -1674,14 +1678,22 @@ extension CMUXCLI {
             // A restored machine still carrying the source machine's workspace graph
             // is not a safe warm clone. Remove it before falling back to a cold machine;
             // otherwise the old workspaces would remain visible in the pool.
-            _ = try? client.sendV2(
-                method: "vm.destroy",
-                params: ["id": id],
-                responseTimeout: 120
-            )
+            discardVMCloneWarmStart(id: id, client: client)
             return (nil, Self.vmCloneWarmFailureReason((error as? CLIError)?.message ?? String(describing: error)))
         }
         return (id, nil)
+    }
+
+    /// Removes a failed warm restore from the local reuse pool before best-effort
+    /// destruction. The provider may finish booting after a readiness timeout, so
+    /// deleting the pool entry is required even when destruction is unavailable.
+    private func discardVMCloneWarmStart(id: String, client: SocketClient) {
+        _ = try? Self.updateVMRunPool { machines in machines.remove(id) }
+        _ = try? client.sendV2(
+            method: "vm.destroy",
+            params: ["id": id],
+            responseTimeout: 120
+        )
     }
 
     /// Removes every remote workspace restored from a warm snapshot. The machine id is

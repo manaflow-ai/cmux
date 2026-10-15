@@ -502,8 +502,12 @@ if not key:
 try:
     with open(config_path, encoding="utf-8") as stream:
         config = json.load(stream)
-except (FileNotFoundError, OSError, ValueError):
+except FileNotFoundError:
     config = {}
+except (OSError, ValueError):
+    # An unreadable or malformed existing config is still valuable user state.
+    # Leave it untouched rather than replacing it with an approval-only file.
+    raise SystemExit(0)
 if not isinstance(config, dict):
     config = {}
 responses = config.get("customApiKeyResponses")
