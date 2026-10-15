@@ -216,6 +216,16 @@ fn mutate(
     key: String,
     adoptee: Option<&Adoptee>,
 ) -> Result<Value, ResourceError> {
+    // Owner only, from a terminal, before anything else is checked: no page
+    // (a WebSocket or the host's page relay, with or without a page id), no
+    // Chief, no paired or remote device (caller() refuses those).
+    if operation == Op::ChiefProfileAdopt
+        && (*caller != Caller::Owner
+            || super::origin_gate::connection_page(mux, client).is_some()
+            || super::origin_gate::is_page(mux, client))
+    {
+        return Err(forbidden_adopt());
+    }
     if key.is_empty() {
         return Err(ResourceError::validation_invalid(
             Some("idempotency_key"),
@@ -257,13 +267,6 @@ fn mutate(
             .map(|avatar| avatar.sha256),
         _ => None,
     };
-    if operation == Op::ChiefProfileAdopt
-        && (*caller != Caller::Owner || super::origin_gate::connection_page(mux, client).is_some())
-    {
-        // Owner only, from a terminal: no page (a WebSocket or the host's page
-        // relay), no Chief, no paired or remote device (caller() refuses those).
-        return Err(forbidden_adopt());
-    }
     if let Caller::Chief(me) = caller {
         self_edit_allowed(store, operation, me, &chief, &profile)?;
     }

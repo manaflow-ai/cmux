@@ -1231,7 +1231,9 @@ the host's page relay), a paired or remote device and a bound agent get
 participant it takes its id and, without `display_name`, its display name.
 `agent_mux` is `default_chief`, a live record `already_chief`, a deleted
 Chief `deleted_chief` (an adopt never revives a deleted Chief or its kept
-memory), and a person or an unknown id `not_an_agent_participant`
+memory), an id whose brain directory (its last 8 characters, lowercased)
+another live or deleted Chief already has `brain_home_taken`, and a person
+or an unknown id `not_an_agent_participant`
 (`operation.failed` `details.reason`). It is idempotent per key like
 `chief.profile.create`, reaches the brain supervisor as a create does and
 publishes `chief-changed` with change `created`.

@@ -98,6 +98,11 @@ pub(crate) enum Refusal {
     /// `chief.profile.adopt`: no agent participant of a local conversation
     /// has this id (or it is a person).
     NotAgentParticipant,
+    /// `chief.profile.adopt`: another Chief (live or deleted) has the same
+    /// brain directory (`chief_brains::brain_home`: the id's last 8
+    /// characters, lowercased), so adopting it would share or revive that
+    /// brain and its memory.
+    BrainHomeTaken,
 }
 
 impl Refusal {
@@ -113,6 +118,7 @@ impl Refusal {
             Self::DeletedChief => "deleted_chief",
             Self::DefaultChief => "default_chief",
             Self::NotAgentParticipant => "not_an_agent_participant",
+            Self::BrainHomeTaken => "brain_home_taken",
         }
     }
 }
@@ -510,6 +516,25 @@ pub(crate) fn adopt(
         Some(Some(_)) => return Ok(Err(Refusal::AlreadyChief)),
         Some(None) => return Ok(Err(Refusal::DeletedChief)),
         None => {}
+    }
+    // The brain directory is the id's last 8 characters (chief_brains.rs):
+    // a ULID's random bits for a created Chief, but any text for an adopted
+    // one. No two records, live or deleted, may share it.
+    let tail = |id: &str| id.get(id.len().saturating_sub(8)..).unwrap_or(id).to_ascii_lowercase();
+    let mine = tail(id);
+    let taken = {
+        let mut statement = tx.prepare("SELECT id FROM chief")?;
+        let ids = statement.query_map([], |r| r.get::<_, String>(0))?;
+        let mut taken = false;
+        for other in ids {
+            if tail(&other?) == mine {
+                taken = true;
+            }
+        }
+        taken
+    };
+    if taken {
+        return Ok(Err(Refusal::BrainHomeTaken));
     }
     let live: i64 =
         tx.query_row("SELECT COUNT(*) FROM chief WHERE record IS NOT NULL", [], |r| r.get(0))?;

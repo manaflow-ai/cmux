@@ -104,6 +104,13 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
     say(&mut home, &dm, "q1", "Is the train ready?");
     say(&mut home, &dm, "q2", "The 0.66 notes too, please.");
     let before = texts(&mut home, &dm);
+    // A subscriber that asked for Chief changes hears the adopt as a create.
+    let mut watcher = Conn::open(&server.socket);
+    watcher.request(
+        "set-client-info",
+        json!({"name": "watcher", "capabilities": ["chief-events-v1"]}),
+    );
+    watcher.request("subscribe", json!({}));
 
     // The CLI adopts it: its id and name, a new Chief's defaults, the role given.
     let output =
@@ -117,6 +124,15 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
     assert_eq!(record["tools"], json!(["spawn", "tell", "workspaces"]));
     assert_eq!(record["instructions"], "");
     assert_eq!(record["is_default"], false);
+
+    let change = loop {
+        let event = watcher.event();
+        if event["event"] == "chief-changed" {
+            break event;
+        }
+    };
+    assert_eq!(change["chief"], "agent_release", "{change}");
+    assert_eq!(change["change"], "created", "{change}");
 
     // The DM and its history are the same, and the agent's credential still posts there.
     assert_eq!(texts(&mut home, &dm), before);
@@ -168,6 +184,9 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
     assert_eq!(refusal(&mut home, "user_local", "r-person"), "not_an_agent_participant");
     assert_eq!(refusal(&mut home, "agent_nobody", "r-unknown"), "not_an_agent_participant");
     assert_eq!(refusal(&mut home, "agent_release", "r-live"), "already_chief");
+    // Another agent whose brain directory (the last 8 characters) is agent_release's.
+    let _ = dm_with(&mut home, "agent_x_release", "Twin");
+    assert_eq!(refusal(&mut home, "agent_x_release", "r-twin"), "brain_home_taken");
 
     // A deleted Chief that was in a conversation: its id is never revived.
     let made =
@@ -196,6 +215,29 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
         "{listed}"
     );
     let _ = dm_design;
+}
+
+#[test]
+fn an_adopt_counts_toward_the_chief_limit() {
+    let server = HeadlessServer::start("chief-adopt-limit");
+    let mut home = Conn::open(&server.socket);
+    let _ = dm_with(&mut home, "agent_release", "Release Chief");
+    // The default Chief and 63 more: 64 live Chiefs, the limit.
+    for n in 0..63 {
+        ok(&v2(
+            &mut home,
+            "chief.profile.create",
+            json!({"display_name": format!("Chief {n}")}),
+            Some(&format!("fill-{n}")),
+        ));
+    }
+    let refused = v2(
+        &mut home,
+        "chief.profile.adopt",
+        json!({"participant_id": "agent_release"}),
+        Some("adopt-full"),
+    );
+    assert_eq!(reason(&refused), "too_many_chiefs");
 }
 
 const BRAIN_STUB: &str = r#"#!/bin/sh
