@@ -139,8 +139,6 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
-  /** Labs (preview features) on, as the app's `labs.previewFeatures` push sends it. */
-  labs?: boolean;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
@@ -154,6 +152,8 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
+  /** Labs (preview features) on, as the app's `labs.previewFeatures` push sends it. */
+  labs?: boolean;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
