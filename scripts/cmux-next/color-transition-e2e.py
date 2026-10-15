@@ -6,13 +6,13 @@ always smooth animation (that can be configured, fully ... or even just instant"
 Launches the tagged app itself (no activation, a scratch cmux.json, an empty Ghostty config, an
 isolated Chief home; it never opens Home or the Chief pane) and gives two workspaces different
 themes over the control socket (workspace.setTheme: Catppuccin Latte and Catppuccin Mocha). Then
-it switches between them (workspace.selectFirst / selectLast) and samples the window backdrop
+it switches between them by id (goToWorkspace) and samples the window backdrop
 color the render server shows (debug.themes windows[].backdrop.sheet, the presentation value)
 as fast as the socket answers:
 
   blend      400 ms linear in OKLab: several distinct colors in between, OKLab lightness moves one
              way only (monotonic, within one 8-bit step), the last sample is the target exactly.
-  retarget   A to B, then back to A after about 120 ms: the first sample after the reversal is
+  retarget   A to B, then back to A after about 250 ms: the first sample after the reversal is
              near the last one before it (no jump to an end color), and it ends on A exactly.
   instant    enabled false: the first sample after the switch is already the target, no blend.
   record     (--record) one debug.window_record of a blend, frames under OUT/record/.
@@ -21,7 +21,7 @@ Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   color-transition-e2e.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" [--record]
 Stop the app afterwards with "$NX_APP_STOP". Exit 1 on any failed check.
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, json, os, socket, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -88,6 +88,27 @@ def action(name, args=None, target=None):
     if isinstance(reply, dict) and reply.get("error"):
         print("action", name, "->", reply, flush=True)
     return reply
+
+
+def fire(name, args=None):
+    """Runs an action without waiting for its reply, so sampling starts at once."""
+    thread = threading.Thread(target=action, args=(name, args), daemon=True)
+    thread.start()
+    return thread
+
+
+def shown_workspace():
+    return next((w for w in window().get("workspaces") or [] if w.get("shown")), {})
+
+
+def themed(name):
+    """Sets the shown workspace's theme and waits until debug.themes shows it there."""
+    shown = shown_workspace().get("workspace")
+    action("workspace.setTheme", {"theme": name}, target=f"workspace:{shown}" if shown else None)
+    ok = wait(lambda: shown_workspace().get("effective_spec") == name, 10)
+    with open(os.path.join(opts.out, f"themes-{name.replace(' ', '-')}.json"), "w") as f:
+        json.dump(rpc("debug.themes"), f, indent=1)
+    check(bool(ok), f"the shown workspace takes {name} ({shown_workspace().get('effective_spec')})")
 
 
 def workspace_ids():
@@ -168,17 +189,17 @@ try:
         sys.exit("the tagged app did not come up")
     check(wait(lambda: sheet(), 30) is not None, "debug.themes reports the window backdrop sheet")
 
-    first_ws = workspace_ids()[0]
-    before = set(workspace_ids())
+    check(bool(wait(lambda: shown_workspace().get("workspace"), 30)), "a workspace shows")
+    themed("Catppuccin Latte")
+    first_ws = shown_workspace().get("workspace")
     action("workspace.newAtBottom")
-    second_ws = wait(lambda: next(iter(set(workspace_ids()) - before), None), 30)
-    check(bool(second_ws), "a second workspace opens")
-    # Each workspace by id: a light theme on the first, a dark one on the second.
-    action("workspace.setTheme", {"theme": "Catppuccin Latte"}, target=f"workspace:{first_ws}")
-    action("workspace.setTheme", {"theme": "Catppuccin Mocha"}, target=f"workspace:{second_ws}")
+    check(bool(wait(lambda: shown_workspace().get("workspace") not in (None, first_ws), 30)), "a second workspace opens and shows")
+    themed("Catppuccin Mocha")
+    second_ws = shown_workspace().get("workspace")
+    report["workspaces"] = [first_ws, second_ws]
     time.sleep(1)
     dark = settled()
-    action("workspace.selectFirst")
+    action("goToWorkspace", {"workspace": first_ws})
     time.sleep(1)
     light = settled()
     report["light"], report["dark"] = light, dark
@@ -186,9 +207,11 @@ try:
     check(span > 0.3, f"the two workspaces have a light and a dark background ({light} vs {dark}, OKLab lightness span {span:.3f})")
 
     # blend: light -> dark, 400 ms linear, OKLab.
-    blend = sample(0.8, lambda: action("workspace.selectLast"))
+    blend = sample(0.8, lambda: fire("goToWorkspace", {"workspace": second_ws}))
     report["blend"] = blend
     seen = colors(blend)
+    while len(seen) > 1 and seen[0][:7] == light[:7] and seen[1][:7] == light[:7]:
+        seen = seen[1:]  # the switch had not landed yet
     distinct = list(dict.fromkeys(c[:7] for c in seen))
     lightness = [oklab_l(rgb(c)) for c in distinct]
     check(len(distinct) >= 4, f"the blend shows {len(distinct)} distinct colors between the two (want >= 4)")
@@ -196,9 +219,9 @@ try:
     check(all(s <= 0.004 for s in steps), f"OKLab lightness only falls light -> dark (steps {[round(s, 4) for s in steps]})")
     check(bool(seen) and seen[-1][:7] == (dark or "")[:7], f"the blend ends on the dark background exactly ({seen[-1] if seen else None})")
 
-    # retarget: dark -> light, back to dark after 120 ms.
+    # retarget: dark -> light, back to dark after 250 ms (the switch itself lands after ~130 ms).
     settle(dark)
-    retarget = sample(0.9, lambda: action("workspace.selectFirst"), (0.12, lambda: action("workspace.selectLast")))
+    retarget = sample(1.1, lambda: fire("goToWorkspace", {"workspace": first_ws}), (0.25, lambda: fire("goToWorkspace", {"workspace": second_ws})))
     report["retarget"] = retarget
     marker = next((i for i, (_, c) in enumerate(retarget) if c == "RETARGET"), None)
     before_turn = colors(retarget[:marker]) if marker is not None else []
@@ -218,20 +241,21 @@ try:
         os.makedirs(rec, exist_ok=True)
         rpc("debug.window_record", {"dir": rec, "seconds": 1.2})
         time.sleep(0.1)
-        action("workspace.selectFirst")
+        action("goToWorkspace", {"workspace": first_ws})
         time.sleep(1.4)  # the recording stops by itself after 1.2 s
         check(os.path.exists(os.path.join(rec, "frames.json")), "a frame recording of one blend is written")
 
     # instant: enabled false.
     config(enabled=False, duration=400, curve="linear")
     check(bool(wait(lambda: (window().get("backdrop") or {}).get("seconds") == "0.0", 10)), "instant: the app took enabled false")
-    action("workspace.selectFirst")
+    action("goToWorkspace", {"workspace": first_ws})
     check(bool(settle(light)), "instant: the light workspace shows before the switch")
-    instant = sample(0.4, lambda: action("workspace.selectLast"))
+    instant = sample(0.4, lambda: fire("goToWorkspace", {"workspace": second_ws}))
     report["instant"] = instant
-    seen = colors(instant)
-    check(bool(seen) and all(c[:7] == dark[:7] for c in seen),
-          f"instant: every sample after the switch is the dark background ({list(dict.fromkeys(c[:7] for c in seen))})")
+    seen = [c[:7] for c in colors(instant)]
+    between = [c for c in dict.fromkeys(seen) if c not in (light[:7], dark[:7])]
+    check(bool(seen) and seen[-1] == dark[:7] and not between,
+          f"instant: one step from the light to the dark background, nothing in between ({list(dict.fromkeys(seen))})")
 finally:
     with open(os.path.join(opts.out, "color-transition.json"), "w") as f:
         json.dump({"failures": failures, **report}, f, indent=1)
