@@ -1,4 +1,4 @@
-import CmuxBrowser
+public import CmuxBrowser
 import CmuxCEF
 import Foundation
 
