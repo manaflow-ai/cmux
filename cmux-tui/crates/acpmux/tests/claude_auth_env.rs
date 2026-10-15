@@ -8,6 +8,11 @@
 //! Claude Code does and says what it found, or fails like Claude Code.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -78,26 +83,6 @@ fn scratch(tag: &str, rc: &str) -> PathBuf {
     dir
 }
 
-/// The daemon's PATH: python3 (linked into `<dir>/bin`) and the system
-/// directories, never the host's own PATH. A fleet host's PATH holds real
-/// agent CLIs (codex, claude, gemini): the daemon would discover and probe
-/// them, and Codex's shell snapshot sources the fake HOME's `~/.zshrc`, so
-/// the login shell would seem to run more often than it does.
-fn bare_path(dir: &Path) -> String {
-    let bin = dir.join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let python = std::env::var_os("PATH")
-        .iter()
-        .flat_map(std::env::split_paths)
-        .map(|d| d.join("python3"))
-        .find(|p| p.is_file())
-        .expect("python3 on the test's PATH");
-    let link = bin.join("python3");
-    let _ = std::fs::remove_file(&link);
-    std::os::unix::fs::symlink(python, &link).unwrap();
-    format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display())
-}
-
 struct Daemon {
     child: std::process::Child,
     socket: PathBuf,
@@ -121,8 +106,12 @@ impl Drop for Daemon {
     }
 }
 
-/// The daemon the way the Chief or launchd starts it: a bare environment
-/// (only PATH for python3, the fake HOME and its login shell) plus `extra`.
+/// The daemon the way the Chief or launchd starts it: the hermetic test
+/// environment (`daemon_env`: a bare PATH with python3, never the host's, so
+/// no real codex or claude is found; the fake HOME) with its login shell, plus
+/// `extra`. A fleet host's real agent CLIs would be probed, and Codex's shell
+/// snapshot sources the fake `~/.zshrc`, so the login shell would seem to run
+/// more often than it does (cx-w014j).
 async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
     let config = json!({"harnesses": harnesses, "defaultHarness": "claude", "permissionPolicy": "approve-all"});
     start_config(dir, config, extra).await
@@ -131,13 +120,10 @@ async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
 async fn start_config(dir: &Path, config: Value, extra: &[(&str, &str)]) -> Daemon {
     std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
     let socket = dir.join("s.sock");
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    // The stand-in claude (fake_claude.py) is the only agent.
+    let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
-        .env_clear()
-        .env("PATH", bare_path(dir))
-        .env("HOME", dir.join("home"))
         .env("SHELL", dir.join("loginsh"))
-        .env("TMPDIR", std::env::temp_dir())
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_AGENT_HOSTS", "0")
@@ -431,6 +417,38 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
         let _ = ask(&d, "claude").await;
     }
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
+}
+
+/// Wait up to `limit` for the daemon's login cache to hold `NO_PROXY=want`.
+async fn cached_no_proxy(dir: &Path, want: &str, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        let found = std::fs::read_to_string(dir.join("login-env.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .is_some_and(|v| v["vars"]["NO_PROXY"] == want);
+        if found || Instant::now() >= deadline {
+            return found;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// D26: an edited shell startup file refreshes the login environment on its
+/// own (a file watcher), not at the next agent spawn. No agent runs here, and
+/// the edit lands inside the 10 s spawn recheck window, so only the watcher
+/// can read it again.
+#[tokio::test]
+async fn an_edited_rc_file_refreshes_the_login_env_without_a_spawn() {
+    let dir = scratch("watch", "export NO_PROXY=before-edit\n");
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    std::fs::write(dir.join("home/.zshrc"), "export NO_PROXY=after-the-edit\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "after-the-edit", Duration::from_secs(6)).await,
+        "the edited ~/.zshrc was not read again"
+    );
 }
 
 /// A login shell that hangs: the daemon stops waiting after 3 s, and

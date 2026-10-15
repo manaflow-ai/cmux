@@ -40,6 +40,9 @@ const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
 /** My own pins and marks: `conversation-inbox-op`, the list fields, `conversation-inbox-changed`
  * and `cloud-inbox-op` (the Cloud owner's `inbox.pin` and `inbox.mark_unread`). */
 const INBOX_STATE_CAPABILITY = "conversation-inbox-state-v1";
+/** `home-inbox`: the owner derives the list rows (kind, name, unread, preview, a Chief's state, my
+ * pins and marks) once for every view; the page shows them instead of projecting summaries. */
+const HOME_INBOX_CAPABILITY = "home-inbox-v1";
 /** Attachment uploads, reads and download links on this WebSocket (local conversations). */
 const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
 /** The same three attachment commands for cloud conversations, through the daemon's lease. */
@@ -349,6 +352,24 @@ export function conversation(raw: Json, me: string): HomeConversation {
   return result;
 }
 
+/** A local row with the facts only the owner knows (`home-inbox`): the kind (a registry Chief, a
+ * later room with one person), the Chief's current name and its state (its typing and runs in
+ * every conversation, not only the open one). Unread, preview and times stay the page's own: the
+ * same rule, and fresher between two row reads. */
+export function withHomeRow(row: HomeConversation, owned: Json): HomeConversation {
+  const kind = owned.kind === "chief" ? "chief" : owned.kind === "direct" ? "direct" : "group";
+  const result: HomeConversation = { ...row, kind };
+  if (kind === "chief" && typeof owned.chief === "string") {
+    const chief = owned.chief;
+    // The Chief participant (a registry Chief may have no agent class).
+    result.participants = row.participants.map((p) => (p.id === chief ? { ...p, chief: true } : p));
+    if (typeof owned.name === "string" && owned.name) result.title = owned.name;
+  }
+  const state = owned.chief_state;
+  if (state === "working" || state === "waiting" || state === "idle") result.chiefState = state;
+  return result;
+}
+
 function threads(raw: unknown): HomeThreadStats[] {
   return ((raw as Json[] | undefined) ?? []).map((entry) => {
     const stats: HomeThreadStats = {
@@ -405,8 +426,12 @@ export class DaemonHomeClient implements PageClient {
    * `conversation-inbox-changed`: a snapshot or a conversation change carries none, so a summary
    * from them keeps what the list said. */
   private readonly listState = new Map<string, Json>();
+  /** The owner's last `home-inbox` rows by conversation id (home-inbox-v1). */
+  private readonly homeRows = new Map<string, Json>();
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
   private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
+  /** Cloud participants a head named for the first time: their pictures are asked again. */
+  private readonly peopleListeners = new Set<(participants: string[]) => void>();
 
   /** Starts each connection's daemon stream once (a page resubscribe adds a listener only). */
   private startStream(): Promise<void> {
@@ -438,9 +463,16 @@ export class DaemonHomeClient implements PageClient {
   ) {
     this.local = local ?? daemon;
     this.sockets = this.local === daemon ? [daemon] : [daemon, this.local];
-    this.cloud = new CloudHome(daemon, conversation, (summary) => {
-      for (const listener of this.cloudListeners) listener(summary);
-    });
+    this.cloud = new CloudHome(
+      daemon,
+      conversation,
+      (summary) => {
+        for (const listener of this.cloudListeners) listener(summary);
+      },
+      (participants) => {
+        for (const listener of this.peopleListeners) listener(participants);
+      },
+    );
     this.people = new DaemonPeople(
       this.local,
       () => this.me,
@@ -454,11 +486,13 @@ export class DaemonHomeClient implements PageClient {
   /** A local owner summary as the page's row, with my list state (kept when the summary has none). */
   private localRow(raw: Json): HomeConversation {
     const id = String(raw.id);
+    let row: HomeConversation;
     if ("pinned" in raw || "marked_unread" in raw) {
       this.listState.set(id, { pinned: raw.pinned, pin_position: raw.pin_position, marked_unread: raw.marked_unread });
-      return conversation(raw, this.me);
-    }
-    return conversation({ ...raw, ...this.listState.get(id) }, this.me);
+      row = conversation(raw, this.me);
+    } else row = conversation({ ...raw, ...this.listState.get(id) }, this.me);
+    const owned = this.homeRows.get(id);
+    return owned ? withHomeRow(row, owned) : row;
   }
 
   private capable(capability: string, socket: DaemonSocket = this.local): Promise<boolean> {
@@ -529,6 +563,13 @@ export class DaemonHomeClient implements PageClient {
           .find((entry) => entry.id === LOCAL_USER);
         const me = mine ? participant(mine) : { id: LOCAL_USER, kind: "human" as const, name: "You", chief: false };
         this.me = me.id;
+        // The owner's rows for the local conversations (an older daemon: the page projects them).
+        this.homeRows.clear();
+        if (await this.capable(HOME_INBOX_CAPABILITY)) {
+          // A failed read leaves the page's own projection (never an empty list).
+          const home = await this.local.request<{ me?: string; rows?: Json[] }>("home-inbox").catch(() => undefined);
+          if (home && home.me === this.me) for (const row of home.rows ?? []) this.homeRows.set(String(row.id), row);
+        }
         // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one.
         const cloud = await this.cloud.inbox(await this.cloudReady()).catch(() => []);
         return {
@@ -977,8 +1018,13 @@ export class DaemonHomeClient implements PageClient {
     };
     const offCloud = (() => {
       const listener = (summary: HomeConversation) => deliver((batch) => (batch.conversations ??= []).push(summary));
+      const people = (participants: string[]) => deliver((batch) => (batch.avatars ??= []).push(...participants));
       this.cloudListeners.add(listener);
-      return () => this.cloudListeners.delete(listener);
+      this.peopleListeners.add(people);
+      return () => {
+        this.cloudListeners.delete(listener);
+        this.peopleListeners.delete(people);
+      };
     })();
     // Cloud events come from the build daemon, local conversation events from the local owner
     // (the same socket unless the Chief home's owner serves the local conversations).
@@ -1015,7 +1061,11 @@ export class DaemonHomeClient implements PageClient {
             batch.inboxStale = true;
           });
         } else if (change.kind === "conversation" && change.conversation) {
-          deliver((batch) => (batch.conversations ??= []).push(this.localRow(change.conversation as Json)));
+          deliver((batch) => {
+            (batch.conversations ??= []).push(this.localRow(change.conversation as Json));
+            // Its row (kind, name) is the owner's: read the rows again.
+            if (this.homeRows.size > 0) batch.inboxStale = true;
+          });
         } else {
           deliver((batch) => (batch.inboxStale = true));
         }
@@ -1036,13 +1086,17 @@ export class DaemonHomeClient implements PageClient {
           (batch.inbox ??= []).push(change);
         });
       } else if (event.event === "conversation-typing") {
-        deliver((batch) =>
+        deliver((batch) => {
           (batch.typing ??= []).push({
             conversation: String(event.conversation),
             participant: String(event.participant),
             on: event.on === true,
-          }),
-        );
+          });
+          // The Chief stopped typing: its "working" on the owner's row may end.
+          const owned = this.homeRows.get(String(event.conversation));
+          if (event.on !== true && owned?.chief === event.participant && owned?.chief_state === "working")
+            batch.inboxStale = true;
+        });
       } else if (event.event === "conversation-draft") {
         const item = (event.item ?? {}) as Json;
         deliver((batch) =>
@@ -1062,12 +1116,15 @@ export class DaemonHomeClient implements PageClient {
         const participant = event.participant;
         deliver((batch) => (batch.avatars ??= []).push(participant));
       } else if (event.event === "conversation-run-changed" && event.run) {
-        deliver((batch) =>
+        deliver((batch) => {
           (batch.runs ??= []).push({
             run: run(event.run as Json),
             steps: ((event.steps as Json[] | undefined) ?? []).map(runStep),
-          }),
-        );
+          });
+          // A run that ended may end its Chief's "working" on the owner's row (a run that starts
+          // shows at once: the page's own runs make the Chief active).
+          if (this.homeRows.size > 0 && (event.run as Json).status !== "running") batch.inboxStale = true;
+        });
       } else if (event.event === "overflow") {
         // The daemon ended the stream ("resubscribe to continue"): start it again, and refetch
         // what the lost events changed (the inbox and every open window).

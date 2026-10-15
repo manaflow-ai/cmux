@@ -34,6 +34,7 @@ pub(crate) mod closed_history_store;
 mod closed_history_tests;
 #[cfg(test)]
 mod closed_relaunch_tests;
+mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
@@ -90,6 +91,7 @@ pub(crate) mod screen_state_store;
 pub(crate) mod screens;
 pub(crate) mod sidebar_doc_legacy;
 pub(crate) mod sidebar_doc_ops;
+pub(crate) mod sidebar_doc_order;
 pub(crate) mod sidebar_doc_store;
 pub(crate) mod sidebar_doc_sync;
 #[cfg(test)]

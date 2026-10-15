@@ -416,6 +416,30 @@ impl Default for TuiConfig {
     }
 }
 
+/// `titles` in the config: how a chat its harness never titles gets one.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TitlesConfig {
+    /// `generate`: title such a chat after its first turn. Default on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate: Option<bool>,
+    /// `command`: an argv that reads the request on stdin and prints the
+    /// title. Env `ACPMUX_TITLE_COMMAND` (one program) wins. Unset: the
+    /// chat's own Claude Code profile, with `model`; another harness's chat
+    /// then keeps its first-prompt title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// `model`: the Claude model of the default command. Default `haiku`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl TitlesConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -486,6 +510,13 @@ pub struct Config {
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
+    /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
+    #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
+    pub btw: BtwConfig,
+    /// `titles`: short titles for chats their harness never titles
+    /// (`hub/titles.rs`).
+    #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
+    pub titles: TitlesConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -875,6 +906,9 @@ pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Opti
     }
     cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+    for key in CHIEF_CREDENTIAL_ENV {
+        cmd.env_remove(key);
+    }
 }
 
 /// The cmux terminal launch credential (plans/cmux-next/identity.md
@@ -882,6 +916,14 @@ pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Opti
 /// daemon, agents and hooks serve many terminals, so none of them carries it.
 /// Both scrubs remove it from every child they prepare.
 pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
+
+/// A Chief host's credential and participant (optchat-chief: the token file
+/// that binds as that Chief, `agent_mux` for the default Chief). The host
+/// that starts a Chief home's acpmux is one Chief of many; the daemon serves
+/// every Chief of the home and the person, so no child it starts carries
+/// the starter's credential, not even through a preset (hq-6d 2026-10-14).
+/// Both scrubs remove them from every child they prepare.
+pub const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
 
 /// Whether `key` is one a Claude Code session plants for its children.
 pub(crate) fn is_nested_claude_key(key: &str) -> bool {
@@ -917,6 +959,9 @@ pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, fami
     }
     cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+    for key in CHIEF_CREDENTIAL_ENV {
+        cmd.env_remove(key);
+    }
 }
 
 mod launchers;
@@ -924,10 +969,7 @@ pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
 mod discover;
-pub use codex_adapter::{
-    CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
-    resolve_adapter_package_bin,
-};
+pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
     CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
     coderouter_claude_route, discover_harnesses, discover_harnesses_from,
@@ -936,6 +978,8 @@ mod peer;
 pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
+mod btw;
+pub use btw::BtwConfig;
 pub mod folder_profiles;
 pub mod profiles;
 pub use profiles::{

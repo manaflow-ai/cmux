@@ -315,3 +315,65 @@ fn after_an_owner_restart_a_fresh_page_credential_connects_again() {
     let mut page = Page::open(&addr, Some(CHANNELS_ORIGIN), &fresh).expect("reconnect");
     assert_eq!(page.rpc(json!({"cmd": "conversation-list"}))["ok"], true);
 }
+
+#[test]
+fn the_channels_page_hears_its_chiefs_change() {
+    // cx-ebm.60.4: the app connects the Channels page with a page-bound
+    // credential; that page redraws its Chiefs on chief-changed.
+    let owner = Fixture::new("chiefs");
+    owner.ensure();
+    let mut app = owner.unix();
+    let addr = app.listen();
+    let credential = app.channels_credential();
+    let mut page = Page::open(&addr, Some(CHANNELS_ORIGIN), &credential)
+        .expect("the Channels page was refused its own credential");
+    let info = page.rpc(json!({"cmd": "set-client-info", "name": "channels",
+        "capabilities": ["chief-events-v1"]}));
+    assert_eq!(info["ok"], true, "{info}");
+    assert_eq!(page.rpc(json!({"cmd": "subscribe"}))["ok"], true);
+
+    // The person renames the default Chief from the page itself.
+    let mut rename =
+        v2("chief.profile.update", json!({"chief": "agent_mux", "display_name": "Boss"}));
+    rename["idempotency_key"] = json!("rename-boss");
+    let renamed = page.rpc(rename);
+    assert_eq!(renamed["ok"], true, "{renamed}");
+    page.until_event("chief-changed");
+    let event = page.events.iter().find(|event| event["event"] == "chief-changed").unwrap();
+    assert_eq!((&event["chief"], &event["change"]), (&json!("agent_mux"), &json!("updated")));
+}
+
+#[test]
+fn the_channels_page_hears_a_participants_avatar_change() {
+    // The Channels page draws every participant's picture and re-reads it on
+    // participant-avatar-changed; connected with a page-bound credential it
+    // must hear that event like the person's other connections.
+    use base64::Engine as _;
+    const GIF: &[u8] = b"GIF89a\x01\x00\x01\x00\x00\x00\x00;";
+    let owner = Fixture::new("avatars");
+    owner.ensure();
+    let mut app = owner.unix();
+    let addr = app.listen();
+    let credential = app.channels_credential();
+    let mut page = Page::open(&addr, Some(CHANNELS_ORIGIN), &credential)
+        .expect("the Channels page was refused its own credential");
+    let info = page.rpc(json!({"cmd": "set-client-info", "name": "channels",
+        "capabilities": ["participant-avatars-v1"]}));
+    assert_eq!(info["ok"], true, "{info}");
+    assert_eq!(page.rpc(json!({"cmd": "subscribe"}))["ok"], true);
+
+    // The person gives the default Chief a picture from the page itself.
+    let mut picture = v2(
+        "chief.profile.avatar.set",
+        json!({"chief": "agent_mux", "media_type": "image/gif",
+               "data": base64::engine::general_purpose::STANDARD.encode(GIF)}),
+    );
+    picture["idempotency_key"] = json!("mux-picture");
+    let set = page.rpc(picture);
+    assert_eq!(set["ok"], true, "{set}");
+    page.until_event("participant-avatar-changed");
+    let event =
+        page.events.iter().find(|event| event["event"] == "participant-avatar-changed").unwrap();
+    assert_eq!(event["participant"], "agent_mux", "{event}");
+    assert_eq!(event["avatar"]["media_type"], "image/gif", "{event}");
+}

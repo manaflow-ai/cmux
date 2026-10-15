@@ -117,8 +117,8 @@
     },
     {
       "path": "BindConversationTabSessionRequest.java",
-      "sha256": "c2412ed41a5281068eeff20f00c6fc0a25569e81045a09d44f4b9fcb29a7288d",
-      "size": 3912
+      "sha256": "7261ad51d8b1c5dab2303e11fd0f0e1800d99dba82afd30b8809c8a63c7cd35a",
+      "size": 4760
     },
     {
       "path": "BindConversationTabSessionResult.java",
@@ -299,6 +299,16 @@
       "path": "CellPixelSurface.java",
       "sha256": "1c8c5bfa39d949770a5a6ceafd4e95b3bc383ea59b6d05319019e742c044b828",
       "size": 3300
+    },
+    {
+      "path": "ChiefChangedEvent.java",
+      "sha256": "ad39144d73bff602e409dd94edbf600e7d0750c7df005f51a75b500f1fa7f054",
+      "size": 2983
+    },
+    {
+      "path": "ChiefChangedEventChange.java",
+      "sha256": "552d25ea71ebb418843774f3e7231281791e6e8417ee2dc26a51e35ed4784359",
+      "size": 967
     },
     {
       "path": "ChiefInspectRequest.java",
@@ -632,8 +642,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "5906d93bc2b54f4f2810f7a8116b539617643ea756024c3a8c10046ff22b588a",
-      "size": 73295
+      "sha256": "a2e91a88f71a07273715218c944abeb44baebceab05f95b7dc08bce1f8d216d7",
+      "size": 73510
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1152,8 +1162,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "cb4fb39a222e19f98df25d25057e12f9bdbe36e37a543f57f7ff1ee9c17b2abd",
-      "size": 16636
+      "sha256": "ec9e4ec36b4369b7796c393a8e6e393d7ccef627c3805b7db67ec5f95e3c4cac",
+      "size": 16829
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1257,8 +1267,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "118e1e7ceeafd131afcb6290c0af97b26414052df9d23e832860df6d89de0961",
-      "size": 63923
+      "sha256": "50db7029ee44f64df16588b5cbcdf96bb8fc9d895986093f8e64af2225ff9aa8",
+      "size": 64111
     },
     {
       "path": "GetBlobRequest.java",
@@ -1354,6 +1364,31 @@
       "path": "HistorySearchResult.java",
       "sha256": "61d370af04439a5befc4a5aad910a5914b4aa712bb793e0d7291ceeb003169b3",
       "size": 2701
+    },
+    {
+      "path": "HomeChiefState.java",
+      "sha256": "003f820bb92d86adb718e38ad94e75b45cb679f2e8e8464634e8328900377e9a",
+      "size": 916
+    },
+    {
+      "path": "HomeInboxKind.java",
+      "sha256": "5b794f59f6d9513fb3952cec20d973a91ffa800b1b10cd7f84d2d8a8c10c2525",
+      "size": 931
+    },
+    {
+      "path": "HomeInboxRequest.java",
+      "sha256": "6e354fb6415c4cdd1aa0ee3fc6c8a13752a41cc122c29f4aced793a750551257",
+      "size": 1336
+    },
+    {
+      "path": "HomeInboxResult.java",
+      "sha256": "6ae71cc71601e5c7ac53224597ac6ce8aebceca29ac0dffe14f8cb8d15dc25a3",
+      "size": 2544
+    },
+    {
+      "path": "HomeInboxRow.java",
+      "sha256": "edfb6087270acbbec67eec03a7e01029d530f040d8db947c0ee26c7ac05e1292",
+      "size": 9135
     },
     {
       "path": "IdMapping.java",
@@ -1942,8 +1977,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "999ab4bc03bae6c64a40ee35505cb930005e45cc830654090d9fc31bd5df715e",
-      "size": 6872
+      "sha256": "4d7f5a325c213bfe633be39ed6964e3d79cfa145073f6e9298c5d3125b5dbddf",
+      "size": 6943
     },
     {
       "path": "ProtocolEvent.java",
@@ -3202,7 +3237,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2aa331c20b3e6ca393f281f5bf1ff219ba1c48d5e9ffceb4cca2b82ef05e14f5",
+  "ir_sha256": "09b38b577cf57edc4897f430db5abd6d688de1976353ce35ae0c922380183297",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

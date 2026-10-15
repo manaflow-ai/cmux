@@ -550,6 +550,39 @@ fn prompt_cancel_and_permission_need_an_attachment() {
     fake.no_connection();
 }
 
+/// cx-kpd0v: the agent pane asks for every kind it draws (9 since prompt
+/// bookmarks); an attach with that list passes to acpmux unchanged, and a list
+/// above the cap is still a bad request.
+#[test]
+fn attach_takes_the_agent_panes_whole_kind_list() {
+    let fake = FakeAcpmux::start("kinds");
+    let mux = mux_with(&fake, "asa-kinds");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "kinds");
+    let kinds = json!([
+        "transcript",
+        "available_commands_update",
+        "usage_update",
+        "config_option_update",
+        "bookmarks",
+        "secret_request",
+        "secret_decision",
+        "session_offer",
+        "session_offer_decision"
+    ]);
+    let too_many: Vec<String> =
+        (0..33).map(|n| format!("kind_{}", "x".repeat(n % 5 + 1))).collect();
+    let refused = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                        "kinds":too_many}));
+    assert_code(&refused, "agent_session.bad_request");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                      "limit":400,"kinds":kinds}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/attach"));
+    assert_eq!(sent["params"]["kinds"], kinds);
+}
+
 // MARK: Streaming
 
 #[test]

@@ -9,6 +9,7 @@ mod launch_codec;
 mod parser_failure;
 mod parser_order;
 mod smart_viewer_exit;
+mod terminal_queries;
 use super::super::shared::control_responses::ControlResponseWaiter;
 use super::super::shared::host_serve::*;
 use super::super::sys::process_definitely_gone as process_definitely_absent;
@@ -239,6 +240,7 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_viewer_size_priority: true,
         supports_pty_custody: false,
         supports_program_status: false,
+        orphan_grace_secs: None,
     };
     let record_path = record.record_path(&root);
     let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -269,6 +271,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_viewer_size_priority: false,
         supports_pty_custody: false,
         supports_program_status: false,
+        orphan_grace_secs: None,
     };
     let record_path = std::env::temp_dir().join(format!(
         "cmux-input-ack-surface-{}-{}.json",

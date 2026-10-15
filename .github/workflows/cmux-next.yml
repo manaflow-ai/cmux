@@ -30,6 +30,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       - scripts/cmux-next/state-roots-baseline.tsv
@@ -78,7 +79,13 @@ on:
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
+      # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
+      # tests/test_web_bundle_key_inputs.sh keeps this list complete).
+      - web/data/model-catalog/**
+      - Resources/markdown-viewer/viewer-navigation.js
+      - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
+      - tests/test_web_bundle_key_inputs.sh
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
@@ -170,6 +177,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       # Local packages CmuxNext depends on and files its tests read
@@ -217,7 +225,13 @@ on:
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
+      # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
+      # tests/test_web_bundle_key_inputs.sh keeps this list complete).
+      - web/data/model-catalog/**
+      - Resources/markdown-viewer/viewer-navigation.js
+      - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
+      - tests/test_web_bundle_key_inputs.sh
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
@@ -1004,6 +1018,15 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # The one type scale (schemas/type-scale/type-scale.json): its CSS and Swift copies, and no new raw
+      # font sizes or off-scale weights in the app's Swift (fails the checks; the webviews ratchet runs in react-apps-check).
+      - name: Type scale
+        id: type-scale
+        continue-on-error: true
+        run: |
+          python3 -I scripts/cmux-next/gen-type-scale.py --check
+          python3 -I scripts/cmux-next/check-swift-type-scale.py
+
       # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
       # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
       - name: Protected-folder copies
@@ -1034,6 +1057,9 @@ jobs:
         run: |
           python3 tests/test_intent_familiar_warning.py
           python3 tests/test_ci_launch_budget_gate.py
+          python3 tests/test_strings_output_encoding.py
+          bash tests/test_strip_release_bundle.sh
+          python3 tests/test_app_symbol_map.py
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
@@ -1054,6 +1080,7 @@ jobs:
           bash scripts/cmux-next/tests/tree-key-embeds.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/ublock-pin.test.sh
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
@@ -1143,6 +1170,13 @@ jobs:
           python3 tests/test_cmux_next_route.py
           python3 tests/test_cmux_next_route_replay.py
 
+      # The web bundle source key covers every file outside webviews/ that a bundle
+      # imports, and the publish and routing path lists name each one (cx-wtsf3).
+      - name: Web bundle key inputs
+        id: web-bundle-key-inputs
+        continue-on-error: true
+        run: bash tests/test_web_bundle_key_inputs.sh
+
       # The companion workflows' structure: generated-files catch-up and the
       # next-batch landing queue.
       - name: Companion workflows
@@ -1230,6 +1264,7 @@ jobs:
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.motion.outcome }}|Motion tokens
+            ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
@@ -1240,6 +1275,7 @@ jobs:
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.web-bundle-key-inputs.outcome }}|Web bundle key inputs
             ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
@@ -1325,6 +1361,9 @@ jobs:
 
       - name: Prebuilt bundles install and stamp (build-web-bundles.sh --from)
         run: bash tests/test_build_web_bundles_from.sh
+
+      - name: Source key covers imports outside webviews/ (web-bundle-key.py)
+        run: bash tests/test_web_bundle_key_inputs.sh
 
   same-tree-cmux-tui:
     needs: [path_route, push-head-preflight]
