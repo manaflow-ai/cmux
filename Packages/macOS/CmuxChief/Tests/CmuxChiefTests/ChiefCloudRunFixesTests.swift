@@ -144,10 +144,13 @@ import Testing
         for rule in [
             "/home/cmux", "Never probe for the home", "one `cmux vm exec <machine> -- pwd`",
             "HOME=/home/cmux codex login status", "HOME=/home/cmux claude auth status --text", "\"needs_sign_in\"",
-            "Sign in with Device Code", "cmux ai-accounts upload codex", "run it only after they say yes",
+            "Do not launch the agent", "Sign in with Device Code", "cmux ai-accounts upload codex", "run it only after they say yes",
+            "/home/cmux/work/<slug>", "does not promise a writable current directory", "Never push `/Users/cmux/manaflow/cmuxterm-hq`",
+            "cd /home/cmux/work/<slug>",
             "cmux vm pause <machine>", "Stop cloud machine <name> (<machine>)", "--allow-large", "Prefer a clone",
         ] {
             #expect(prompt.contains(rule), "missing \(rule)")
         }
+        #expect(!prompt.contains("Not signed in: start it anyway"))
     }
 }
