@@ -80,7 +80,13 @@ async function composer(doc: Document, scope: string, typed = "") {
   roots.push(root);
   await act(async () => {
     root.render(
-      <Composer strings={strings} placeholder="Message" label="Message" onSend={async () => true} initialValue={typed} />,
+      <Composer
+        strings={strings}
+        placeholder="Message"
+        label="Message"
+        onSend={async () => true}
+        initialValue={typed}
+      />,
     );
   });
   return host;
