@@ -83,6 +83,33 @@
    "/tmp/acpmux-501/eaf4eea38918181c.sock"
   ]
  ],
+ "router_sockets": [
+  [
+   "/Users/me/.acpmux",
+   501,
+   "/Users/me/.acpmux/router/router.sock"
+  ],
+  [
+   "/Users/me/.acpmux/builds/kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+   501,
+   "/Users/me/.acpmux/builds/kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk/router/router.sock"
+  ],
+  [
+   "/Users/me/.acpmux/builds/kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+   501,
+   "/tmp/acpmux-501/d1e75c6db8fd75eb.router.sock"
+  ],
+  [
+   "/var/folders/8x/3k2mz9qj1vd5w0t7n4cp6h8r0000gn/T/cmux-showcase/.acpmux/builds/com.cmuxterm.app.debug.cxfootb-352cfa5c",
+   501,
+   "/tmp/acpmux-501/57a66f7f5db3428d.router.sock"
+  ],
+  [
+   "/Users/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/.acpmux",
+   501,
+   "/tmp/acpmux-501/eaf4eea38918181c.router.sock"
+  ]
+ ],
  "configured_sockets": [
   [
    "/tmp/x/s.sock",

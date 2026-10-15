@@ -17,7 +17,7 @@ public nonisolated struct LocalRouterClient: Sendable {
     public let socketPath: String
 
     public init(acpmuxHome home: URL) {
-        socketPath = home.appendingPathComponent("router", isDirectory: true).appendingPathComponent("router.sock").path
+        socketPath = AcpmuxEnvironment.routerSocket(home: home)
     }
 
     /// Hands the relay the hosted router's origin and a bearer valid until
@@ -38,6 +38,7 @@ public nonisolated struct LocalRouterClient: Sendable {
     /// which happens only when the relay exits (a new relay holds no
     /// bearer). Returns false at once when no relay answers.
     @concurrent public func waitUntilGone(pid: Int?) async -> Bool {
+        guard Self.fits(socketPath) else { return false }
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         return await withTaskCancellationHandler {
@@ -72,7 +73,11 @@ public nonisolated struct LocalRouterClient: Sendable {
         _ = try await Self.exchange(socketPath: socketPath, line: line, deadline: deadline)
     }
 
+    /// Whether `path` fits a Unix socket address: `NWEndpoint.unix` traps on a longer one (cx-qukj2).
+    static func fits(_ path: String) -> Bool { path.utf8.count <= AcpmuxEnvironment.maxSocketPathBytes }
+
     private static func exchange(socketPath: String, line: Data, deadline: Duration) async throws -> ResultBox {
+        guard fits(socketPath) else { throw Failure.refused("router socket path too long") }
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         return try await withAgentPaneDeadline(deadline, label: "local router", onTimeout: { connection.cancel() }) {
