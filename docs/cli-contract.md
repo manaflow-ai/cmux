@@ -1015,7 +1015,7 @@ the expected text without connecting to a cmux socket.
 - `cmux welcome --help` -> `Usage: cmux welcome`
 - `cmux welcome --help` -> `the default shortcuts`
 - `cmux welcome` -> `Shortcuts`
-- `cmux welcome` -> `Run cmux shortcuts to edit shortcuts.`
+- `cmux welcome` -> `cmux shortcuts`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`

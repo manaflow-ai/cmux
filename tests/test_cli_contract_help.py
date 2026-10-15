@@ -702,7 +702,7 @@ WELCOME_DEFAULT_ROWS = [
     ("⌘T", "New tab"),
     ("⌘P", "Go to workspace"),
     ("⌘B", "Toggle Left Sidebar"),
-    ("⌥⌘B", "Toggle Right Sidebar"),
+    ("⌘⌥B", "Toggle Right Sidebar"),
     ("⌘D", "Split right"),
     ("⌘⇧D", "Split down"),
     ("⌘⇧P", "Command palette"),
