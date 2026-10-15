@@ -35,9 +35,10 @@ final class SSHService {
     @ObservationIgnored var savedHosts: (connection: ObjectIdentifier, store: SavedHostsStore)?
     /// Machines with an install (and its handoffs) running from this app: one at a time (cx-3r9mt).
     @ObservationIgnored private var installing: Set<String> = []
-    /// `machine|bundled commit` pairs whose automatic update already ran in this app run, so a
-    /// failed one is not tried on every reconnect.
-    @ObservationIgnored private var autoUpdated: Set<String> = []
+    /// `machine|bundled commit` pairs whose automatic update ran in this app run: done for good
+    /// after a success (or a skip), else not tried again before the time (a build not published
+    /// yet, a busy machine), so a failure is not retried on every reconnect.
+    @ObservationIgnored private var autoUpdated: [String: ContinuousClock.Instant?] = [:]
 
     init(machines: MachineRegistry, bundleID: String?) {
         self.machines = machines
@@ -326,12 +327,16 @@ final class SSHService {
         guard !policyDisabled, let binary, case .installed(let probe)? = await session.link.lastReport?.binary,
               !probe.json.isEmpty, let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
         let tried = session.machineID + "|" + commit
-        guard !autoUpdated.contains(tried), !installing.contains(session.machineID) else { return }
+        if let entry = autoUpdated[tried] {
+            guard let retry = entry, ContinuousClock.now >= retry else { return }
+        }
+        guard !installing.contains(session.machineID) else { return }
         guard let answer = await RemoteUpdateNeed.ask(binary: binary, probe: probe) else { return }
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
         guard answer.need == "older" else { return }
-        autoUpdated.insert(tried)
+        autoUpdated[tried] = .some(nil)
         do { try await install(session, automatic: probe.buildIdentity ?? "") } catch {
+            autoUpdated[tried] = .some(ContinuousClock.now.advanced(by: .seconds(120)))
             logger.error("automatic update of \(session.host.destination.description, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
         }
     }
