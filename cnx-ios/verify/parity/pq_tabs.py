@@ -29,11 +29,30 @@ PROJ = f"{pq.RBASE}/proj"
 
 # ---------------------------------------------------------------- the Mac side (read only, plus seeding)
 
+# The rig Mac's daemon socket (its tag): read and seeded directly, since the bundled CLI
+# speaks the public resource API and shows no daemon ids. Read only, except for seeding.
+TAG = os.environ.get("PQ_TAG", "cnx-p2-26459378")
+_DAEMON = r"""
+import glob, json, os, socket, sys
+paths = glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-tui-501", "cmux-app-%s.sock" % sys.argv[1]))
+s = socket.socket(socket.AF_UNIX); s.connect(paths[0]); f = s.makefile("rw")
+f.write(sys.argv[2] + "\n"); f.flush()
+while True:
+    line = f.readline()
+    if json.loads(line).get("id") == 1:
+        print(line); break
+"""
+
+
 def mac_raw(request):
-    """One daemon command on the rig Mac through its CLI (`cmux raw command`)."""
-    out = pq.RemoteMac().cmux("raw", "command", "--request-json", json.dumps(request), json_out=True)
-    data = out.get("data", out) if isinstance(out, dict) else out
-    return data
+    """One daemon command on the rig Mac's own daemon socket."""
+    import shlex
+    line = json.dumps(dict(request, id=1))
+    r = pq.rsh(f"python3 -c {shlex.quote(_DAEMON)} {shlex.quote(TAG)} {shlex.quote(line)}", timeout=60)
+    check(r.returncode == 0, f"daemon {request.get('cmd')}: {r.stderr.strip()[:300]}")
+    reply = json.loads(r.stdout)
+    check(reply.get("ok", True), f"daemon {request.get('cmd')}: {reply.get('error')}")
+    return reply.get("data", reply)
 
 
 def mac_tree():
@@ -130,6 +149,17 @@ def page_menu(j, item):
     time.sleep(1.0)
 
 
+def scroll_to(j, tries=8, **query):
+    """An element of a lazy list (a sheet's rows load as they scroll in): swipes up until it shows."""
+    for _ in range(tries):
+        e = j.sim.wait(timeout=2, **query)
+        if e and e.frame[1] + e.frame[3] < 840:
+            return e
+        j.sim.swipe(200, 760, 200, 520, 0.3)
+        time.sleep(0.8)
+    return None
+
+
 def until(fn, timeout=20, what="the Mac to change"):
     t = time.time()
     last = None
@@ -170,8 +200,8 @@ def move_to_workspace(j):
     open_ws(j, a["name"])
     open_tab(j, "p2tabs-t2")
     page_menu(j, "Move Tab to Workspace…")
-    dest = j.sim.wait(ident=f"move-to.{b['key']}", timeout=8)
-    check(dest, f"{b['name']} not in the picker")
+    dest = scroll_to(j, ident=f"move-to.{b['key']}")
+    check(dest, f"{b['name']} not in the picker: {[e.ident for e in j.sim.find(ident='move-to.*')]}")
     j.sim.tap_el(dest)
     landed, secs = until(lambda: (where(surface) or {}).get("key") == b["key"], what="the tab in the other workspace")
     pq.open_grid(j)
