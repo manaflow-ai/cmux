@@ -569,7 +569,9 @@ fn chiefs_that_stop_at_once_leave_no_daemon_behind() {
             status.is_some()
         });
     }
-    wait_for("the last Chief stopping the daemon", Duration::from_secs(10), || {
-        calls(&acpmux_home).contains(&"shutdown".to_owned())
-    });
+    wait_for(
+        "the last Chief stopping the daemon",
+        Duration::from_secs(10),
+        || calls(&acpmux_home).contains(&"shutdown".to_owned()),
+    );
 }
