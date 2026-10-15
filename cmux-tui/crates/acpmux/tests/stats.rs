@@ -1,5 +1,10 @@
 //! `_acpmux/stats` (hq#1920): the fold over session logs.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::Config;
 use acpmux::hub::Hub;
 use acpmux::stats::{StatsOptions, civil_date, summarize};
