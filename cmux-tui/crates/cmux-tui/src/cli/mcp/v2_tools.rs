@@ -195,6 +195,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
+    ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
     ("history.entries.remove", HISTORY_MCP_PENDING_REASON),
     ("history.site.remove", HISTORY_MCP_PENDING_REASON),
@@ -210,6 +211,9 @@ pub(super) const CLI_ONLY: &[(&str, &str)] = &[
 const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent message` and `cmux \
      agent inbox`, which store, deliver and mark in one command; one operation alone would \
      store a message without delivering it or change another agent's delivery state.";
+
+const AGENT_MESSAGE_RELEASE_REASON: &str = "Releasing a held agent message is the person's \
+     decision (`cmux agent message release`); an agent gets no tool to approve messages.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =

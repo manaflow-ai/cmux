@@ -932,7 +932,8 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
-  cmux agent inbox [<agent>] [--state queued|delivered|acknowledged|failed] [--limit <n>] [--ack]
+  cmux agent message release <message-id> --recipient <agent> --approve|--decline
+  cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]

@@ -103,13 +103,31 @@ public final class ChiefConversationOwner {
                 await connection.close()
                 return
             }
+            // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while
+            // idle; a busy one (a Chief turn, an open `cmux chief` chat, another app or page) on a later owner event.
+            let restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
+                                                         identity: identity, logger: logger)
             if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
+            // The waiting restart probes off this loop, so Home's events never wait for it; the newest
+            // busy-ending event is enough (each one probes the owner afresh).
+            let restartFeed = restart.map { restart in
+                let (events, feed) = AsyncStream<DaemonEvent>.makeStream(bufferingPolicy: .bufferingNewest(1))
+                // task-owner: this run task; ends when the feed finishes below or the restart is decided
+                Task {
+                    for await event in events {
+                        if await restart.note(event) != .waiting { break }
+                    }
+                }
+                return feed
+            }
             do {
                 for try await envelope in connection.events {
+                    if IdleOwnerRestart.mayEndBusy(envelope.event) { restartFeed?.yield(envelope.event) }
                     self.handle(envelope.event, connection: connection)
                 }
             } catch {}
+            restartFeed?.finish()
             self.connection = nil
         }
     }

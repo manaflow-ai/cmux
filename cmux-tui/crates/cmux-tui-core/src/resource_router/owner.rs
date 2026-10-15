@@ -262,7 +262,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WorkspaceLogClear
         | ResourceOperation::AgentMessageSend
         | ResourceOperation::AgentMessageList
-        | ResourceOperation::AgentMessageMark => OperationOwner::State,
+        | ResourceOperation::AgentMessageMark
+        | ResourceOperation::AgentMessageRelease => OperationOwner::State,
         ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionJournalProducerList

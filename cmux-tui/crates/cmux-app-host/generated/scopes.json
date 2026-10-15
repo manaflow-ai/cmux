@@ -1841,6 +1841,7 @@
   "never": [
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
     "automation.delete",
     "automation.settings.set",

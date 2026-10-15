@@ -39,9 +39,9 @@ impl Hub {
             && session.queued() == 0
             && session.pending_permissions().is_empty()
             && session.spawn_lock.try_lock().is_ok()
-            // A shell still running in the background (a dev server, a
+            // A process still running in the background (a dev server, a
             // watcher) ends with the harness: never reap it for idleness.
-            && session.stream.lock().unwrap_or_else(|e| e.into_inner()).background_running.is_empty()
+            && !self.any_process_running(session)
     }
 
     /// The daemon is stopping (`_acpmux/shutdown`, SIGTERM, then
