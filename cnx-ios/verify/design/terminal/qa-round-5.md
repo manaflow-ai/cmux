@@ -19,7 +19,8 @@ WireGuard + relay (G-T). Laptop load was 8-24 during this round, so there are no
 | "unknown surface 14" on every reattach | minor | **fixed** (red `86be059f`, green `c622a001`) | not re-checked on the rig: it needs a closed tab's session |
 | Rotation rows (T-SIZE-04, rotation during a trip) | - | **not applicable on iPhone; needs a decision** | the app is portrait-only (`project.yml` `UISupportedInterfaceOrientations: [Portrait]`) |
 | PR 20809 review | - | **findings fixed and posted; CI green except an outside reservation** | https://github.com/manaflow-ai/cmux/pull/20809#issuecomment-6183326812 and #issuecomment-6183852910 |
-| V2-2/D7, V2-6, D10, D1, D6, D11, D12, T-LIFE-08, G-04 timing | | not started this round | |
+| V2-2/D7, G-04, user reports (pin, jank, Jump to bottom) | | see the section after the rig rebuild | |
+| V2-6, D10, D1, D6, D11, D12, T-LIFE-08 | | not started this round | |
 
 ### Reconnect latency after a hostd kill
 
@@ -91,6 +92,91 @@ run. Enabling landscape is a product and design decision that affects every scre
 listed for the user. A DEBUG geometry hook was not added, because it would be refused under a
 portrait-only plist.
 
+## While the verifier has the rig (21:10-21:55 PT): user reports and non-rig items
+
+All on my own headless simulator `cnx-termqa-impl` (`C9E42CC5-B201-48D7-89F2-944714BADF69`, iOS 26.5,
+Demo build of this branch, `-CnxTerminalDemo` mock session), never the rig. Stimulus is HID input into
+the simulator with `axe` (tap, type, swipe); the in-app `stream N MS` mock command streams numbered rows.
+Laptop load 6-15. Simulator display is 60 Hz.
+
+| Item | Severity | Status | Evidence |
+| --- | --- | --- | --- |
+| User: "bottom not pinned to the composer, just the row above" | disruptive | **fixed** (red `6ed38fa7`, green `03866f5a`, `e5d95df0`) | `pin.sh`: gap 0.0 pt at every settle, composer 48/70/114/136 pt (1 to 6 lines), keyboard down (composer top 784/732/710/666/644/632) and keyboard up (composer top 458) |
+| User: "Jump to bottom only works when scroll acceleration is 0" | disruptive | **fixed** (same red; green `03866f5a` + `e5d95df0`) | `jump.sh`: 4 of 4 taps during a fling land at the live bottom and follow (`offset 11767 -> 17524 of 17524`, `20437 -> 21844`, `26133 -> 28308`, `32102 -> 35332`); `artifacts/shots/r5-jump-sheet.png` (taps ~100/300/600 ms after the fling) shows no Jump row afterwards |
+| User: scroll not smooth while an agent outputs | disruptive | **reduced; device check pending (T-DEV)** (red `342b3dd9`, green `e5d95df0`, `fc192319`) | in-app frame log below |
+| G-04 in-app frame timing | tooling | **done** (`e5d95df0`) | `-CnxFrameLog`; `framesum.py` |
+| V2-2/D7 one-row one-frame jump while following | disruptive | **cause found, fixed in the placement rule** (red `7deb874e`, green `fc192319`); rig re-check pending | below |
+| D1, D11, D12, D6, D10, V2-6, T-LIFE-08 | | not started | |
+
+### Bottom pin
+
+The last row sat 8 pt above the composer card (`composerGap`), and the soft bottom scroll edge
+(iOS 26) blurred that last row even at rest. Now `TerminalDocumentLayout.composerGap` is 0 and
+`bottomInset(pageHeight:composerTop:)` is the one rule (`TerminalComposerPinTests`: 6 composer
+positions, 3 document sizes, |gap| <= 1 pt). The bottom edge effect shows only while rows are under
+the composer. `-CnxFrameLog` logs `pin: last row bottom …, composer top …, gap … pt` whenever it changes.
+
+### Jump to bottom
+
+`applyScroll` leaves the offset alone while UIKit decelerates, so the jump set the state and nothing
+moved; then the deceleration's end (`settleScroll`) turned the state back to reading where the fling
+stopped. Now `TerminalScrollModel.settled` acts only while a gesture owns the page
+(`TerminalJumpToBottomTests`), and `scrollToBottom` stops the deceleration and cancels a drag in progress.
+
+### Scroll while streaming (frame log, simulator)
+
+`jank.sh` streams 6000 rows (`stream 6000 8`) and flings 8 times; A/B on one build with
+`-CnxLegacyInteraction` (the old behaviour: 256 KB batches and full measures during a gesture).
+
+| Run | Phase | Frames | p50 / p95 / p99 / max (ms) | Hitches (> 1.5 frames) | Main-thread work p50 / p95 (ms) |
+| --- | --- | --- | --- | --- | --- |
+| before | interacting + streaming | 1083 | 16.7 / 16.7 / 16.7 / 33.3 | 2 (0.2 %) | 1.23 / 2.55 |
+| after (`fc192319`) | interacting + streaming | 1076 | 16.7 / 16.7 / 16.7 / 16.7 | 0 | 1.02 / 2.05 |
+
+Per-signpost work during the drag (after): `present` 1.07 ms a frame, `scrollbar` 0.10, `output-batch`
+0.01. The simulator's parse is fast and its stream light, so the batch cap barely shows here; on a
+phone a 256 KB parse holds Ghostty's lock for milliseconds, and the main thread's viewport request
+waits for it. `present` (the IOSurface row read that places each frame) is the remaining main-thread
+cost; on a device `IOSurfaceLock` may wait on the GPU. Next step if the phone still stutters: read only
+the rows near the visible band, or one sample line per row. **Device timing is pending (T-DEV):
+run `-CnxFrameLog` on the phone and read `dev.cmux.cnx:frames`.**
+
+Changes: a frame's batch is at most 16 KB while a finger or a deceleration owns the page
+(`TerminalOutputQueue.budget`); during a gesture the document grows by the new rows with no row reads
+under Ghostty's lock (`TerminalDocumentLayout.grown`), and is measured again at settle; one present per
+Core Animation commit (below).
+
+### G-04: in-app frame log
+
+`-CnxFrameLog` (DEBUG and Demo builds): a display link records each frame's interval, target duration,
+the page's phase (interacting, following, reading), whether output arrived in the last 100 ms, and the
+screen's main-thread work per signpost (`output-batch`, `scrollbar`, `present`, `viewport-request`,
+`did-scroll`). It logs a summary per gesture and every 5 s on `dev.cmux.cnx:frames`
+(`TerminalFrameStats`, tested) and appends ndjson to `Documents/frame-log.ndjson`. The rig copies it
+with `xcrun simctl get_app_container <udid> dev.cmux.cnx data`; `cnx-ios/verify/termqa/framesum.py`
+summarizes it. Signposts are on `dev.cmux.cnx` / `terminal-frames` for Instruments.
+
+### V2-2/D7
+
+The present log of a 30 s demo follow (`-CnxPresentLog`, `artifacts/d7-present.txt`) had 31 frames
+that matched no candidate. Each came as two `contents` sets about 1 ms apart in one Core Animation
+transaction: the first frame is never displayed, its pixel read matched nothing, and it poisoned
+the next match. With no match, the frame is placed at Ghostty's last report. The verifier's shape
+(a frame one row low with the newest row gone, VERIFY-round2) is a frame Ghostty rendered for the
+viewport one row older. Ghostty follows the output on its own, so no request names that viewport, it
+was not a candidate, and the fallback put the older picture one row low.
+`TerminalPresentMatchTests.aStaleFrameOneRowOlderStaysWhereItsRowsBelong` reproduces it (red: 900
+instead of 899). Fix: shifts -1, +1, -2, +2 are always candidates (last, so they win only on a
+strictly better match), and the screen handles one present per commit (a run loop observer ordered
+just before Core Animation's). Same follow after: 0 unidentified frames (`d7b-present.txt`), 0
+backward placements. **Rig re-check pending** (a 60 s Codex follow at 60 fps with `motion.py`).
+
+### Tooling added
+
+`cnx-ios/verify/termqa/`: `cnxkit-test.sh FILTER` (CnxKit tests on mini-cmux11s), `killtest.py`
+(hostd kill and reconnect timing on the rig Mac), `jank.sh`, `jump.sh`, `pin.sh` (simulator scenarios
+with `axe`), `framesum.py`. Demo: mock `stream N MS` command, demo phase `follow`.
+
 ## Tests this round
 
 - CnxKit on mini-cmux11s, `swift test --filter 'CnxTerminalTests|CnxLiveTests|CnxTransportTests|CnxWorkspacesTests'`:
@@ -108,6 +194,7 @@ portrait-only plist.
 | --- | --- | --- |
 | cmux `feat-cnx-ios-machost` | `f59ff1b9` red, `3df9ff77` | supervisor: a run online for 5 s restarts at the first delay |
 | cmux `feat-cmux-next-tui-attach-size` (PR 20809) | `6bb49632` red, `e960080b`, `1a756bcc`, merge, `1071f4a0`, `9db5f180` | review fixes, ratchet, fmt |
+| `feat-cnx-ios-termqa` (after the rig rebuild) | `6ed38fa7` red, `03866f5a`, `342b3dd9` red, `e5d95df0`, `7deb874e` red, `fc192319` | pin, Jump to bottom, smooth drag, G-04, D7. **Not on the rig simulator** (it still runs `c622a001` for the verifier) |
 | `feat-cnx-ios-termqa` | `5411a38a` red, `e24da1c6`; `cbe800df` red, `c5b4b2ac`; `f27e2c75`; `86be059f` red, `c622a001` | V2-3/V3-1/V3-2/V3-3, D5, V3-4, surface 14 |
 
 ## Rig state for the next verifier (rebuilt 2026-10-14 21:00 PT)
@@ -144,6 +231,10 @@ Exactly one replay per reattach, 5 of 5. The one 4.4 s reconnect is the WireGuar
 failed, relay), not the restart; it belongs with V2-6.
 
 ## Next (in order)
+
+0. After the verifier frees the rig: install this branch's head on `cnx-termqa-1` and re-check D7
+   (60 s Codex follow, `motion.py` at 60 fps), the pin with Codex and Claude Code, and Jump to bottom
+   on real output; then V2-6, D10, D6, T-LIFE-08, the 60-minute sessions, G-14. Non-rig: D1, D11, D12.
 
 1. The user decides on landscape for the iPhone app: rotation rows are N/A until then.
 2. V2-2/D7 (one-row jump while following), V2-6, D10, D1, D6, D11, D12, T-LIFE-08 (9-13 black
