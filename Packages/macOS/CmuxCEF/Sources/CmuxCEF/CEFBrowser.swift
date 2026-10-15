@@ -172,6 +172,7 @@ public final class CEFBrowser {
             // link (a split next to the page focused <a> and showed its
             // status bubble). Popup moves re-activate the opener themselves.
             hostView.postGeometryChange()
+            hostView.keepPageFirstResponder()
         }
     }
 
@@ -377,6 +378,7 @@ public final class CEFBrowser {
     private func grantFocus(_ id: Int32) {
         isGrantingFocus = true
         defer { isGrantingFocus = false }
+        hostView.keepPageFirstResponder()
         runtime.shim?.setFocus(id, 1)
     }
 
