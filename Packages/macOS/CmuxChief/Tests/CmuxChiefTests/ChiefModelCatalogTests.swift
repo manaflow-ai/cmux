@@ -30,6 +30,13 @@ import Testing
         #expect(ChiefHarness.allCases.flatMap(\.models).allSatisfy { Set($0.efforts.map(\.id)).isSubset(of: cli) })
     }
 
+    @Test func anUnlistedModelKeepsTheEffortPickerAtItsDefault() {
+        // Custom model ids remain valid CLI inputs, but the catalog cannot
+        // safely claim which explicit effort flags they accept.
+        #expect(ChiefHarness.claude.efforts(for: "claude-future-6") == [])
+        #expect(ChiefHarness.codex.efforts(for: "gpt-future") == [])
+    }
+
     @Test(arguments: [
         "There's an issue with the selected model (claude-opus-9). It may not exist or you may not have access to it. Run --model to pick a different model.",
         #"API Error: 404 {"type":"error","error":{"type":"not_found_error","message":"model: claude-opus-9"}}"#,

@@ -140,10 +140,14 @@ extension ChiefHarness {
             .contains(where: text.contains)
     }
 
-    /// The effort levels offered for `model` of this harness; every level
-    /// for an unlisted model.
+    /// The effort levels offered for `model` of this harness.
+    ///
+    /// An unlisted model is still accepted by the harness (the CLI may know a
+    /// model newer than this app), but its capabilities are unknown. Returning
+    /// no explicit levels keeps the settings picker on the model's own default
+    /// instead of offering flags that could be rejected by that CLI.
     public func efforts(for model: String) -> [ChiefEffortOption] {
-        self.model(model)?.efforts ?? Self.allEfforts
+        self.model(model)?.efforts ?? []
     }
 
     /// Builds the ``ChiefBrain`` for this harness, a model and an effort.

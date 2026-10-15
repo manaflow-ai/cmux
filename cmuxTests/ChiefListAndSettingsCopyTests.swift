@@ -20,6 +20,13 @@ import Testing
         #expect(none.isEmpty)
     }
 
+    @Test func openingAnAttachedHomeConversationMarksItReadBeforeWindowFocus() {
+        #expect(ChiefHomeView.shouldMarkRead(isActive: true, attached: true, hidden: false))
+        #expect(!ChiefHomeView.shouldMarkRead(isActive: false, attached: true, hidden: false))
+        #expect(!ChiefHomeView.shouldMarkRead(isActive: true, attached: false, hidden: false))
+        #expect(!ChiefHomeView.shouldMarkRead(isActive: true, attached: true, hidden: true))
+    }
+
     @Test func activityNamesTheHarnessAndPrintsNoPath() {
         #expect(ChiefSettingsStrings.harnessName("claude") == CmuxChief.ChiefHarness.claude.displayName)
         #expect(ChiefSettingsStrings.harnessName("codex") == CmuxChief.ChiefHarness.codex.displayName)

@@ -38,7 +38,12 @@ final class ChiefHomeView: NSView {
     private var focusOnWindow = false
 
     /// Whether the host shows Home now; a hidden Home sends no read receipts.
-    var isActive = true { didSet { transcript?.isActive = isActive } }
+    var isActive = true {
+        didSet {
+            transcript?.isActive = isActive
+            if isActive { markSelectedReadIfShown() }
+        }
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -122,6 +127,10 @@ final class ChiefHomeView: NSView {
         view.autoresizingMask = [.width, .height]
         addSubview(view)
         transcript = view
+        // Opening a conversation is a read action even before AppKit has made
+        // the window key. This keeps the list's dot from lagging behind the
+        // conversation the user just chose (and avoids a capture-time race).
+        markSelectedReadIfShown()
         if hadFocus { view.focusComposer() }
     }
 
@@ -296,6 +305,20 @@ final class ChiefHomeView: NSView {
         defaults.set(unreadMarks.sorted(), forKey: Self.unreadMarksKey)
     }
 
+    /// Whether Home may mark its selected conversation read now. The view must
+    /// be mounted and active; key-window status belongs to transcript focus and
+    /// is not required for the explicit act of opening a conversation.
+    static func shouldMarkRead(isActive: Bool, attached: Bool, hidden: Bool) -> Bool {
+        isActive && attached && !hidden
+    }
+
+    private func markSelectedReadIfShown() {
+        guard Self.shouldMarkRead(isActive: isActive, attached: window != nil,
+                                  hidden: isHiddenOrHasHiddenAncestor),
+              let store = ChiefService.shared.storeIfStarted else { return }
+        store.markRead(selected)
+    }
+
     private func perform(_ op: HomeOp) {
         guard let store = ChiefService.shared.storeIfStarted else { return }
         // task-owner: one op; ends with its reply (a refusal leaves the list as the owner has it)
@@ -348,6 +371,7 @@ final class ChiefHomeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        markSelectedReadIfShown()
         guard focusOnWindow, window != nil else { return }
         focusOnWindow = false
         focusComposer()
