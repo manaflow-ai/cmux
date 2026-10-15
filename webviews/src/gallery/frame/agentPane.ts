@@ -38,7 +38,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     if (!bridge) return;
     bridge.applyTheme(context.agentTheme);
     bridge.applyCustomization({ themeCSS: agentPaneFontCSS(context.env.fontFamily, context.env.fontSize) });
-    if (state.labs) bridge.applyPreview?.(true);
+    bridge.applySessionStatus?.(state.sessionStatus === true);
     bridge.receive(structuredClone(snapshot));
   };
   const next = (method: string | undefined) => {

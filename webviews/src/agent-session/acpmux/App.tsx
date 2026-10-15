@@ -255,6 +255,7 @@ import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { OfferChip } from "./offer/OfferChip";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
+import { setSessionStatus } from "./sessionStatus";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -299,6 +300,9 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
+      /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
+      applySessionStatus?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
       /// Start Agent's floating chat (floatingState.ts, cx-b9qi).
       applyFloatingState?(state: unknown): void;
@@ -3444,6 +3448,9 @@ function AcpmuxPane() {
       },
       applyPreview(on) {
         setPreview(on === true);
+      },
+      applySessionStatus(on) {
+        setSessionStatus(on === true);
       },
       applyHeaderState(state) {
         setHeaderState(state);
