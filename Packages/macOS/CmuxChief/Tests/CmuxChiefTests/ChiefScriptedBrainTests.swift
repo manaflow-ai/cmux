@@ -51,7 +51,7 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
             case .approvalRequested(let id, _, let options): out.append("approval \(id): \(options.joined(separator: "/"))")
             case .finished: out.append("finished")
             case .failed(let message): out.append("failed: \(message)")
-            case .session, .question: out.append("other")
+            case .session, .question, .result, .usage: out.append("other")
             }
         }
         return out

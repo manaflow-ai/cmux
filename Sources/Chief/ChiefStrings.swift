@@ -73,6 +73,30 @@ enum ChiefStrings {
         }
     }
     static var settingsAvatar: String { String(localized: "chief.settings.avatar", defaultValue: "Avatar") }
+    /// The sidebar Home row's status while a Chief runs a turn.
+    static var homeRowWorking: String {
+        String(localized: "sidebar.chiefHome.working", defaultValue: "Working…")
+    }
+    /// The sidebar Home row's status while a Chief waits on the user's approval.
+    static var homeRowNeedsYou: String {
+        String(localized: "sidebar.chiefHome.needsYou", defaultValue: "Needs you")
+    }
+    /// The sidebar Home row's spoken status when Chief has unread replies.
+    static var homeRowUnread: String {
+        String(localized: "sidebar.chiefHome.unread", defaultValue: "Unread replies")
+    }
+    static var settingsAvatarChoosePicture: String {
+        String(localized: "chief.settings.avatar.choosePicture", defaultValue: "Choose Picture…")
+    }
+    static var settingsAvatarRemovePicture: String {
+        String(localized: "chief.settings.avatar.removePicture", defaultValue: "Remove Picture")
+    }
+    static var settingsAvatarPickerPrompt: String {
+        String(localized: "chief.settings.avatar.pickerPrompt", defaultValue: "Choose")
+    }
+    static var settingsAvatarPictureFailed: String {
+        String(localized: "chief.settings.avatar.pictureFailed", defaultValue: "That picture could not be used. Choose another image.")
+    }
     static var settingsAvatarPlaceholder: String {
         String(localized: "chief.settings.avatar.placeholder", defaultValue: "Initials or an emoji")
     }

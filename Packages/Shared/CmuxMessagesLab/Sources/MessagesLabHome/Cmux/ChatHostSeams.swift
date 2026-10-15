@@ -46,6 +46,18 @@ protocol ChatIntents: AnyObject {
     /// resized) and may have moved their content onto other device pixels (RowCell.snapRow, MessagesLab
     /// c1457e5): what the host draws over a row follows it.
     func rowsPlaced()
+    /// cmux-classic: an approval card's option (a click, Return or Esc on the card or in the empty
+    /// field; `always`: "Always Allow", the owner saves the command's rule first). The answer goes to
+    /// the owner; `completion(false)` when it was refused.
+    func answerApproval(_ ref: PartRef, choice: String, always: Bool, completion: @escaping (Bool) -> Void)
+    /// cmux-classic: the newest pending approval card in the transcript (the field's Return and Esc,
+    /// its placeholder).
+    func newestPendingApproval() -> (ref: PartRef, approval: ChiefRows.Approval)?
+}
+
+extension ChatIntents {
+    func answerApproval(_ ref: PartRef, choice: String, always: Bool, completion: @escaping (Bool) -> Void) { completion(false) }
+    func newestPendingApproval() -> (ref: PartRef, approval: ChiefRows.Approval)? { nil }
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,

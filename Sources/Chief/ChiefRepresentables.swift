@@ -1,32 +1,50 @@
 import AppKit
+import CmuxFoundation
 import CmuxHomeCore
 import SwiftUI
 
-/// Home in SwiftUI: the conversation list and the selected Chief
-/// conversation (``ChiefHomeView``).
+/// Home's transcript in the content area: the window's one ``ChiefHomeView``.
+///
+/// The window owns the view (`ContentView` keeps it while Chief is on), so
+/// leaving and re-entering Home keeps the draft and the scroll position, and
+/// the sidebar's list (``ChiefConversationListRepresentable``) shares its selection.
 struct ChiefHomeRepresentable: NSViewRepresentable {
+    let home: ChiefHomeView
     /// Whether Home is the page the user sees now. A Home kept mounted
     /// behind the workspaces passes false, so it sends no read receipts.
     var isActive: Bool
 
-    init(isActive: Bool = true) {
-        self.isActive = isActive
-    }
-
     func makeNSView(context: Context) -> ChiefHomeView {
-        let view = ChiefHomeView()
-        view.isActive = isActive
-        return view
+        home.isActive = isActive
+        return home
     }
 
     func updateNSView(_ view: ChiefHomeView, context: Context) {
-        let becameActive = isActive && !view.isActive
+        // Focus follows `cmuxChiefHomeDidActivate` (ChiefHomeView), first entry included.
         view.isActive = isActive
-        if becameActive { view.focusComposer() }
+    }
+}
+
+/// Home's conversation list in the left sidebar, under the Chief row, while
+/// Home is selected. It sits on the sidebar's material and takes the
+/// sidebar's content appearance and the cmux accent.
+struct ChiefConversationListRepresentable: NSViewRepresentable {
+    let home: ChiefHomeView
+    let accent: CmuxAccentColor
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeNSView(context: Context) -> ChiefConversationListView {
+        apply(to: home.list)
+        return home.list
     }
 
-    static func dismantleNSView(_ view: ChiefHomeView, coordinator: ()) {
-        view.stop()
+    func updateNSView(_ view: ChiefConversationListView, context: Context) {
+        apply(to: view)
+    }
+
+    private func apply(to view: ChiefConversationListView) {
+        view.apply(isDark: colorScheme == .dark, accent: accent.nsColor(for: colorScheme))
     }
 }
 

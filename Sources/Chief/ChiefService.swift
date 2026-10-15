@@ -32,6 +32,9 @@ final class ChiefService {
     @ObservationIgnored private var quitObserver: (any NSObjectProtocol)?
     // task-owner: lives as long as the owner; ends when its stream ends (shutdown)
     @ObservationIgnored private var workingWatch: Task<Void, Never>?
+    /// When each working conversation's turn started (``turnStart(_:)``);
+    /// changes only with ``workingConversations``, so Observation tracks that.
+    @ObservationIgnored private(set) var turnStarts: [ConversationID: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var started = false
 
     /// The first-run panel's "Open a terminal" and "Start an agent" rows run
@@ -59,8 +62,27 @@ final class ChiefService {
     /// Every Chief conversation, pinned first, then newest first.
     var conversations: [InboxRow] { storeIfStarted?.rows ?? [] }
 
-    /// Unread Chief messages across every conversation (the Home badge).
-    var unreadCount: Int { conversations.reduce(0) { $0 + $1.unread } }
+    /// Conversations a transcript shows to the user now (key window, page
+    /// visible), by the view that shows each.
+    private var visibleTranscripts: [ObjectIdentifier: ConversationID] = [:]
+
+    /// Conversations the user can see now; their replies are read as they land.
+    var visibleConversations: Set<ConversationID> { Set(visibleTranscripts.values) }
+
+    /// Records whether `view` shows `conversation` to the user now (``ChiefTranscriptView``).
+    func setTranscript(_ view: AnyObject, showing conversation: ConversationID?) {
+        let key = ObjectIdentifier(view)
+        guard visibleTranscripts[key] != conversation else { return }
+        visibleTranscripts[key] = conversation
+    }
+
+    /// Unread Chief messages in the conversations the user cannot see now
+    /// (the Home row's dot): a reply on screen is never counted, even
+    /// before its read cursor lands.
+    var unreadCount: Int {
+        let visible = visibleConversations
+        return conversations.reduce(0) { $0 + (visible.contains($1.id) ? 0 : $1.unread) }
+    }
 
     /// Whether `conversation`'s Chief is running a turn.
     func isWorking(_ conversation: ConversationID) -> Bool {
@@ -76,7 +98,7 @@ final class ChiefService {
     func start() {
         guard !started else { return }
         started = true
-        let home = ChiefHome.resolve()
+        let home = Self.resolveHome()
         let settings = ChiefSettingsAccess().current
         engine = settings
         let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings), settings: settings)
@@ -126,7 +148,30 @@ final class ChiefService {
     // MARK: Brain
 
     static func makeBrain(_ settings: ChiefEngineSettings) -> any ChiefBrain {
-        ChiefBrainFactory.make(harness: settings.resolvedHarness, model: settings.model, effort: settings.effort)
+#if DEBUG
+        // Dogfood tours and screenshots: a scripted turn, no model or credentials.
+        if usesScriptedBrain { return ChiefScriptedBrain() }
+#endif
+        return ChiefBrainFactory.make(harness: settings.resolvedHarness, model: settings.model, effort: settings.effort)
+    }
+
+#if DEBUG
+    /// `CMUX_CHIEF_BRAIN=scripted` (DEBUG builds): every turn runs ``ChiefScriptedBrain``.
+    static var usesScriptedBrain: Bool {
+        ProcessInfo.processInfo.environment["CMUX_CHIEF_BRAIN"] == "scripted"
+    }
+#endif
+
+    /// This build's Chief home. A scripted DEBUG run without `CMUX_CHIEF_HOME`
+    /// gets a fresh one, so it starts empty and never touches real history.
+    private static func resolveHome() -> ChiefHome {
+#if DEBUG
+        if usesScriptedBrain, ProcessInfo.processInfo.environment[ChiefHome.environmentKey]?.isEmpty ?? true {
+            return ChiefHome(root: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-chief-scripted-\(UUID().uuidString)", isDirectory: true))
+        }
+#endif
+        return ChiefHome.resolve()
     }
 
     /// The settings the brain runs with now (what the settings panel shows).
@@ -176,7 +221,11 @@ final class ChiefService {
         workingWatch = Task { [weak self] in
             for await set in await owner.workingConversations() {
                 guard let self else { return }
-                if self.workingConversations != set { self.workingConversations = set }
+                if self.workingConversations != set {
+                    let now = ContinuousClock.now
+                    self.turnStarts = Dictionary(uniqueKeysWithValues: set.map { ($0, self.turnStarts[$0] ?? now) })
+                    self.workingConversations = set
+                }
             }
         }
     }

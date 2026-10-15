@@ -27,7 +27,9 @@ struct ChiefTurnContextBuilder: Sendable {
         prompt.apply(memory.snapshot())
         return ChiefTurnContext(systemPrompt: ChiefSystemPrompt.build(context: prompt),
                                 workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
-                                environment: Self.environment(socketPath: socketPath, home: input.home))
+                                environment: Self.environment(socketPath: socketPath, home: input.home),
+                                engine: ChiefTurnEngine(harness: settings.resolvedHarness.rawValue, model: settings.resolvedModel,
+                                                        effort: settings.effort.isEmpty ? nil : settings.effort))
     }
 
     /// The user's full name, nil when the account has none.

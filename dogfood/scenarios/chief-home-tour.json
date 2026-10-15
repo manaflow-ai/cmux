@@ -141,10 +141,13 @@
       "tree": "approval-requested"
     },
     {
-      "socket": "chief.approve",
-      "params": {
-        "request": "scripted-approval-1",
-        "choice": "Allow"
+      "expect": {
+        "id": "ChiefApprovalOption.Allow"
+      }
+    },
+    {
+      "click": {
+        "id": "ChiefApprovalOption.Allow"
       }
     },
     {

@@ -79,10 +79,25 @@ enum SidebarWorkspaceListMetrics {
     /// Space between the Home row and the first workspace row; the list's
     /// top fade runs through it.
     static let homeRowBottomGap: CGFloat = 8
-    static let firstRowTopOffset: CGFloat = homeRowTopOffset + homeRowHeight + homeRowBottomGap
+
+    /// Whether the sidebar reserves the Chief Home band (`chief.enabled`).
+    ///
+    /// Read on every access so a runtime toggle moves the rows: the sidebar
+    /// re-renders on the setting (`VerticalTabsSidebar.showsChiefHome`) and the
+    /// AppKit list re-applies its insets on its next apply.
+    static var showsHomeRow: Bool { ChiefSettings.isEnabled }
+
+    /// Height of the band the Home row takes above the first workspace row; zero when Chief is off.
+    static var homeBandHeight: CGFloat {
+        showsHomeRow ? homeRowHeight + homeRowBottomGap : 0
+    }
+
+    static var firstRowTopOffset: CGFloat { homeRowTopOffset + homeBandHeight }
     /// Scrolled workspace rows are fully hidden above this line, so they never
     /// draw behind the titlebar controls or the Home row.
-    static let topScrimClearHeight: CGFloat = homeRowTopOffset + homeRowHeight
+    static var topScrimClearHeight: CGFloat {
+        showsHomeRow ? homeRowTopOffset + homeRowHeight : 0
+    }
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
@@ -90,7 +105,7 @@ enum SidebarWorkspaceListMetrics {
     /// scrolled under the titlebar. It used to reach 20 pt into the list,
     /// which left the first row partly transparent at rest; over a light
     /// terminal-matched backdrop that washed out the selected row's top.
-    static let topScrimHeight: CGFloat = firstRowTopOffset
+    static var topScrimHeight: CGFloat { firstRowTopOffset }
     static let bottomScrimHeight: CGFloat = homeRowTopOffset + 20
 
     static var trailingAccessoryRightEdgeOffset: CGFloat {
@@ -107,10 +122,13 @@ enum SidebarWorkspaceListMetrics {
 }
 
 struct SidebarWorkspaceScrollInsets: Equatable {
-    static let workspaceList = SidebarWorkspaceScrollInsets(
-        top: SidebarWorkspaceListMetrics.scrollTopInset,
-        bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
-    )
+    /// The workspace list's insets; the top follows the Chief Home band.
+    static var workspaceList: SidebarWorkspaceScrollInsets {
+        SidebarWorkspaceScrollInsets(
+            top: SidebarWorkspaceListMetrics.scrollTopInset,
+            bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
+        )
+    }
 
     let top: CGFloat
     let bottom: CGFloat

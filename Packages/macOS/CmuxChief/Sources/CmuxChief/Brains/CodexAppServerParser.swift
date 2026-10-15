@@ -51,6 +51,8 @@ struct CodexAppServerParser: Sendable {
     private var startedTools: Set<String> = []
     /// Commands of started `commandExecution` items, for approvals that omit theirs.
     private var itemCommands: [String: String] = [:]
+    /// Lifts `cmux-question` / `cmux-result` blocks out of the reply text.
+    var blocks = ChiefStructuredBlocks()
 
     init(threadID: String? = nil) {
         self.threadID = threadID
@@ -63,6 +65,7 @@ struct CodexAppServerParser: Sendable {
         openTextItem = nil
         streamedItems = []
         startedTools = []
+        blocks.reset()
     }
 
     /// Records the running turn's id.
@@ -82,6 +85,7 @@ struct CodexAppServerParser: Sendable {
         if let turnID { stoppedTurns.insert(turnID) }
         turnActive = false
         turnID = nil
+        blocks.reset()
     }
 
     /// Reads one stdout line; a line that is not JSON yields nothing.
@@ -90,8 +94,16 @@ struct CodexAppServerParser: Sendable {
         return consume(json)
     }
 
-    /// Reads one parsed stdout line.
+    /// Reads one parsed stdout line. Reply text passes through ``blocks``.
     mutating func consume(_ line: ChiefJSON) -> [CodexOutput] {
+        blocks.session = threadID
+        return consumeLine(line).flatMap { output -> [CodexOutput] in
+            guard case .event(let event) = output else { return [output] }
+            return blocks.filter(event).map(CodexOutput.event)
+        }
+    }
+
+    private mutating func consumeLine(_ line: ChiefJSON) -> [CodexOutput] {
         let method = line["method"]?.string
         let id = line["id"]
         if let method, let id, !id.isNull { return serverRequest(method, id: id, params: line["params"] ?? .null) }

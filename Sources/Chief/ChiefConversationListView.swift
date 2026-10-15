@@ -2,70 +2,49 @@ import AppKit
 import CmuxFoundation
 import MessagesLabSidebar
 
-/// Home's left column (cmux-next `HomeSidebarView`): MessagesLab's
-/// conversation list (search, the pinned grid, the rows) under a 52 pt strip
-/// that holds the compose button, over a translucent scrim of the terminal
-/// background. It owns no data: ``ChiefHomeView`` shows entries after every
+/// Home's conversation list as the window's left sidebar shows it while Home
+/// is selected: MessagesLab's list (search, then Messages' 72 pt rows with a
+/// 40 pt avatar, name, two-line preview and time; pinned tiles only for
+/// conversations the user pinned) under the pinned Chief row.
+///
+/// It draws no background: it sits on the sidebar's own material, so the
+/// sidebar stays one surface. MessagesLab reserves a 52 pt titlebar strip
+/// above its search field; the sidebar already has its titlebar and the Chief
+/// row there, so this view clips that strip away and the search field starts
+/// at the top. It owns no data: ``ChiefHomeView`` shows entries after every
 /// change and answers the choices.
 @MainActor
 final class ChiefConversationListView: NSView {
-    /// MessagesLab's search field starts this far down.
-    static let stripHeight: CGFloat = 52
+    /// MessagesLab's search field starts this far down (its titlebar strip).
+    static let messagesTitlebarStrip: CGFloat = 52
 
     let list = CmuxSidebarView()
-    private let strip = ChiefWindowDragStrip()
-    private let compose = NSButton()
-    /// The compose button: a new conversation with a new Chief.
-    var onNewConversation: () -> Void = {}
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        list.frame = bounds
-        list.autoresizingMask = [.width, .height]
+        clipsToBounds = true
         list.setAccessibilityLabel(ChiefStrings.conversationsList)
-        addSubview(list)
-        addSubview(strip)
-        compose.bezelStyle = .accessoryBarAction
-        compose.isBordered = false
-        compose.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: ChiefStrings.newConversation)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular))
-        compose.setAccessibilityLabel(ChiefStrings.newConversation)
-        compose.toolTip = ChiefStrings.newConversation
-        compose.target = self
-        compose.action = #selector(newConversation)
-        addSubview(compose)
         list.scrollView.scrollerStyle = .overlay
+        addSubview(list)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    var minimumWidth: CGFloat { list.minimumWidth }
-    var preferredWidth: CGFloat { list.preferredWidth }
+    override var isFlipped: Bool { true }
 
-    func apply(_ theme: ChiefTheme) {
-        // The scrim lets the window's own background (and its opacity) show through, like the transcript.
-        layer?.backgroundColor = theme.mix(theme.isDark ? 0.04 : 0.025).withAlphaComponent(theme.isDark ? 0.55 : 0.5).cgColor
-        // The unread dot is the app's accent; only sent bubbles are iMessage blue.
-        list.unreadColor = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(isDark: theme.isDark)
-        compose.contentTintColor = theme.textSecondary
-        appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+    /// The sidebar's content appearance and the cmux accent: the unread dot and
+    /// the selected row take the accent, as a selected workspace row does.
+    func apply(isDark: Bool, accent: NSColor) {
+        appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        list.unreadColor = accent
+        list.selectionColor = accent
     }
 
     override func layout() {
         super.layout()
-        // Not flipped: the strip is the top `stripHeight` points.
-        let side: CGFloat = 28
-        strip.frame = NSRect(x: 0, y: bounds.height - Self.stripHeight, width: max(0, bounds.width - side - 16),
-                             height: Self.stripHeight)
-        compose.frame = NSRect(x: bounds.width - side - 12, y: bounds.height - 26 - side / 2, width: side, height: side)
+        let strip = Self.messagesTitlebarStrip
+        let frame = CGRect(x: 0, y: -strip, width: bounds.width, height: bounds.height + strip)
+        if list.frame != frame { list.frame = frame }
     }
-
-    @objc private func newConversation() { onNewConversation() }
-}
-
-/// Empty header space that drags the window, as on Messages' sidebar toolbar.
-final class ChiefWindowDragStrip: NSView {
-    override var mouseDownCanMoveWindow: Bool { true }
 }

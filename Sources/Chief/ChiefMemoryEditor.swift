@@ -1,117 +1,392 @@
 import AppKit
+import CmuxChief
 
-/// A sheet that edits one of Chief's memory files (person.md or
-/// instructions.md) in place: a plain text view, Cancel and Save. The file
-/// is read when the sheet opens and written atomically on Save; Chief reads
-/// it when its next conversation session starts.
-@MainActor
-final class ChiefMemoryEditor: NSObject {
-    private let fileURL: URL
-    private let sheet: NSWindow
-    private let textView = NSTextView()
-    private let status = NSTextField(labelWithString: "")
-    /// Keeps the editor alive while its sheet shows.
-    private static var open: Set<ChiefMemoryEditor> = []
+/// What the memory sheet's sidebar lists.
+enum ChiefMemorySheetItem: Int, CaseIterable {
+    case aboutYou, instructions, notes
 
-    private init(title: String, fileURL: URL, text: String) {
-        self.fileURL = fileURL
-        sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
-                         styleMask: [.titled, .resizable], backing: .buffered, defer: true)
-        super.init()
-        sheet.title = title
-        sheet.minSize = NSSize(width: 420, height: 300)
-        let content = NSView()
-        let heading = NSTextField(labelWithString: title)
-        heading.font = .systemFont(ofSize: 15, weight: .semibold)
-        let path = NSTextField(labelWithString: (fileURL.path as NSString).abbreviatingWithTildeInPath)
-        path.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        path.textColor = .secondaryLabelColor
-        path.lineBreakMode = .byTruncatingMiddle
-        path.isSelectable = true
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        textView.isRichText = false
-        textView.allowsUndo = true
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        textView.textContainerInset = NSSize(width: 6, height: 8)
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.string = text
-        textView.autoresizingMask = [.width]
-        textView.isVerticallyResizable = true
-        textView.textContainer?.widthTracksTextView = true
-        scroll.documentView = textView
-        status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        status.textColor = .systemRed
-        status.isHidden = true
-        let cancel = NSButton(title: ChiefStrings.memoryCancel, target: self, action: #selector(cancelEdit))
-        cancel.keyEquivalent = "\u{1b}"
-        let save = NSButton(title: ChiefStrings.memorySave, target: self, action: #selector(saveEdit))
-        save.keyEquivalent = "s"
-        save.keyEquivalentModifierMask = .command
-        save.bezelStyle = .push
-        for view in [heading, path, scroll, status, cancel, save] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            content.addSubview(view)
+    var title: String {
+        switch self {
+        case .aboutYou: ChiefMemoryStrings.sidebarAboutYou
+        case .instructions: ChiefMemoryStrings.sidebarInstructions
+        case .notes: ChiefMemoryStrings.sidebarNotes
         }
-        NSLayoutConstraint.activate([
-            heading.topAnchor.constraint(equalTo: content.topAnchor, constant: 16),
-            heading.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            heading.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -20),
-            path.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: 2),
-            path.leadingAnchor.constraint(equalTo: heading.leadingAnchor),
-            path.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -20),
-            scroll.topAnchor.constraint(equalTo: path.bottomAnchor, constant: 10),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            scroll.bottomAnchor.constraint(equalTo: save.topAnchor, constant: -14),
-            save.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            save.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
-            cancel.trailingAnchor.constraint(equalTo: save.leadingAnchor, constant: -8),
-            cancel.centerYAnchor.constraint(equalTo: save.centerYAnchor),
-            status.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            status.centerYAnchor.constraint(equalTo: save.centerYAnchor),
-            status.trailingAnchor.constraint(lessThanOrEqualTo: cancel.leadingAnchor, constant: -8),
-        ])
-        sheet.contentView = content
-        sheet.defaultButtonCell = save.cell as? NSButtonCell
     }
 
-    /// Opens `fileURL` in a sheet on `window` (a window of its own without one).
-    static func present(title: String, fileURL: URL, in window: NSWindow?) {
-        let text = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
-        let editor = ChiefMemoryEditor(title: title, fileURL: fileURL, text: text)
-        open.insert(editor)
+    var symbol: String {
+        switch self {
+        case .aboutYou: "person.crop.circle"
+        case .instructions: "list.bullet.rectangle"
+        case .notes: "brain"
+        }
+    }
+
+    var document: ChiefMemoryDocument? {
+        switch self {
+        case .aboutYou: .person
+        case .instructions: .instructions
+        case .notes: nil
+        }
+    }
+}
+
+/// Chief's memory as a two-pane sheet (P1-5; reference
+/// `apps/aside/web/memory-file-browser.jpg`): About You (person.md),
+/// Instructions (instructions.md) and Notes (memory.jsonl) on the left; the
+/// selection on the right, Markdown rendered with its last-updated time and
+/// an Edit toggle to plain text, or the notes with their source, time and a
+/// ✕ to forget each. It follows the files live (``ChiefMemoryStore``), so a
+/// `cmux chief memory add` shows while the sheet is open.
+@MainActor
+final class ChiefMemoryEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private static var shown: ChiefMemoryEditor?
+
+    private let sheet: NSWindow
+    private let sidebar = NSTableView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let updatedLabel = NSTextField(labelWithString: "")
+    private let editButton = NSButton(title: ChiefMemoryStrings.edit, target: nil, action: nil)
+    private let documentScroll = NSScrollView()
+    private let documentView = NSTextView()
+    private let notesScroll = NSScrollView()
+    private let notesStack = NSStackView()
+    private let notesEmpty = NSTextField(wrappingLabelWithString: ChiefMemoryStrings.emptyNotes)
+    private let status = NSTextField(labelWithString: "")
+    private var selection: ChiefMemorySheetItem = .aboutYou
+    private var editing = false
+    private var theme = ChiefTheme.current()
+    private var observer: (any NSObjectProtocol)?
+
+    private init(selecting item: ChiefMemorySheetItem) {
+        sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
+                         styleMask: [.titled, .resizable], backing: .buffered, defer: true)
+        super.init()
+        selection = item
+        sheet.title = ChiefMemoryStrings.sheetTitle
+        sheet.minSize = NSSize(width: 560, height: 360)
+        sheet.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        build()
+        observer = NotificationCenter.default.addObserver(forName: ChiefMemoryStore.didChange, object: nil,
+                                                          queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showSelection() } // main-proof: observer on queue: .main
+        }
+    }
+
+    // MARK: Presenting
+
+    /// Opens the memory sheet on `window` (a window of its own without one),
+    /// or selects `item` in the one already open.
+    static func present(selecting item: ChiefMemorySheetItem, in window: NSWindow?) {
+        ChiefMemoryStore.shared.start()
+        if let shown {
+            shown.select(item)
+            shown.sheet.makeKeyAndOrderFront(nil)
+            return
+        }
+        let editor = ChiefMemoryEditor(selecting: item)
+        shown = editor
         if let window {
             window.beginSheet(editor.sheet)
         } else {
             editor.sheet.center()
             editor.sheet.makeKeyAndOrderFront(nil)
         }
-        editor.sheet.makeFirstResponder(editor.textView)
+        editor.select(item)
     }
 
-    @objc private func saveEdit() {
-        do {
-            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(textView.string.utf8).write(to: fileURL, options: .atomic)
-            close()
-        } catch {
-            status.stringValue = ChiefStrings.memorySaveFailed
-            status.isHidden = false
-            NSSound.beep()
+    /// The settings panel's Edit About You / Edit Instructions: the sheet on
+    /// that file, already editing.
+    static func present(title: String, fileURL: URL, in window: NSWindow?) {
+        let item: ChiefMemorySheetItem = fileURL.lastPathComponent == "instructions.md" ? .instructions : .aboutYou
+        present(selecting: item, in: window)
+        shown?.setEditing(true)
+    }
+
+    // MARK: Layout
+
+    private func build() {
+        let content = NSView()
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("item"))
+        sidebar.addTableColumn(column)
+        sidebar.headerView = nil
+        sidebar.style = .sourceList
+        sidebar.rowHeight = 28
+        sidebar.dataSource = self
+        sidebar.delegate = self
+        sidebar.setAccessibilityLabel(ChiefMemoryStrings.sheetTitle)
+        let sidebarScroll = NSScrollView()
+        sidebarScroll.documentView = sidebar
+        sidebarScroll.drawsBackground = false
+        sidebarScroll.hasVerticalScroller = false
+        let sidebarBox = NSVisualEffectView()
+        sidebarBox.material = .sidebar
+        sidebarBox.blendingMode = .behindWindow
+        let divider = NSBox()
+        divider.boxType = .separator
+
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        updatedLabel.font = .systemFont(ofSize: 11)
+        updatedLabel.textColor = .secondaryLabelColor
+        editButton.target = self
+        editButton.action = #selector(toggleEdit)
+        editButton.bezelStyle = .push
+        editButton.controlSize = .small
+        let headerLine = NSBox()
+        headerLine.boxType = .separator
+
+        documentView.isRichText = false
+        documentView.allowsUndo = true
+        documentView.drawsBackground = false
+        documentView.textContainerInset = NSSize(width: 24, height: 18)
+        documentView.isAutomaticQuoteSubstitutionEnabled = false
+        documentView.isAutomaticDashSubstitutionEnabled = false
+        documentView.autoresizingMask = [.width]
+        documentView.isVerticallyResizable = true
+        documentView.textContainer?.widthTracksTextView = true
+        documentScroll.documentView = documentView
+        documentScroll.hasVerticalScroller = true
+        documentScroll.drawsBackground = false
+
+        notesStack.orientation = .vertical
+        notesStack.alignment = .leading
+        notesStack.spacing = 2
+        notesStack.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        notesStack.translatesAutoresizingMaskIntoConstraints = false
+        let notesDocument = FlippedView()
+        notesDocument.translatesAutoresizingMaskIntoConstraints = false
+        notesDocument.addSubview(notesStack)
+        notesScroll.documentView = notesDocument
+        notesScroll.hasVerticalScroller = true
+        notesScroll.drawsBackground = false
+        notesEmpty.font = .systemFont(ofSize: 13)
+        notesEmpty.textColor = .secondaryLabelColor
+
+        status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        status.textColor = .systemRed
+        status.isHidden = true
+        let close = NSButton(title: ChiefMemoryStrings.close, target: self, action: #selector(closeSheet))
+        close.keyEquivalent = "\u{1b}"
+        close.bezelStyle = .push
+
+        for view in [sidebarBox, divider, titleLabel, updatedLabel, editButton, headerLine,
+                     documentScroll, notesScroll, status, close] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(view)
+        }
+        sidebarScroll.translatesAutoresizingMaskIntoConstraints = false
+        sidebarBox.addSubview(sidebarScroll)
+        let sidebarWidth: CGFloat = 180
+        NSLayoutConstraint.activate([
+            sidebarBox.topAnchor.constraint(equalTo: content.topAnchor),
+            sidebarBox.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            sidebarBox.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            sidebarBox.widthAnchor.constraint(equalToConstant: sidebarWidth),
+            sidebarScroll.topAnchor.constraint(equalTo: sidebarBox.topAnchor, constant: 10),
+            sidebarScroll.bottomAnchor.constraint(equalTo: sidebarBox.bottomAnchor),
+            sidebarScroll.leadingAnchor.constraint(equalTo: sidebarBox.leadingAnchor),
+            sidebarScroll.trailingAnchor.constraint(equalTo: sidebarBox.trailingAnchor),
+            divider.topAnchor.constraint(equalTo: content.topAnchor),
+            divider.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            divider.leadingAnchor.constraint(equalTo: sidebarBox.trailingAnchor),
+            divider.widthAnchor.constraint(equalToConstant: 1),
+
+            titleLabel.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: 18),
+            titleLabel.centerYAnchor.constraint(equalTo: editButton.centerYAnchor),
+            updatedLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 10),
+            updatedLabel.centerYAnchor.constraint(equalTo: editButton.centerYAnchor),
+            updatedLabel.trailingAnchor.constraint(equalTo: editButton.leadingAnchor, constant: -10),
+            editButton.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            editButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
+            headerLine.topAnchor.constraint(equalTo: editButton.bottomAnchor, constant: 10),
+            headerLine.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
+            headerLine.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+
+            documentScroll.topAnchor.constraint(equalTo: headerLine.bottomAnchor),
+            documentScroll.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
+            documentScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            documentScroll.bottomAnchor.constraint(equalTo: close.topAnchor, constant: -12),
+            notesScroll.topAnchor.constraint(equalTo: documentScroll.topAnchor),
+            notesScroll.leadingAnchor.constraint(equalTo: documentScroll.leadingAnchor),
+            notesScroll.trailingAnchor.constraint(equalTo: documentScroll.trailingAnchor),
+            notesScroll.bottomAnchor.constraint(equalTo: documentScroll.bottomAnchor),
+            notesStack.topAnchor.constraint(equalTo: notesDocument.topAnchor),
+            notesStack.leadingAnchor.constraint(equalTo: notesDocument.leadingAnchor),
+            notesStack.trailingAnchor.constraint(equalTo: notesDocument.trailingAnchor),
+            notesStack.bottomAnchor.constraint(equalTo: notesDocument.bottomAnchor),
+            notesDocument.widthAnchor.constraint(equalTo: notesScroll.contentView.widthAnchor),
+
+            close.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+            close.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
+            status.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: 18),
+            status.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+            status.trailingAnchor.constraint(lessThanOrEqualTo: close.leadingAnchor, constant: -8),
+        ])
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        sheet.contentView = content
+    }
+
+    // MARK: Sidebar
+
+    func numberOfRows(in tableView: NSTableView) -> Int { ChiefMemorySheetItem.allCases.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let item = ChiefMemorySheetItem(rawValue: row) else { return nil }
+        let cell = NSTableCellView()
+        let image = NSImageView(image: NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil) ?? NSImage())
+        let label = NSTextField(labelWithString: item.title)
+        label.font = .systemFont(ofSize: 13)
+        for view in [image, label] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(view)
+        }
+        cell.imageView = image
+        cell.textField = label
+        NSLayoutConstraint.activate([
+            image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+            image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            image.widthAnchor.constraint(equalToConstant: 16),
+            label.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 7),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -6),
+            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
+        return cell
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard let item = ChiefMemorySheetItem(rawValue: sidebar.selectedRow), item != selection else { return }
+        if editing { commitEdit() }
+        selection = item
+        setEditing(false)
+    }
+
+    private func select(_ item: ChiefMemorySheetItem) {
+        if editing, item != selection { commitEdit() }
+        selection = item
+        if sidebar.selectedRow != item.rawValue {
+            sidebar.selectRowIndexes(IndexSet(integer: item.rawValue), byExtendingSelection: false)
+        }
+        setEditing(false)
+    }
+
+    // MARK: Content
+
+    /// Renders the selection again from disk. While editing, the text the user is typing stays.
+    private func showSelection() {
+        titleLabel.stringValue = selection.title
+        status.isHidden = true
+        let memory = ChiefMemoryStore.shared.memory
+        if let document = selection.document {
+            documentScroll.isHidden = false
+            notesScroll.isHidden = true
+            editButton.isHidden = false
+            editButton.title = editing ? ChiefMemoryStrings.done : ChiefMemoryStrings.edit
+            let modified = memory?.modificationDate(of: document)
+            updatedLabel.stringValue = modified.map { ChiefMemoryStrings.updated(ChiefMemoryStrings.relative($0)) } ?? ""
+            updatedLabel.toolTip = modified.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) }
+            guard !editing else { return }
+            let raw = memory?.text(of: document) ?? ""
+            let meaningful = ChiefMemory.meaningfulText(raw)
+            documentView.isEditable = false
+            documentView.isSelectable = true
+            if meaningful.isEmpty {
+                documentView.textStorage?.setAttributedString(NSAttributedString(
+                    string: ChiefMemoryStrings.emptyDocument,
+                    attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.secondaryLabelColor]))
+            } else {
+                documentView.textStorage?.setAttributedString(ChiefMemoryMarkdown.render(meaningful))
+            }
+            documentView.setAccessibilityLabel(selection.title)
+        } else {
+            documentScroll.isHidden = true
+            notesScroll.isHidden = false
+            editButton.isHidden = true
+            let facts = ChiefMemoryStore.shared.recent(Int.max)
+            updatedLabel.stringValue = facts.first.map { ChiefMemoryStrings.updated(ChiefMemoryStrings.relative($0.createdAt)) } ?? ""
+            for view in notesStack.arrangedSubviews {
+                notesStack.removeArrangedSubview(view)
+                view.removeFromSuperview()
+            }
+            if facts.isEmpty {
+                notesStack.addArrangedSubview(notesEmpty)
+                notesEmpty.preferredMaxLayoutWidth = max(200, notesScroll.contentSize.width - 28)
+            }
+            let width = max(300, notesScroll.contentSize.width - 28)
+            for fact in facts {
+                let row = ChiefMemoryNoteRow(fact: fact, width: width, compact: false)
+                row.onForget = { [weak self] id in
+                    if !ChiefMemoryStore.shared.forget(id) { self?.showFailure(ChiefMemoryStrings.forgetFailed) }
+                }
+                row.apply(theme)
+                notesStack.addArrangedSubview(row)
+            }
         }
     }
 
-    @objc private func cancelEdit() { close() }
+    // MARK: Editing
 
-    private func close() {
+    private func setEditing(_ on: Bool) {
+        guard selection.document != nil || !on else { return }
+        editing = on
+        if on, let document = selection.document {
+            let raw = ChiefMemoryStore.shared.memory?.text(of: document) ?? ""
+            documentView.isEditable = true
+            documentView.textStorage?.setAttributedString(NSAttributedString(string: raw, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: NSColor.labelColor,
+            ]))
+            documentView.typingAttributes = [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                                             .foregroundColor: NSColor.labelColor]
+            sheet.makeFirstResponder(documentView)
+        }
+        showSelection()
+    }
+
+    @objc private func toggleEdit() {
+        if editing {
+            guard commitEdit() else { return }
+            setEditing(false)
+        } else {
+            setEditing(true)
+        }
+    }
+
+    /// Writes the edited text; false (with a message) when the write failed.
+    @discardableResult
+    private func commitEdit() -> Bool {
+        guard editing, let document = selection.document, let memory = ChiefMemoryStore.shared.memory else { return true }
+        let text = documentView.string
+        guard text != memory.text(of: document) else { return true }
+        do {
+            try memory.save(text, to: document)
+            return true
+        } catch {
+            showFailure(ChiefStrings.memorySaveFailed)
+            return false
+        }
+    }
+
+    private func showFailure(_ message: String) {
+        status.stringValue = message
+        status.isHidden = false
+        NSSound.beep()
+    }
+
+    @objc private func closeSheet() {
+        guard commitEdit() else { return }
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
         if let parent = sheet.sheetParent {
             parent.endSheet(sheet)
         } else {
             sheet.orderOut(nil)
         }
-        Self.open.remove(self)
+        Self.shown = nil
     }
+}
+
+/// A top-down document view for the notes list.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

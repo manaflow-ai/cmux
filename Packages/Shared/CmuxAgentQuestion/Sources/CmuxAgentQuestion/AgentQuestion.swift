@@ -14,12 +14,17 @@ public struct AgentQuestion: Hashable, Sendable, Codable, Identifiable {
     public var source: Source
     public var items: [Item]
     public var state: State
+    /// The label of the card's primary button ("Create"), when the asker
+    /// names one; nil shows the renderer's own ("Submit"). Optional on the
+    /// wire (`submit_label` in a conversation part).
+    public var submitLabel: String?
 
-    public init(id: String, source: Source, items: [Item], state: State = .pending) {
+    public init(id: String, source: Source, items: [Item], state: State = .pending, submitLabel: String? = nil) {
         self.id = id
         self.source = source
         self.items = items
         self.state = state
+        self.submitLabel = submitLabel
     }
 
     /// The first item's prompt, for notifications, previews and search.

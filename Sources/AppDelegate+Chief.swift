@@ -16,6 +16,14 @@ extension AppDelegate {
         service.start()
     }
 
+    /// Leaves Chief Home in `tabManager`'s window before a user action that
+    /// creates content in its selected workspace (new tab, split, browser), so
+    /// the result is never made in a workspace the user cannot see.
+    func leaveChiefHome(in tabManager: TabManager?) {
+        guard let tabManager, let context = mainWindowContext(for: tabManager) else { return }
+        ChiefHomeNavigation(sidebarSelectionState: context.sidebarSelectionState).leave()
+    }
+
     /// A first-run row: a new workspace (leaving Home), with the user's agent
     /// started in it for "Start an agent".
     private func performChiefFirstRunAction(_ action: ChiefFirstRunAction) {

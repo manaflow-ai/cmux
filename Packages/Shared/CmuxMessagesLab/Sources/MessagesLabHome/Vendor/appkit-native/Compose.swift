@@ -606,6 +606,14 @@ final class ComposeView: UIView {
     /// keeps it at `ComposeMetrics.emptyAfterSend` (30 pt), not the one-line height.
     private(set) var emptyAfterSend = false
     private var placeholder = Strings.placeholder
+    /// cmux-classic: the host's placeholder over the field's own (Home: an approval waits above).
+    var cmuxPlaceholder: String? {
+        didSet {
+            guard cmuxPlaceholder != oldValue else { return }
+            let p = cmuxPlaceholder ?? ComposeView.placeholders.field
+            if p != placeholder { placeholder = p; renderPlaceholder(); textView.view.setAccessibilityLabel(p) }
+        }
+    }
     var captureMode = false {
         didSet {
             caret.isHidden = !captureMode
@@ -997,7 +1005,7 @@ final class ComposeView: UIView {
                 if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
             }
         }
-        let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
+        let newPlaceholder = cmuxPlaceholder ?? (state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field) // cmux-classic
         if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
         // Messages changes the field's height at once for an attachment (no in-between frame at
         // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and

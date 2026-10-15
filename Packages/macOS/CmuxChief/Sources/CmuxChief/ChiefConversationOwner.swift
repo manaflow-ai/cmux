@@ -62,6 +62,8 @@ public actor ChiefConversationOwner {
     var workingSubscribers: [UUID: AsyncStream<Set<ConversationID>>.Continuation] = [:]
     var running: [ConversationID: ChiefRunningTurn] = [:]
     var pending: [ConversationID: [ChiefPendingTurn]] = [:]
+    /// Each conversation's last finished turn (``lastTurnStats(in:)``).
+    var lastTurns: [ConversationID: ChiefTurnStats] = [:]
     /// Conversations whose stopped turn waits for the brain's interrupt; no turn starts there meanwhile.
     var stopping: Set<ConversationID> = []
     /// The last persistence failure, for diagnostics. Writes never fail an op:
@@ -105,8 +107,9 @@ public actor ChiefConversationOwner {
         }
         if loaded[Self.defaultConversationID] == nil {
             let created = now()
+            // Unpinned: Home lists it as a row; only the user pins conversations into the grid.
             let summary = ConversationSummary(id: Self.defaultConversationID, owner: .local, participants: [user, defaultChief],
-                                              createdAt: created, updatedAt: created, pinRank: 0)
+                                              createdAt: created, updatedAt: created)
             let state = ChiefConversationState(summary: summary)
             let log = ChiefConversationLog(url: Self.file(for: summary.id, in: home))
             try log.rewrite(state)

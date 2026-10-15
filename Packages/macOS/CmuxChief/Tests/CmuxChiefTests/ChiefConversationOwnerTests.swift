@@ -14,6 +14,8 @@ import Testing
         #expect(summary.kind(me: ChiefConversationOwner.userID) == .chief)
         #expect(summary.participants.contains { $0.isChief && $0.displayName == "Chief" })
         #expect(inbox.me.displayName == "Tester")
+        // A row in Home's list, not a lone pinned tile: only the user pins.
+        #expect(summary.pinRank == nil)
     }
 
     /// The order Home expects: user message, Chief read receipt, typing on,

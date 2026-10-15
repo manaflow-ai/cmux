@@ -4616,12 +4616,14 @@ class TabManager: ObservableObject {
 
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
+        AppDelegate.shared?.leaveChiefHome(in: self)
         // Cmd+T should always focus the newly created surface.
         selectedWorkspace?.clearSplitZoom()
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
     func newSurface(initialInput: String) {
+        AppDelegate.shared?.leaveChiefHome(in: self)
         selectedWorkspace?.clearSplitZoom()
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
     }

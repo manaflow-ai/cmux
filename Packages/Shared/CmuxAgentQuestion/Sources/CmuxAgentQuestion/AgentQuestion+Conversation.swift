@@ -25,7 +25,8 @@ extension AgentQuestion {
         let harness = part["harness"]?.string.flatMap(Harness.init(rawValue:)) ?? .chief
         let source = Source(harness: harness, session: session, permission: part["permission"]?.text,
                             agentName: part["agent"]?.text)
-        self.init(id: "\(messageID)#\(partIndex)", source: source, items: mapped, state: Self.conversationState(part["state"]))
+        self.init(id: "\(messageID)#\(partIndex)", source: source, items: mapped, state: Self.conversationState(part["state"]),
+                  submitLabel: part["submit_label"]?.text)
     }
 
     static func conversationState(_ state: AgentQuestionJSON?) -> State {

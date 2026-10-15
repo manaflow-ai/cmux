@@ -11,6 +11,7 @@ final class ChiefSettingsPanel: NSView {
     static let width: CGFloat = 280
 
     private let stack = NSStackView()
+    private let memorySection = ChiefMemorySectionView(width: ChiefSettingsPanel.width - 32)
     private let harness = NSPopUpButton(frame: .zero, pullsDown: false)
     private let model = NSPopUpButton(frame: .zero, pullsDown: false)
     private let effort = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -19,9 +20,16 @@ final class ChiefSettingsPanel: NSView {
     private var notes: [NSTextField] = []
     private var titleLabel = NSTextField(labelWithString: ChiefStrings.settingsTitle)
     private var shownAvatar = ""
+    /// Choose Picture… without a picture, Remove Picture with one.
+    private let pictureButton = NSButton(title: ChiefStrings.settingsAvatarChoosePicture, target: nil, action: nil)
+    private var hasPicture = false
 
     /// The avatar text changed (nil: initials).
     var onAvatar: (String?) -> Void = { _ in }
+    /// Choose Picture… was clicked: the host opens the image picker.
+    var onChoosePicture: () -> Void = {}
+    /// Remove Picture was clicked.
+    var onRemovePicture: () -> Void = {}
     /// New Conversation was clicked.
     var onNewConversation: () -> Void = {}
     /// Edit About You / Edit Instructions: the host opens the editor.
@@ -35,6 +43,7 @@ final class ChiefSettingsPanel: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(ChiefStrings.settingsTitle)
+        setAccessibilityIdentifier("ChiefSettingsPanel")
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -48,6 +57,14 @@ final class ChiefSettingsPanel: NSView {
         avatarField.action = #selector(avatarChanged)
         avatarField.setAccessibilityLabel(ChiefStrings.settingsAvatar)
         addRow(ChiefStrings.settingsAvatar, avatarField)
+        stack.setCustomSpacing(6, after: avatarField)
+        pictureButton.target = self
+        pictureButton.action = #selector(pictureClicked)
+        pictureButton.bezelStyle = .push
+        pictureButton.controlSize = .regular
+        stack.addArrangedSubview(pictureButton)
+        pictureButton.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
+        stack.setCustomSpacing(10, after: pictureButton)
 
         for (button, label) in [(harness, ChiefStrings.settingsHarness), (model, ChiefStrings.settingsModel),
                                 (effort, ChiefStrings.settingsEffort)] {
@@ -61,6 +78,11 @@ final class ChiefSettingsPanel: NSView {
 
         addCaption(ChiefStrings.settingsMemory)
         addNote(ChiefStrings.settingsMemoryNote)
+        // Chief memory (ChiefMemorySectionView): the newest notes, hover ✕ forgets, Show All… opens the sheet.
+        stack.setCustomSpacing(10, after: stack.arrangedSubviews.last ?? titleLabel)
+        memorySection.onShowAll = { [weak self] in ChiefMemoryEditor.present(selecting: .notes, in: self?.window) }
+        stack.addArrangedSubview(memorySection)
+        stack.setCustomSpacing(10, after: memorySection)
         for (title, action) in [(ChiefStrings.settingsEditProfile, #selector(editProfile)),
                                 (ChiefStrings.settingsEditInstructions, #selector(editInstructions)),
                                 (ChiefStrings.settingsShowMemoryFolder, #selector(showFolder))] {
@@ -117,6 +139,7 @@ final class ChiefSettingsPanel: NSView {
         titleLabel.textColor = theme.textPrimary
         for caption in captions { caption.textColor = theme.textSecondary }
         for note in notes { note.textColor = theme.textTertiary }
+        memorySection.apply(theme)
     }
 
     override func layout() {
@@ -128,7 +151,11 @@ final class ChiefSettingsPanel: NSView {
     // MARK: Values
 
     /// Shows the current engine settings and avatar.
-    func refresh(avatar: String? = nil) {
+    func refresh(avatar: String? = nil, hasPicture: Bool? = nil) {
+        if let hasPicture {
+            self.hasPicture = hasPicture
+            pictureButton.title = hasPicture ? ChiefStrings.settingsAvatarRemovePicture : ChiefStrings.settingsAvatarChoosePicture
+        }
         let settings = ChiefService.shared.engineSettings
         let harnessValue = settings.resolvedHarness
         fill(harness, CmuxChief.ChiefHarness.allCases.map { ($0.rawValue, $0.rawValue) },
@@ -195,6 +222,10 @@ final class ChiefSettingsPanel: NSView {
         guard text != shownAvatar else { return }
         shownAvatar = text
         onAvatar(text.isEmpty ? nil : text)
+    }
+
+    @objc private func pictureClicked() {
+        if hasPicture { onRemovePicture() } else { onChoosePicture() }
     }
 
     @objc private func editProfile() { onEditMemory(false) }

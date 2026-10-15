@@ -22,6 +22,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxHomeCore"),
+        // cmux-classic: approvals answer through `HomeOp.answerQuestion` (Cmux/ChiefRows.swift).
+        .package(path: "../CmuxAgentQuestion"),
         .package(path: "../CmuxHomeRender"),
     ],
     targets: [
@@ -30,6 +32,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),

@@ -17101,6 +17101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return nil
         }
+        leaveChiefHome(in: tabManager)
 
         let preferredProfileID =
             tabManager?.focusedBrowserPanel?.profileID
@@ -17594,6 +17595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
         _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        leaveChiefHome(in: terminalContext?.tabManager ?? tabManager)
 
         let directionLabel: String
         switch direction {

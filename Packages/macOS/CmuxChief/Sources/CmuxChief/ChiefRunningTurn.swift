@@ -26,9 +26,26 @@ struct ChiefRunningTurn {
     var draftSeq: UInt64 = 0
     /// Work messages still running, by the brain's tool call id.
     var tools: [String: MessageID] = [:]
+    /// Approval messages waiting for the user, by request id. While any waits the Chief
+    /// is not typing (it waits for the user, ``ChiefConversationOwner/answerApproval``).
+    var approvals: [String: MessageID] = [:]
+    /// The turn's one Cloud provisioning row (``ChiefCloudProvisioning``), once a provisioning call started.
+    var provisioning: MessageID?
+    /// The provisioning step of each running provisioning call, by tool call id.
+    var provisioningCalls: [String: ChiefCloudProvisioning.Phase] = [:]
+    /// The provisioning row's status so far.
+    var provisioningStatus: WorkRef.Status = .running
+    /// When the turn started, for its ``ChiefTurnStats``.
+    let startedAt: Date
+    /// The engine from the turn's context, once it is built.
+    var engine: ChiefTurnEngine?
+    var toolCalls = 0
+    var failedToolCalls = 0
+    var usage: ChiefTurnUsage?
 
-    init(chief: ParticipantID, threadRoot: MessageID?) {
+    init(chief: ParticipantID, threadRoot: MessageID?, startedAt: Date = Date()) {
         self.chief = chief
         self.threadRoot = threadRoot
+        self.startedAt = startedAt
     }
 }

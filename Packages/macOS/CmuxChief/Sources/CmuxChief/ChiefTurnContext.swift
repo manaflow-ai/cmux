@@ -10,6 +10,8 @@ public struct ChiefTurnContext: Sendable, Equatable {
     public var workingDirectory: URL
     /// Extra environment for the brain process (socket paths, the Chief home).
     public var environment: [String: String]
+    /// The engine that answers, recorded in the turn's ``ChiefTurnStats``; nil when unknown.
+    public var engine: ChiefTurnEngine?
 
     /// Creates a context.
     ///
@@ -17,10 +19,13 @@ public struct ChiefTurnContext: Sendable, Equatable {
     ///   - systemPrompt: The Chief's system prompt.
     ///   - workingDirectory: The process's working directory.
     ///   - environment: Extra process environment; empty by default.
-    public init(systemPrompt: String, workingDirectory: URL, environment: [String: String] = [:]) {
+    ///   - engine: The engine that answers, for the turn's stats; nil by default.
+    public init(systemPrompt: String, workingDirectory: URL, environment: [String: String] = [:],
+                engine: ChiefTurnEngine? = nil) {
         self.systemPrompt = systemPrompt
         self.workingDirectory = workingDirectory
         self.environment = environment
+        self.engine = engine
     }
 }
 

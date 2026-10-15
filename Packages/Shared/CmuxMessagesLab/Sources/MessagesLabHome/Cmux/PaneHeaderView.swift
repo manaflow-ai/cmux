@@ -26,6 +26,10 @@ final class PaneHeaderView: NSView {
     /// white monogram (Messages' light-mode avatar).
     var light = false { didSet { if light != oldValue { applyAvatar() } } }
     var onContact: () -> Void = {}
+    /// cmux-classic: the conversation's status ("Waiting for you" while an approval waits): an
+    /// attention dot on the avatar, the pill's accessibility value and tooltip. Nil: none.
+    var status: String? { didSet { if status != oldValue { applyStatus() } } }
+    private let statusDot = NSView()
 
     static let avatarSize: CGFloat = 40
     static let avatarTop: CGFloat = 8
@@ -55,7 +59,15 @@ final class PaneHeaderView: NSView {
         pill.font = .systemFont(ofSize: 13, weight: .bold)
         pill.target = self
         pill.action = #selector(contactClicked)
+        // cmux: a stable handle for UI tests and dogfood tours (the label is localized).
+        pill.setAccessibilityIdentifier("HomeHeaderNamePill")
         addSubview(pill)
+        statusDot.wantsLayer = true
+        statusDot.layer?.backgroundColor = NSColor.systemOrange.cgColor
+        statusDot.layer?.borderWidth = 2
+        statusDot.isHidden = true
+        statusDot.setAccessibilityElement(false)
+        addSubview(statusDot)
         applyTitle()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -99,6 +111,18 @@ final class PaneHeaderView: NSView {
         pillBacking.frame = pill.frame
         pillBacking.layer?.cornerRadius = h / 2
         pillBacking.isHidden = pill.isHidden
+        // The attention dot sits on the avatar's lower right, ringed in the header's fill.
+        let d: CGFloat = 12
+        statusDot.frame = CGRect(x: avatar.frame.maxX - d + 1, y: avatar.frame.maxY - d + 1, width: d, height: d)
+        statusDot.layer?.cornerRadius = d / 2
+        statusDot.layer?.borderColor = Fixture.background.cgColor
+    }
+
+    private func applyStatus() {
+        statusDot.isHidden = status == nil || avatar.isHidden
+        pill.setAccessibilityValue(status)
+        pill.toolTip = [pill.accessibilityLabel(), status].compactMap { $0 }.joined(separator: " · ")
+        needsLayout = true
     }
 
     private func applyTitle() {
@@ -108,6 +132,7 @@ final class PaneHeaderView: NSView {
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
         pill.toolTip = pill.accessibilityLabel()
         avatar.setAccessibilityLabel(title)
+        applyStatus()
         needsLayout = true
     }
 

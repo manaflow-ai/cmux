@@ -182,6 +182,13 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onRowsChange }
         set { projection.onRowsChange = newValue }
     }
+    /// cmux-classic: an approval card waits for the user's answer (the header shows "Waiting for
+    /// you", the field "Allow or deny above to continue"); the host's sidebar can say so too.
+    public var isWaitingForApproval: Bool { projection.isWaitingForApproval }
+    public var onWaitingForApprovalChange: (Bool) -> Void {
+        get { projection.onWaitingForApprovalChange }
+        set { projection.onWaitingForApprovalChange = newValue }
+    }
     public var onRefusal: (HomeIntent, HomeRejection) -> Void {
         get { projection.onRefusal }
         set { projection.onRefusal = newValue }

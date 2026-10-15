@@ -4,6 +4,7 @@ import CmuxHomeCore
 import CmuxHomeRender
 import MessagesLabHome
 import Observation
+import UniformTypeIdentifiers
 
 /// One Chief conversation (cmux-next `HomeHostView` over
 /// `HomeNativeTranscriptView`): MessagesLab's native transcript and compose
@@ -19,8 +20,12 @@ final class ChiefTranscriptView: NSView {
     private let store: HomeStore?
     private let firstRun = ChiefFirstRunView()
     private let noticeLabel = NSTextField(wrappingLabelWithString: "")
+    /// "Working · 12s" above the field while a turn runs (``ChiefWorkingStatusView``).
+    private let workingStatus = ChiefWorkingStatusView()
     private let unavailableLabel = NSTextField(wrappingLabelWithString: "")
     private let settingsPanel = ChiefSettingsPanel()
+    /// Chief memory: the "Chief will remember … · Undo" row above the field.
+    private lazy var memoryNotice = ChiefMemoryNoticeView(conversation: conversation)
     private var notice: String?
     private var settingsOpen = false
     /// The first page is not in yet: the first-run panel waits so a
@@ -34,6 +39,9 @@ final class ChiefTranscriptView: NSView {
     // task-owner: ends when the conversation's first page is in; cancelled by stop()
     private var firstPage: Task<Void, Never>?
     private var theme = ChiefTheme.current()
+    private var profile = ChiefProfile()
+    /// What the header avatar shows now; nil after the profile was re-read.
+    private var shownAvatar: (kind: ChiefAvatarArtwork.Kind, isDark: Bool)?
 
     /// Whether the host shows this view now (Home selected, the tab visible).
     /// Hidden views report not visible, so MessagesLab defers read receipts.
@@ -67,12 +75,18 @@ final class ChiefTranscriptView: NSView {
         noticeLabel.maximumNumberOfLines = 2
         noticeLabel.isSelectable = false
         addSubview(noticeLabel)
+        addSubview(workingStatus)
         unavailableLabel.alignment = .center
         unavailableLabel.isHidden = transcript != nil
         unavailableLabel.stringValue = service.startFailure ?? ChiefStrings.unavailable
         addSubview(unavailableLabel)
         settingsPanel.isHidden = true
         addSubview(settingsPanel)
+        // Chief memory: the remember row (ChiefMemoryNoticeView).
+        if transcript != nil {
+            addSubview(memoryNotice, positioned: .below, relativeTo: settingsPanel)
+            memoryNotice.onChange = { [weak self] in self?.needsLayout = true }
+        }
         connectTranscript()
         connectFirstRun()
         connectSettings()
@@ -105,9 +119,12 @@ final class ChiefTranscriptView: NSView {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        ChiefService.shared.setTranscript(self, showing: nil)
         intake?.cancel()
         firstPage?.cancel()
+        workingStatus.stop()
         transcript?.stop()
+        memoryNotice.stop()
         binding?.stop()
     }
 
@@ -165,6 +182,8 @@ final class ChiefTranscriptView: NSView {
 
     private func connectSettings() {
         settingsPanel.onAvatar = { [weak self] text in self?.setAvatar(text) }
+        settingsPanel.onChoosePicture = { [weak self] in self?.pickAvatarPicture() }
+        settingsPanel.onRemovePicture = { [weak self] in self?.updateProfile { $0.picture = nil } }
         settingsPanel.onNewConversation = { [weak self] in self?.newConversation() }
         settingsPanel.onEditMemory = { [weak self] instructions in
             guard let paths = ChiefService.shared.memoryPaths else { return }
@@ -206,6 +225,10 @@ final class ChiefTranscriptView: NSView {
             transcript.isWorking = ChiefService.shared.isWorking(id)
             transcript.isSendEnabled = store.isOnline
             _ = store.rows
+            let start = ChiefService.shared.turnStart(id)
+            let wasShown = workingStatus.isShown
+            workingStatus.show(since: start, waiting: ChiefService.shared.hasPendingApproval(id))
+            if workingStatus.isShown != wasShown { needsLayout = true }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.observeService()
@@ -237,6 +260,7 @@ final class ChiefTranscriptView: NSView {
         windowObservers = []
         guard let window else {
             transcript?.isVisibleToUser = false
+            ChiefService.shared.setTranscript(self, showing: nil)
             return
         }
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
@@ -260,10 +284,15 @@ final class ChiefTranscriptView: NSView {
         windowStateChanged()
     }
 
+    /// Visible to the user: the window is key and on screen, the host shows
+    /// this view, and nothing hides it. Only then do replies count as read
+    /// (MessagesLab advances the read cursor) and leave the unread count.
     private func windowStateChanged() {
-        guard let transcript else { return }
-        let visible = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
-        transcript.isVisibleToUser = visible && isActive && !isHiddenOrHasHiddenAncestor
+        guard let transcript, !stopped else { return }
+        let onScreen = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
+        let visible = onScreen && isActive && !isHiddenOrHasHiddenAncestor
+        transcript.isVisibleToUser = visible
+        ChiefService.shared.setTranscript(self, showing: visible ? conversation : nil)
     }
 
     // MARK: Theme
@@ -279,9 +308,12 @@ final class ChiefTranscriptView: NSView {
                 NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.15 : (shown ? 0.2 : 0.3)
             }
         }
+        applyAvatar()
         firstRun.apply(theme)
         settingsPanel.apply(theme)
+        memoryNotice.apply(theme)
         noticeLabel.textColor = theme.textSecondary
+        workingStatus.apply(theme)
         unavailableLabel.textColor = theme.textSecondary
         layer?.backgroundColor = transcript == nil ? theme.background.cgColor : nil
     }
@@ -313,15 +345,57 @@ final class ChiefTranscriptView: NSView {
 
     private func loadProfile() {
         guard let home = ChiefService.shared.home else { return }
-        let profile = ChiefProfile.load(from: home)
-        transcript?.avatarText = profile.avatar
-        settingsPanel.refresh(avatar: profile.avatar ?? "")
+        profile = ChiefProfile.load(from: home)
+        // A new picture keeps its file name: draw again.
+        shownAvatar = nil
+        applyAvatar()
+        settingsPanel.refresh(avatar: profile.avatar ?? "", hasPicture: profile.pictureURL(in: home) != nil)
+    }
+
+    /// The header avatar: the one Chief avatar the list and the sidebar's Home
+    /// row draw too (``ChiefAvatarArtwork``), at the header's 40 pt.
+    private func applyAvatar() {
+        guard let transcript else { return }
+        let kind = ChiefAvatarArtwork.kind(profile, home: ChiefService.shared.home)
+        if let shown = shownAvatar, shown.kind == kind, shown.isDark == theme.isDark { return }
+        shownAvatar = (kind, theme.isDark)
+        transcript.avatarText = profile.avatar
+        transcript.avatarPicture = ChiefAvatarArtwork.image(kind, diameter: 40, isDark: theme.isDark)
     }
 
     private func setAvatar(_ text: String?) {
-        transcript?.avatarText = text
+        updateProfile { $0.avatar = text }
+    }
+
+    /// Opens the image picker for the avatar picture (a sheet on this window).
+    private func pickAvatarPicture() {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = ChiefStrings.settingsAvatarPickerPrompt
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            MainActor.assumeIsolated { // main-proof: the sheet's completion runs on the main thread
+                guard let self, let home = ChiefService.shared.home else { return }
+                do {
+                    let name = try ChiefProfile.importPicture(from: url, into: home)
+                    self.updateProfile { $0.picture = name }
+                } catch {
+                    self.showNotice(ChiefStrings.settingsAvatarPictureFailed)
+                }
+            }
+        }
+    }
+
+    /// Changes the saved profile, then every Chief view re-reads it.
+    private func updateProfile(_ change: (inout ChiefProfile) -> Void) {
         guard let home = ChiefService.shared.home else { return }
-        try? ChiefProfile(avatar: text).save(to: home)
+        var updated = ChiefProfile.load(from: home)
+        change(&updated)
+        try? updated.save(to: home)
+        loadProfile()
         NotificationCenter.default.post(name: ChiefProfile.didChange, object: nil)
     }
 
@@ -341,7 +415,10 @@ final class ChiefTranscriptView: NSView {
         let open = !settingsOpen
         settingsOpen = open
         if open {
-            settingsPanel.refresh(avatar: ChiefService.shared.home.map { ChiefProfile.load(from: $0).avatar ?? "" })
+            if let home = ChiefService.shared.home {
+                let current = ChiefProfile.load(from: home)
+                settingsPanel.refresh(avatar: current.avatar ?? "", hasPicture: current.pictureURL(in: home) != nil)
+            }
             settingsPanel.isHidden = false
             settingsPanel.frame = panelFrame(open: false)
         }
@@ -390,15 +467,37 @@ final class ChiefTranscriptView: NSView {
         unavailableLabel.preferredMaxLayoutWidth = width
         let height = ceil(unavailableLabel.intrinsicContentSize.height)
         unavailableLabel.frame = CGRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
+        layoutWorkingStatus()
         layoutNotice()
     }
 
+    /// The working line sits centered right above the field.
+    private func layoutWorkingStatus() {
+        guard let transcript else { return }
+        let height = ceil(workingStatus.intrinsicContentSize.height)
+        workingStatus.frame = CGRect(x: 16, y: transcript.fieldTop - height - 6,
+                                     width: max(0, transcript.frame.width - 32), height: height)
+    }
+
     private func layoutNotice() {
+        defer { layoutMemoryNotice() }
         guard notice != nil, let transcript else { return }
         let width = max(0, transcript.frame.width - 32)
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
-        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
+        // Above the working line while it shows.
+        let bottom = workingStatus.isShown ? workingStatus.frame.minY - 2 : transcript.fieldTop - 8
+        noticeLabel.frame = CGRect(x: 16, y: bottom - height, width: width, height: height)
+    }
+
+    /// Chief memory: the remember row, centered above the field (above the notice when both show).
+    private func layoutMemoryNotice() {
+        guard let transcript, !memoryNotice.isHidden else { return }
+        let size = memoryNotice.preferredSize(maxWidth: max(0, transcript.frame.width - 32))
+        let bottom = notice == nil ? transcript.fieldTop - 8 : noticeLabel.frame.minY - 6
+        memoryNotice.frame = CGRect(x: (transcript.frame.width - size.width) / 2,
+                                    y: bottom - size.height,
+                                    width: size.width, height: size.height)
     }
 
     /// Shows (or with nil clears) the notice above the field; VoiceOver hears it.

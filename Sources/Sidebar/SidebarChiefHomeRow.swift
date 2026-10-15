@@ -3,126 +3,111 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// The pinned Chief row at the top of the left sidebar, above the workspace list.
+/// The pinned Chief row at the top of the left sidebar, above the workspace
+/// list (or, while Home is selected, above Chief's conversation list).
 ///
-/// It is a navigation row, not a workspace: one line, the workspace title
-/// typography, and the same selection fill a selected workspace row paints
-/// (accent, subtle wash or a configured selection color), so the sidebar keeps
-/// exactly one selected row. Like workspace rows it has no hover fill. It sits
-/// in the band `SidebarWorkspaceListMetrics` reserves between the titlebar and
-/// the first workspace row, for every list implementation.
+/// A destination, not a workspace, so it never paints the solid workspace
+/// selection: selected, it takes a quiet accent tint (18%, neutral in a
+/// background window) with primary text, as a macOS source-list destination
+/// does and as cmux-next's rail Home item does. It leads with Chief's own
+/// avatar at 16 pt (the header's and the list's face), says "Needs you" or
+/// "Working…" while a Chief waits or runs, and shows an 8 pt accent dot for unread replies only while Home
+/// is not showing. Selected, its trailing button starts a new conversation (the
+/// list's compose button). A hairline under it sets the destination apart
+/// from the list below. It has no hover fill, like workspace rows, and sits in
+/// the band `SidebarWorkspaceListMetrics` reserves below the titlebar.
 struct SidebarChiefHomeRow: View {
     let isSelected: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let globalFontMagnificationPercent: Int
     let onSelect: () -> Void
+    /// Starts a new conversation; shown as the row's compose button while selected.
+    var onNewConversation: (() -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 8) {
-                Image(systemName: ChiefPanel.iconSystemName)
-                    .font(font(12, weight: .medium))
-                    .foregroundColor(isSelected ? primaryColor : Color.secondary)
-                    .frame(width: 16 * settings.sidebarFontScale)
-                Text(ChiefStrings.chiefName)
-                    .font(font(12.5, weight: .semibold))
-                    .foregroundColor(primaryColor)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                SidebarChiefHomeUnreadBadge(
-                    side: 16 * settings.sidebarFontScale,
-                    font: font(9, weight: .semibold),
-                    fillColor: badgeFillColor,
-                    textColor: isSelected ? primaryColor : .white
-                )
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Button(action: onSelect) {
+                    HStack(spacing: 7) {
+                        SidebarChiefHomeAvatar(diameter: (16 * settings.sidebarFontScale).rounded())
+                        Text(ChiefStrings.chiefName)
+                            .font(font(12.5, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        SidebarChiefHomeStatus(
+                            showsUnreadDot: !isSelected,
+                            dotColor: dotColor,
+                            font: font(10, weight: .regular)
+                        )
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(ChiefStrings.chiefName))
+                .accessibilityValue(Text(SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected)))
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                .accessibilityIdentifier("SidebarChiefHomeRow")
+                .help(String(localized: "sidebar.chiefHome.tooltip", defaultValue: "Talk to Chief"))
+
+                if isSelected, let onNewConversation {
+                    Button(action: onNewConversation) {
+                        Image(systemName: "square.and.pencil")
+                            .font(font(12, weight: .regular))
+                            .foregroundColor(.secondary)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(ChiefStrings.newConversation)
+                    .accessibilityLabel(Text(ChiefStrings.newConversation))
+                    .accessibilityIdentifier("SidebarChiefHomeNewConversation")
+                }
             }
             .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
             .frame(height: SidebarWorkspaceListMetrics.homeRowHeight)
-            .contentShape(Rectangle())
             .background(selectionBackground)
+            .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
+
+            // The destination's edge: separator color at half strength, centered in the gap.
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.5))
+                .frame(height: 1 / max(1, NSScreen.main?.backingScaleFactor ?? 2))
+                .padding(.top, SidebarWorkspaceListMetrics.homeRowBottomGap / 2)
+                .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+                    + SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
+                .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .help(String(localized: "sidebar.chiefHome.tooltip", defaultValue: "Talk to Chief"))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(ChiefStrings.chiefName))
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityIdentifier("SidebarChiefHomeRow")
     }
 
     @ViewBuilder
     private var selectionBackground: some View {
         if isSelected {
-            if usesSubtleSelection {
-                SidebarSelectionWindowActivationReader { isEmphasized in
-                    backgroundShape(isEmphasized: isEmphasized)
-                }
-            } else {
-                backgroundShape(isEmphasized: true)
+            SidebarSelectionWindowActivationReader { isEmphasized in
+                let increaseContrast = colorSchemeContrast == .increased
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isEmphasized
+                        ? settings.accentColor.color.opacity(increaseContrast ? 0.3 : 0.18)
+                        : Color(nsColor: .labelColor).opacity(colorScheme == .dark ? 0.08 : 0.06))
+                    .overlay {
+                        if increaseContrast {
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(settings.accentColor.color.opacity(0.6), lineWidth: 1)
+                        }
+                    }
             }
         }
     }
 
-    private func backgroundShape(isEmphasized: Bool) -> some View {
-        let style = backgroundStyle(isEmphasized: isEmphasized)
-        let drawsBorder = settings.activeTabIndicatorStyle.drawsActiveBorder(
-            isActive: true,
-            increaseContrast: colorSchemeContrast == .increased
-        )
-        return RoundedRectangle(cornerRadius: 6)
-            .fill(style.color.map { Color(nsColor: $0).opacity(style.opacity) } ?? .clear)
-            .overlay {
-                if drawsBorder, let edge = style.edgeColor ?? style.color {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(Color(nsColor: edge), lineWidth: 1)
-                }
-            }
-    }
-
-    private func backgroundStyle(isEmphasized: Bool) -> SidebarWorkspaceRowBackgroundStyle {
-        sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
-            isActive: true,
-            isMultiSelected: false,
-            customColorHex: nil,
-            colorScheme: colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex,
-            subtleSelection: settings.subtleSelection,
-            brightenInDarkMode: settings.brightenInDarkMode,
-            isEmphasized: isEmphasized,
-            increaseContrast: colorSchemeContrast == .increased,
-            accent: settings.accentColor
-        )
-    }
-
-    private var usesSubtleSelection: Bool {
-        sidebarUsesSubtleSelection(
-            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
-            subtleSelection: settings.subtleSelection,
-            sidebarSelectionColorHex: settings.selectionColorHex
-        )
-    }
-
-    private var primaryColor: Color {
-        guard isSelected else { return .primary }
-        let background = sidebarSelectedWorkspaceBackgroundNSColor(
-            for: colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex,
-            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
-            subtleSelection: settings.subtleSelection,
-            accent: settings.accentColor
-        )
-        return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(on: background, opacity: 1))
-    }
-
-    private var badgeFillColor: Color {
+    private var dotColor: Color {
         if let hex = settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
             return Color(nsColor: color)
         }
-        return isSelected ? primaryColor.opacity(0.25) : settings.accentColor.color
+        return settings.accentColor.color
     }
 
     private func font(_ baseSize: CGFloat, weight: Font.Weight) -> Font {
@@ -136,27 +121,90 @@ struct SidebarChiefHomeRow: View {
     }
 }
 
-/// Chief's unread count beside the Home row, drawn like a workspace's unread badge.
+/// The Home row's trailing status: "Needs you" (attention color) while a
+/// Chief waits on an approval, "Working…" while one runs a turn, else an 8 pt accent dot for unread replies (only while Home is not showing;
+/// replies on screen never count, see ``ChiefService/unreadCount``).
 ///
-/// A separate view so only it observes `ChiefService.unreadCount`: a new Chief
-/// message re-renders the badge, never the sidebar.
-private struct SidebarChiefHomeUnreadBadge: View {
-    let side: CGFloat
+/// Views of the row, not the sidebar, read ``ChiefService``: a new message or
+/// a turn starting re-renders the row, never the sidebar.
+private struct SidebarChiefHomeStatus: View {
+    let showsUnreadDot: Bool
+    let dotColor: Color
     let font: Font
-    let fillColor: Color
-    let textColor: Color
 
     var body: some View {
-        let unreadCount = ChiefService.shared.unreadCount
-        if unreadCount > 0 {
-            SidebarWorkspaceUnreadBadge(
-                unreadCount: unreadCount,
-                side: side,
-                font: font,
-                fillColor: fillColor,
-                textColor: textColor
-            )
-            .accessibilityHidden(true)
+        let service = ChiefService.shared
+        if Self.needsYou {
+            Text(ChiefStrings.homeRowNeedsYou)
+                .font(font)
+                .foregroundColor(Color(nsColor: .systemOrange))
+                .lineLimit(1)
+                .accessibilityHidden(true)
+        } else if !service.workingConversations.isEmpty {
+            Text(ChiefStrings.homeRowWorking)
+                .font(font)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .accessibilityHidden(true)
+        } else if showsUnreadDot, service.unreadCount > 0 {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
         }
+    }
+
+    /// A running Chief waits on the user's approval.
+    @MainActor
+    static var needsYou: Bool {
+        let service = ChiefService.shared
+        return service.workingConversations.contains { service.hasPendingApproval($0) }
+    }
+
+    /// The row's spoken status: needs you, working, unread, or nothing.
+    @MainActor
+    static func accessibilityValue(showsUnread: Bool) -> String {
+        let service = ChiefService.shared
+        if needsYou { return ChiefStrings.homeRowNeedsYou }
+        if !service.workingConversations.isEmpty { return ChiefStrings.homeRowWorking }
+        return showsUnread && service.unreadCount > 0 ? ChiefStrings.homeRowUnread : ""
+    }
+}
+
+/// Chief's avatar in the Home row (``ChiefAvatarArtwork``), re-read when the
+/// profile changes. Its own view so a profile change re-renders only it.
+private struct SidebarChiefHomeAvatar: View {
+    let diameter: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
+    /// Read on appear and on each profile change (not per render).
+    @State private var kind: ChiefAvatarArtwork.Kind?
+
+    var body: some View {
+        Image(nsImage: ChiefAvatarArtwork.image(kind ?? .chief, diameter: diameter, isDark: colorScheme == .dark))
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
+            .frame(width: diameter, height: diameter)
+            .clipShape(Circle())
+            .accessibilityHidden(true)
+            .onAppear { kind = ChiefAvatarArtwork.current() }
+            .onReceive(NotificationCenter.default.publisher(for: ChiefProfile.didChange)) { _ in
+                kind = ChiefAvatarArtwork.current()
+            }
+    }
+}
+
+/// Hides the workspace rows while Chief Home's conversation list takes the
+/// sidebar. Applied to the rows only, so the titlebar drag strip and the
+/// minimal-mode titlebar controls stay; the rows stay mounted for an instant return.
+struct SidebarWorkspaceRowsChiefHomeCover: ViewModifier {
+    let isCovered: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isCovered ? 0 : 1)
+            .allowsHitTesting(!isCovered)
+            .accessibilityHidden(isCovered)
     }
 }

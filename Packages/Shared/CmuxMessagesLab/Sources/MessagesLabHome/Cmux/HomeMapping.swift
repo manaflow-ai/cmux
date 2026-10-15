@@ -59,20 +59,26 @@ enum HomeMapping {
         return PartRef(messageId: r.id, partIndex: r.owners.firstIndex(of: homePart) ?? 0)
     }
 
+    /// `role`: the item's place in a run of tool calls (`ChiefRows.roles` over the shown items);
+    /// nil maps a tool message on its own (one row for its calls).
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
-                        roots: Roots = { _ in nil }) -> Message {
-        let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
+                        roots: Roots = { _ in nil }, role: ChiefRows.ToolRole? = nil) -> Message {
+        let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links, role: role)
         let messageID = id(item, aliases: aliases)
+        // cmux-classic: a tool row is drawn as another sender, so it ends the bubble group above it
+        // and the next bubble starts a new one (as a sender change does; ChiefRows).
+        let sender = ChiefRows.drawsAsToolSender(item) ? ChiefRows.toolSender(item.author) : item.author.rawValue
         // A person's text shows as typed, and so does a part with mentions (their offsets index
         // the text as written): only an agent's text is Markdown (MessagesLab's opt-in
         // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
         let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
-        return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
+        return Message(id: messageID, senderId: sender, sentAt: Instant.format(item.createdAt),
                 parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
-                reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
+                reactions: parts.isEmpty ? [] : item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) },
+                format: format)
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the
@@ -81,12 +87,32 @@ enum HomeMapping {
     /// line that is only a URL is a link card in its place, the other lines
     /// stay one text bubble, a URL in a sentence gets no card. So the local
     /// send and the message HomeStore stores show the same bubbles.
+    ///
+    /// cmux-classic: a tool-only message is one tool row for its calls, or for its whole run when it
+    /// heads one; a later message of a run shows nothing (`ChiefRows.ToolRole`).
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
-                               links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
+                               links: Links = { _ in nil }, role: ChiefRows.ToolRole? = nil) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
+        let calls = item.parts.compactMap { p -> ChiefRows.ToolCall? in
+            if case .work(let w) = p { return ChiefRows.ToolCall(w) }
+            return nil
+        }
+        let toolRole: ChiefRows.ToolRole = role ?? (ChiefRows.isToolOnly(item) ? .head(calls) : .other)
+        switch toolRole {
+        case .folded: return ([], [])
+        case .head(let calls): return ([.custom(ChiefRows.toolPart(calls, group: rowSafe(item.key.rawValue)))], [0])
+        case .other: break
+        }
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
+            if case .approval(let ref) = p {
+                // cmux-classic: the card names the asking agent ("Chief wants to run").
+                let agent = summary?.participants.first { $0.id == item.author }?.displayName
+                parts.append(.custom(ChiefRows.approvalPart(ref, agent: agent)))
+                owners.append(i)
+                continue
+            }
             let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
             parts += shown
             owners += Array(repeating: i, count: shown.count)
@@ -183,9 +209,14 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .work, .approval, .question:
-            // Agent session, approval and question cards are not MessagesLab rows
-            // yet: their text. The question card moves to the custom-row seam.
+        case .work(let work):
+            // cmux-classic: a tool call in a message with other parts: its own tool row.
+            return .custom(ChiefRows.toolPart([ChiefRows.ToolCall(work)], group: rowSafe(work.session)))
+        case .approval(let ref):
+            // cmux-classic: the approval card (ChiefApprovalRowProvider).
+            return .custom(ChiefRows.approvalPart(ref))
+        case .question:
+            // The question card is not a MessagesLab row yet: its text.
             return .text(p.plainText, runs: [])
         }
     }
@@ -241,6 +272,12 @@ enum HomeMapping {
             Participant(id: $0.id.rawValue, displayName: $0.displayName, isMe: $0.id == me, avatar: .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
+        // cmux-classic: each agent's tool rows are drawn as their own sender (ChiefRows.toolSender); the
+        // same name, so VoiceOver and the menus say who ran them. Last: the engine's "other
+        // participant" is the first one that is not me.
+        for p in summary?.participants ?? [] where p.kind == .agent && p.id != me {
+            out.append(Participant(id: ChiefRows.toolSender(p.id), displayName: p.displayName, isMe: false, avatar: .monogram(p.initials)))
+        }
         return out
     }
 

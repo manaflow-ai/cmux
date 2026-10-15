@@ -17,6 +17,12 @@ public enum ChiefTurnEvent: Sendable, Equatable {
     /// The turn needs the user's approval; it posts as an approval part.
     /// The owner answers through ``ChiefBrain/respond(toApproval:choice:conversation:)``.
     case approvalRequested(id: String, prompt: String, options: [String])
+    /// A flow's result card (a `cmux-result` block, ``ChiefStructuredBlocks``):
+    /// it posts as a work part whose host is the machine, with an Open action.
+    case result(ChiefResultCard)
+    /// Token counts so far; the owner keeps the last one for the turn's
+    /// ``ChiefTurnStats/cacheHitRate``.
+    case usage(ChiefTurnUsage)
     /// The turn ended normally.
     case finished
     /// The turn failed; the message is shown to the user.

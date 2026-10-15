@@ -46,6 +46,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onRowsChange: () -> Void = {}
     /// A refused tapback (a refused send restores its draft instead).
     var onRefusal: (HomeIntent, HomeRejection) -> Void = { _, _ in }
+    /// cmux-classic: an approval card waits for the user (HomeProjection+Approval.swift).
+    var isWaitingForApproval = false
+    var onWaitingForApprovalChange: (Bool) -> Void = { _ in }
 
     // Attachments (lane 16): the host owns the intake (picker, paste and
     // drop checks, preparing through HomeStore, notices); the chips, the
@@ -198,6 +201,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
         if titleChanged { applyHeader() }
+        applyApprovalWait()
         refreshAttachments()
         video.place()
         if summaryChanged { onSummaryChange(summary) }
@@ -224,6 +228,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         if homeStore.takeCarriedDraft(conversation) { sendNotice = CmuxStrings.chiefRestarted }
         if shownNotice != nil { controller.dispatch(.cmuxNotice(shownNotice)) }
+        applyApprovalWait()
         refreshAttachments()
         onSummaryChange(summary)
         onRowsChange()
@@ -238,7 +243,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let pinned = store.state.ui.scroll.pinnedToBottom
         let anchor = demo.anchorProbe
         let roots = HomeMapping.roots(in: shown, aliases: aliases, summary: shownSummary, media: core.media, links: core.links)
-        let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links, roots: roots) }
+        let roles = ChiefRows.roles(shown)
+        let msgs = shown.map {
+            HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links, roots: roots,
+                                role: roles.value(for: $0.key) ?? ChiefRows.ToolRole.other) // // crash program: dictionary read
+        }
         let pendingLocal = store.state.conversation.messages.filter { m in
             aliases.contains { $0.value == m.id } && !msgs.contains { $0.id == m.id }
         }
@@ -640,9 +649,13 @@ struct ProjectionCore {
         shown = items
         self.summary = summary
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
+        let roles = ChiefRows.roles(items)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
-                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) })
+                                messages: items.map {
+                                    HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links,
+                                                        roots: roots, role: roles.value(for: $0.key) ?? ChiefRows.ToolRole.other) // // crash program: dictionary read
+                                })
         return (conv, HomeMapping.window(items))
     }
 

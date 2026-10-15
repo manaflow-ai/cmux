@@ -1,35 +1,38 @@
 import AppKit
+import CmuxFoundation
 import CmuxHomeCore
 import MessagesLabSidebar
 import Observation
 
-/// Home's Messages-style page (cmux-next `HomeSidebarSplitView`): the Chief
-/// conversation list on the left and the selected conversation's
-/// ``ChiefTranscriptView`` on the right, with a real divider. The list sits
-/// between its minimum and half the window, starts at its preferred 320 pt,
-/// keeps the user's width, and a double-click on the divider resets it.
+/// Chief Home for one main window. While Home is selected the window's left
+/// sidebar becomes the conversation list (``list``, hosted under the pinned
+/// Chief row, as cmux-next's rail item swaps its one navigation column and as
+/// Messages has one list beside one transcript), and this view, the content
+/// area, shows the selected conversation's ``ChiefTranscriptView``. There is no
+/// third column.
+///
+/// The window keeps one instance for its lifetime (`ContentView`): the list
+/// and the transcript are two views of the same selection, and leaving Home
+/// keeps the draft and scroll position.
 @MainActor
-final class ChiefHomeView: NSView, NSSplitViewDelegate {
-    private static let widthKey = "chief.home.sidebarWidth"
+final class ChiefHomeView: NSView {
     private static let selectionKey = "chief.home.selectedConversation"
     private static let unreadMarksKey = "chief.home.unreadMarks"
-    /// Half the grab area on each side of the 1 pt divider.
-    private static let grab: CGFloat = 4
 
-    private let split = ChiefHomeSplitView()
-    private let sidebar = ChiefConversationListView()
-    private let content = NSView()
+    /// The conversation list the sidebar hosts while Home is selected.
+    let list = ChiefConversationListView()
     private(set) var transcript: ChiefTranscriptView?
     private(set) var selected: ConversationID
-    private var placed = false
     private var stopped = false
     private var observers: [any NSObjectProtocol] = []
     /// Conversations the user marked unread (the owner's read cursor only moves forward).
     private var unreadMarks: Set<String>
     private let defaults: UserDefaults
-    private var theme = ChiefTheme.current()
-    /// The Chief's avatar text (``ChiefProfile``), nil for initials.
-    private var avatarText: String?
+    /// The Chief's avatar as the list draws it (``ChiefAvatarArtwork``).
+    private var listAvatar: CmuxSidebarEntry.Avatar?
+    /// Home was activated before this view joined its window (first entry):
+    /// the composer takes focus once it does.
+    private var focusOnWindow = false
 
     /// Whether the host shows Home now; a hidden Home sends no read receipts.
     var isActive = true { didSet { transcript?.isActive = isActive } }
@@ -41,20 +44,9 @@ final class ChiefHomeView: NSView, NSSplitViewDelegate {
         selected = defaults.string(forKey: Self.selectionKey).map { ConversationID($0) } ?? service.defaultConversationID
         unreadMarks = Set(defaults.stringArray(forKey: Self.unreadMarksKey) ?? [])
         super.init(frame: .zero)
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.delegate = self
-        split.onDoubleClickDivider = { [weak self] in self?.resetWidth() }
-        split.addArrangedSubview(sidebar)
-        split.addArrangedSubview(content)
-        split.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
-        split.frame = bounds
-        split.autoresizingMask = [.width, .height]
-        addSubview(split)
         connectList()
-        observeTheme()
-        applyTheme()
-        avatarText = service.home.flatMap { ChiefProfile.load(from: $0).avatar }
+        observeNotifications()
+        listAvatar = ChiefAvatarArtwork.listAvatar(ChiefAvatarArtwork.current())
         show(selected)
         reload()
     }
@@ -102,9 +94,9 @@ final class ChiefHomeView: NSView, NSSplitViewDelegate {
         let view = ChiefTranscriptView(conversation: conversation)
         view.isActive = isActive
         view.onOpenConversation = { [weak self] id in self?.select(id) }
-        view.frame = content.bounds
+        view.frame = bounds
         view.autoresizingMask = [.width, .height]
-        content.addSubview(view)
+        addSubview(view)
         transcript = view
         if hadFocus { view.focusComposer() }
     }
@@ -112,18 +104,17 @@ final class ChiefHomeView: NSView, NSSplitViewDelegate {
     // MARK: List
 
     private func connectList() {
-        let list = sidebar.list
-        list.onSelect = { [weak self] id in
+        let rows = list.list
+        rows.onSelect = { [weak self] id in
             guard let id else { return }
             self?.select(ConversationID(id))
         }
-        list.onSetPinned = { [weak self] on, id in self?.setPinned(on, ConversationID(id)) }
-        list.onPlacePinned = { [weak self] id, index in self?.place(ConversationID(id), at: index) }
-        list.onSetRead = { [weak self] read, id in self?.setRead(read, ConversationID(id)) }
-        list.menuItems = { [weak self] _ in
+        rows.onSetPinned = { [weak self] on, id in self?.setPinned(on, ConversationID(id)) }
+        rows.onPlacePinned = { [weak self] id, index in self?.place(ConversationID(id), at: index) }
+        rows.onSetRead = { [weak self] read, id in self?.setRead(read, ConversationID(id)) }
+        rows.menuItems = { [weak self] _ in
             [CmuxSidebarMenuItem(title: ChiefStrings.newConversation) { self?.newConversation() }]
         }
-        sidebar.onNewConversation = { [weak self] in self?.newConversation() }
     }
 
     /// Shows the store's conversations after every change (Observation, no polling).
@@ -138,7 +129,9 @@ final class ChiefHomeView: NSView, NSSplitViewDelegate {
 
     private func showEntries(_ rows: [InboxRow], pinnedOrder: [ConversationID]? = nil) {
         let me = ChiefService.shared.me
-        let avatar = avatarText.map(Self.listAvatar)
+        let avatar = listAvatar
+        // A conversation on screen is being read: no dot, even before its read cursor lands.
+        let visible = ChiefService.shared.visibleConversations
         let pinned = pinnedOrder ?? rows.filter { $0.summary.pinRank != nil }
             .sorted { ($0.summary.pinRank ?? 0, $0.id.rawValue) < ($1.summary.pinRank ?? 0, $1.id.rawValue) }
             .map(\.id)
@@ -151,27 +144,21 @@ final class ChiefHomeView: NSView, NSSplitViewDelegate {
                 title: row.title.isEmpty ? (others.first?.displayName ?? ChiefStrings.chiefName) : row.title,
                 people: others.map { CmuxSidebarEntry.Person(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) },
                 preview: row.preview, previewSender: nil, lastAt: row.timestamp,
-                unreadCount: max(row.unread, marked ? 1 : 0), pinned: pinnedSet.contains(row.id), typing: row.isTyping,
+                unreadCount: marked ? max(row.unread, 1) : (visible.contains(row.id) ? 0 : row.unread), pinned: pinnedSet.contains(row.id), typing: row.isTyping,
                 avatar: avatar)
         }
         // Pinned in their order first, then the rest newest first (the store's order).
         let byID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let ordered = pinned.compactMap { byID[$0.rawValue] } + entries.filter { !pinnedSet.contains(ConversationID($0.id)) }
-        sidebar.list.show(ordered, pinned: pinned.map(\.rawValue))
-        if sidebar.list.selectedID != selected.rawValue {
+        list.list.show(ordered, pinned: pinned.map(\.rawValue))
+        if list.list.selectedID != selected.rawValue {
             if byID[selected.rawValue] != nil {
-                sidebar.list.select(selected.rawValue)
+                list.list.select(selected.rawValue)
             } else if !rows.isEmpty, ChiefService.shared.storeIfStarted?.isInboxCurrent == true {
                 // The remembered conversation is gone: the default Chief's (after this pass).
                 Task { @MainActor [weak self] in self?.select(ChiefService.shared.defaultConversationID) }
             }
         }
-    }
-
-    /// The Chief's avatar as the list draws it: a monogram (one or two
-    /// letters) or one emoji on the grey disc.
-    static func listAvatar(_ text: String) -> CmuxSidebarEntry.Avatar {
-        ChiefProfile.isMonogram(text) ? .monogram(String(text.prefix(2))) : .emoji(String(text.prefix(1)))
     }
 
     private func setPinned(_ on: Bool, _ id: ConversationID) {
@@ -217,7 +204,9 @@ final class ChiefHomeView: NSView, NSSplitViewDelegate {
         Task { _ = try? await store.perform(op) }
     }
 
-    private func newConversation() {
+    /// Starts a new conversation with a new Chief and shows it (the Home
+    /// row's compose button, the list's menu and the settings panel).
+    func newConversation() {
         // task-owner: one op; ends with its reply
         Task { [weak self] in
             do {
@@ -230,99 +219,39 @@ final class ChiefHomeView: NSView, NSSplitViewDelegate {
         }
     }
 
-    // MARK: Theme
+    // MARK: Observation
 
-    private func observeTheme() {
+    private func observeNotifications() {
         let center = NotificationCenter.default
-        for name in [Notification.Name.ghosttyConfigDidReload, .ghosttyDefaultBackgroundDidChange] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
-            })
-        }
+        observers.append(center.addObserver(forName: .cmuxChiefHomeDidActivate, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                self?.homeDidActivate(in: note.object as? NSWindow)
+            }
+        })
         observers.append(center.addObserver(forName: ChiefProfile.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self else { return }
-                self.avatarText = ChiefService.shared.home.flatMap { ChiefProfile.load(from: $0).avatar }
+                self.listAvatar = ChiefAvatarArtwork.listAvatar(ChiefAvatarArtwork.current())
                 if let store = ChiefService.shared.storeIfStarted { self.showEntries(store.rows) }
             }
         })
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyTheme()
-    }
-
-    private func applyTheme() {
-        theme = ChiefTheme.current()
-        sidebar.apply(theme)
-    }
-
-    // MARK: Width
-
-    private func clamp(_ width: CGFloat) -> CGFloat {
-        max(sidebar.minimumWidth, min(width, bounds.width / 2))
-    }
-
-    override func layout() {
-        super.layout()
-        guard bounds.width > 0 else { return }
-        let current = sidebar.frame.width
-        if !placed {
-            placed = true
-            let saved = defaults.double(forKey: Self.widthKey)
-            split.setPosition(clamp(saved > 0 ? CGFloat(saved) : sidebar.preferredWidth), ofDividerAt: 0)
-        } else if current > clamp(current) {
-            // The window shrank: the list stays within half of it (the saved width is kept).
-            split.setPosition(clamp(current), ofDividerAt: 0)
+    /// Home became `window`'s content: the composer takes the keyboard, now
+    /// or as soon as this view is in that window (the first entry mounts it).
+    private func homeDidActivate(in window: NSWindow?) {
+        guard let window, isActive else { return }
+        if self.window === window {
+            focusComposer()
+        } else if self.window == nil {
+            focusOnWindow = true
         }
     }
 
-    private func resetWidth() {
-        defaults.removeObject(forKey: Self.widthKey)
-        split.setPosition(clamp(sidebar.preferredWidth), ofDividerAt: 0)
-    }
-
-    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat,
-                   ofSubviewAt dividerIndex: Int) -> CGFloat {
-        sidebar.minimumWidth
-    }
-
-    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat,
-                   ofSubviewAt dividerIndex: Int) -> CGFloat {
-        clamp(.greatestFiniteMagnitude)
-    }
-
-    func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }
-
-    func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool {
-        // A window resize goes to the transcript; the list keeps its width.
-        view !== sidebar
-    }
-
-    func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect,
-                   ofDividerAt dividerIndex: Int) -> NSRect {
-        drawnRect.insetBy(dx: -Self.grab, dy: 0)
-    }
-
-    func splitViewDidResizeSubviews(_ notification: Notification) {
-        // Only the user's drag is kept (AppKit names the divider it moved).
-        guard placed, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
-        defaults.set(Double(sidebar.frame.width), forKey: Self.widthKey)
-    }
-}
-
-/// The page's split view: a double-click on the divider resets the list's width.
-final class ChiefHomeSplitView: NSSplitView {
-    var onDoubleClickDivider: () -> Void = {}
-
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        if event.clickCount == 2, let first = arrangedSubviews.first,
-           NSRect(x: first.frame.maxX, y: 0, width: dividerThickness, height: bounds.height).insetBy(dx: -4, dy: 0).contains(point) {
-            onDoubleClickDivider()
-            return
-        }
-        super.mouseDown(with: event)
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard focusOnWindow, window != nil else { return }
+        focusOnWindow = false
+        focusComposer()
     }
 }

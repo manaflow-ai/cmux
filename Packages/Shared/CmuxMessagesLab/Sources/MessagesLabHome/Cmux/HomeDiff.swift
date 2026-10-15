@@ -44,7 +44,12 @@ struct HomeDiff: Equatable {
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
         let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
         let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
-        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots) }
+        // cmux-classic: runs of tool calls (ChiefRows.roles): a run's first message shows them all.
+        let roles = ChiefRows.roles(new), oldRoles = ChiefRows.roles(old)
+        func role(_ i: TranscriptItem) -> ChiefRows.ToolRole { roles.value(for: i.key) ?? .other } // // crash program: dictionary read
+        func msg(_ i: TranscriptItem) -> Message {
+            HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots, role: role(i))
+        }
 
         // Older page: the new messages before the first shown one.
         var head = 0
@@ -59,7 +64,9 @@ struct HomeDiff: Equatable {
             if let oi = oldIndex[item.key], let was = old[checked: oi] {
                 // A shown reply whose thread changed (its root paged in or out, or was retracted): MessagesLab has no action for it.
                 guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots) else { d.rebuild = true; return d }
-                guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
+                let shown = Shown(oldRole: oldRoles.value(for: was.key) ?? .other, newRole: role(item), media: media, links: links) // // crash program: dictionary read
+                guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), shown: shown,
+                              into: &d) else {
                     d.rebuild = true; return d
                 }
             } else if aliases[item.key] != nil {
@@ -85,21 +92,52 @@ struct HomeDiff: Equatable {
         for i in statuses.dropLast().reversed() { actions.remove(at: i) }
     }
 
+    /// How a message's parts are projected on each side (its tool roles, pictures and link cards).
+    struct Shown {
+        var oldRole: ChiefRows.ToolRole
+        var newRole: ChiefRows.ToolRole
+        var media: HomeMapping.Media
+        var links: HomeMapping.Links
+    }
+
     /// Actions for one shown message; false when MessagesLab cannot express it.
     private static func changes(from o: TranscriptItem, to n: TranscriptItem, oldSummary: ConversationSummary?,
-                                newSummary: ConversationSummary?, me: ParticipantID, id: ID, into d: inout HomeDiff) -> Bool {
+                                newSummary: ConversationSummary?, me: ParticipantID, id: ID, shown: Shown, into d: inout HomeDiff) -> Bool {
         if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
         // MessagesLab's `.edit` replaces one text bubble: a text that shows as
         // several (Messages' link rule) before or after the edit is a rebuild.
         let split = owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count
         if o.editedAt != n.editedAt, !n.isRetracted, !split, let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
             d.actions.append(.edit(id, text))
-        } else if o.parts != n.parts {
-            return false
+        } else if o.parts != n.parts || shown.oldRole != shown.newRole {
+            // cmux-classic: a tool row or approval card changed in place (a call finished, a run grew,
+            // an approval was answered): MessagesLab's `.setCustomPart`, the row animates. Anything
+            // else that changed in place is a rebuild, as before.
+            let a = HomeMapping.projectedParts(o, summary: oldSummary, media: shown.media, links: shown.links, role: shown.oldRole).parts
+            let b = HomeMapping.projectedParts(n, summary: newSummary, media: shown.media, links: shown.links, role: shown.newRole).parts
+            if case .folded = shown.oldRole, case .folded = shown.newRole {
+                // A later call of a run: its change shows in the run's first message.
+            } else {
+                guard customChanges(from: a, to: b, id: id, rawChanged: o.parts != n.parts, into: &d) else { return false }
+            }
         }
         let s0 = HomeMapping.status(o, me: me, summary: oldSummary), s1 = HomeMapping.status(n, me: me, summary: newSummary)
         if let s1, s1 != s0 { d.actions.append(.status(id, s1)) }
         if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), me: me, into: &d) }
+        return true
+    }
+
+    /// `.setCustomPart` for each hosted part that changed; false when another part changed, the
+    /// part count changed, or the raw parts changed with nothing to show for it (a rebuild).
+    static func customChanges(from a: [Part], to b: [Part], id: ID, rawChanged: Bool, into d: inout HomeDiff) -> Bool {
+        guard a.count == b.count else { return false }
+        var found: [Action] = []
+        for (i, (x, y)) in zip(a, b).enumerated() where x != y {
+            guard case .custom = x, case let .custom(c) = y else { return false }
+            found.append(.setCustomPart(id, i, c))
+        }
+        if found.isEmpty && rawChanged { return false }
+        d.actions += found
         return true
     }
 
@@ -146,6 +184,7 @@ struct HomeDiff: Equatable {
         case let .react(ref, kind, by): return "react \(ref.messageId):\(ref.partIndex) \(kind) \(by ?? "-")"
         case let .unsend(id): return "unsend \(id)"
         case let .edit(id, text): return "edit \(id) \(text)"
+        case let .setCustomPart(id, pi, part): return "custom \(id):\(pi) \(part.kind) v\(part.version)"
         default: return "\(a)"
         }
     }

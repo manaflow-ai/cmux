@@ -26,15 +26,19 @@ extension Notification.Name {
 struct ChiefHomeNavigation {
     let sidebarSelectionState: SidebarSelectionState
 
-    /// Shows Home.
+    /// Shows Home. Nothing when `chief.enabled` is off.
     func open() {
-        guard sidebarSelectionState.selection != .home else { return }
+        guard ChiefSettings.isEnabled, sidebarSelectionState.selection != .home else { return }
         sidebarSelectionState.selection = .home
     }
 
     /// Shows Home, or returns to the workspace when Home is already showing.
     func toggle() {
-        sidebarSelectionState.selection = sidebarSelectionState.selection == .home ? .tabs : .home
+        if sidebarSelectionState.selection == .home {
+            leave()
+        } else {
+            open()
+        }
     }
 
     /// Returns to the workspace when Home is showing.

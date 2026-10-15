@@ -39,6 +39,8 @@ struct ClaudeStreamParser: Sendable {
     private var blockKinds: [Int: String] = [:]
     private var startedTools: Set<String> = []
     private var openText = false
+    /// Lifts `cmux-question` / `cmux-result` blocks out of the reply text.
+    var blocks = ChiefStructuredBlocks()
 
     init(sessionID: String? = nil) {
         self.sessionID = sessionID
@@ -51,6 +53,7 @@ struct ClaudeStreamParser: Sendable {
         awaitingEcho = uuid
         openText = false
         startedTools = []
+        blocks.reset()
     }
 
     /// Ends the running turn early (Stop). Its late output and `result` are dropped.
@@ -61,6 +64,7 @@ struct ClaudeStreamParser: Sendable {
         awaitingEcho = nil
         openText = false
         startedTools = []
+        blocks.reset()
     }
 
     /// Forgets per-process state after the process exited.
@@ -71,6 +75,7 @@ struct ClaudeStreamParser: Sendable {
         openText = false
         startedTools = []
         blockKinds = [:]
+        blocks.reset()
     }
 
     /// Output from an interrupted turn that arrives before the next prompt's echo.
@@ -82,8 +87,17 @@ struct ClaudeStreamParser: Sendable {
         return consume(json)
     }
 
-    /// Reads one parsed stdout line.
+    /// Reads one parsed stdout line. Reply text passes through ``blocks``.
     mutating func consume(_ line: ChiefJSON) -> [ClaudeStreamOutput] {
+        let raw = consumeLine(line)
+        blocks.session = sessionID
+        return raw.flatMap { output -> [ClaudeStreamOutput] in
+            guard case .event(let event) = output else { return [output] }
+            return blocks.filter(event).map(ClaudeStreamOutput.event)
+        }
+    }
+
+    private mutating func consumeLine(_ line: ChiefJSON) -> [ClaudeStreamOutput] {
         let type = line["type"]?.string ?? ""
         if type == "control_request" { return controlRequest(line) }
         if line["parent_tool_use_id"]?.string != nil { return [] }
@@ -189,6 +203,7 @@ struct ClaudeStreamParser: Sendable {
         abandoned = 0
         awaitingEcho = nil
         startedTools = []
+        if let usage = Self.usage(line["usage"]) { out.append(.event(.usage(usage))) }
         let resultText = line["result"]?.string
         let interrupted = subtype == "error_during_execution" && (line["result"]?.isNull ?? true) && !isError
         if (isError || subtype.hasPrefix("error")) && !interrupted {
@@ -197,6 +212,16 @@ struct ClaudeStreamParser: Sendable {
             out.append(.event(.finished))
         }
         return out
+    }
+
+    /// The `result` line's `usage` (input, cache read, cache write tokens); nil without input counts.
+    static func usage(_ usage: ChiefJSON?) -> ChiefTurnUsage? {
+        guard let usage else { return nil }
+        let input = usage["input_tokens"]?.number
+        let read = usage["cache_read_input_tokens"]?.number
+        let write = usage["cache_creation_input_tokens"]?.number
+        guard input != nil || read != nil || write != nil else { return nil }
+        return ChiefTurnUsage(inputTokens: Int(input ?? 0), cacheReadTokens: Int(read ?? 0), cacheWriteTokens: Int(write ?? 0))
     }
 
     private mutating func endSegment() -> [ClaudeStreamOutput] {

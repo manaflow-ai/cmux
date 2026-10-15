@@ -66,7 +66,14 @@ final class HostView: NSView {
     /// (PaneHost+WindowPlace.swift).
     var windowPlaceObserver: NSObjectProtocol?
     var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
-    deinit { windowPlaceObserver.map(NotificationCenter.default.removeObserver) }
+    /// cmux-classic: the hosted rows' live views over the scroll view (vendored CustomRowsHost:
+    /// the Chief's tool rows and approval cards, ChiefRows).
+    private(set) var customRows: CustomRowsHost?
+    deinit {
+        windowPlaceObserver.map(NotificationCenter.default.removeObserver)
+        // The router keys hosts by their list; a closed pane's host must not outlive it.
+        if let list = demo?.collection as? RowRecycler { CustomRowsRouter.shared.remove(list) }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -126,6 +133,8 @@ final class HostView: NSView {
         // (MessagesLab 258b385: two views can be at two scales; PaneHost+Scale.swift).
         ScaleKeeper.shared.register(self)
         ScaleKeeper.shared.start()
+        // cmux-classic: hosted rows (their overlay goes right above the scroll view, under the header).
+        customRows = CustomRowsHost.install(self, demo)
         needsLayout = true
     }
 
@@ -369,6 +378,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
         HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
+        ChiefRows.registerProviders()  // cmux-classic: before the first rows are derived
         self.host = host
         self.wake = wake
         super.init()
@@ -426,7 +436,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         let tv = demo.compose.textView
         tv.view.delegate = self
-        tv.onSend = { [weak self] in self?.send() }
+        tv.onSend = { [weak self] in
+            // cmux-classic: Return in the empty field while an approval card waits allows it.
+            if self?.answerPendingApproval(prominent: true) == true { return }
+            self?.send()
+        }
         tv.onEscape = { [weak self] in self?.escape() }
         // cmux: files and pictures go through the host's intake (Home's type
         // rule, prepared by HomeStore); a picture it refuses is not attached.
@@ -585,6 +599,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
+        // cmux-classic: Esc in the empty field while an approval card waits denies it (before Stop).
+        if answerPendingApproval(prominent: false) { return }
         // In the field a working agent stops first (one Esc), as before threads; then the
         // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
         if isWorking { onStop?(); return }
