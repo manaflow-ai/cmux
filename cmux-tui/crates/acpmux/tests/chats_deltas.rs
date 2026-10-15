@@ -2,6 +2,11 @@
 //! and each chat's brand, and a watcher gets one numbered delta per change,
 //! never the list again. Every store is a synthetic fixture in a temp home.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

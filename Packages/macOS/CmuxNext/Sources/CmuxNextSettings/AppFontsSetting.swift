@@ -63,7 +63,7 @@ public nonisolated struct AppFontsSetting: Sendable {
             SettingDescriptor(
                 codePath, section: .appearance, group: group,
                 title: SettingsText.keyed("settings.fonts.code", "Code Font"),
-                help: SettingsText.keyed("settings.fonts.code.help", "The face of code in chats, diffs and files. Unset, diffs and files use the terminal's font."),
+                help: SettingsText.keyed("settings.fonts.code.help", "The face of code in chats, diffs and files. Unset, code uses the terminal's font."),
                 kind: .fontFamily, default: nil, defaultLabel: SettingsText.keyed("settings.fonts.code.default", "Terminal Font"),
                 keywords: ["font", "code", "monospace", "monospaced", "typeface", "diff", "editor"]
             ),

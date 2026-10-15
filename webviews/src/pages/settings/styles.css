@@ -936,6 +936,36 @@ mark {
   border-color: var(--border);
 }
 
+/* A thumbnail with room for a corner badge. */
+.backdrop-frame {
+  position: relative;
+  display: block;
+}
+
+.backdrop-frame .backdrop-thumb {
+  display: block;
+}
+
+/* A macOS wallpaper that is not downloaded: dimmed, with a cloud in the corner. */
+.backdrop-pending .backdrop-thumb {
+  opacity: 0.7;
+}
+
+.backdrop-pending:hover .backdrop-thumb {
+  opacity: 0.9;
+}
+
+/* On a chip like the moving wallpaper's badge, so it reads over any picture. */
+.backdrop-download {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+
 /* Choose Image… (cx-t2x.8): an empty tile with a plus. */
 .backdrop-choose {
   display: flex;

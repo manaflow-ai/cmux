@@ -71,6 +71,29 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
     if (color) root.style.setProperty(`--agent-ansi-${index}`, color);
     else root.style.removeProperty(`--agent-ansi-${index}`);
   }
+  applyTerminalCodeFont(root);
+}
+
+/** The mono stack behind the terminal's face, the pane's own default (conversation.css `--cv-mono`). */
+const MONO_STACK = `ui-monospace, "SF Mono", Menlo, monospace`;
+/** The pane's code font variables: diffs (diffTheme.ts) and code blocks, file names and paths. */
+const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] as const;
+
+/**
+ * Code in the pane draws in the code face (`appearance.fonts.code`), else the terminal's, as on the
+ * diff, markdown and editor pages. The host applies the shared web theme (`window.cmuxTheme`, its
+ * `codeFontFamily` and `terminal.fontFamily`) just before the pane's own on every theme change
+ * (AgentPaneTheme.swift `script`); without a named face the stylesheets' mono stack applies.
+ */
+function applyTerminalCodeFont(root: HTMLElement): void {
+  type Current = { codeFontFamily?: unknown; terminal?: { fontFamily?: unknown } };
+  const current = (window as { cmuxTheme?: { current?: Current | null } }).cmuxTheme?.current;
+  const named = (family: unknown) => (typeof family === "string" ? family.trim() : "");
+  const face = named(current?.codeFontFamily) || named(current?.terminal?.fontFamily);
+  for (const variable of CODE_FONT_VARIABLES) {
+    if (face) root.style.setProperty(variable, `${JSON.stringify(face)}, ${MONO_STACK}`);
+    else root.style.removeProperty(variable);
+  }
 }
 
 export function applyAgentDocumentMetadata(): void {
