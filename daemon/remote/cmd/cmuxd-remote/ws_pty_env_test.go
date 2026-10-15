@@ -25,3 +25,15 @@ func TestDefaultWebSocketPTYEnvForcesTerminalIdentity(t *testing.T) {
 		t.Errorf("TERM_PROGRAM_VERSION = %q, want unset (host terminal version must not leak)", got)
 	}
 }
+
+// PATH is the one environment variable that the SSH client can accidentally
+// carry across hosts through AcceptEnv. The remote login shell must be allowed
+// to initialize it from the remote host's own startup files instead.
+func TestDefaultWebSocketPTYEnvDoesNotInheritClientPath(t *testing.T) {
+	t.Setenv("PATH", "/Users/jluker/.local/bin:/opt/homebrew/bin:/usr/bin:/bin")
+
+	env, _ := envMapWithOrder(defaultWebSocketPTYEnv("/bin/zsh"))
+	if _, ok := env["PATH"]; ok {
+		t.Fatalf("PATH = %q, want omitted so the remote login shell can initialize it", env["PATH"])
+	}
+}
