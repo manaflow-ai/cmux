@@ -78,7 +78,10 @@ fn events_within(
 
 #[test]
 fn sized_attach_that_narrows_the_grid_replays_once_at_the_effective_size() {
-    let harness = RecoveryHarness::start("sized-attach-one-replay");
+    let mut harness = RecoveryHarness::start_unstarted("sized-attach-one-replay");
+    // A dropped view holds the grid for a grace period (below); keep it short.
+    harness.extra_env.push(("CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS".into(), "300".into()));
+    harness.restart();
     let created = request(
         &harness.socket,
         serde_json::json!({
@@ -120,6 +123,67 @@ fn sized_attach_that_narrows_the_grid_replays_once_at_the_effective_size() {
         drop(phone_reader);
         wait_for_vt_size(&harness.socket, surface, 120, 39);
     }
+
+    close_terminal_surface(&harness.socket, surface, 50);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// A view whose connection drops keeps the grid from growing for a grace
+/// period. A phone that reattaches inside it finds the grid it left, so the
+/// PTY is never resized: an inline TUI such as Codex sees no width change, and
+/// does not rebuild (and truncate) its scrollback twice per drop (cnx-ios
+/// termqa V2-5). After the grace the grid follows the remaining views.
+#[test]
+fn dropped_view_holds_the_grid_until_a_reattach_or_the_grace_ends() {
+    let mut harness = RecoveryHarness::start_unstarted("sized-attach-drop-hold");
+    harness.extra_env.push(("CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS".into(), "4000".into()));
+    harness.restart();
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", "exec /bin/cat"],
+            "new_workspace": true,
+            "name": "drop-hold",
+            "cols": 120,
+            "rows": 39,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
+    let (phone_writer, phone_reader, _) = attach_sized(&harness.socket, surface, 53, 42, 3);
+    wait_for_vt_size(&harness.socket, surface, 53, 39);
+
+    // The link drops: the grid stays.
+    drop(phone_writer);
+    drop(phone_reader);
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_millis(1500) {
+        let state = request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
+        assert_eq!(
+            (state["cols"].as_u64(), state["rows"].as_u64()),
+            (Some(53), Some(39)),
+            "the grid grew {:?} after a dropped view",
+            started.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // The phone reattaches inside the grace: one replay at the same grid.
+    let (phone_writer, mut phone_reader, phone_state) =
+        attach_sized(&harness.socket, surface, 53, 42, 4);
+    assert_eq!((phone_state["cols"].as_u64(), phone_state["rows"].as_u64()), (Some(53), Some(39)));
+    let resized = events_within(&mut phone_reader, Duration::from_millis(1000))
+        .into_iter()
+        .filter(|event| event["event"] == "resized")
+        .count();
+    assert_eq!(resized, 0, "the reattach resized the terminal");
+
+    // It leaves for longer than the grace: the grid follows the Mac.
+    drop(phone_writer);
+    drop(phone_reader);
+    wait_for_vt_size(&harness.socket, surface, 120, 39);
 
     close_terminal_surface(&harness.socket, surface, 50);
     wait_for_no_host_records(&harness.host_root());
