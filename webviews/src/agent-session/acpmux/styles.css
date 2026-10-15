@@ -564,6 +564,24 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+
+/* Permission-card controls from cx-gakp: readable tool asks and an explicit steer action. */
+.acpmux-permission-ask{border:0;background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-surface-elevated));box-shadow:var(--elevation-1);padding:12px}.acpmux-permission-request{display:flex;flex-direction:column;gap:4px;min-width:0}.acpmux-permission-request-label{font-size:var(--text-control);font-weight:500;color:var(--agent-text)}.acpmux-permission-request-description{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.4}.acpmux-permission-command{min-width:0;color:var(--agent-soft)}.acpmux-permission-command summary{cursor:pointer;list-style:disclosure-closed;min-width:0}.acpmux-permission-command[open] summary{list-style:disclosure-open}.acpmux-permission-command code{font:var(--text-detail)/1.5 var(--font-mono);white-space:pre-wrap;overflow-wrap:break-word;word-break:normal}.acpmux-permission-command pre{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;background:color-mix(in srgb,var(--agent-text) 4%,transparent);border-radius:6px;padding:7px;max-height:180px;overflow:auto}
+/* The options are Claude Code's numbered prompt: compact rows at their own height, the number is the
+   key that answers (1-9 while the card has focus), and only Allow once carries a quiet fill. */
+.acpmux-permission-ask .acpmux-permission-buttons{flex-direction:column;align-items:stretch;gap:1px;margin-top:8px;counter-reset:acpmux-permission-option}
+.acpmux-permission-ask .acpmux-permission-buttons button{counter-increment:acpmux-permission-option;display:grid;grid-template-columns:14px minmax(0,1fr) auto;column-gap:6px;align-items:start;min-width:0;min-height:28px;box-sizing:border-box;border:0;border-radius:6px;background:transparent;color:var(--agent-text);padding:5px 8px;text-align:left}
+.acpmux-permission-ask .acpmux-permission-buttons button::before{content:counter(acpmux-permission-option);grid-area:1/1;color:var(--agent-muted);font-variant-numeric:tabular-nums;line-height:1.25}
+.acpmux-permission-ask .acpmux-permission-buttons .acpmux-permission-action-label{grid-area:1/2}
+.acpmux-permission-ask .acpmux-permission-buttons .acpmux-permission-action-description{grid-area:2/2}
+.acpmux-permission-ask .acpmux-permission-buttons .acpmux-permission-action-shortcut{grid-area:1/3;align-self:center;margin:0}
+.acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:color-mix(in srgb,var(--agent-accent) 12%,transparent);font-weight:500}
+.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-deny{color:var(--agent-muted)}
+.acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-deny:hover{color:var(--agent-text)}
+.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
+.acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-description{color:color-mix(in srgb,currentColor 72%,transparent);font-size:var(--text-caption);line-height:1.3}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity .15s}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
+.acpmux-permission-panel .acpmux-permission-action-shortcut{opacity:1}
 /* An agent's offer of a parallel chat (cx-807da, OfferChip.tsx): a placeholder look until the chip's design lands. */
 .acpmux-session-offer{display:flex;align-items:center;gap:12px;margin:4px 0;padding:8px 8px 8px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:var(--text-control)}
 .acpmux-session-offer-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
