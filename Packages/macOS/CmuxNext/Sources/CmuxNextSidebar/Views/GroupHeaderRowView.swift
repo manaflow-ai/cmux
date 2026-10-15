@@ -146,6 +146,10 @@ final class GroupHeaderRowView: SidebarRowView {
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
+    /// The member count a collapsed header shows, nil when it shows none.
+    var countText: String? { nil }
+    /// The one ink every glyph on the header takes.
+    var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
     var labelFrame: NSRect {
         guard thin else { return pill.frame }
