@@ -68,18 +68,28 @@ def cli(*args):
     return (out.stdout + out.stderr).strip()
 
 
+DOC_ERRORS = set()
+
+
 def doc_icon_url(host):
     """The icon_url the home daemon's sidebar document stores on the link item for `host` (sidebar.get, through the
     tagged app's bundled cmux-tui)."""
     tui = os.path.join(os.path.dirname(CLI), "cmux-tui")
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CMUX_QUIET": "1"}
-    # Through the app socket an operation names its machine (live14: "required selector is missing" without it).
-    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", "sidebar.get", "--params-json", '{"machine":"current"}'],
+    # Through the app socket an operation names its machine and its session (live14 without either, live21 without the
+    # session: "required selector is missing", so icon_url read None while the row drew the stored favicon).
+    params = '{"machine":"current","session":"current"}'
+    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", "sidebar.get", "--params-json", params],
                          capture_output=True, text=True, timeout=30, env=env)
     try:
         doc = json.loads(out.stdout)
     except ValueError:
-        print("sidebar.get:", (out.stdout + out.stderr)[:300], flush=True)
+        doc = None
+    if not isinstance(doc, dict) or ("code" in doc and "message" in doc):  # not a document: a refusal or no JSON
+        error = (out.stdout + out.stderr)[:300]
+        if error not in DOC_ERRORS:  # once per distinct error, not once per poll
+            DOC_ERRORS.add(error)
+            print("sidebar.get:", error, flush=True)
         return None
     found = []
 
