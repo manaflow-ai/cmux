@@ -196,10 +196,27 @@ struct CardInteraction: UIViewRepresentable {
             return [UIDragItem(itemProvider: NSItemProvider(object: key as NSString))]
         }
 
+        /// The dragged card: the card drawn into an image. A hosting view that
+        /// is in no window has drawn nothing yet when UIKit lifts it, so the
+        /// card turned into a blank rectangle under the finger.
         func dragInteraction(_ interaction: UIDragInteraction, previewForLifting item: UIDragItem,
                              session: any UIDragSession) -> UITargetedDragPreview? {
-            guard let t = targeted() else { return nil }
-            return UITargetedDragPreview(view: t.view, parameters: UIDragPreviewParameters(), target: t.target)
+            guard let owner, let v = view, let window = v.window else { return nil }
+            let r = cardRect(in: v)
+            let renderer = ImageRenderer(content: owner.preview(1).frame(width: r.width, height: r.height))
+            renderer.scale = window.screen.scale
+            renderer.isOpaque = false
+            guard let image = renderer.uiImage else {
+                guard let t = targeted() else { return nil }
+                return UITargetedDragPreview(view: t.view, parameters: UIDragPreviewParameters(), target: t.target)
+            }
+            let iv = UIImageView(image: image)
+            iv.frame = CGRect(origin: .zero, size: r.size)
+            let params = UIDragPreviewParameters()
+            params.visiblePath = UIBezierPath(roundedRect: CGRect(origin: .zero, size: r.size), cornerRadius: owner.radius)
+            params.backgroundColor = .clear
+            return UITargetedDragPreview(view: iv, parameters: params,
+                                         target: UIDragPreviewTarget(container: v, center: CGPoint(x: r.midX, y: r.midY)))
         }
 
         func dragInteraction(_ interaction: UIDragInteraction, willAnimateLiftWith animator: any UIDragAnimating,

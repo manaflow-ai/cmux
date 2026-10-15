@@ -300,8 +300,9 @@ struct TabOverview<Source: TabsDataSource>: View {
             source.card(for: tab)
                 .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))
         }
-        // Under its lifted long-press preview the card is hidden.
-        .opacity(swipes.menuCard == tab.id ? 0 : 1)
+        // Under its lifted long-press preview, and while it is dragged to
+        // another slot (the dragged card is the card), the card is hidden.
+        .opacity(swipes.menuCard == tab.id || dragging == tab.id ? 0 : 1)
         .overlay(alignment: .topLeading) {
             if selecting { SelectionMark(selected: selection.contains(tab.id), width: r.width, height: r.height, radius: layout.cardRadius) }
         }
