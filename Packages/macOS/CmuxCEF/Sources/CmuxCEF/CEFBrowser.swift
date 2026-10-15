@@ -171,7 +171,11 @@ public final class CEFBrowser {
         } else if browserID == nil {
             createNow()
         } else {
-            reactivate()
+            // Never re-activate the tab here: it is already its window's
+            // active tab, and Chromium answers an activation by restoring
+            // focus, which with no stored focus moves it to the page's first
+            // link (a split next to the page focused <a> and showed its
+            // status bubble). Popup moves re-activate the opener themselves.
             hostView.postGeometryChange()
         }
     }
