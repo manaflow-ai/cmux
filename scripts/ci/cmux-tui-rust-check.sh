@@ -100,16 +100,22 @@ echo "cargo: $toolchain_cargo"
 # The step's own target dir (in its checkout) may be warm: the worker's warm
 # slot keeps the checkout's .build between steps. Cargo keeps another rustc's
 # artifacts beside the old ones, so a new toolchain (`rustc -vV`, from the
-# directory whose rust-toolchain.toml applies) or a new stamp version wipes the
-# target first. Raise warm_target_version to make every warm slot build cold
-# once. A kept target (CMUX_RUST_CHECK_KEEP_TARGET_DIR, rbx) or a target dir
-# outside the checkout (the managed fleet resolver, shared) is never wiped.
+# directory whose rust-toolchain.toml applies), a new zig (ghostty-vt-sys
+# reruns its zig build only when $ZIG changes, not when the zig on PATH does)
+# or a new stamp version wipes the target first. Raise warm_target_version to
+# make every warm slot build cold once. A kept target
+# (CMUX_RUST_CHECK_KEEP_TARGET_DIR, rbx) or a target dir outside the checkout
+# (the managed fleet resolver, shared) is never wiped.
 warm_target_version=1
 warm_target_guard() {
-  local dir="$CARGO_TARGET_DIR" stamp want have
-  [[ "$dir" == "$root/.build/"* ]] || { echo "cargo target: $dir (not this checkout's; not checked)"; return 0; }
+  local dir="$CARGO_TARGET_DIR" stamp want have zig_version
+  if [[ "${CMUX_RUST_CHECK_KEEP_TARGET_DIR:-0}" == 1 || "$dir" != "$root/.build/"* ]]; then
+    echo "cargo target: $dir (kept or not this checkout's; not checked)"
+    return 0
+  fi
   stamp="$dir/.cmux-rust-check-stamp"
-  want="cmux-tui-rust-check target v$warm_target_version"$'\n'"$(rustc -vV)" || { echo "error: rustc -vV failed; no cargo command ran" >&2; exit 3; }
+  zig_version="$("${ZIG:-zig}" version 2>/dev/null || echo none)"
+  want="cmux-tui-rust-check target v$warm_target_version"$'\n'"zig $zig_version"$'\n'"$(rustc -vV)" || { echo "error: rustc -vV failed; no cargo command ran" >&2; exit 3; }
   if [[ -d "$dir" && -n "$(ls -A "$dir" 2>/dev/null)" ]]; then
     have="$(cat "$stamp" 2>/dev/null || true)"
     if [[ "$have" == "$want" ]]; then
