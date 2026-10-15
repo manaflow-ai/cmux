@@ -1052,7 +1052,7 @@ final class Seen: @unchecked Sendable {
 @Suite struct ChatKindsTests {
     /// A Mac's acpmux may leave Edit queued prompt and Move up / down out of its
     /// `transcript` records: the phone asks for them by name, so its queue rows follow.
-    @Test func theChatAsksForQueueChangesByName() {
+    @Test @MainActor func theChatAsksForQueueChangesByName() {
         guard case .array(let kinds) = AcpmuxSessionSource.chatKinds else {
             Issue.record("kinds is not a list"); return
         }
