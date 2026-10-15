@@ -12,15 +12,19 @@ fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     handle_command(mux, mux.local_test_client(0), command, &writer)
 }
 
-fn added_transaction(events: &crate::MuxEventReceiver, surface: SurfaceId) -> Option<String> {
-    std::iter::from_fn(|| events.try_recv().ok()).find_map(|event| match event {
-        MuxEvent::TreeDelta(delta)
-            if delta.kind == TreeDeltaKind::TabAdded && delta.surface == Some(surface) =>
-        {
-            delta.transaction.map(|transaction| transaction.to_string())
-        }
-        _ => None,
-    })
+/// Every `tab-added` of `surface` sent so far, by its transaction (cx-veznz: exactly one, carrying
+/// the create's transaction; a raw one before it made the app show the tab twice).
+fn added_transactions(events: &crate::MuxEventReceiver, surface: SurfaceId) -> Vec<Option<String>> {
+    std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            MuxEvent::TreeDelta(delta)
+                if delta.kind == TreeDeltaKind::TabAdded && delta.surface == Some(surface) =>
+            {
+                Some(delta.transaction.map(|transaction| transaction.to_string()))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]
@@ -35,7 +39,7 @@ fn new_conversation_tab_echoes_the_transaction_on_tab_added() {
     let created = run(&mux, request.clone()).unwrap();
     let surface = created["surface"].as_u64().unwrap();
     assert_eq!(created["transaction"], "txn-agent-1", "{created}");
-    assert_eq!(added_transaction(&events, surface).as_deref(), Some("txn-agent-1"));
+    assert_eq!(added_transactions(&events, surface), vec![Some("txn-agent-1".to_string())]);
 
     // A keyed replay echoes the transaction in its result and emits nothing.
     let replay = run(&mux, request).unwrap();
@@ -44,7 +48,11 @@ fn new_conversation_tab_echoes_the_transaction_on_tab_added() {
         (Some(true), Some(surface))
     );
     assert_eq!(replay["transaction"], "txn-agent-1", "{replay}");
-    assert_eq!(added_transaction(&events, surface), None, "a replay adds no tab");
+    assert_eq!(
+        added_transactions(&events, surface),
+        Vec::<Option<String>>::new(),
+        "a replay adds no tab"
+    );
 
     let bad = json!({"cmd":"new-conversation-tab","pane":pane,
                      "agent_session":{"host":"install:mac-test"},"transaction":""});
