@@ -271,7 +271,7 @@ def cleanup():
             app.wait(timeout=20)
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
+    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
                                                         "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")},
                    capture_output=True, timeout=30)
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],

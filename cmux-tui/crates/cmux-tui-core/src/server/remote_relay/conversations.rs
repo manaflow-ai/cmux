@@ -212,6 +212,7 @@ pub(in crate::server) fn remote_event(
         // Runs stay on the person's own local connections
         // (`conversation-runs-v1` is not served to the relay).
         ConversationEvent::Run { .. }
+        | ConversationEvent::Live { .. }
         | ConversationEvent::Avatar { .. }
         | ConversationEvent::Chief { .. } => None,
     }

@@ -332,9 +332,12 @@ pub enum Command {
     DaemonStart { person_key_fd: Option<i32> },
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
-        /// Leave hosted agents running for the next daemon to adopt.
-        #[arg(long)]
+        /// Accepted for callers of older builds; hosted agents keep running anyway.
+        #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// End every agent process too, hosted agents and their hosts included.
+        #[arg(long)]
+        end_agents: bool,
     },
     #[command(hide = true)]
     Config,
@@ -647,15 +650,19 @@ pub enum DaemonCmd {
         #[arg(long)]
         person_key_fd: Option<i32>,
     },
-    /// Stop the daemon and every agent process, agent hosts included;
-    /// returns once they all exited, and fails naming any host left.
-    /// `--keep-agents` leaves hosted agents running for the next daemon to
-    /// adopt (a restart); pooled hosts end anyway.
+    /// Stop the daemon. Hosted agents keep running for the next daemon to
+    /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
+    /// every agent process too, agent hosts included, returns once they all
+    /// exited, and fails naming any host left.
     #[command(alias = "kill-server")]
     Shutdown {
-        /// Leave hosted agents running for the next daemon to adopt.
-        #[arg(long)]
+        /// Accepted for callers of older builds, where a plain shutdown ended
+        /// the agents; hosted agents keep running anyway.
+        #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// End every agent process too, hosted agents and their hosts included.
+        #[arg(long)]
+        end_agents: bool,
     },
     /// Print the config path and contents.
     Config,
@@ -809,7 +816,9 @@ pub fn flatten(c: Command) -> Command {
             },
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Start { person_key_fd } => Command::DaemonStart { person_key_fd },
-            DaemonCmd::Shutdown { keep_agents } => Command::Shutdown { keep_agents },
+            DaemonCmd::Shutdown { keep_agents, end_agents } => {
+                Command::Shutdown { keep_agents, end_agents }
+            }
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,

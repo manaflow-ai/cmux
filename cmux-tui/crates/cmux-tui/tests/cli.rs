@@ -19,6 +19,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
+#[path = "support/private_state.rs"]
+mod private_state;
+
 struct HeadlessServer {
     child: Child,
     socket: PathBuf,
@@ -103,7 +106,10 @@ impl HeadlessServer {
             // cds into GITHUB_WORKSPACE and overrides the terminal's folder.
             .env_remove("SSH_CONNECTION")
             .env_remove("SSH_CLIENT")
-            .env_remove("SSH_TTY")
+            .env_remove("SSH_TTY");
+        // Durable state and the shell integration scripts stay in the test
+        // folder, never below the host's HOME (support/private_state.rs).
+        private_state::use_private_state(&mut command, &dir)
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -3685,6 +3691,9 @@ mod command_history;
 #[cfg(unix)]
 #[path = "cli/conversation_inbox_state.rs"]
 mod conversation_inbox_state;
+#[cfg(unix)]
+#[path = "cli/conversation_live.rs"]
+mod conversation_live;
 #[cfg(unix)]
 #[path = "cli/conversation_person_credentials.rs"]
 mod conversation_person_credentials;

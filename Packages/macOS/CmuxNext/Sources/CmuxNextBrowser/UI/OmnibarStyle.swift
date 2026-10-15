@@ -55,7 +55,7 @@ enum OmnibarStyle {
     static var iconPointSize: CGFloat { compact ? 12 : 13 }
     /// 14 pt regular system text (13 pt compact).
     static var font: NSFont { Typography.system(size: compact ? 13 : 14, weight: .regular) }
-    static var ringWidth: CGFloat { 1.5 }
+    static var ringWidth: CGFloat { 2 }
 
     // MARK: Popup
 
@@ -80,14 +80,19 @@ enum OmnibarStyle {
     // toolbar is the same surface as the tab strip and terminal, the bar a
     // faint lift of it, the popup a floating card. Read them only inside
     // `performWithTheme` (theme-scoped).
-    static var barFill: NSColor { Palette.chromeBackground } // theme-scoped
-    static var barHoverFill: NSColor { Palette.elevatedBackground } // theme-scoped
+    /// The flat bar at rest or hovered: a tonal step over the toolbar that
+    /// keeps a see-through window's transparency (`AddressBarSurface`).
+    static func barFill(_ state: AddressBarSurface.State, coverage: Double) -> NSColor { // theme-scoped
+        Palette.addressBar.fill(state, coverage: coverage).nsColor
+    }
     /// Editing fill and popup card: the solid popup surface, so no page text
     /// shows through the suggestions (the field's editing card joins it).
     static var cardFill: NSColor { Palette.popupSurface } // theme-scoped
     /// Neutral ring while editing with the popup closed.
     static var ring: NSColor { Palette.focusRing } // theme-scoped
-    static var rowSelectedFill: NSColor { Palette.selectionFill } // theme-scoped
+    /// The highlighted row: the theme's accent selection when it names one,
+    /// else a neutral step tuned to the bar (`AddressBarSurface`).
+    static var rowSelectedFill: NSColor { Palette.selectionIsAccent ? Palette.selectionFill : Palette.addressBar.rowSelected.nsColor } // theme-scoped
     static var chipHoverFill: NSColor { Palette.hoverFill } // theme-scoped
     /// Text selection inside the field.
     static var selection: NSColor { Palette.textSelection } // theme-scoped

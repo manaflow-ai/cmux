@@ -614,15 +614,15 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     if code == 0 { success_exit_code(plan, &result) } else { code }
 }
 
-/// `terminal <id> screen wait` reports a timeout as a normal result with
-/// `matched: false`. The result is still printed, but the exit status is 1
-/// (spec/commands.md), so a script can tell a timeout from a match.
+/// A printed result that exits 1: a `terminal <id> screen wait` timeout
+/// (spec/commands.md) or an `agent message unsend` whose outcome is `failed`.
 fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
-    let unmatched_wait = matches!(
-        &plan.operation,
-        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
-    ) && result.get("matched") == Some(&Value::Bool(false));
-    i32::from(unmatched_wait)
+    use cmux_tui_core::resource::ResourceOperation as Op;
+    i32::from(match &plan.operation {
+        WireOperation::Typed(Op::TerminalWait) => result["matched"] == false,
+        WireOperation::Typed(Op::AgentMessageUnsend) => result["value"]["outcome"] == "failed",
+        _ => false,
+    })
 }
 
 /// What the human table shows for a result. `workspace list --order

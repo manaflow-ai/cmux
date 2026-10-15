@@ -47,6 +47,15 @@ DAEMON_VERBS = frozenset(
     }
 )
 
+# `cmux browser profile|devices VERB` and `cmux browser tab <tab> set-profile`:
+# the daemon's browser profile and device records (parse_browser). No delete:
+# only a person deletes a browser profile, in the app.
+DAEMON_SUBSCOPES = {
+    "profile": frozenset({"list", "create", "open", "move"}),
+    "devices": frozenset({"list", "add", "remove"}),
+}
+TAB_PROFILE_VERBS = frozenset({"set-profile"})
+
 # `cmux browser ACTION`: the app's browser UI actions. They act on the focused
 # browser and take no target (`cmux action list --noun browser`).
 UI_ACTIONS = frozenset(
@@ -397,6 +406,18 @@ def validate_command(command: BrowserCommand) -> list[str]:
         return [f"{where}: missing browser target or action: {raw}"]
     first = after[0]
     if first in {"--help", "-h", "list"} or first in UI_ACTIONS:
+        return []
+    if first in DAEMON_SUBSCOPES:
+        verbs = [token for token in after[1:] if not token.startswith("-")][:1]
+        if not verbs or verbs[0] not in DAEMON_SUBSCOPES[first]:
+            return [f"{where}: unsupported browser {first} verb; check `cmux browser --help`: {raw}"]
+        return []
+    if first == "tab":
+        words = [token for token in after[1:] if not token.startswith("-")]
+        if len(words) < 2 or not (_is_tab_target(words[0]) or _is_variable(words[0])):
+            return [f"{where}: browser tab needs a tab_… target and a verb: {raw}"]
+        if words[1] not in TAB_PROFILE_VERBS:
+            return [f"{where}: unsupported browser tab verb {words[1]!r}: {raw}"]
         return []
     if first.lower() in PAGE_VERBS | DAEMON_VERBS:
         return [f"{where}: browser {first!r} needs an explicit tab_… or browser_… target: {raw}"]

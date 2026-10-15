@@ -342,3 +342,45 @@
     transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
   }
 }
+/* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
+   opens them before the row's harness icon, and when open the children indented below it. The
+   title keeps clear of the count; the icon and age columns stay where every other row has them. */
+.nt-card-family {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nt-cards[data-variant="list"] .nt-card-family > .nt-card .nt-card-title {
+  margin-right: 34px;
+}
+.nt-card-children-toggle {
+  position: absolute;
+  top: 5px;
+  /* Row padding 10 + age column 3.2em of 11.5px + gap 6 + the harness icon + 8 of air. */
+  right: 78px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-soft);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.nt-card-children-toggle:hover,
+.nt-card-children-toggle[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  color: var(--agent-text);
+}
+.nt-card-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.nt-cards[data-variant="list"] .nt-card-children > .nt-card {
+  padding-left: 30px;
+}

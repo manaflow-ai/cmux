@@ -156,6 +156,8 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// owner's agent_mux credential and revokes the binding of the host that
     /// runs, so it is called only when the host must start.
     @concurrent public func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
+        // cmux NEXT's one-time adoption of its old homes ends before its brain starts (cx-is1kf.9).
+        await AcpmuxEnvironment.adoptBuildHomes()
         // A Chief-home acpmux without this Chief home (an older build, or one an
         // app started before ACPMUX_CHIEF_MUX_HOME) is handed off (AcpmuxChiefHandoff).
         // Only the Chief host starts that daemon (a tab never does, cx-ebm.54): the

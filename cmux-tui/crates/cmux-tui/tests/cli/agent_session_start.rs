@@ -20,6 +20,8 @@ mod agent_chat_notices;
 mod agent_home_reopen;
 #[path = "agents_cli_receipt.rs"]
 mod agents_cli_receipt;
+#[path = "agents_events_cli.rs"]
+mod agents_events_cli;
 #[path = "agents_wait_cli.rs"]
 mod agents_wait_cli;
 
@@ -262,7 +264,7 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
         let _ = Command::new(bin())
-            .args(["acp", "daemon", "shutdown"])
+            .args(["acp", "daemon", "shutdown", "--end-agents"])
             .env("HOME", self.dir.join("home"))
             .env("ACPMUX_HOME", self.dir.join("acpmux"))
             .output();
@@ -719,6 +721,6 @@ impl PeerAcpmux {
 
 impl Drop for PeerAcpmux {
     fn drop(&mut self) {
-        let _ = self.command(&["acp", "daemon", "shutdown"]).output();
+        let _ = self.command(&["acp", "daemon", "shutdown", "--end-agents"]).output();
     }
 }

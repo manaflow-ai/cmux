@@ -27,6 +27,7 @@ enum AgentPanePageHost {
         if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
+        events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(.recentlyClosed(view.recentlyClosed))
         events.append(.editedFiles(view.editedFiles))

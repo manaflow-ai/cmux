@@ -27,6 +27,8 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     public var lastAt: Date
     /// The other participants in display order.
     public var people: [HomeSidebarPerson]
+    /// Muted (the person's Cloud mute): the row draws dimmed.
+    public var isMuted = false
 
     /// Unread messages, or the user's Mark as Unread (then the count is at least one).
     public var unread: Bool
@@ -50,6 +52,10 @@ public struct HomeSidebarModel: Hashable, Sendable {
     public var pinned: [HomeSidebarItem]
     public var rows: [HomeSidebarItem]
     public var people: [HomeContact]
+    /// The Cloud rows' state from the owner (`home-inbox` `cloud`): only `unavailable` shows a quiet line.
+    public var cloudState: String?
+    /// The quiet line under the list (Cloud conversations not reachable), or nil.
+    public var note: String? { HomeConversationStrings.cloudNote(cloudState) }
 
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
     public init(rows: [InboxRow], pins: HomePins, me: ParticipantID?, query: String = "", contacts: [HomeContact] = [],
@@ -80,6 +86,7 @@ public struct HomeSidebarModel: Hashable, Sendable {
             var item = HomeSidebarItem(row: row, pinned: pinned, markedUnread: unreadMarks.contains(row.id), me: me, now: now,
                                        calendar: calendar, locale: locale)
             if item.isChief { item.chiefAvatar = chiefAvatar }
+            item.isMuted = row.summary.muted
             return item
         }
         pinned = needle.isEmpty ? pinnedRows.map { item($0, true) } : []

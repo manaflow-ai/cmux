@@ -22,11 +22,11 @@ import CmuxNextWakeups
 @MainActor
 public final class HoverCardCoordinator {
     public private(set) var machine = HoverCardMachine()
-    private var sources: [ObjectIdentifier: WeakSource] = [:]
+    private(set) var sources: [ObjectIdentifier: WeakSource] = [:]
     /// The source of each target the machine knows (the last hit, the active one).
     private var owners: [HoverTargetID: WeakSource] = [:]
     private let timer: DemandTimer
-    private var panel: HoverCardPanel?
+    private(set) var panel: HoverCardPanel?
     private var activated: HoverTargetID?
     private var monitor: Any?
     private var observers: [any NSObjectProtocol] = []
@@ -144,7 +144,10 @@ public final class HoverCardCoordinator {
         // so the window under it hit-tests): it holds the card.
         let onCard = card?.contains(now) == true
         // A held mouse button (a press, a drag, a selection) gives no target a card, as in Chrome.
-        send(.hit(onCard || mouseButtonDown() ? nil : hitTest()?.target, moved: true, aiming: aiming))
+        let hit = onCard || mouseButtonDown() ? nil : hitTest()
+        // Between a source's targets (not on the card): a card that hides on leave waits for the next.
+        let bridging = !onCard && hit == nil && !mouseButtonDown() && bridges(at: now)
+        send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
     }
 
     /// The shown card's frame on screen, nil while none shows.
@@ -330,8 +333,7 @@ public final class HoverCardCoordinator {
     private func hitTest() -> HoverCardHit? {
         guard appIsActive(), hoverCardsEnabled() else { return nil }
         let point = currentPointer()
-        let top = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
-            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
+        let top = topWindowNumber(at: point)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
                   let hit = source.hoverCardHit(at: point) else { continue }
@@ -339,21 +341,6 @@ public final class HoverCardCoordinator {
             return hit
         }
         return nil
-    }
-
-    /// The front one of this app's windows under a screen point. A
-    /// no-activate run (a capture slot) is never frontmost and sits under
-    /// other runs' windows, so the system's topmost window there is often
-    /// not ours.
-    private func ownTopWindowNumber(at point: CGPoint) -> Int? {
-        let card = panel?.windowNumber
-        return ownWindows().first { $0.number != card && $0.frame.contains(point) }?.number
-    }
-
-    private static func topWindowNumber(at point: CGPoint, excluding card: Int?) -> Int {
-        let top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
-        guard let card, top == card else { return top }
-        return NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: card)
     }
 
     // MARK: Verification
@@ -397,7 +384,7 @@ public final class HoverCardCoordinator {
     }
 }
 
-private struct WeakSource {
+struct WeakSource {
     weak var source: (any HoverCardSource)?
     init(_ source: any HoverCardSource) { self.source = source }
 }

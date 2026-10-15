@@ -599,6 +599,16 @@ impl HostLaunch {
     pub(crate) fn host_scrollback(daemon_scrollback: usize) -> usize {
         daemon_scrollback.min(crate::surface::VT_REPLAY_MAX_BYTES)
     }
+
+    /// The TERM the child runs with: the caller's environment is applied
+    /// after `term`, so its last TERM wins (the NEXT app sends xterm-ghostty).
+    pub(crate) fn child_term(&self) -> &str {
+        self.extra_env
+            .iter()
+            .rev()
+            .find_map(|(key, value)| (key == "TERM").then_some(value.as_str()))
+            .unwrap_or(&self.term)
+    }
 }
 
 impl HostLaunch {

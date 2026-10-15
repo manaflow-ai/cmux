@@ -255,6 +255,26 @@
             }
           },
           {
+            "key" : "settings.group.colorTransition",
+            "rows" : [
+              "appearance.colorTransition.enabled",
+              "appearance.colorTransition.duration",
+              "appearance.colorTransition.curve",
+              "appearance.colorTransition.springResponse",
+              "appearance.colorTransition.springDamping",
+              "appearance.colorTransition.bezierX1",
+              "appearance.colorTransition.bezierY1",
+              "appearance.colorTransition.bezierX2",
+              "appearance.colorTransition.bezierY2",
+              "appearance.colorTransition.colorSpace",
+              "appearance.colorTransition.reduceMotion"
+            ],
+            "title" : {
+              "key" : "settings.group.colorTransition",
+              "text" : "Color Changes"
+            }
+          },
+          {
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.backdropArt",
@@ -324,7 +344,8 @@
               "sidebar.spacesPosition",
               "sidebar.spacesVisibility",
               "sidebar.hoverCards.enabled",
-              "sidebar.hoverCards.delay"
+              "sidebar.hoverCards.delay",
+              "home.channelsEnabled"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -644,7 +665,8 @@
               "browser.omnibar.glassTint",
               "browser.omnibar.glassTintStrength",
               "browser.omnibar.cornerRadius",
-              "browser.omnibar.shadow"
+              "browser.omnibar.shadow",
+              "browser.omnibar.backgroundOpacity"
             ],
             "title" : {
               "key" : "settings.group.addressBar",
@@ -14941,6 +14963,680 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.enabled.help",
+        "text" : "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.enabled",
+      "keywords" : [
+        "color",
+        "theme",
+        "transition",
+        "animation",
+        "fade",
+        "blend",
+        "workspace",
+        "instant"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.enabled",
+        "text" : "Animate Color Changes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        2000,
+        1000
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 200,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.duration.help",
+        "text" : "How long a color change takes. 0 changes colors at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.duration",
+      "keywords" : [
+        "color",
+        "theme",
+        "transition",
+        "duration",
+        "speed",
+        "milliseconds"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "duration"
+      ],
+      "range" : {
+        "max" : 2000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 10,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -2000,
+        4000,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.duration",
+        "text" : "Color Change Duration"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "easeOut",
+        "easeInOut",
+        "linear",
+        "spring",
+        "cubicBezier"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveEaseOut",
+            "text" : "Ease Out"
+          },
+          "value" : "easeOut"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveEaseInOut",
+            "text" : "Ease In and Out"
+          },
+          "value" : "easeInOut"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveLinear",
+            "text" : "Linear"
+          },
+          "value" : "linear"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveSpring",
+            "text" : "Spring"
+          },
+          "value" : "spring"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveCubicBezier",
+            "text" : "Custom (Bezier)"
+          },
+          "value" : "cubicBezier"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "easeOut",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.curve.help",
+        "text" : "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.curve",
+      "keywords" : [
+        "color",
+        "theme",
+        "transition",
+        "curve",
+        "easing",
+        "spring",
+        "bezier"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "curve"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.curve",
+        "text" : "Color Change Curve"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.05,
+        2,
+        1.025
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.3,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.springResponse.help",
+        "text" : "Seconds a spring color change takes to reach its new colors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.springResponse",
+      "keywords" : [
+        "color",
+        "spring",
+        "response"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "springResponse"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : 0.05,
+        "placeholder" : 0.05,
+        "step" : 0.01,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -1.9,
+        3.95,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.springResponse",
+        "text" : "Spring Response"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.1,
+        2,
+        1.05
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.springDamping.help",
+        "text" : "1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.springDamping",
+      "keywords" : [
+        "color",
+        "spring",
+        "damping",
+        "bounce"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "springDamping"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1.7999999999999998,
+        3.9,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.springDamping",
+        "text" : "Spring Damping"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.42,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.bezierX1.help",
+        "text" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.bezierX1",
+      "keywords" : [
+        "color",
+        "bezier",
+        "curve",
+        "easing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "bezierX1"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.bezierX1",
+        "text" : "Bezier X1"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        -1,
+        2,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.bezierY1.help",
+        "text" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.bezierY1",
+      "keywords" : [
+        "color",
+        "bezier",
+        "curve",
+        "easing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "bezierY1"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : -1,
+        "placeholder" : -1,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -4,
+        5,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.bezierY1",
+        "text" : "Bezier Y1"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.58,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.bezierX2.help",
+        "text" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.bezierX2",
+      "keywords" : [
+        "color",
+        "bezier",
+        "curve",
+        "easing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "bezierX2"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.bezierX2",
+        "text" : "Bezier X2"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        -1,
+        2,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.bezierY2.help",
+        "text" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.bezierY2",
+      "keywords" : [
+        "color",
+        "bezier",
+        "curve",
+        "easing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "bezierY2"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : -1,
+        "placeholder" : -1,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -4,
+        5,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.bezierY2",
+        "text" : "Bezier Y2"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "oklab",
+        "srgb"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.colorSpaceOklab",
+            "text" : "OKLab"
+          },
+          "value" : "oklab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorSpaceSrgb",
+            "text" : "sRGB"
+          },
+          "value" : "srgb"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "oklab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.colorSpace.help",
+        "text" : "OKLab blends with even lightness. sRGB mixes the red, green and blue channels."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.colorSpace",
+      "keywords" : [
+        "color",
+        "oklab",
+        "srgb",
+        "blend",
+        "interpolation"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "colorSpace"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.colorSpace",
+        "text" : "Color Blend Space"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "crossfade",
+        "instant",
+        "full"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceCrossfade",
+            "text" : "Short Crossfade"
+          },
+          "value" : "crossfade"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceFull",
+            "text" : "Same as Usual"
+          },
+          "value" : "full"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "crossfade",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.reduceMotion.help",
+        "text" : "What color changes do while Reduce Motion is on in macOS."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.reduceMotion",
+      "keywords" : [
+        "color",
+        "reduce motion",
+        "accessibility",
+        "instant",
+        "crossfade"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "reduceMotion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.reduceMotion",
+        "text" : "With Reduce Motion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.workspaceRows",
         "text" : "Workspace Rows"
       },
@@ -19720,7 +20416,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "transparent",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",
@@ -20008,6 +20704,64 @@
       "title" : {
         "key" : "settings.browser.omnibar.shadow",
         "text" : "Address Bar Shadow"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.backgroundOpacity.help",
+        "text" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.backgroundOpacity",
+      "keywords" : [
+        "opacity",
+        "transparency",
+        "background",
+        "translucent",
+        "address bar",
+        "omnibox"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "backgroundOpacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.omnibar.backgroundOpacity",
+        "text" : "Address Bar Opacity"
       },
       "validation" : "portable"
     },
@@ -20805,6 +21559,55 @@
       "title" : {
         "key" : "settings.home.keepLocation",
         "text" : "Keep Location in Photos and Videos"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.home.channelsEnabled.help",
+        "text" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.channelsEnabled",
+      "keywords" : [
+        "home",
+        "channels",
+        "slack",
+        "threads",
+        "sidebar",
+        "messages"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "channelsEnabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.channelsEnabled",
+        "text" : "Channels"
       },
       "validation" : "portable"
     },
@@ -23766,7 +24569,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fc56c4fea858de0e8912bfab9adf86bb9257dc12d1863f26beaa423157c7dd63",
+  "schema_hash" : "6300d49e42378eb946c2f1b88ba09c1c4ba3dadeb55e17489a5baac21c524e18",
   "sections" : [
     {
       "id" : "general",

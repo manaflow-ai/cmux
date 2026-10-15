@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
@@ -99,6 +100,8 @@ public final class ChiefConversationOwner {
             weak let weakSelf = self
             // NIGHTLY's backup before this app starts the owner (cx-is1kf.7); a running owner's
             // databases are copied with SQLite's online backup.
+            // cmux NEXT's one-time adoption of its old homes ends before its owner starts (cx-is1kf.9).
+            await AcpmuxEnvironment.adoptBuildHomes()
             let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)
             weakSelf?.adoption = adoption
             let connected = await DaemonStartup.shared.connect(wake: wake) {
@@ -170,7 +173,7 @@ public final class ChiefConversationOwner {
         case .disconnected(let reason):
             self.connection = nil
             lastError = reason
-        case .conversationChanged, .conversationTyping, .conversationDraft:
+        case .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged:
             onEvent?(event)
         case .unknown(let name, _) where HomeInboxSource.rowEvents.contains(name):
             onEvent?(event)

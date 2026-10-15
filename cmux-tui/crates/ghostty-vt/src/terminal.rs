@@ -1145,6 +1145,21 @@ impl Terminal {
         })
     }
 
+    /// Names the terminfo entry this terminal's program runs as (its TERM),
+    /// which an XTGETTCAP "TN" query reports, as Ghostty does. An empty name
+    /// leaves the query unanswered; libghostty refuses names over 128 bytes.
+    pub fn set_terminfo_name(&mut self, name: &str) -> Result<()> {
+        let value = sys::GhosttyString { ptr: name.as_ptr(), len: name.len() };
+        // SAFETY: libghostty copies the string before the call returns.
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_TERMINFO_NAME,
+                (&value as *const sys::GhosttyString).cast(),
+            )
+        })
+    }
+
     /// Apply all Kitty limits through one shared path. Returns whether native
     /// image or placement content changed.
     pub fn set_kitty_graphics_limits(&mut self, limits: KittyGraphicsLimits) -> Result<bool> {

@@ -471,3 +471,91 @@ fn thread_read_and_root_stats_pass_through_the_proxy() {
     .unwrap_err();
     assert!(bad.to_string().contains("limit must be 1-200"), "{bad}");
 }
+
+/// A Cloud Chief's live frames (`chief-live-v1`): the owner's `step.delta`,
+/// `run.activity` and `run.live` frames of a subscribed conversation reach
+/// the daemon's clients under `type`, unchanged; a frame of another
+/// conversation does not; and a subscriber asks the owner for the
+/// `run.live` snapshot on the shared socket, which a stranger cannot.
+#[test]
+fn a_cloud_chiefs_live_frames_pass_through_and_a_subscriber_asks_for_the_snapshot() {
+    let (mux, client, backend) = cloud_mux();
+    let identity = run(&mux, client, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|v| v == "cloud-chief-live-v1"),
+        "{identity}"
+    );
+    sign_in(&mux, client);
+    let events = mux.subscribe();
+    let wire = backend.wire();
+    wire.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    wire.push_text(
+        json!({"t":"snapshot","stream":format!("conv:{CONV}"),"seq":2,"decided":[],
+               "state":{"id":CONV,"title":"Launch","kind":"group","participants":[],"last_seq":0,"rev":2,
+                        "created_at":"2026-10-03T00:00:00.000Z","updated_at":"2026-10-03T00:00:00.000Z",
+                        "read_cursors":{}},
+               "rows":{"table":"msg","rows":[]}})
+        .to_string(),
+    );
+    // The owner names live frames with `type` (the brain contract) or `t`.
+    let delta = json!({"type":"step.delta","conversation":CONV,"run":"run_7","step":"talk:0",
+                       "kind":"talk","seq":0,"text":"Checking the release"});
+    wire.push_text(delta.to_string());
+    wire.push_text(
+        json!({"t":"run.activity","conversation":CONV,"run":"run_7",
+               "line":"Editing src/app.ts in sb-3","since":1_791_968_740_000u64,"at":1_791_968_741_000u64})
+            .to_string(),
+    );
+    wire.push_text(
+        json!({"type":"step.delta","conversation":"conv_ZZZZZZZZZZZZZZZZZZZZZZZZZZ","run":"run_1",
+               "step":"talk:0","kind":"talk","seq":0,"text":"not here"})
+        .to_string(),
+    );
+    let snapshot = json!({"type":"run.live","conversation":CONV,"runs":[{"run":"run_7",
+        "steps":[{"step":"talk:0","kind":"talk","seq":0,"text":"Checking the release"}],
+        "activity":{"line":"Editing src/app.ts in sb-3","since":1_791_968_740_000u64,"at":1_791_968_741_000u64}}]});
+    wire.push_text(snapshot.to_string());
+
+    // A stranger to the conversation cannot ask for its snapshot.
+    let early = run(&mux, client, json!({"cmd":"cloud-conversation-live","conversation":CONV}))
+        .unwrap_err();
+    assert!(early.to_string().contains("subscribe"), "{early}");
+
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let mut seen = Vec::new();
+    wait_until("the live frames", || {
+        seen.extend(cloud_events(&events));
+        seen.iter().filter(|event| event["event"] == "cloud-conversation-live").count() >= 3
+    });
+    let live: Vec<&Value> =
+        seen.iter().filter(|event| event["event"] == "cloud-conversation-live").collect();
+    assert_eq!(live.len(), 3, "{seen:?}");
+    assert!(live.iter().all(|event| event["conversation"] == CONV), "{live:?}");
+    let mut expected = delta;
+    expected["t"] = json!("step.delta");
+    assert_eq!(live[0]["frame"], expected);
+    assert_eq!(live[1]["frame"]["type"], "run.activity", "{:?}", live[1]);
+    assert_eq!(live[1]["frame"]["t"], "run.activity", "{:?}", live[1]);
+    assert_eq!(live[1]["frame"]["line"], "Editing src/app.ts in sb-3");
+    let mut expected = snapshot;
+    expected["t"] = json!("run.live");
+    assert_eq!(live[2]["frame"], expected);
+
+    // The subscriber asks again (a page that joined late, or saw a gap).
+    let asked =
+        run(&mux, client, json!({"cmd":"cloud-conversation-live","conversation":CONV})).unwrap();
+    assert_eq!(asked["conversation"], CONV, "{asked}");
+    wait_until("the run.live.get frame", || {
+        wire.sent().iter().any(|frame| {
+            let frame: Value = serde_json::from_str(frame).unwrap_or_default();
+            frame["t"] == "run.live.get" && frame["conversation"] == CONV
+        })
+    });
+    let sent = wire.sent();
+    let subscribe = sent.iter().position(|frame| frame.contains("\"subscribe\"")).unwrap();
+    let get = sent.iter().position(|frame| frame.contains("run.live.get")).unwrap();
+    assert!(subscribe < get, "{sent:?}");
+}

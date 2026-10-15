@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607.
+// cmux-tui mux protocol 12, IR de1dd75268c7da924fcaf7eda0f26de8ea329aed8a163a93b7632a8a37953d16.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -631,6 +631,15 @@ pub type CloudConversationHistoryResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationLiveRequest {
+    pub conversation: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationLiveResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationOpRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub conversation: Optional<String>,
@@ -1079,6 +1088,31 @@ pub struct ConversationListRequest {
 pub struct ConversationListResult {
     pub conversations: Vec<T::ConversationSummary>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLiveRequest {
+    pub conversation: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLiveResult {
+    pub conversation: String,
+    pub runs: Vec<T::JsonValue>,
+    #[serde(rename = "type")]
+    pub type_: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLivePublishRequest {
+    pub conversation: String,
+    pub frame: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type ConversationLivePublishResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4145,6 +4179,10 @@ impl CmuxClient {
         self.execute(&CLOUD_CONVERSATION_HISTORY_METADATA, &request)
     }
 
+    pub fn cloud_conversation_live(&mut self, request: CloudConversationLiveRequest) -> Result<CloudConversationLiveResult> {
+        self.execute(&CLOUD_CONVERSATION_LIVE_METADATA, &request)
+    }
+
     pub fn cloud_conversation_op(&mut self, request: CloudConversationOpRequest) -> Result<CloudConversationOpResult> {
         self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
     }
@@ -4263,6 +4301,14 @@ impl CmuxClient {
 
     pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {
         self.execute(&CONVERSATION_LIST_METADATA, &request)
+    }
+
+    pub fn conversation_live(&mut self, request: ConversationLiveRequest) -> Result<ConversationLiveResult> {
+        self.execute(&CONVERSATION_LIVE_METADATA, &request)
+    }
+
+    pub fn conversation_live_publish(&mut self, request: ConversationLivePublishRequest) -> Result<ConversationLivePublishResult> {
+        self.execute(&CONVERSATION_LIVE_PUBLISH_METADATA, &request)
     }
 
     pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {

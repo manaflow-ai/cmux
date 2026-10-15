@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
+import { deleteSandboxVm } from "./hand-sandbox.ts"
 import { createIndexTables, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
 import { callerLabel, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
 
@@ -62,6 +63,7 @@ const refuse = (code: string, message: string): { readonly ok: false; readonly e
 export class HandDO extends DurableObject<Env> {
   private readonly pending = new Map<string, Pending>()
   private readonly waiters = new Set<() => void>()
+  private readonly helloWaiters = new Set<() => void>()
   private inserts = 0
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -71,6 +73,7 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_grant (agent TEXT PRIMARY KEY)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, req TEXT NOT NULL, action TEXT NOT NULL, who TEXT NOT NULL, outcome TEXT NOT NULL, ms INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_approval (id TEXT PRIMARY KEY, req TEXT NOT NULL, summary TEXT NOT NULL, at INTEGER NOT NULL, answered_at INTEGER, allow INTEGER, who TEXT)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS hand_sandbox (id INTEGER PRIMARY KEY CHECK (id = 1), vm TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
     createIndexTables(sql)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
@@ -155,6 +158,27 @@ export class HandDO extends DurableObject<Env> {
     }
   }
 
+  /** The Freestyle VM this hand runs in (hand-sandbox.ts); deleted with the hand. */
+  async setSandbox(vm: string): Promise<void> {
+    this.ctx.storage.sql.exec(`INSERT INTO hand_sandbox (id, vm) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET vm = excluded.vm`, vm)
+  }
+
+  /** True once the hand is connected and said hello; waits up to `ms` (woken by the hello frame). */
+  async waitOnline(ms: number): Promise<boolean> {
+    const online = () => this.socket() !== undefined && this.row()?.hello != null
+    if (online()) return true
+    await new Promise<void>((resolve) => {
+      const wake = () => {
+        clearTimeout(timer)
+        this.helloWaiters.delete(wake)
+        resolve()
+      }
+      const timer = setTimeout(wake, Math.min(ms, 60_000))
+      this.helloWaiters.add(wake)
+    })
+    return online()
+  }
+
   async setGrants(agents: ReadonlyArray<string>): Promise<void> {
     this.setGrantsLocal(agents)
   }
@@ -213,6 +237,8 @@ export class HandDO extends DurableObject<Env> {
   private settle(req: string, reply: HandReply) {
     const p = this.pending.get(req)
     if (!p) return
+    // An approval nobody answered ends with its request: it never shows as waiting again.
+    this.ctx.storage.sql.exec(`UPDATE hand_approval SET answered_at = ?, allow = 0, who = 'expired' WHERE req = ? AND answered_at IS NULL`, Date.now(), req)
     clearTimeout(p.timer)
     this.pending.delete(req)
     p.resolve(reply)
@@ -290,6 +316,8 @@ export class HandDO extends DurableObject<Env> {
     for (const ws of this.ctx.getWebSockets()) ws.close(4403, "revoked")
     for (const req of [...this.pending.keys()]) this.settle(req, refuse("hand.revoked", "the hand was removed"))
     this.audit(crypto.randomUUID(), "revoke", callerLabel(caller), "ok", null)
+    const sandbox = this.ctx.storage.sql.exec<{ vm: string }>(`SELECT vm FROM hand_sandbox WHERE id = 1`).toArray()[0]
+    if (sandbox) await deleteSandboxVm(this.env, sandbox.vm)
     await this.publish(this.row()!)
     return { ok: true, value: { hand: r.hand } }
   }
@@ -328,6 +356,7 @@ export class HandDO extends DurableObject<Env> {
         const profile = f.profile === "mac" ? "mac" : "sandbox"
         sql.exec(`UPDATE hand SET hello = ?, profile = ?, last_seen = ? WHERE id = 1`, capJson(f, 16_000), profile, now)
         const r = this.row()
+        for (const wake of [...this.helloWaiters]) wake()
         if (r) await this.publish(r)
         return
       }

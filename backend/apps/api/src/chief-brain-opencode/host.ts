@@ -43,7 +43,7 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
       const c = who.config
       return {
         protocol: 1,
-        chief: { id: who.agent, name: record.display_name, owner: who.owner, role: c.role, personality: c.personality, instructions: c.instructions, model: brainModel(c.model), effort: "low" },
+        chief: { id: who.agent, name: record.display_name, owner: who.owner, role: c.role, personality: c.personality, instructions: c.instructions, model: brainModel(c.model), effort: (c as { effort?: string }).effort ?? "low" },
         grants: [...(c.chiefs ? ["chiefs"] : [])],
         capabilities: { hands: false, chiefs: c.chiefs, model_gateway: true, credits: false, approvals: false, live: "chief-live-v1" }
       }

@@ -619,6 +619,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloudConversationUnsubscribe(params) => {
             cloud_conversations::unsubscribe(mux, client, Some(params))
         }
+        Command::CloudConversationLive(params) => cloud_conversations::live(mux, client, params),
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),
@@ -628,6 +629,8 @@ pub(super) fn handle_command_with_cancellation(
         Command::ConversationRunAppend(p) => conversation_runs::append(mux, client, p),
         Command::ConversationRuns(p) => conversation_runs::runs(mux, client, p),
         Command::ConversationRun(p) => conversation_runs::run(mux, client, p),
+        Command::ConversationLivePublish(p) => conversation_live::publish(mux, client, p),
+        Command::ConversationLive(p) => conversation_live::live(mux, client, p),
         Command::ConversationImport(params) => conversations::import(mux, client, params),
         Command::CreateProfile {
             name,

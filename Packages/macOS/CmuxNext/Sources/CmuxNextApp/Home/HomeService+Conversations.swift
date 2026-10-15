@@ -73,10 +73,8 @@ extension HomeService {
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
         let store = homeStore
-        let auth = services.cloud.auth
         let source = HomeSidebarSource(
-            store: HomePinStore(), inbox: homeInbox,
-            account: { auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local" },
+            store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatar: { [weak self] in self?.directory.chiefAvatar })
@@ -87,6 +85,12 @@ extension HomeService {
         }
         source.reloadPins()
         return source
+    }
+
+    /// The account this Mac's Home pins and marks are kept under: the signed-in Cloud user, else "local".
+    var pinAccount: String {
+        let auth = services.cloud.auth
+        return auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local"
     }
 
     /// Reads the Chief's avatar for its tile (profile.json's picture, else

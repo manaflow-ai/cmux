@@ -20,8 +20,12 @@ public struct HomeInboxRequest: DaemonRequest {
         public var pinned: Bool
         public var pinPosition: UInt64?
         public var markedUnread: Bool
+        /// `local` or `cloud` (absent from an owner before Cloud rows: local).
+        public var owner: String?
+        /// The person's Cloud mute (a local row: false).
+        public var muted: Bool?
         enum CodingKeys: String, CodingKey {
-            case id, kind, name, unread, preview, chief, pinned
+            case id, kind, name, unread, preview, chief, pinned, owner, muted
             case activityAt = "activity_at"
             case lastAuthor = "last_author"
             case chiefState = "chief_state"
@@ -32,10 +36,36 @@ public struct HomeInboxRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var me: String
         public var rows: [Row]
+        /// The Cloud rows: `included`, `signed_out`, `unavailable` or `not_asked`.
+        public var cloud: String?
     }
     public static let command = "home-inbox"
     public static let requiredCapability: String? = DaemonCapabilities.shared.homeInbox
-    public init() {}
+    /// Which owners' rows (`local`, `cloud`); nil is both. In the app the Chief home's daemon owns the
+    /// local conversations and the build's daemon holds the Cloud lease, so each is asked for its own.
+    public var owners: [String]?
+    public init(owners: [String]? = nil) { self.owners = owners }
+}
+
+/// `cloud-inbox-op`: `conversation-inbox-op`'s pin and mark for a Cloud conversation, forwarded to the
+/// person's Cloud inbox with an idempotency key; the change comes back as `cloud-inbox-changed`.
+public struct CloudInboxOpRequest: DaemonRequest {
+    public struct Response: Decodable, Sendable {}
+    public static let command = "cloud-inbox-op"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationInboxState
+    public var conversation: String
+    public var idempotencyKey: String
+    public var op: ConversationInboxOpRequest.Op
+    enum CodingKeys: String, CodingKey {
+        case conversation, op
+        case idempotencyKey = "idempotency_key"
+    }
+    /// A nil key is a new one.
+    public init(conversation: String, idempotencyKey: String? = nil, op: ConversationInboxOpRequest.Op) {
+        self.conversation = conversation
+        self.idempotencyKey = idempotencyKey ?? UUID().uuidString.lowercased()
+        self.op = op
+    }
 }
 
 /// `conversation-inbox-op` (`conversation-inbox-state-v1`): sets the caller's own pin (with its position)

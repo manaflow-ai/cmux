@@ -111,32 +111,38 @@ const uncertainState: PermissionClientState = {
 function GalleryPermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh, askStyle }: Props) {
   const [action, setAction] = useState<string>();
   return (
-    // Inside the shell, as in the pane: the shell defines the card's edge color (styles.css).
+    // Inside the shell and the pane's asks stack, as in the pane: the shell defines the card's edge
+    // color (styles.css), and the stack's column sets its width. Straight in the shell's row, the
+    // panel took its command's whole width and ran past a narrow frame (cx-ncc.111).
     <div className="acpmux-shell" data-permission-gallery data-ask-style={askStyle}>
       {askStyle && askStyle !== "current" && <style>{askStyles[askStyle]}</style>}
-      <PermissionPanel
-        state={state}
-        working={working}
-        onRespond={(groupId, revision, decision) => {
-          setAction(decision);
-          onRespond(groupId, revision, decision);
-        }}
-        onRetry={() => {
-          setAction("retry");
-          onRetry();
-        }}
-        onRevoke={() => {
-          setAction("revoke");
-          onRevoke();
-        }}
-        onRefresh={() => {
-          setAction("refresh");
-          onRefresh();
-        }}
-      />
-      <output aria-live="polite" data-permission-action={action}>
-        {action ?? ""}
-      </output>
+      <div className="acpmux-main">
+        <div className="acpmux-permission acpmux-asks-stack">
+          <PermissionPanel
+            state={state}
+            working={working}
+            onRespond={(groupId, revision, decision) => {
+              setAction(decision);
+              onRespond(groupId, revision, decision);
+            }}
+            onRetry={() => {
+              setAction("retry");
+              onRetry();
+            }}
+            onRevoke={() => {
+              setAction("revoke");
+              onRevoke();
+            }}
+            onRefresh={() => {
+              setAction("refresh");
+              onRefresh();
+            }}
+          />
+        </div>
+        <output aria-live="polite" data-permission-action={action}>
+          {action ?? ""}
+        </output>
+      </div>
     </div>
   );
 }

@@ -35,7 +35,8 @@
     "conversation",
     "setting",
     "keybinding",
-    "browser_device"
+    "browser_device",
+    "browser_profile"
   ],
   "types": {
     "BrowserDeviceList": {
@@ -87,6 +88,129 @@
             "name": "boolean"
           },
           "description": "False when no custom device had the title."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfile": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 36
+          },
+          "description": "`default` or a lowercase UUID."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "icon": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The profile's place in the person's order."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileCreateResult": {
+      "kind": "object",
+      "fields": {
+        "browser_profile": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProfile"
+          }
+        },
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when a retry found the profile it created."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileList": {
+      "kind": "object",
+      "fields": {
+        "browser_profiles": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "BrowserProfile"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileOpenResult": {
+      "kind": "object",
+      "fields": {
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "browser_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "browser"
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          }
+        },
+        "profile_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The profile the tab's record names."
         }
       },
       "extra": false
@@ -2767,7 +2891,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. Both are absent once the terminal exits. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. prompt ({since_ms: decimal}) is the shell sitting at its prompt, from OSC 133 A until the next C; a shell without shell integration never shows it. All are absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -3446,6 +3570,106 @@
             }
           },
           "description": "One receipt per recipient, in recipient order."
+        }
+      },
+      "extra": false
+    },
+    "AgentMessageUnsendOutcome": {
+      "kind": "enum",
+      "values": [
+        "unsent",
+        "retracted",
+        "too_late",
+        "failed"
+      ]
+    },
+    "AgentMessageUnsendResult": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AgentMessageUnsendOutcome"
+          },
+          "description": "failed when any delivery failed, else too_late when any was too late, else retracted when any was retracted, else unsent."
+        },
+        "outcomes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "object",
+              "fields": {
+                "recipient": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1,
+                    "max_length": 256
+                  }
+                },
+                "outcome": {
+                  "required": true,
+                  "type": {
+                    "kind": "ref",
+                    "name": "AgentMessageUnsendOutcome"
+                  }
+                },
+                "error": {
+                  "required": false,
+                  "type": {
+                    "kind": "object",
+                    "fields": {
+                      "reason": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 128
+                        },
+                        "description": "acpmux_unavailable or withdraw_refused."
+                      },
+                      "message": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 1024
+                        }
+                      },
+                      "acpmux_reason": {
+                        "required": false,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 128
+                        },
+                        "description": "acpmux's reason for a withdraw_refused."
+                      }
+                    },
+                    "extra": false
+                  },
+                  "description": "Why a failed delivery could not be taken back."
+                }
+              },
+              "extra": false
+            },
+            "min_items": 1,
+            "max_items": 64
+          },
+          "description": "One outcome per delivery taken back, in recipient order."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AgentMessageSnapshot"
+          }
         }
       },
       "extra": false
@@ -6985,6 +7209,14 @@
         "empty": {
           "required": false,
           "description": "True when the tab would reopen as nothing: an untouched New Tab page (a chat tab with no session yet) or a browser on `about:blank`. Recently Closed leaves it out. Absent otherwise.",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "scrollback_not_kept": {
+          "required": false,
+          "description": "True when the closed terminal's archived screen was dropped to keep the archive byte budget: the tab reopens in its directory without its old scrollback. Absent otherwise.",
           "type": {
             "kind": "primitive",
             "name": "boolean"
@@ -13657,6 +13889,78 @@
         "validation.invalid"
       ]
     },
+    "agent.message.unsend": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "recipient": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Take back only this recipient's delivery; every delivery when omitted."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only the message's verified sender, or the person in the verified cmux app, takes it back, with no time limit; another agent is refused with operation.failed, reason unsend_not_sender, and a plain local connection (it may be an agent that left out its launch credential) with reason unsend_needs_app.",
+          "Each delivery gets an outcome: unsent when it never reached the agent (a held, queued or failed delivery, or one acpmux still had waiting; the delivery becomes unsent), retracted when acpmux told the agent in its turn that the message was withdrawn (the delivery becomes retracted), too_late when the turn ended or the delivery path cannot take it back (nothing changes), failed when it could not be taken back now (nothing changes; error names why).",
+          "An acpmux recipient's outcome is acpmux's _acpmux/prompt_withdraw answer. When acpmux does not answer for a delivery a hand-over may have reached, its outcome is failed with error.reason acpmux_unavailable; when acpmux refuses the withdraw, failed with error.reason withdraw_refused and error.acpmux_reason. Every other delivery's outcome still commits.",
+          "A retry under the same idempotency key replays the first result, and a key reused with other input or a stale expected_revision is refused, before acpmux is asked.",
+          "Unsending again answers the same outcome."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageUnsendResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "agent.report": {
       "class": "mutation",
       "idempotency": "required",
@@ -14677,6 +14981,215 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.profile.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "browser_profile",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "The profile's name: 1 to 256 characters, not blank, with no control character. Names need not be unique; an ambiguous name is refused where a profile is named."
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32
+            },
+            "description": "A palette token (lowercase letters, digits and hyphens) or #RRGGBB / #RRGGBBAA."
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "An icon value as the app stores it for presentation records; an icon asset must exist."
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Insertion index among the profiles; absent or past the end is last."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Creates an empty browser profile record in the home session's personal state (browser-profiles-v1). Each app engine keys its own cookie and site data store by the new id; the daemon stores only the record.",
+          "A retry with the same idempotency key answers the first result and creates no second profile. No operation deletes a profile: only a person does, in the app."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserProfileCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.profile.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "browser_profile",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon and index only: never its import origin, cookies, history or site data."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProfileList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.profile.open": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional"
+        },
+        "fields": {
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8192
+            },
+            "description": "An http or https URL with a host and no user name or password, with no control, space or invisible format character. Anything else is validation.invalid (field url)."
+          },
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "A browser profile: its id (`default` or a lowercase UUID), else its exact name. An unknown or ambiguous name is validation.invalid (field profile)."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The engine the app renders the page with. Absent is the person's browser.defaultEngine setting: webkit for webkit, else cef (Chromium, the setting's default)."
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "The tab's title until the page reports its own."
+          },
+          "activate": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": true,
+            "description": "False keeps the pane's selected tab."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Opens a frontend-rendered browser tab whose record names the profile (frontend-browser-tab-profile-v1): the app that shows it makes the page in that profile's store, with its cookies and site data. The tab is in the named pane, else the focused pane; workspace and screen only qualify a pane.",
+          "A retry with the same idempotency key answers the first result and opens no second tab."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserProfileOpenResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

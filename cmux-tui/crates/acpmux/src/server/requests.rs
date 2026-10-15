@@ -136,7 +136,7 @@ async fn dispatch_request(
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
-                    method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_KILL,
+                    method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
@@ -279,6 +279,7 @@ async fn dispatch_request(
                 effort: pick("effort"),
                 adopt,
                 env: crate::session_env::parse(meta)?,
+                workspace_id: crate::session_env::workspace_id(meta)?,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
                 keep_harness_mode: false,
@@ -406,8 +407,9 @@ async fn dispatch_request(
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
             let env = crate::session_env::parse(mux_meta(&params))?;
+            let workspace_id = crate::session_env::workspace_id(mux_meta(&params))?;
             let through = super::fork_through::through(&params);
-            let new = hub.fork(&s, name, cwd, env, through).await?;
+            let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(

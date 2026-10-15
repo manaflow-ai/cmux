@@ -4,7 +4,8 @@
 /* cmux-motion's C ABI (cmux-tui/crates/cmux-app-ffi/src/motion.rs): the
  * closed-form spring, the spec's motion tokens, the structural bounce rule
  * and the ui.animations.* switches, and the tab strip's tweens and geometry
- * (Chrome's strip motion). Pure functions; no globals. ABI version 2. */
+ * (Chrome's strip motion), and the color transition's curves and color mix.
+ * Pure functions; no globals. ABI version 3. */
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -42,7 +43,9 @@ bool cmux_motion_step(CmuxMotionState *state, double dt, CmuxMotionSpring spring
 bool cmux_motion_animates(uint8_t kind, CmuxMotionPolicy policy);
 double cmux_motion_fade_seconds(uint8_t fade, CmuxMotionPolicy policy);
 
-/* A tween: seconds and curve (0 easeOutQuad = 1-(1-t)^2). */
+/* A tween: seconds and curve (0 easeOutQuad = 1-(1-t)^2, 1 easeOut (Core
+ * Animation), 2 easeInOut (Core Animation), 3 linear; an unknown curve id
+ * falls back to easeOutQuad). */
 typedef struct {
     double duration;
     uint8_t curve;
@@ -79,6 +82,17 @@ double cmux_motion_tween_seconds(uint8_t token, CmuxMotionPolicy policy);
 bool cmux_motion_tween_retarget(CmuxMotionTweenState *state, double target, double duration);
 bool cmux_motion_tween_step(CmuxMotionTweenState *state, double dt, uint8_t curve);
 double cmux_motion_ease(uint8_t curve, double t);
+/* CSS cubic-bezier(x1, y1, x2, y2) at t (0..1; x1, x2 clamped to 0..1). */
+double cmux_motion_cubic_bezier(double x1, double y1, double x2, double y2, double t);
+/* A spring from rest toward 1 at `time` s, no overshoot: held at its running
+ * maximum, never decreasing (0..1). */
+double cmux_motion_spring_progress_monotone(CmuxMotionSpring spring, double time);
+/* Seconds until a spring from rest first comes within 0.5% of 1 (at most 5). */
+double cmux_motion_spring_arrival(CmuxMotionSpring spring);
+/* from mixed t of the way to to; space 0 OKLab, 1 sRGB. Inputs and output are
+ * straight (unpremultiplied) sRGB RGBA in 0..1; the mix runs premultiplied and
+ * unpremultiplies the result (alpha 0 gives 0,0,0,0). False on a null pointer. */
+bool cmux_motion_mix_rgba(const double from[4], const double to[4], double t, uint8_t space, double out[4]);
 /* density: 0 compact, 1 comfortable. */
 bool cmux_motion_tab_strip_geometry(uint8_t density, CmuxMotionTabStripGeometry *out);
 

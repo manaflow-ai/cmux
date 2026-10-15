@@ -10,6 +10,8 @@ use super::*;
 
 #[path = "notification_levels.rs"]
 mod notification_levels;
+#[path = "terminal_wait_until.rs"]
+mod terminal_wait_until;
 
 /// Runs the CLI against `server` with `--json --socket` and returns the raw
 /// output (no success assertion). `terminal` routes it as a cmux terminal
@@ -216,6 +218,66 @@ fn status_entries_auto_clear_with_their_owner_and_replay_after_a_daemon_restart(
     let output = status_output(&server, None, &["status", "clear", "note", "--target", &workspace]);
     assert_success(&output);
     assert!(entry(&server, &workspace, "note").is_none());
+}
+
+/// cx-6so.13: a pid reused while the daemon was down is not the owner. Two
+/// entries name the same running pid; one records an earlier start time, as
+/// if its owner had exited and the kernel handed the pid to the process that
+/// holds it now. The restarted daemon removes only that entry, keeps the
+/// other, and removes the other when the process now holding the pid exits.
+#[test]
+fn status_owner_pid_reused_while_the_daemon_was_down_clears_only_the_old_owner() {
+    let mut server = HeadlessServer::start("status-pid-reuse");
+    state_cli(&server, None, &["workspace", "create", "--name", "zeta", "--empty"]);
+    let workspace = workspace_id_named(&server, "zeta");
+    let mut holder = spawn_sleeper();
+    let pid = holder.id().to_string();
+    for key in ["stale", "live"] {
+        let output = status_output(
+            &server,
+            None,
+            &[
+                "status", "set", key, "--label", key, "--target", &workspace, "--state", "busy",
+                "--pid", &pid,
+            ],
+        );
+        assert_success(&output);
+    }
+    assert!(entry(&server, &workspace, "stale").is_some());
+    assert!(entry(&server, &workspace, "live").is_some());
+
+    // Stop the daemon (no shutdown path) and backdate the stale owner's
+    // recorded start time: that owner is a process that no longer runs.
+    let _ = server.child.kill();
+    let _ = server.child.wait();
+    let databases: Vec<PathBuf> = fs::read_dir(&server.state)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|item| item.path().join("workspace-registry.sqlite3"))
+        .filter(|path| path.is_file())
+        .collect();
+    let mut rewritten = 0;
+    for database in &databases {
+        let connection = rusqlite::Connection::open(database).unwrap();
+        rewritten += connection
+            .execute(
+                "UPDATE workspace_status_meta
+                 SET owner_pid_start = CAST(CAST(owner_pid_start AS INTEGER) - 60000 AS TEXT)
+                 WHERE status_key = 'stale' AND owner_pid = ?1",
+                [holder.id()],
+            )
+            .unwrap();
+    }
+    assert_eq!(rewritten, 1, "the stale owner row in {databases:?}");
+
+    restart_daemon(&mut server);
+    assert_cleared(&server, &workspace, "stale", "its pid was reused by another process");
+    let live = entry(&server, &workspace, "live").expect("the current owner's entry stays");
+    assert_eq!(live["owner"]["pid"].to_string(), pid, "{live}");
+
+    holder.kill().unwrap();
+    holder.wait().unwrap();
+    assert_cleared(&server, &workspace, "live", "the process holding the pid exited");
 }
 
 /// A loading entry set from inside a terminal is owned by that terminal and

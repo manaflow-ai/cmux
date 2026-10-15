@@ -34,6 +34,8 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Whether preview features show.
     public static func preview(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "preview", value: .bool(on)) }
+    /// Whether agents suggest tasks (the `agent.suggestedTasks` Debug Settings toggle, cx-lo9yf).
+    public static func suggestedTasks(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "suggestedTasks", value: .bool(on)) }
 
     /// `{themeCSS, layout}`. A missing theme sends `""`, which clears the style a deleted `theme.css`
     /// left; a bad layout sends `{}`. The user's `registry.js` is not an event: the view evaluates it

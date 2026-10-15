@@ -15,6 +15,10 @@ pub struct FilePatch {
     /// None for a deleted file (`+++ /dev/null`).
     pub new: Option<String>,
     pub hunks: Vec<Hunk>,
+    /// "\\ No newline at end of file" after an old-side (removed or context) last line.
+    pub old_no_eol: bool,
+    /// The same after a new-side (added or context) last line: the result ends without a newline.
+    pub new_no_eol: bool,
 }
 
 #[derive(Debug)]
@@ -46,6 +50,8 @@ pub fn parse(diff: &str) -> Result<Vec<FilePatch>, HandError> {
                 old: strip_prefix(old),
                 new: strip_prefix(new),
                 hunks: Vec::new(),
+                old_no_eol: false,
+                new_no_eol: false,
             });
         } else if let Some(h) = line.strip_prefix("@@ ") {
             let file = files.last_mut().ok_or_else(|| bad("hunk before any file header".into()))?;
@@ -67,7 +73,11 @@ pub fn parse(diff: &str) -> Result<Vec<FilePatch>, HandError> {
             while old_left > 0 || new_left > 0 {
                 let l = lines.next().ok_or_else(|| bad(format!("hunk @@ {h} ends early")))?;
                 if l.starts_with('\\') {
-                    continue; // "\ No newline at end of file"
+                    // "\ No newline at end of file": about the line before it.
+                    let prev = hunk.lines.last().map(|(t, _)| *t);
+                    file.old_no_eol |= matches!(prev, Some('-' | ' '));
+                    file.new_no_eol |= matches!(prev, Some('+' | ' '));
+                    continue;
                 }
                 let (tag, rest) = match l.chars().next() {
                     Some(c @ (' ' | '-' | '+')) => (c, &l[1..]),
@@ -98,6 +108,9 @@ pub fn parse(diff: &str) -> Result<Vec<FilePatch>, HandError> {
             }
             while lines.peek().is_some_and(|l| l.starts_with('\\')) {
                 lines.next();
+                let prev = hunk.lines.last().map(|(t, _)| *t);
+                file.old_no_eol |= matches!(prev, Some('-' | ' '));
+                file.new_no_eol |= matches!(prev, Some('+' | ' '));
             }
             file.hunks.push(hunk);
         }
@@ -158,7 +171,13 @@ pub fn apply_one(
         return Ok(None);
     }
     let src = text.unwrap_or("");
-    let trailing_newline = src.is_empty() || src.ends_with('\n');
+    let trailing_newline = if fp.new_no_eol {
+        false
+    } else if fp.old_no_eol {
+        true
+    } else {
+        src.is_empty() || src.ends_with('\n')
+    };
     let mut lines: Vec<String> = src.lines().map(str::to_owned).collect();
     let mut shift: isize = 0;
     for (i, h) in fp.hunks.iter().enumerate() {

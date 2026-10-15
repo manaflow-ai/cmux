@@ -1,4 +1,5 @@
 public import AppKit
+import CCmuxMotionFFI
 public import CmuxTheme
 
 /// How every theme and color change animates (`appearance.colorTransition.*`, cx-3rf4z; Lawrence
@@ -8,10 +9,11 @@ public import CmuxTheme
 /// (``animate(_:to:)``: OKLab or sRGB keyframes on the render server, so a quick A, B, C
 /// switch retargets from the blend in flight and never jumps back), a view subtree whose colors
 /// cannot be interpolated one by one (terminal surfaces, chrome drawn in `draw(_:)`) crossfades
-/// (``crossfade(_:)``), and web pages transition their theme variables with the same duration
-/// and curve (``cssTransition``). The curves are Core Animation's (`CAMediaTimingFunction`) and
-/// the spring is the motion springs' closed form (`SpringValue.solve`); nothing here keeps its
-/// own clock.
+/// (``fade(_:regions:)``), and web pages transition their theme variables with the same duration
+/// and curve (``cssTransition``). Every curve, the spring's timing and the color mix come from
+/// cmux-motion (`CCmuxMotionFFI`: `cmux_motion_ease`, `cmux_motion_cubic_bezier`,
+/// `cmux_motion_spring_progress_monotone`, `cmux_motion_mix_rgba`); nothing here keeps its own
+/// clock or its own curve math.
 public nonisolated struct ColorTransition: Sendable, Hashable {
     /// The timing curve (`appearance.colorTransition.curve`).
     public enum Curve: Sendable, Hashable {
@@ -46,11 +48,11 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     public static let reducedMotionCap: TimeInterval = 0.1
     /// Keyframes of one layer color blend: enough that the straight segments between OKLab
     /// samples differ from the true path by less than one 8-bit step.
-    static let keyframes = 16
+    static let keyframes = 24
     /// The layer animation key of a background color blend.
     public static let layerKey = "cmux.colorTransition.backgroundColor"
 
-    public init(enabled: Bool = true, duration: TimeInterval = 0.2, curve: Curve = .easeOut,
+    public init(enabled: Bool = true, duration: TimeInterval = MotionTunables.colorTransitionDefaultDuration, curve: Curve = .easeOut,
                 space: ThemeColorSpace = .oklab, reduceMotion: ReduceMotion = .crossfade) {
         self.enabled = enabled
         self.duration = duration
@@ -86,46 +88,52 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         return duration.isFinite ? max(duration, 0) : 0
     }
 
-    /// The first time a spring from rest reaches 99.5% of its way (at most 5 s).
+    /// The first time a spring from rest reaches 99.5% of its way (at most 5 s; cmux-motion).
     static func arrival(of spring: SpringParameters) -> TimeInterval {
-        let step = 1.0 / 240
-        var time = 0.0
-        while time < 5 {
-            time += step
-            if 1 + SpringValue.solve(displacement: -1, velocity: 0, time: time, parameters: spring).displacement >= 0.995 { return time }
-        }
-        return 5
+        cmux_motion_spring_arrival(CmuxMotionSpring(response: spring.response, damping_fraction: spring.dampingFraction))
     }
 
     /// The change applies in one frame.
     public var isInstant: Bool { seconds <= 0 }
 
-    /// Core Animation's curve for a timed blend (a spring maps time to progress through its
-    /// keyframes instead, so it uses linear here).
-    public var timingFunction: CAMediaTimingFunction {
+    /// Progress (0...1, a custom Bezier may leave it) at time fraction `t` of ``seconds``, from
+    /// cmux-motion: the named curves (`cmux_motion_ease`), the custom Bezier
+    /// (`cmux_motion_cubic_bezier`) and the spring (`cmux_motion_spring_progress_monotone`: it
+    /// never decreases, so a color never overshoots or dips back).
+    public func progress(at t: Double) -> Double {
+        let t = min(max(t, 0), 1)
         switch curve {
-        case .easeOut: CAMediaTimingFunction(name: .easeOut)
-        case .easeInOut: CAMediaTimingFunction(name: .easeInEaseOut)
-        case .linear, .spring: CAMediaTimingFunction(name: .linear)
-        case .cubicBezier(let x1, let y1, let x2, let y2):
-            CAMediaTimingFunction(controlPoints: Float(min(max(x1, 0), 1)), Float(y1), Float(min(max(x2, 0), 1)), Float(y2))
+        case .easeOut: return cmux_motion_ease(1, t)
+        case .easeInOut: return cmux_motion_ease(2, t)
+        case .linear: return cmux_motion_ease(3, t)
+        case .cubicBezier(let x1, let y1, let x2, let y2): return cmux_motion_cubic_bezier(x1, y1, x2, y2, t)
+        case .spring(let spring):
+            if t >= 1 { return 1 }
+            let parameters = CmuxMotionSpring(response: spring.response, damping_fraction: spring.dampingFraction)
+            return cmux_motion_spring_progress_monotone(parameters, t * seconds)
         }
     }
 
-    /// Progress (0...1) at each of `count` evenly spaced key times for the spring curve, from
-    /// rest (no velocity) toward 1; it never decreases (a color never overshoots or dips back).
-    func springProgress(count: Int) -> [Double]? {
-        guard case .spring(let spring) = curve, count > 1 else { return nil }
-        let total = seconds
-        var reached = 0.0
-        return (0..<count).map { index in
-            if index == count - 1 { return 1 }
-            let time = total * Double(index) / Double(count - 1)
-            let state = SpringValue.solve(displacement: -1, velocity: 0, time: time, parameters: spring)
-            // A color never goes back: past its first arrival it holds (no dip after an overshoot).
-            reached = max(reached, min(max(1 + state.displacement, 0), 1))
-            return reached
+    /// `progress(at:)` at `count` evenly spaced time fractions, ending on exactly 1.
+    func progressSamples(count: Int) -> [Double] {
+        guard count > 1 else { return [1] }
+        return (0..<count).map { $0 == count - 1 ? 1 : progress(at: Double($0) / Double(count - 1)) }
+    }
+
+    /// The color `fraction` of the way from `from` to `to` in ``space`` (cmux-motion
+    /// `cmux_motion_mix_rgba`: straight RGBA in and out, mixed premultiplied).
+    public func mix(_ from: ThemeRGB, _ to: ThemeRGB, fraction: Double) -> ThemeRGB {
+        var out = [0.0, 0.0, 0.0, 0.0]
+        let a = [from.red, from.green, from.blue, from.alpha], b = [to.red, to.green, to.blue, to.alpha]
+        let mixed = a.withUnsafeBufferPointer { pa in
+            b.withUnsafeBufferPointer { pb in
+                out.withUnsafeMutableBufferPointer { po in
+                    cmux_motion_mix_rgba(pa.baseAddress, pb.baseAddress, fraction, space == .srgb ? 1 : 0, po.baseAddress)
+                }
+            }
         }
+        guard mixed else { return fraction < 0.5 ? from : to }
+        return ThemeRGB(red: out[0], green: out[1], blue: out[2], alpha: out[3])
     }
 
     // MARK: Layers
@@ -145,38 +153,24 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
             layer.removeAnimation(forKey: key)
             return
         }
-        let animation = CAKeyframeAnimation(keyPath: "backgroundColor")
         let count = Self.keyframes
-        let progress = springProgress(count: count)
-        var values: [CGColor] = (0..<count).map { index in
-            let fraction = progress?[index] ?? Double(index) / Double(count - 1)
-            return Self.cgColor(from.mixed(with: to, fraction: fraction, in: space))
-        }
+        // Keyframes at even times, each the color at the curve's progress there (cmux-motion), so
+        // the render server only steps linearly between them.
+        var values: [CGColor] = progressSamples(count: count).map { Self.cgColor(mix(from, to, fraction: $0)) }
         // The exact colors at both ends, so removing the animation changes nothing on screen.
         if let shown, let color { values[0] = shown; values[count - 1] = color }
-        animation.values = values
-        animation.keyTimes = (0..<count).map { NSNumber(value: Double($0) / Double(count - 1)) }
-        animation.calculationMode = .linear
-        animation.duration = seconds
-        animation.timingFunction = timingFunction
-        animation.isRemovedOnCompletion = true
+        let animation = Motion.sampledKeyframes("backgroundColor", values: values, duration: seconds)
         layer.add(animation, forKey: key)
     }
 
-    /// Crossfades everything `layer` draws from its last frame to its next one (a theme switch
-    /// recoloring in place: no layout change, no restart). For what has no single color to
-    /// blend: terminal surfaces, views that draw their own colors. Instant: nothing.
+    /// Fades `window` (or only `regions` of it) from what it shows now to its next frame: for what
+    /// has no single color to blend (terminal surfaces, views that draw their own colors). The
+    /// window's current composited frame lies over it and fades out on ``curve``
+    /// (`WindowColorFade`), so a second change mid-fade starts from the blend on screen. Call it
+    /// before the change commits. Instant: nothing.
     @MainActor
-    public func crossfade(_ layer: CALayer?) {
-        guard let layer, !isInstant else { return }
-        let transition = CATransition()
-        transition.type = .fade
-        transition.duration = seconds
-        // A crossfade has one timing curve: a spring takes its own settle time on ease-out.
-        if case .spring = curve { transition.timingFunction = CAMediaTimingFunction(name: .easeOut) } else {
-            transition.timingFunction = timingFunction
-        }
-        layer.add(transition, forKey: "cmux.themeCrossfade")
+    public func fade(_ window: NSWindow, regions: [NSView]? = nil) {
+        WindowColorFade.forWindow(window).fade(window, regions: regions, transition: self)
     }
 
     // MARK: Web pages
@@ -194,8 +188,7 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         case .cubicBezier(let x1, let y1, let x2, let y2):
             return "cubic-bezier(\(Self.css(min(max(x1, 0), 1))), \(Self.css(y1)), \(Self.css(min(max(x2, 0), 1))), \(Self.css(y2)))"
         case .spring:
-            let stops = springProgress(count: 24) ?? [0, 1]
-            return "linear(" + stops.map(Self.css).joined(separator: ", ") + ")"
+            return "linear(" + progressSamples(count: 24).map(Self.css).joined(separator: ", ") + ")"
         }
     }
 

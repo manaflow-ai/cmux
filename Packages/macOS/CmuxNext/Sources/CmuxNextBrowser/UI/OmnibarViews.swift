@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The omnibar's rounded background (`OmnibarGlassLook`): at rest nothing
-/// (transparent, the default), the glass material or the flat theme fill; a
+/// The omnibar's rounded background (`OmnibarGlassLook`): at rest the flat
+/// theme fill (the default), the glass material or nothing (transparent); a
 /// hover lift; a neutral ring while editing; and the plain card fill while it
 /// is the top of the suggestion card (the card is opaque, so the bar joins
 /// it).
@@ -106,6 +106,20 @@ final class OmnibarPillView: NSView {
         refresh(animated: false)
     }
 
+    /// The flat fill's state now.
+    private var barState: AddressBarSurface.State { isHovering ? .hover : .rest }
+
+    /// `debug.omnibar` `pointer.bar_style`: the resolved look (fill RGBA in
+    /// sRGB 0...1, corner radius, ring width, state and material).
+    var debugStyle: [String: Any] {
+        let fill = layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) }
+        let rgba: [Double] = fill.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent].map(Double.init) } ?? [0, 0, 0, 0]
+        let coverage = performWithTheme { Palette.addressBar.resolvedCoverage(look.backgroundOpacity) }
+        return ["fill": rgba, "corner_radius": Double(layer?.cornerRadius ?? 0), "ring_width": Double(layer?.borderWidth ?? 0),
+                "state": state == .idle ? barState.rawValue : (state == .card ? "card" : "editing"), "material": look.material.rawValue,
+                "background_opacity": look.backgroundOpacity, "resolved_coverage": coverage, "glass": glass != nil]
+    }
+
     private func applyShape() {
         let radius = look.resolvedCornerRadius(barHeight: bounds.height > 0 ? bounds.height : OmnibarStyle.barHeight)
         CATransaction.begin()
@@ -152,10 +166,9 @@ final class OmnibarPillView: NSView {
                     case .card: OmnibarStyle.cardFill
                     }
                 } else {
-                    fill = switch state {
-                    case .idle: isHovering ? OmnibarStyle.barHoverFill : OmnibarStyle.barFill
-                    case .editing, .card: OmnibarStyle.cardFill
-                    }
+                    // The flat fill (`AddressBarSurface`): a tonal step over the
+                    // toolbar that keeps a see-through window's transparency.
+                    fill = state == .idle ? OmnibarStyle.barFill(barState, coverage: look.backgroundOpacity) : OmnibarStyle.cardFill
                 }
                 // The backing layer takes no implicit action, so the fill
                 // fades with an explicit animation: it eases between rest,

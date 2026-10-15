@@ -8,11 +8,11 @@ USAGE
     [--pane <selector>] [--name <value>] [--width-px <n> --height-px <n>]
   cmux browser list
   cmux browser profile list
-  cmux browser profile create --name <name> [--profile <id>] [--color <value>]
-    [--icon <value>] [--index <n>]
+  cmux browser profile create --name <name> [--color <value>] [--icon <value>]
+    [--index <n>]
   cmux browser profile move --profile <id-or-name> --index <n>
-  cmux browser profile open <url> --engine webkit|cef --profile <id-or-name>
-    [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
+  cmux browser profile open <url> --profile <id-or-name> [--engine webkit|cef]
+    [--pane <selector>] [--title <value>] [--background true|false]
   cmux browser <selector> show|navigate|back|forward|reload|activate
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
@@ -24,6 +24,11 @@ browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named
 workspace, screen or pane, else the current one. --url <url> is the same as
 the positional URL.
+
+browser profile list shows each profile's id, name, color, icon and index,
+never its cookies, history or site data. browser profile open opens a tab in
+the profile, in the named pane, else the focused one; the URL must be http or
+https. Without --engine the tab uses the browser.defaultEngine setting.
 ";
 
 pub(super) const NOTIFICATION_HELP: &str = "\

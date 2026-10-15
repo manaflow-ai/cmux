@@ -56,6 +56,8 @@ pub(crate) fn harness_command(
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
+    // The session's workspace is for its computer use server only (agent_displays.rs).
+    env.remove(crate::agent_displays::WORKSPACE_KEY);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
     // Startup files changed since the last read: refresh in the background.
@@ -94,12 +96,6 @@ pub(crate) fn harness_command(
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter())
-        // A terminal's launch credential names that one terminal; no agent
-        // acts as the terminal that started acpmux, not even through a preset.
-        .env_remove(crate::config::LAUNCH_CREDENTIAL_ENV)
-        // Nor as the Chief whose host started acpmux (config::CHIEF_CREDENTIAL_ENV).
-        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[0])
-        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[1])
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
@@ -113,6 +109,8 @@ pub(crate) fn harness_command(
     // job object (`job.rs`), made where the agent is spawned.
     #[cfg(unix)]
     cmd.process_group(0);
+    // Only its own session's credential: never acpmux's, a preset's or a Chief's.
+    crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {

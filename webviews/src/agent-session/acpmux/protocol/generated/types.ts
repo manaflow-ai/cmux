@@ -301,6 +301,11 @@ export type SessionSummary = {
   sessionId: string;
   /** Some attached client shows the chat. */
   shown: boolean;
+  /**
+   * The session whose agent started this one (its `spawnedBy` tag), kept
+   * only while that parent is listed; one level.
+   */
+  spawnedBy?: (string | null);
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;

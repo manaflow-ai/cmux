@@ -824,15 +824,18 @@ pre.cv-math-source {
 :root[data-borders="none"] .acpmux-ask { border-color: transparent; }
 .acpmux-ask-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
   min-inline-size: 0;
   min-height: 28px;
 }
+/* The command keeps at least 10rem on the answers' line; in a narrower pane the answers take a
+   line of their own under it, so none of them is cut off (cx-ncc.111). */
 .acpmux-ask-toggle {
   all: unset;
   display: flex;
-  flex: 1;
+  flex: 1 1 10rem;
   align-items: center;
   gap: 6px;
   min-inline-size: 0;
@@ -876,7 +879,10 @@ pre.cv-math-source {
 .acpmux-ask-actions {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
+  max-inline-size: 100%;
   margin-inline-start: auto;
 }
 .acpmux-ask-action {
