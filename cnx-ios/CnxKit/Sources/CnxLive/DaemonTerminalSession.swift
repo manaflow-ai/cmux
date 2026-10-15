@@ -40,6 +40,7 @@ public final class DaemonTerminalSession: TerminalSession {
     public private(set) var lastError: String?
 
     private let open: @Sendable () async throws -> DaemonClient
+    private let clientInfo: [String: String]
     private let openInput: (@Sendable () async throws -> DaemonClient)?
     private var client: DaemonClient?
     /// The input-lane channel for `send`, once open.
@@ -84,14 +85,22 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `open` returns a client on a fresh `daemon` channel to the Mac;
     /// `openInput`, one on the link's input lane for keystrokes (nil: input
     /// shares the attach channel).
+    /// `clientInfo`: `set-client-info` for the attach channel, sent with
+    /// `identify` before each attach. With `device_kind` a phone or tablet,
+    /// the Mac's daemon keeps the grid for a while after this phone's link
+    /// drops, so a reattach finds it unchanged: the PTY is not resized away
+    /// and back, and Codex does not rebuild (and truncate) its scrollback
+    /// (termqa V2-5).
     public init(
         surface: Int,
         programName: String = "zsh",
+        clientInfo: [String: String] = [:],
         open: @escaping @Sendable () async throws -> DaemonClient,
         openInput: (@Sendable () async throws -> DaemonClient)? = nil
     ) {
         self.surface = surface
         self.programName = programName
+        self.clientInfo = clientInfo
         self.open = open
         self.openInput = openInput
     }
@@ -188,7 +197,12 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
             }
             attachedWithSize = nil
-            let identify = try? await client.request("identify")
+            // One write: the client info (when given) and identify.
+            let setup = await client.requests(
+                (clientInfo.isEmpty ? [] : [(cmd: "set-client-info", params: clientInfo as [String: Any])])
+                    + [(cmd: "identify", params: [:])]
+            )
+            let identify = try? setup.last?.get()
             let initialSize = identify.map(Self.acceptsInitialSize) ?? false
             // The mirror is not reset yet: a reattach that fails (a Mac host
             // that just restarted answers "unknown surface" for a moment) keeps

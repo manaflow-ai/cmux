@@ -17,7 +17,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
-    func respond(_ service: String, _ line: Data) -> [Data] {
+    func respond(_ service: String, _ data: Data) -> [Data] {
+        // A batch (`DaemonClient.requests`) is several lines in one write.
+        data.split(separator: 0x0A).flatMap { respondLine(service, Data($0)) }
+    }
+
+    private func respondLine(_ service: String, _ line: Data) -> [Data] {
         guard service == "daemon", let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let id = object["id"] as? String, let cmd = object["cmd"] as? String else { return [] }
         lock.withLock { commands.append(object) }
