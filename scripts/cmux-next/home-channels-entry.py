@@ -195,24 +195,30 @@ def palette_run(pid, text, title, shot_name):
         return False
     # The palette's own answer (debug.palette.capture: query and selected row) decides; Return runs only `title`.
     state = lambda: rpc("debug.palette.capture", {"path": os.path.join(OUT, shot_name + ".png")}) or {}
-    # Real keys: a background post to the pid does not reach the palette panel, so the keys go through the
-    # window server's HID queue with the app in front (delivery_mode foreground). Only if the query still
-    # misses do the app's own key events type it (reported, so the proof says which path typed).
-    for ch in text:
-        cua("press_key", {"pid": pid, "window_id": main["window_id"], "key": "space" if ch == " " else ch, "delivery_mode": "foreground"})
-    if not poll(lambda: state().get("query") == text, 5):
+    # Real typing: cua-driver types into the front app's focused field (the palette's), through AX insertion
+    # with its CGEvent fallback. A key post to the pid did not reach the palette panel (job 1015-060437-3b4e3b) and a
+    # foreground key to the main window closed the palette (job 1015-060719-5afd4d). Only if the query still misses
+    # do the app's own key events type it; the proof prints which path typed.
+    cua("type_text", {"text": text, "scope": "desktop"})
+    if poll(lambda: state().get("query") == text, 5):
+        print("typing path: real input (cua-driver type_text into the front app)", flush=True)
+    else:
         print("typing path: in-app key events (debug.key target palette); cua query was %r" % state().get("query"), flush=True)
+        if "error" in state():  # the attempt closed the palette: open it again with the real chord
+            cua("hotkey", {"pid": pid, "window_id": main["window_id"], "keys": ["cmd", "shift", "p"]})
+            poll(lambda: "error" not in state(), 5)
         rpc("debug.key", {"target": "palette", "key": "a", "modifiers": ["cmd"]})
         for ch in text:
             rpc("debug.key", {"target": "palette", "key": "space" if ch == " " else ch})
-    else:
-        print("typing path: real keys (cua-driver foreground)", flush=True)
     found = poll(lambda: state().get("selected") == title, 10)
     if not check("the palette selects %r after typing %r" % (title, text), bool(found), {"palette": state(), "ax": bool(palette_window(pid, main["window_id"]))}):
         cua("press_key", {"pid": pid, "key": "escape"})
         return False
-    cua("press_key", {"pid": pid, "window_id": main["window_id"], "key": "return", "delivery_mode": "foreground"})
-    if poll(lambda: "error" not in state(), 2):
+    cua("press_key", {"pid": pid, "key": "return"})
+    if poll(lambda: "error" in state(), 3):
+        print("return path: real key (cua-driver)", flush=True)
+    else:
+        print("return path: in-app key event (debug.key target palette)", flush=True)
         rpc("debug.key", {"target": "palette", "key": "return"})
     return True
 
