@@ -30,7 +30,7 @@ optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
-     CMUX_SOCKET_PATH, CMUX_MCP_COMMAND, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
+     CMUX_SOCKET_PATH, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
 
 fn main() -> std::process::ExitCode {
     let started_ms = SystemTime::now()
@@ -61,7 +61,7 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Some(tool @ ("zoom" | "date" | "spawn" | "tell")) => {
+        Some(tool @ ("zoom" | "date" | "spawn" | "tell" | "profile" | "chiefs")) => {
             let socket = flags
                 .value("socket")
                 .map(PathBuf::from)
@@ -79,6 +79,7 @@ fn main() -> std::process::ExitCode {
             // A subagent's tools (OPTCHAT_SUBAGENT=1) have no spawn or tell.
             let subagent =
                 optchat_chief::cli::env(optchat_chief::session_dir::SUBAGENT_ENV).is_some();
+            let call = call.map(optchat_chief::tools::with_turn_key);
             match call.and_then(|c| optchat_chief::tools::ask_as(&socket, c, subagent)) {
                 Ok(text) => {
                     println!("{text}");
@@ -122,6 +123,20 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        // The daemon's Chief brain supervisor, when it deletes a Chief on
+        // a shared acpmux: that Chief's sessions end, the daemon stays.
+        Some("end-sessions") => {
+            match optchat_chief::agents::end_own_sessions(&optchat_chief::paths::mux_home()) {
+                Ok(names) => {
+                    println!("ended {} session(s)", names.len());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief end-sessions: {e}");
+                    1
+                }
+            }
+        }
         Some("agents") if optchat_chief::agents::retired(&flags.words).is_some() => {
             eprintln!(
                 "{}",

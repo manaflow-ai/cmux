@@ -14,7 +14,7 @@ impl HostedReader {
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
     ) -> Option<UnixStream> {
         let mux = self.mux.clone();
-        let mut retry = TerminalHostReconnectBackoff::default();
+        let mut retry = TerminalHostReconnectBackoff::retrying_after_failure();
         loop {
             if pty.owner_detaching.load(Ordering::Acquire) {
                 return None;
@@ -65,7 +65,14 @@ impl HostedReader {
                 Ok,
             ) {
                 Ok(replacement) if replacement.identity() == identity => replacement,
-                Ok(_) | Err(_) => {
+                // The record names another incarnation: no retry reaches this one.
+                Ok(_) => {
+                    if !retry.wait_or_give_up(pty) {
+                        return None;
+                    }
+                    continue;
+                }
+                Err(_) => {
                     if !retry.wait_or_fail(pty) {
                         return None;
                     }
@@ -241,9 +248,14 @@ impl HostedReader {
                 {
                     host.disconnect();
                 }
+                // A `failed` link being retried stays failed until it connects.
                 let was = pty
                     .host_connection_state
-                    .swap(TerminalHostConnectionState::Reconnecting as u8, Ordering::AcqRel);
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                        (state != TerminalHostConnectionState::Failed as u8)
+                            .then_some(TerminalHostConnectionState::Reconnecting as u8)
+                    })
+                    .unwrap_or_else(|state| state);
                 if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
                     pty.host_connection_state
                         .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
@@ -251,9 +263,13 @@ impl HostedReader {
                     return None;
                 }
                 // A resync's reconnect that failed is a loss clients have not heard of.
-                if was != TerminalHostConnectionState::Reconnecting as u8 {
+                if was != TerminalHostConnectionState::Reconnecting as u8
+                    && was != TerminalHostConnectionState::Failed as u8
+                {
                     publish_host_link_state(pty);
                 }
+                // A failed link's wait must not keep the mux alive.
+                drop(reconnect_mux);
                 if !retry.wait_or_fail(pty) {
                     return None;
                 }

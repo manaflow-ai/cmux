@@ -81,6 +81,9 @@ final class CEFRuntime {
     /// Runs once CEF is initialized (the App re-installs its crash signal
     /// handlers, which Chromium resets to the default action).
     var onReady: (() -> Void)?
+    /// Runs when a start fails. `CefInitialize` resets the signal actions
+    /// before it can fail, so the App re-installs its handlers here too.
+    var onStartFailed: (() -> Void)?
     /// Hides or closes top-level Chromium windows that slip through (see
     /// `ChromiumWindowGuard`).
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
@@ -88,6 +91,10 @@ final class CEFRuntime {
     }
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
+    /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
+    var builtInAdBlockerSetting: @MainActor () -> Bool = { true }
+    /// True when this Chromium started with the built-in uBlock Origin.
+    private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
@@ -226,6 +233,7 @@ final class CEFRuntime {
             let reason = "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
             state = .failed(reason)
+            onStartFailed?()
             throw .engineUnavailable(.cef, reason: reason)
         }
     }
@@ -298,12 +306,17 @@ final class CEFRuntime {
         self.pump = pump
         pump.start()
 
-        try? FileManager.default.createDirectory(at: storage.root, withIntermediateDirectories: true)
+        storage.prepareForLaunch()
+        let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
+            .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: environment
+            environment: environment,
+            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
         )
+        builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
+        logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
         // Pages use the theme color, never white or Chromium's #292929

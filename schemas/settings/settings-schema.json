@@ -247,7 +247,10 @@
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
               "ui.animationSpeed",
-              "ui.paneAnimations"
+              "ui.paneAnimations",
+              "ui.animations.newTab",
+              "ui.animations.newWorkspace",
+              "ui.animations.bounce"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
@@ -322,7 +325,9 @@
               "sidebar.cards.tips",
               "sidebar.side",
               "sidebar.spacesPosition",
-              "sidebar.spacesVisibility"
+              "sidebar.spacesVisibility",
+              "sidebar.hoverCards.enabled",
+              "sidebar.hoverCards.delay"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -489,6 +494,16 @@
             "title" : {
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
+            }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
             }
           }
         ],
@@ -657,6 +672,16 @@
             "title" : {
               "key" : "settings.group.bookmarks",
               "text" : "Bookmarks"
+            }
+          },
+          {
+            "key" : "settings.group.extensions",
+            "rows" : [
+              "browser.builtInAdBlocker"
+            ],
+            "title" : {
+              "key" : "settings.group.extensions",
+              "text" : "Extensions"
             }
           },
           {
@@ -897,6 +922,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.classicHome",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -9960,7 +9986,8 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone"
+        "two-tone",
+        "floating"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -10020,6 +10047,13 @@
             "text" : "Two-Tone"
           },
           "value" : "two-tone"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.floating",
+            "text" : "Floating Panes"
+          },
+          "value" : "floating"
         }
       ],
       "consumers" : [
@@ -10052,7 +10086,9 @@
         "sidebar",
         "two-tone",
         "minimal",
-        "bare"
+        "bare",
+        "floating",
+        "gaps"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -10123,6 +10159,164 @@
       "title" : {
         "key" : "settings.ui.paneAnimations",
         "text" : "Animate Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.newTab.help",
+        "text" : "A new tab grows into its place in the tab bar. Off shows it there at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.newTab",
+      "keywords" : [
+        "motion",
+        "animation",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "newTab"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.newTab",
+        "text" : "Animate New Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.newWorkspace.help",
+        "text" : "A new workspace row opens in the sidebar. Off shows it there at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.newWorkspace",
+      "keywords" : [
+        "motion",
+        "animation",
+        "workspace",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "newWorkspace"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.newWorkspace",
+        "text" : "Animate New Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "subtle"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.subtle",
+            "text" : "Subtle"
+          },
+          "value" : "subtle"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.bounce.help",
+        "text" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.bounce",
+      "keywords" : [
+        "motion",
+        "spring",
+        "bounce"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "bounce"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.bounce",
+        "text" : "Animation Bounce"
       },
       "validation" : "portable"
     },
@@ -14143,6 +14337,7 @@
     {
       "accepts" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -14154,6 +14349,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.comfortable",
+            "text" : "Comfortable"
+          },
+          "value" : "comfortable"
         },
         {
           "title" : {
@@ -14174,7 +14376,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -14183,9 +14385,11 @@
         "density",
         "expanded",
         "compact",
+        "comfortable",
         "rows",
         "preview",
         "two lines",
+        "taller",
         "t3",
         "codex"
       ],
@@ -14803,6 +15007,113 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.enabled.help",
+        "text" : "A card with details opens when the pointer rests on a workspace or a tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.enabled",
+      "keywords" : [
+        "hover",
+        "card",
+        "preview",
+        "tooltip",
+        "workspace",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.enabled",
+        "text" : "Show Hover Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        5000,
+        2500
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1300,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.delay.help",
+        "text" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.delay",
+      "keywords" : [
+        "hover",
+        "card",
+        "delay",
+        "wait",
+        "milliseconds"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "delay"
+      ],
+      "range" : {
+        "max" : 5000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 100,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -5000,
+        10000,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.delay",
+        "text" : "Hover Card Delay"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.workspaceRows",
         "text" : "Workspace Rows"
       },
@@ -15367,7 +15678,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -18880,6 +19191,54 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.extensions",
+        "text" : "Extensions"
+      },
+      "help" : {
+        "key" : "settings.browser.builtInAdBlocker.help",
+        "text" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.builtInAdBlocker",
+      "keywords" : [
+        "ublock",
+        "ad blocker",
+        "adblock",
+        "extensions",
+        "trackers"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "builtInAdBlocker"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.builtInAdBlocker",
+        "text" : "Built-in uBlock Origin"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "moderate",
         "aggressive",
         "off",
@@ -22134,6 +22493,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.classicHome.help",
+        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.classicHome",
+      "keywords" : [
+        "home",
+        "chief",
+        "classic",
+        "dock",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "classicHome"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.classicHome",
+        "text" : "Classic Home"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -23532,7 +23939,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "500801fb8cd18e1a7b6cfd27819cf8052f8352c46c0ec241deb629be208146c1",
+  "schema_hash" : "21c6125a0405ff65d091d63750d336906eab192dcf3fc0fa90bc9cd55b527239",
   "sections" : [
     {
       "id" : "general",

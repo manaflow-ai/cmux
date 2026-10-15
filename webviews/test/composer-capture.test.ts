@@ -7,6 +7,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-capture.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -33,6 +34,7 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -43,10 +45,15 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
   const play = async (variant: string) => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     await page.goto(stageURL(variant));
-    await page.waitForFunction(() => {
-      const ready = document.documentElement.dataset.galleryReady;
-      return ready === "1" || ready === "error";
-    });
+    // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.waitForFunction(
+      () => {
+        const ready = document.documentElement.dataset.galleryReady;
+        return ready === "1" || ready === "error";
+      },
+      undefined,
+      { timeout: 90_000 },
+    );
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,

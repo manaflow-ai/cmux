@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
@@ -20,12 +20,64 @@ struct Fake {
     fail_resources: bool,
     fail_apps: bool,
     daemon_snapshot: Option<Value>,
+    /// The answer to every daemon request but `session.snapshot`; else
+    /// `daemon_snapshot`.
+    resource_result: Option<Value>,
+    /// The app's transport drops after a `feed.*` request is sent, as
+    /// `transport::app_method` reports it.
+    lose_app_transport: bool,
+    /// Owner state that changes while a call waits (`agents_wait`).
+    live: RefCell<Live>,
+    /// This daemon operation answers `selector.not_found` after the delay,
+    /// as a wait on a terminal that closes.
+    fail_after: Option<(&'static str, Duration)>,
     sent: RefCell<Vec<Value>>,
+}
+
+/// The daemon's snapshot and the app's pending dialogs at set times after
+/// the test starts, as when an agent finishes or asks while a wait runs.
+#[derive(Default)]
+struct Live {
+    daemon: Option<Value>,
+    feed: Option<Value>,
+    changes: Vec<(Instant, Change)>,
+}
+
+enum Change {
+    Daemon(Value),
+    Feed(Value),
+}
+
+impl Live {
+    /// Applies the changes that are due.
+    fn settle(&mut self) {
+        let now = Instant::now();
+        let (due, later) = std::mem::take(&mut self.changes)
+            .into_iter()
+            .partition::<Vec<_>, _>(|(at, _)| *at <= now);
+        self.changes = later;
+        for (_, change) in due {
+            match change {
+                Change::Daemon(value) => self.daemon = Some(value),
+                Change::Feed(value) => self.feed = Some(value),
+            }
+        }
+    }
 }
 
 impl Fake {
     fn with_actions() -> Self {
         Self { actions: fixture_actions(), ..Self::default() }
+    }
+
+    /// A daemon snapshot and pending dialogs that `then` changes later.
+    fn live(daemon: Option<Value>, feed: Option<Value>) -> Self {
+        Self { live: RefCell::new(Live { daemon, feed, changes: Vec::new() }), ..Self::default() }
+    }
+
+    fn then(self, after: Duration, change: Change) -> Self {
+        self.live.borrow_mut().changes.push((Instant::now() + after, change));
+        self
     }
 
     fn last(&self, kind: &str) -> Value {
@@ -62,6 +114,26 @@ impl Backend for Fake {
                 idempotency_key: key,
             });
         }
+        if let Some((operation, delay)) = self.fail_after
+            && request["operation"] == operation
+        {
+            std::thread::sleep(delay);
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "selector.not_found", "message": "the terminal closed"}),
+                idempotency_key: None,
+            });
+        }
+        if request["operation"] != "session.snapshot"
+            && let Some(result) = &self.resource_result
+        {
+            return Ok(result.clone());
+        }
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        if let Some(daemon) = &live.daemon {
+            return Ok(daemon.clone());
+        }
         Ok(self.daemon_snapshot.clone().unwrap_or_else(|| json!([])))
     }
 
@@ -71,13 +143,24 @@ impl Backend for Fake {
         params: Value,
         _timeout: Duration,
         idempotency_key: Option<&str>,
+        mutation: bool,
     ) -> Result<Value, CallFailure> {
         self.sent.borrow_mut().push(json!({
             "kind": "app",
             "method": method,
             "params": params,
             "key": idempotency_key,
+            "mutation": mutation,
         }));
+        if self.lose_app_transport && method.starts_with("feed.") {
+            let keyed = idempotency_key.is_some();
+            return Err(CallFailure {
+                kind: if keyed || mutation { FailureKind::InProgress } else { FailureKind::NotRun },
+                error: json!({"code": "app.transport", "message": "connection reset",
+                              "retryable": keyed || !mutation}),
+                idempotency_key: idempotency_key.map(str::to_owned),
+            });
+        }
         if self.fail_apps {
             return Err(CallFailure {
                 kind: FailureKind::NotRun,
@@ -88,7 +171,47 @@ impl Backend for Fake {
         match method {
             "action.list" => Ok(self.actions.clone()),
             "snapshot.get" => Ok(json!({"topology": {"windows": [{"id": "win_a"}]}})),
+            "feed.list" => {
+                let mut live = self.live.borrow_mut();
+                live.settle();
+                Ok(live.feed.clone().unwrap_or_else(|| json!({"ran": true})))
+            }
             _ => Ok(json!({"ran": true})),
+        }
+    }
+
+    /// The daemon's stream: its snapshot, then a delta when a daemon change
+    /// is due (a dialog is the app's and has none), and a tick without one.
+    fn session_events(
+        &self,
+        _session: Option<&str>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        if on_wake(Some(&json!({"kind": "snapshot"}))) {
+            return Ok(());
+        }
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(());
+            }
+            let next_change = self
+                .live
+                .borrow()
+                .changes
+                .iter()
+                .filter(|(_, change)| matches!(change, Change::Daemon(_)))
+                .map(|(at, _)| *at)
+                .min();
+            let wake = next_change.unwrap_or(deadline).min(now + tick).min(deadline);
+            std::thread::sleep(wake.saturating_duration_since(now));
+            let delta = next_change.is_some_and(|at| at <= wake);
+            let item = json!({"kind": "delta"});
+            if on_wake(delta.then_some(&item)) {
+                return Ok(());
+            }
         }
     }
 
@@ -748,3 +871,346 @@ fn keybinding_read_tools_call_the_app_and_refuse_bad_arguments() {
     );
     assert_eq!(call(&mut server, "context_keys", json!({"nope": "x"}))["isError"], true);
 }
+
+const AGENT_ACTION_TOOLS: [&str; 8] = [
+    "agents_workspace_select",
+    "agents_workspace_create",
+    "agents_tab_select",
+    "agents_terminal_focus",
+    "agents_terminal_split",
+    "agents_palette_open",
+    "agents_dialog_list",
+    "agents_dialog_answer",
+];
+
+fn sent_of(server: &Server<Fake>, kind: &str) -> Vec<Value> {
+    server.backend.sent.borrow().iter().filter(|sent| sent["kind"] == kind).cloned().collect()
+}
+
+#[test]
+fn agents_action_tools_are_listed_with_strict_schemas() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<BTreeSet<_>>();
+    assert_eq!(names.len(), tools.len(), "tool names are unique");
+    for name in AGENT_ACTION_TOOLS {
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("missing {name}"));
+        let schema = &tool["inputSchema"];
+        assert_eq!(schema["type"], "object", "{name}");
+        assert_eq!(schema["additionalProperties"], false, "{name}");
+        let keyed = !matches!(name, "agents_dialog_list" | "agents_dialog_answer");
+        assert_eq!(schema["properties"].get("idempotency_key").is_some(), keyed, "{name}");
+        assert_eq!(
+            tool["annotations"]["readOnlyHint"],
+            name == "agents_dialog_list",
+            "{name} annotations"
+        );
+    }
+    let find = |name: &str| tools.iter().find(|tool| tool["name"] == name).unwrap().clone();
+    assert_eq!(find("agents_workspace_select")["inputSchema"]["required"], json!(["workspace"]));
+    assert_eq!(find("agents_tab_select")["inputSchema"]["required"], json!(["tab"]));
+    assert_eq!(find("agents_dialog_answer")["inputSchema"]["required"], json!(["request_id"]));
+    assert_eq!(
+        find("agents_terminal_split")["inputSchema"]["properties"]["direction"]["enum"],
+        json!(["left", "right", "up", "down"])
+    );
+}
+
+#[test]
+fn agents_workspace_select_focuses_through_the_owners_and_returns_a_receipt() {
+    let mut server = Server::new(
+        Fake {
+            daemon_snapshot: Some(json!({
+                "id": WORKSPACE,
+                "workspaces": [{"id": WORKSPACE, "focused": true}],
+            })),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(
+        &mut server,
+        "agents_workspace_select",
+        json!({"workspace": WORKSPACE, "idempotency_key": "select-1"}),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    let resources = sent_of(&server, "resource");
+    let request = &resources[0]["request"];
+    assert_eq!(request["operation"], "workspace.focus");
+    assert_eq!(request["params"]["workspace"], WORKSPACE);
+    assert_eq!(request["idempotency_key"], "select-1");
+    let apps = sent_of(&server, "app");
+    assert_eq!(apps[0]["method"], "action.run", "the app shows the workspace: {apps:?}");
+    assert_eq!(apps[0]["params"]["action"], "goToWorkspace");
+    assert_eq!(apps[0]["params"]["args"]["workspace"], WORKSPACE);
+    assert_eq!(apps[0]["params"]["focus"], true);
+    // The receipt: the owner's result and a fresh composed snapshot.
+    let receipt = &result["structuredContent"];
+    assert_eq!(receipt["action"], "workspace.select");
+    assert_eq!(receipt["result"]["id"], WORKSPACE);
+    assert_eq!(receipt["state"]["workspaces"][0]["id"], WORKSPACE);
+    assert_eq!(receipt["state"]["windows"][0]["id"], "win_a");
+    assert_eq!(receipt["state"]["sources"]["daemon"]["available"], true);
+    assert_eq!(receipt["state"]["sources"]["app"]["available"], true);
+    assert_eq!(resources.last().unwrap()["request"]["operation"], "session.snapshot");
+    assert_eq!(apps.last().unwrap()["method"], "snapshot.get");
+}
+
+#[test]
+fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
+    let tab = "tab_0123456789abcdef0123456789abcdef";
+    let pane = "pane_0123456789abcdef0123456789abcdef";
+    let mut server = Server::new(Fake::default(), None);
+
+    let result = call(&mut server, "agents_tab_select", json!({"tab": format!("build-box:{tab}")}));
+    assert_eq!(result["isError"], false, "{result}");
+    let sent = &sent_of(&server, "resource")[0];
+    assert_eq!(sent["session"], "build-box", "a qualified id routes to its session");
+    assert_eq!(sent["request"]["operation"], "tab.focus");
+    assert_eq!(sent["request"]["params"]["tab"], tab);
+    assert!(
+        sent["request"]["idempotency_key"].as_str().unwrap().starts_with("mutation_"),
+        "a mutation without a key gets one: {sent}"
+    );
+
+    server.backend.sent.borrow_mut().clear();
+    let result = call(
+        &mut server,
+        "agents_workspace_create",
+        json!({"name": "--Build", "empty": true, "idempotency_key": "create-1"}),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["action"], "workspace.create");
+    let request = &sent_of(&server, "resource")[0]["request"];
+    assert_eq!(request["operation"], "workspace.create");
+    assert_eq!(request["params"]["name"], "--Build");
+    assert_eq!(request["params"]["initial_content"], "empty");
+    assert_eq!(request["idempotency_key"], "create-1");
+    assert!(
+        sent_of(&server, "app").iter().all(|sent| sent["method"] != "action.run"),
+        "creating a workspace leaves the user's focus alone"
+    );
+
+    server.backend.sent.borrow_mut().clear();
+    let result =
+        call(&mut server, "agents_terminal_split", json!({"direction": "right", "pane": pane}));
+    assert_eq!(result["isError"], false, "{result}");
+    let request = &sent_of(&server, "resource")[0]["request"];
+    assert_eq!(request["operation"], "pane.split");
+    assert_eq!(request["params"]["pane"], pane);
+    assert!(sent_of(&server, "app").iter().all(|sent| sent["method"] != "action.run"));
+
+    server.backend.sent.borrow_mut().clear();
+    let result = call(&mut server, "agents_palette_open", json!({"idempotency_key": "palette-1"}));
+    assert_eq!(result["isError"], false, "{result}");
+    let run = &sent_of(&server, "app")[0];
+    assert_eq!(run["method"], "action.run");
+    assert_eq!(run["params"]["action"], "palette.open");
+    assert_eq!(run["key"], "palette-1");
+
+    server.backend.sent.borrow_mut().clear();
+    call(&mut server, "agents_dialog_list", json!({"all": true}));
+    let list = &sent_of(&server, "app")[0];
+    assert_eq!(list["method"], "feed.list");
+    assert_eq!(list["params"]["pending_only"], false);
+
+    server.backend.sent.borrow_mut().clear();
+    let result = call(
+        &mut server,
+        "agents_dialog_answer",
+        json!({"request_id": "request_a", "selections": ["one", "two"]}),
+    );
+    assert_eq!(result["structuredContent"]["action"], "dialog.answer", "{result}");
+    let reply = &sent_of(&server, "app")[0];
+    assert_eq!(reply["method"], "feed.question.reply");
+    assert_eq!(reply["params"], json!({"request_id": "request_a", "selections": ["one", "two"]}));
+}
+
+#[test]
+fn agents_action_tools_refuse_invalid_arguments_before_reaching_an_owner() {
+    for (name, arguments) in [
+        ("agents_workspace_select", json!({})),
+        ("agents_workspace_select", json!({"workspace": WORKSPACE, "bogus": 1})),
+        ("agents_workspace_select", json!({"workspace": "--all"})),
+        ("agents_workspace_select", json!({"workspace": 7})),
+        ("agents_workspace_create", json!({"empty": "yes"})),
+        ("agents_tab_select", json!({"tab": "a:tab_x", "session": "b"})),
+        ("agents_terminal_split", json!({"direction": "diagonal"})),
+        ("agents_dialog_list", json!({"idempotency_key": "k"})),
+        ("agents_dialog_answer", json!({"request_id": "r"})),
+        ("agents_dialog_answer", json!({"request_id": "r", "mode": "allow", "selections": ["a"]})),
+        ("agents_dialog_answer", json!({"request_id": "r", "selections": []})),
+    ] {
+        let mut server = Server::new(Fake::default(), None);
+        let result = call(&mut server, name, arguments.clone());
+        assert_eq!(result["isError"], true, "{name} {arguments}: {result}");
+        assert_eq!(result["structuredContent"]["state"], "not_run", "{name} {arguments}");
+        assert!(server.backend.sent.borrow().is_empty(), "{name} {arguments} reached an owner");
+    }
+}
+
+#[test]
+fn agents_action_tools_report_a_failing_owner_with_its_state_and_key() {
+    let mut server = Server::new(Fake { fail_resources: true, ..Fake::default() }, None);
+    let result = call(
+        &mut server,
+        "agents_workspace_select",
+        json!({"workspace": WORKSPACE, "idempotency_key": "select-1"}),
+    );
+    assert_eq!(result["isError"], true);
+    let envelope = &result["structuredContent"];
+    assert_eq!(envelope["state"], "in_progress");
+    assert_eq!(envelope["idempotency_key"], "select-1");
+    assert_eq!(envelope["error"]["code"], "transport.failed", "the error passes through");
+
+    let mut server = Server::new(Fake { fail_apps: true, ..Fake::default() }, None);
+    let result = call(&mut server, "agents_palette_open", json!({}));
+    assert_eq!(result["isError"], true);
+    assert_eq!(result["structuredContent"]["state"], "not_run");
+    assert_eq!(result["structuredContent"]["error"]["code"], "transport.unavailable");
+}
+
+#[test]
+fn agents_dialog_answer_only_denies_permissions_over_mcp() {
+    for mode in ["bypassPermissions", "always", "allow", "acceptEdits", "default"] {
+        let mut server = Server::new(Fake::default(), None);
+        let result = call(
+            &mut server,
+            "agents_dialog_answer",
+            json!({"request_id": "request_a", "mode": mode}),
+        );
+        assert_eq!(result["isError"], true, "{mode}: {result}");
+        assert_eq!(result["structuredContent"]["state"], "not_run", "{mode}");
+        let message = result["structuredContent"]["error"]["message"].as_str().unwrap();
+        assert!(message.contains("approve permissions in cmux, not over MCP"), "{message}");
+        assert!(server.backend.sent.borrow().is_empty(), "{mode} reached the app");
+    }
+    let mut server = Server::new(Fake::default(), None);
+    let result = call(
+        &mut server,
+        "agents_dialog_answer",
+        json!({"request_id": "request_a", "mode": "deny"}),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    let reply = &sent_of(&server, "app")[0];
+    assert_eq!(reply["method"], "feed.permission.reply");
+    assert_eq!(reply["params"], json!({"request_id": "request_a", "mode": "deny"}));
+
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let find = |name: &str| tools.iter().find(|tool| tool["name"] == name).unwrap().clone();
+    let answer = find("agents_dialog_answer");
+    assert_eq!(answer["annotations"]["destructiveHint"], true);
+    assert_eq!(answer["inputSchema"]["properties"]["mode"]["enum"], json!(["deny"]));
+    assert!(answer["description"].as_str().unwrap().contains("other agents"), "{answer}");
+    let list = find("agents_dialog_list");
+    assert!(list["description"].as_str().unwrap().contains("other agents"), "{list}");
+}
+
+#[test]
+fn agents_dialog_answer_reports_a_reply_lost_after_sending_as_in_progress() {
+    let mut server = Server::new(Fake { lose_app_transport: true, ..Fake::default() }, None);
+    let result = call(
+        &mut server,
+        "agents_dialog_answer",
+        json!({"request_id": "request_a", "selections": ["one"]}),
+    );
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+    assert_eq!(result["structuredContent"]["error"]["retryable"], false);
+    assert_eq!(sent_of(&server, "app")[0]["mutation"], true);
+
+    // A list is a read: nothing changed, so it never ran.
+    let mut server = Server::new(Fake { lose_app_transport: true, ..Fake::default() }, None);
+    let result = call(&mut server, "agents_dialog_list", json!({}));
+    assert_eq!(result["structuredContent"]["state"], "not_run", "{result}");
+    assert_eq!(sent_of(&server, "app")[0]["mutation"], false);
+}
+
+#[test]
+fn agents_oversized_receipt_keeps_the_action_result_and_key() {
+    let created = "ws_fedcba9876543210fedcba9876543210";
+    let tabs = (0..250)
+        .map(|i| json!({"id": format!("tab_{i:032x}"), "title": "x".repeat(2048)}))
+        .collect::<Vec<_>>();
+    let mut server = Server::new(
+        Fake {
+            daemon_snapshot: Some(json!({"tabs": tabs})),
+            resource_result: Some(json!({"id": created, "name": "Build"})),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(
+        &mut server,
+        "agents_workspace_create",
+        json!({"name": "Build", "idempotency_key": "create-big"}),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    let receipt = &result["structuredContent"];
+    assert!(serde_json::to_vec(receipt).unwrap().len() <= MAX_RESULT_BYTES);
+    assert_eq!(receipt["action"], "workspace.create");
+    assert_eq!(receipt["result"]["id"], created);
+    assert_eq!(receipt["idempotency_key"], "create-big");
+    assert_eq!(receipt["state"], json!({"truncated": true, "hint": "call agents_snapshot"}));
+
+    // Without a key the receipt names the one the daemon request carried.
+    let result = call(&mut server, "agents_workspace_create", json!({"name": "Build"}));
+    let sent = &sent_of(&server, "resource")
+        .into_iter()
+        .rfind(|sent| sent["request"]["operation"] == "workspace.create")
+        .unwrap();
+    let key = sent["request"]["idempotency_key"].as_str().unwrap();
+    assert!(key.starts_with("mutation_"), "{key}");
+    assert_eq!(result["structuredContent"]["idempotency_key"], key);
+}
+
+#[test]
+fn agents_palette_open_over_mcp_carries_the_mcp_origin() {
+    let mut server = Server::new(Fake::default(), None);
+    let result = call(&mut server, "agents_palette_open", json!({}));
+    assert_eq!(result["isError"], false, "{result}");
+    let run = &sent_of(&server, "app")[0];
+    assert_eq!(run["params"]["action"], "palette.open");
+    assert_eq!(run["params"]["origin"], "mcp", "{run}");
+    assert_eq!(run["params"]["focus"], true);
+}
+
+#[test]
+fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
+    let mut server = Server::new(Fake::default(), None);
+    let tools = server.list();
+    let tool = tools.iter().find(|tool| tool["name"] == "render").expect("render is listed");
+    assert_eq!(tool["inputSchema"]["required"], json!(["html"]));
+    let sent = server.backend.sent.borrow().len();
+
+    let page = "<title>Desk clamp</title><canvas></canvas>";
+    let result = call(&mut server, "render", json!({"html": page, "title": "Desk clamp"}));
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["rendered"], true);
+    assert_eq!(result["structuredContent"]["bytes"], page.len());
+    assert_eq!(
+        server.backend.sent.borrow().len(),
+        sent,
+        "the chat draws the call; no owner is asked"
+    );
+
+    for arguments in [
+        json!({"html": "  "}),
+        json!({}),
+        json!({"html": page, "url": "x"}),
+        json!({"html": page, "title": "t".repeat(201)}),
+    ] {
+        let refused = call(&mut server, "render", arguments.clone());
+        assert_eq!(refused["isError"], true, "{arguments}");
+        assert_eq!(refused["structuredContent"]["state"], "not_run");
+    }
+}
+
+mod agent_wait;

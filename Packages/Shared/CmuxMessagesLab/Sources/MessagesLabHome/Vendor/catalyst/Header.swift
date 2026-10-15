@@ -70,7 +70,7 @@ final class HeaderView: UIView {
 
     func refresh() {
         guard let source, !useSystemBlur else { return }
-        let scale = Fixture.renderScale
+        let scale = labRenderScale
         let pad: CGFloat = 70
         // Outside the window there is nothing to blur, so pad with the
         // background colour (this gives the darker fringe at the edges).
@@ -242,7 +242,7 @@ final class ChromeView: UIView {
     /// moves the tree to the window again): the slice is drawn again at the new scale.
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if sliceDrawn != nil, sliceDrawn?.scale != Fixture.renderScale { sliceDrawn = nil; setNeedsLayout() }
+        if sliceDrawn != nil, sliceDrawn?.scale != labRenderScale { sliceDrawn = nil; setNeedsLayout() }
     }
     /// A scale or palette change (WindowView) draws the border again.
     override func setNeedsDisplay() {
@@ -252,7 +252,7 @@ final class ChromeView: UIView {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let n = ChromeView.sliceSize, scale = Fixture.renderScale
+        let n = ChromeView.sliceSize, scale = labRenderScale // its window view's (cx-3cb view-scale)
         // Whole device pixels only: at a fractional width the right and bottom parts would land
         // between pixels and be resampled (the canvas's backing store is whole pixels).
         let whole = (bounds.width * scale).rounded() == bounds.width * scale && (bounds.height * scale).rounded() == bounds.height * scale
@@ -269,7 +269,7 @@ final class ChromeView: UIView {
             fmt.opaque = false
             fmt.preferredRange = .standard
             let r = CGRect(x: 0, y: 0, width: n, height: n), draw = canvas.drawer
-            slice.contents = UIGraphicsImageRenderer(size: r.size, format: fmt).image { draw($0.cgContext, r) }.cgImage
+            slice.contents = Fixture.withRenderScale(scale) { UIGraphicsImageRenderer(size: r.size, format: fmt).image { draw($0.cgContext, r) }.cgImage }
             slice.contentsScale = scale
             // One device pixel at the middle of each side.
             let px = n * scale, mid = (px / 2).rounded(.down) / px
@@ -305,10 +305,11 @@ class CanvasView: UIView {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
         drawer(ctx, bounds)
     }
-    /// A canvas draws at the render scale (UIKit would pick the screen's,
+    /// A canvas draws at its window view's render scale (UIKit would pick the screen's,
     /// which is the same live; test renders keep the reference's 2x).
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if layer.contentsScale != Fixture.renderScale { layer.contentsScale = Fixture.renderScale; setNeedsDisplay() }
+        let s = labRenderScale
+        if layer.contentsScale != s { layer.contentsScale = s; setNeedsDisplay() }
     }
 }

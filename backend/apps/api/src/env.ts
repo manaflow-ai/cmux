@@ -119,6 +119,23 @@ export interface Env {
   readonly BILLING_LEVELS_KEY?: string
   /** Payment service key of the usage sync (billing-usage-sync.ts). Test mode only in this phase: a live key is refused. */
   readonly STRIPE_USAGE_KEY?: string
+  /** Prepaid Cloud Chief credits (credits.ts): the top-up key (test mode only; default STRIPE_USAGE_KEY) and the top-up webhook's signing secret. */
+  readonly STRIPE_CREDITS_KEY?: string
+  readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
+  /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
+  readonly CHIEF_CREDITS_MARGIN?: string
+  /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
+  readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
+  /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */
+  readonly CHIEF_CREDITS_ENFORCE?: string
+  /** Top-up amounts a person may pick, comma list of whole USD (default 10,20,50,100). */
+  readonly CHIEF_CREDITS_TOPUP_USD?: string
+  /** Optional payment-service product id for the top-up line (else an inline "cmux Cloud credits" line). */
+  readonly CHIEF_CREDITS_PRODUCT?: string
+  /** Dogfood grant (credits-admin.ts): comma list of team_ or user_ ids, the USD per entry, and the round (raise to grant again). */
+  readonly CHIEF_CREDITS_DOGFOOD?: string
+  readonly CHIEF_CREDITS_DOGFOOD_USD?: string
+  readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
   /** `e2e` on the development Worker only: the usage sync uses the e2e price set (1 USD included; billing-catalog.ts). */
   readonly BILLING_USAGE_PRICE_SET?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
@@ -182,6 +199,24 @@ export interface Env {
   readonly CHIEF_BRAIN_MODEL?: string
   /** The brain's default compactor model (default: CHIEF_BRAIN_MODEL). */
   readonly CHIEF_BRAIN_COMPACTOR_MODEL?: string
+  /** A turn's model when Claude's sign-in fails (default "fake"; staging: Workers AI Kimi). */
+  readonly CHIEF_BRAIN_FALLBACK_MODEL?: string
+  /**
+   * Secret (staging only): the X-Stack-Auth value {accessToken, refreshToken} the metered Claude route
+   * (/api/claude-david on the Chatmux service) takes. Lawrence's personal chatmux session for now;
+   * replace with a scoped service token. Never logged (chief-brain/claude-auth.ts).
+   */
+  readonly CHIEF_BRAIN_CLAUDE_STACK_AUTH?: string
+  /** Owners (user ids, comma separated) whose Chiefs may run on Claude; the route bills one person's account. */
+  readonly CHIEF_BRAIN_CLAUDE_OWNERS?: string
+  /** Secret: more such owners, changed without a deploy (a demo's test user changes on every reset). */
+  readonly CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA?: string
+  /** Claude turns of all Chiefs per UTC day (default 500). */
+  readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
+  /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
+  readonly CHIEF_BRAIN_CLAUDE_URL?: string
+  readonly CHIEF_BRAIN_CLAUDE_REFRESH_URL?: string
+  readonly CHIEF_BRAIN_CLAUDE_PROJECT?: string
   /** Turns one chief's brains may start per UTC day (default 300): a spend bound for Workers AI. */
   readonly CHIEF_BRAIN_DAILY_TURNS?: string
   /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */

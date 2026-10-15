@@ -8,7 +8,7 @@ use crate::config::{StoreConfig, StoreMode, write_atomic};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -111,6 +111,15 @@ pub struct SessionMeta {
     pub permission_policy: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
+    /// `harness` (its own `session_info_update`), `asked` (a generated title
+    /// is on its way or failed; never asked again), `generated` or `adopted`.
+    /// None: a chat titled before acpmux generated titles; kept as is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<String>,
+    /// The first prompt a `prompt` title came from, until a title is asked for.
+    #[serde(skip)]
+    pub title_prompt: Option<String>,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -175,6 +184,62 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// The seqs of this chat's `user_message` records the person bookmarked (the pane's thread
+    /// minimap; `hub/bookmarks.rs`). A fork renumbers its copies; a move keeps the log's seqs.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub bookmarks: BTreeSet<u64>,
+    /// The tools the chat has (`hub/tools.rs`).
+    #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
+    pub tools: ToolInventory,
+    /// The branch checked out in `cwd` when the session started (session/new,
+    /// or a fork at fork time; `git_state.rs`). `None` on a detached HEAD or
+    /// outside a repository. Never updated after: it joins the session to the
+    /// pull request it produced (hq#1920).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_head: Option<String>,
+}
+
+/// The tools a chat has (`hub/tools.rs`): cmux's own, recorded at each
+/// spawn, then what Claude Code's system/init reports.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolInventory {
+    #[serde(default)]
+    pub rows: Vec<ToolRow>,
+    /// The chat can turn MCP servers off (Claude Code, through
+    /// `--disallowedTools` at each start); ACP harnesses take their tools at
+    /// session start only.
+    #[serde(default)]
+    pub mutable: bool,
+    /// The rows (`mcp:<server>`) this chat turned off. Every start of its
+    /// Claude Code disallows their tools; a fork keeps them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off: Vec<String>,
+}
+
+impl ToolInventory {
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty() && !self.mutable && self.off.is_empty()
+    }
+}
+
+/// One row of a chat's tool list (the summary's `tools`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolRow {
+    /// `mcp:<server>`, `skill:<name>` or `plugin:<name>`, unique in the chat.
+    pub id: String,
+    pub name: String,
+    /// `mcp`, `skill`, `plugin`, or `cmux` for cmux's own tools.
+    pub kind: String,
+    /// What gives it: `cmux`, or the harness that reported it (`claude`).
+    pub source: String,
+    pub enabled: bool,
+    /// `_acpmux/set_tools` can turn it on or off in this chat.
+    pub can_toggle: bool,
 }
 
 impl SessionMeta {
@@ -251,6 +316,30 @@ pub trait Store: Send + Sync {
     /// Visit records with `seq > after` in order until `visit` returns false.
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         for rec in self.events(id, after, usize::MAX)? {
+            if !visit(rec) {
+                break;
+            }
+        }
+        Ok(())
+    }
+    /// Visit records with `after < seq < before` newest first until `visit`
+    /// returns false: the reverse of `scan`, for pages taken from the end.
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let mut found = Vec::new();
+        self.scan(id, after, &mut |rec| {
+            if rec.seq >= before {
+                return false;
+            }
+            found.push(rec);
+            true
+        })?;
+        for rec in found.into_iter().rev() {
             if !visit(rec) {
                 break;
             }
@@ -384,6 +473,17 @@ impl LocalStore {
     }
 }
 
+/// The seq of a segment's first readable record.
+fn first_seq(path: &Path) -> Result<Option<u64>> {
+    for line in BufReader::new(File::open(path)?).lines() {
+        let line = line?;
+        if let Ok(rec) = serde_json::from_str::<EventRecord>(&line) {
+            return Ok(Some(rec.seq));
+        }
+    }
+    Ok(None)
+}
+
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let mut out = Vec::new();
@@ -446,6 +546,37 @@ impl Store for LocalStore {
                 }
                 let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
                 if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Segments newest first, so a page from the end reads only the segments it
+    /// needs however long the log is. A segment whose first record is at or past
+    /// `before` holds nothing for the page and is skipped after one line.
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        for (_, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path)?;
+            for line in text.lines().rev() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_str::<EventRecord>(line) else { continue };
+                if rec.seq >= before {
+                    continue;
+                }
+                if rec.seq <= after || !visit(rec) {
                     return Ok(());
                 }
             }

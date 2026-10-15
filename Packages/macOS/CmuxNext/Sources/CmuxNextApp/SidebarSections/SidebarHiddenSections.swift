@@ -19,6 +19,8 @@ enum SidebarHiddenSections {
     /// has no hidden state, so it offers Remove Section instead.
     static func headerMenuRemovals(_ id: LayoutSectionID, isApp: Bool) -> Set<ActionID> {
         var removed: Set<ActionID> = ["sidebar.item.hideApp"]
+        // An app section holds no workspaces.
+        if isApp { removed.formUnion(["sidebar.section.closeWorkspaces", "sidebar.section.newWorkspace"]) }
         if !isApp && id != SidebarLayoutDocument.recentsSectionID { removed.insert("sidebar.section.hide") }
         return removed
     }

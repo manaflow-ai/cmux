@@ -25,6 +25,7 @@ Waits are kernel events on the marks file and the process (kqueue), each
 with a deadline; nothing sleeps to synchronize.
 """
 import argparse, json, os, plistlib, select, shutil, signal, socket, subprocess, sys, time
+import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -446,7 +447,7 @@ def main():
     server = app = None
     result = {"tag": a.tag, "app": name}
     slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
-    acp_home = os.path.join(os.environ["HOME"], ".acpmux/tags", slug)
+    acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug.lower()).strip("."))
     terminal = agent = None
     try:
         public_key = run(["swift", os.path.join(HERE, "keys.swift"), "generate", keys])

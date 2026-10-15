@@ -150,6 +150,17 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
   ];
 }).flat();
 
+/// A thought taller than the transcript's view (ThoughtRow.tsx folds it once done).
+const LONG_THOUGHT = [
+  "**Planning the retry fix**",
+  "",
+  ...Array.from(
+    { length: 40 },
+    (_, index) =>
+      `${index + 1}. ${["Read how the helper parses errors", "Check which statuses reach the retry loop", "Compare the jitter with the backoff cap", "Note what the tests already cover"][index % 4]} (step ${index + 1}).`,
+  ),
+].join("\n");
+
 const LONG_CODE = [
   "Here is the whole retry module after the change:",
   "",
@@ -177,6 +188,18 @@ const MATH = [
   "$$",
   "",
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
+].join("\n");
+
+const MATH_DELIMITERS = [
+  "Every delimiter typesets: $\\lambda = 1/\\bar{d}$ and \\(p = 1 - e^{-\\lambda t}\\) inline,",
+  "",
+  "\\[",
+  "P(T \\le t) = \\int_0^t \\lambda e^{-\\lambda s}\\,ds",
+  "\\]",
+  "",
+  "and $$\\textstyle\\sum_i p_i = 1$$ inside a sentence.",
+  "",
+  "Prices and shell text stay text: the runner costs $5 and $10 an hour, $5-$10 on spot, US$40 a month, and echo $$ and $$ print the shell's PID.",
 ].join("\n");
 
 const WEB_VIDEO = "https://github.com/user-attachments/assets/7d3f2c1a-58b4-4e0f-9a61-2c8e5b0d4f17";
@@ -558,6 +581,28 @@ export default agentPaneEntry({
           throw new Error("a thought is a row of text, not a toggle");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
+    },
+    "long-thought-streaming": {
+      note: "A long thought still streaming shows in full (with the Debug toggle agentPane.debug.foldLongThoughts on, it folds only once done).",
+      snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], { isWorking: true }),
+    },
+    "long-thought-done": {
+      note: "A long thought followed by a step. With the Debug toggle agentPane.debug.foldLongThoughts on (data-fold-long-thoughts on <html>), it folds to its first line; off, it shows in full as before.",
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(LONG_THOUGHT),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
     },
     "thought-find": {
       note: "Play: Find in Chat for a word in a thought marks the word in its text, never the row's own Thought label (cx-ncc.73).",
@@ -964,6 +1009,14 @@ export default agentPaneEntry({
     math: {
       note: "Inline and display math (KaTeX).",
       snapshot: chat([user("What is the expected wait?", 4), assistant(MATH, 3.9), summary(3.9)]),
+    },
+    "math-delimiters": {
+      note: "Math in all four delimiters ($…$, \\(…\\), \\[…\\], $$…$$) beside prices and shell $$ that stay text.",
+      snapshot: chat([
+        user("How likely is a retry inside t seconds?", 4),
+        assistant(MATH_DELIMITERS, 3.9),
+        summary(3.9),
+      ]),
     },
     permission: {
       note: "A tool call waiting for the user's permission.",

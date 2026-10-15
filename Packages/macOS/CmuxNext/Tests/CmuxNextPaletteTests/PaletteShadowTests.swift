@@ -16,10 +16,10 @@ import Testing
         let shadows = Self.shadows(in: content)
         #expect(shadows.count == 1)
         let shadow = try #require(shadows.first)
-        let standard = PopupStyle.standard
-        #expect(shadow.shadowBlurRadius == standard.shadowBlur)
-        #expect(shadow.shadowOffset == NSSize(width: 0, height: -standard.shadowOffset))
-        #expect(abs((shadow.shadowColor?.alphaComponent ?? 0) - standard.shadowAlpha) < 0.001)
+        let elevation = PopupStyle.standard.elevation
+        #expect(shadow.shadowBlurRadius == elevation.blur)
+        #expect(shadow.shadowOffset == NSSize(width: 0, height: -elevation.offset))
+        #expect(abs((shadow.shadowColor?.alphaComponent ?? 0) - elevation.alpha) < 0.001)
     }
 
     private static func shadows(in view: NSView) -> [NSShadow] {

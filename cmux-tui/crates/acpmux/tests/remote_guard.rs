@@ -6,6 +6,11 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -150,6 +155,15 @@ async fn an_unhandled_session_method_reaches_the_harness_only_from_the_unix_sock
         assert!(err(&r).contains("only from the local unix socket"), "{origin:?}: {r}");
     }
     let r = local.call("_harness/anything", json!({"sessionId": id})).await;
+    assert!(!err(&r).contains("only from the local unix socket"), "{r}");
+    // The app's stop on a subagent row is the one exception, and only for the app: it stops a
+    // task the agent already runs and carries no params that spawn or read.
+    let stop = json!({"sessionId": id, "subagentSessionId": "x/toolu_1"});
+    let r = Client::new(&hub, Origin::Web).call("_acpmux/subagent_stop", stop.clone()).await;
+    assert!(err(&r).contains("only from the local unix socket"), "{r}");
+    let r = Client::new(&hub, Origin::Peer).call("_acpmux/subagent_stop", stop.clone()).await;
+    assert!(r.get("error").is_some(), "a peer cannot stop a subagent: {r}");
+    let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/subagent_stop", stop).await;
     assert!(!err(&r).contains("only from the local unix socket"), "{r}");
     let _ = std::fs::remove_dir_all(&d.base);
 }
@@ -412,4 +426,29 @@ async fn fast_mode_is_never_web_changeable() {
         }
     }
     let _ = std::fs::remove_dir_all(&d.base);
+}
+
+/// A side session (`_acpmux/btw`, `hub/btw.rs`) is a new session on this
+/// machine that approves reads: the app and the unix socket open it, a Web
+/// connection or a peer never does, whatever the chat.
+#[tokio::test]
+async fn a_side_session_is_opened_by_the_app_and_the_unix_socket_never_the_web_or_a_peer() {
+    let hub = hub();
+    let mut local = Client::new(&hub, Origin::Local);
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+    let chat = local.call("session/new", new_session(&cwd, json!({}))).await;
+    let id = chat["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{chat}")).to_owned();
+    let before = hub.sessions().len();
+    for origin in [Origin::Web, Origin::Peer] {
+        let mut c = Client::new(&hub, origin);
+        let r = c.call("_acpmux/btw", json!({"sessionId": id, "question": "why?"})).await;
+        assert_eq!(r["error"]["data"]["reason"], "btw.remote", "{origin:?}: {r}");
+    }
+    assert_eq!(hub.sessions().len(), before, "a refused side session opens nothing");
+    for origin in [Origin::LocalApp, Origin::Local] {
+        let mut c = Client::new(&hub, origin);
+        let r = c.call("_acpmux/btw", json!({"sessionId": id, "question": "why?"})).await;
+        assert!(r["result"]["sessionId"].is_string(), "{origin:?}: {r}");
+    }
+    assert_eq!(hub.sessions().len(), before + 2, "one side session each");
 }

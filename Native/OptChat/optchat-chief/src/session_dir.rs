@@ -13,10 +13,12 @@
 //! (with its date and environment lines), the user's other settings and
 //! any machine-wide managed settings.
 //!
-//! Deviation: acpmux drops `mcpServers` from `session/new` (it always starts
-//! the agent with `[]`), so mux/host's way of passing MCP servers reaches no
-//! harness. The servers go in the directory's `.mcp.json` instead, enabled
-//! by the project settings, which Claude Code harnesses read.
+//! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
+//! gives every agent chat its own agent tools instead (cmux, cmux-cua,
+//! secrets: acpmux agent_tools.rs, cx-wx93i), so mux/host's way of passing
+//! MCP servers reaches no harness. The Chief's own `optchat` server, which
+//! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
+//! project settings, which Claude Code harnesses read.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -26,15 +28,13 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::paths::Paths;
-use crate::prompt::{Tools, system_text};
+use crate::prompt::{Tools, chief_system_text, system_text};
 
 /// What the session directory is made of.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionSetup {
     /// This executable (absolute), which serves `mcp` and the `chief` launcher.
     pub exe: String,
-    /// `CMUX_MCP_COMMAND`: the cmux binary whose `mcp serve` is the cmux MCP server.
-    pub cmux_mcp: Option<String>,
     /// Env the turn's tools see (MUX_HOME, CMUX_SOCKET_PATH, ACPMUX_*, PATH).
     pub env: BTreeMap<String, String>,
     /// The user's instructions file, read at host start (section 7.2).
@@ -45,6 +45,9 @@ pub struct SessionSetup {
     /// a session that loads no user setting source still gets it (the
     /// user's API route, for one), under the session's own env.
     pub user_env: BTreeMap<String, String>,
+    /// The record grants the `profile` tool (chief_profile.rs): the
+    /// launcher section of AGENTS.md names `chief profile`.
+    pub profile_tool: bool,
 }
 
 /// Whether this host copies the user's Claude Code settings env into its
@@ -117,16 +120,29 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     if subagent {
         args.extend(["--role".to_owned(), "subagent".to_owned()]);
     }
+    // The Chief's own tools stay in every prompt (`alwaysLoad`), never behind ToolSearch
+    // (TURN_SETTINGS_ENV): a `spawn` turn calls spawn first, with no ToolSearch step.
+    // The Chief's own turn hands its turn seal (chief_profile.rs
+    // TURN_KEY_ENV, in the turn preset's env only) to its `optchat` server:
+    // Claude Code starts a stdio server without the turn's env and expands
+    // `${VAR}` from its own, so the file names the variable, never the
+    // value. A subagent's server gets none.
+    let env = if subagent {
+        json!({})
+    } else {
+        let key = crate::chief_profile::TURN_KEY_ENV;
+        let mut env = serde_json::Map::new();
+        env.insert(key.to_owned(), Value::String(format!("${{{key}:-}}")));
+        Value::Object(env)
+    };
     servers.insert(
         "optchat".into(),
-        json!({"type": "stdio", "command": setup.exe, "args": args, "env": {}}),
+        json!({"type": "stdio", "command": setup.exe, "args": args, "env": env, "alwaysLoad": true}),
     );
-    if let Some(cmux) = &setup.cmux_mcp {
-        servers.insert(
-            "cmux".into(),
-            json!({"type": "stdio", "command": cmux, "args": ["mcp", "serve"], "env": {}}),
-        );
-    }
+    // No `cmux` server here: acpmux gives every agent chat its own `cmux mcp
+    // serve` (cx-wx93i, acpmux agent_tools.rs), the Chief's turns and
+    // subagents included, so a second one only doubled the tool list
+    // (hq-6d 2026-10-14: one cmux MCP server per turn).
     json!({"mcpServers": servers})
 }
 
@@ -134,10 +150,7 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
 /// the launcher directory first on PATH, and `deny` (Claude Code's
 /// subagents always) denied, which takes those tools out of the list.
 pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Value {
-    let mut names = vec!["optchat"];
-    if setup.cmux_mcp.is_some() {
-        names.push("cmux");
-    }
+    let names = ["optchat"];
     // The user's settings env first (a session that loads no user setting
     // source keeps the user's API route), the session's own over it.
     let mut env: serde_json::Map<String, Value> = setup
@@ -189,14 +202,15 @@ pub const SUBAGENT_DENIED_TOOLS: [&str; 5] = [
 /// A turn session's denied tools (parity item 5): the above, and every
 /// other built-in tool of Claude Code 2.1.287 the Chief does not work with,
 /// so the turn's prefix stays small (measured 2026-10-08: 20.7k to 12.1k
-/// tokens bare). A turn keeps Bash, Read, Edit, Write, WebFetch and
-/// WebSearch, and the Chief's MCP tools load with it (no ToolSearch,
-/// `TURN_SETTINGS_ENV`); work beyond those goes to subagents. The turn
+/// tokens bare). A turn keeps Bash, Read, Edit, Write, WebFetch, WebSearch
+/// and ToolSearch; the Chief's own MCP tools load with it and the cmux MCP
+/// tools behind ToolSearch (`TURN_SETTINGS_ENV`); work beyond those goes to
+/// subagents. The turn
 /// preset's `--tools` allowlist (`host::TURN_TOOLS`) is the main guard: a
 /// tool a later Claude Code adds is not offered. This
 /// list stays as the second guard, for an acpmux older than that preset
 /// arg (the preset is then installed without it).
-pub const TURN_DENIED_TOOLS: [&str; 26] = [
+pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Task",
     "Agent",
     "AskUserQuestion",
@@ -221,18 +235,23 @@ pub const TURN_DENIED_TOOLS: [&str; 26] = [
     "TaskList",
     "TaskStop",
     "TaskUpdate",
-    "ToolSearch",
     "Workflow",
 ];
 
 /// The Claude Code env of every turn, in the turn directory's project
 /// settings (over the user's settings env; acpmux's built-in Chief presets
-/// take no env from the host): no tool search, so the Chief's MCP tools
-/// (`spawn`, `zoom`, ...) load with the turn. With tool search on (Claude
-/// Code's default on the first-party route) every subagent turn first
-/// called ToolSearch to load `spawn`: one more request, 8.1 s against
-/// 5.6 s for capture s12 (2026-10-13).
-pub const TURN_SETTINGS_ENV: [(&str, &str); 1] = [("ENABLE_TOOL_SEARCH", "false")];
+/// take no env from the host): tool search on, so every MCP tool but the
+/// Chief's own (`optchat`, `alwaysLoad` in `.mcp.json`) waits behind
+/// ToolSearch. The cmux MCP server that acpmux gives every agent chat
+/// (cx-wx93i; the only cmux server of a turn, `mcp_json_for`) and the app's
+/// old `CMUX_MCP_COMMAND` server listed 165 tools, 100.8k
+/// tokens without the app's actions (count_tokens, 2026-10-14); loaded with
+/// the turn they made a one-word reply write a 274k-token cache ($2.75,
+/// cx-l0vf8). `true`, not `auto`: Claude Code turns `auto` off for a base URL
+/// that is not Anthropic's (the subrouter), and the subrouter forwards the
+/// tool_reference blocks. `optchat` stays loaded, so a `spawn` turn still
+/// calls spawn first (cx-7ssql: ToolSearch before spawn cost 2.5 s).
+pub const TURN_SETTINGS_ENV: [(&str, &str); 1] = [("ENABLE_TOOL_SEARCH", "true")];
 
 /// Days Claude Code keeps a turn session's transcript in the isolated
 /// configuration (the memory is the record; these only help debugging).
@@ -291,7 +310,11 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     // turns, engine.rs); Claude Code reads only CLAUDE.md, which only the
     // old layout of a Claude harness keeps.
     let chief = paths.bin.join("chief").display().to_string();
-    let agents = system_text(setup.instructions.as_deref(), &Tools::Cli(chief));
+    let agents = chief_system_text(
+        setup.instructions.as_deref(),
+        &Tools::Cli(chief),
+        setup.profile_tool,
+    );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
     match setup.tools {
         Tools::Mcp => {

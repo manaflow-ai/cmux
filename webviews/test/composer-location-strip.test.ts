@@ -1,0 +1,303 @@
+// The composer's location strip (hq#1957 composer location strip). Leo: the folder and host row
+// ("Choose folder ⌄ · cosmic-gray ⌄") sat inside the card as a second row under the controls,
+// wasting space. It is now a tab on the card's top edge, in the chat composer and the New Tab's:
+//   - the strip's bottom edge is the card's top edge, and it stays within the card's sides;
+//   - the card holds one controls row and no location row;
+//   - the strip is as tall with no project, with one and while the host loads;
+//   - only a new chat has the strip, before its first send: a started chat's card stands alone,
+//     with nothing drawn and no gap above it, and its queued prompts sit on the card;
+//   - while the session has not reported effort and access, no skeleton or placeholder draws, and
+//     the controls keep their places when the values arrive;
+//   - the folder popover filters with its search field and tells duplicate names apart;
+//   - the strip and the card read as one surface: no hairline draws across the seam where the
+//     strip stands on the card (Leo: the card's top hairline showed under the strip).
+//
+// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { PNG } from "pngjs";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
+
+type Rect = { left: number; right: number; top: number; bottom: number; height: number };
+
+await requireBrowserLane("composer-location-strip.test.ts", async () => {
+  setDefaultTimeout(180_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("composer-location-strip: skipping (run `bunx playwright install chromium`)");
+    describe.skip("composer location strip", () => test("chromium", () => {}));
+    return;
+  }
+  const webviews = path.resolve(import.meta.dir, "..");
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  const stageURL = (entry: string, variant: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+
+  beforeAll(async () => {
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
+    browser = await chromium.launch({ headless: true });
+    // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
+    const warm = await browser.newPage({ viewport: { width: 720, height: 400 } });
+    await warm.goto(stageURL("agent-pane.composer-strip", "project"));
+    for (;;) {
+      try {
+        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
+        break;
+      } catch (error) {
+        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+      }
+    }
+    await warm.close();
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  const open = async (entry: string, variant: string, width: number, init?: () => void): Promise<Page> => {
+    const page = await browser!.newPage({ viewport: { width, height: 560 } });
+    if (init) await page.addInitScript(init);
+    await page.goto(stageURL(entry, variant));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.evaluate(() => document.fonts.ready);
+    return page;
+  };
+
+  /** Runs in the page: the strip against the card it heads. */
+  function measureStrip(card: string) {
+    const rect = (element: Element | null): Rect | null => {
+      if (!element) return null;
+      const { left, right, top, bottom, height } = element.getBoundingClientRect();
+      return { left, right, top, bottom, height };
+    };
+    const box = document.querySelector(card);
+    return {
+      strip: rect(document.querySelector(".acpmux-composer-strip")),
+      card: rect(box),
+      controlRows: box?.querySelectorAll(".acpmux-composer-bar, .nt-pickers").length ?? -1,
+      locationInCard: box?.querySelectorAll(".acpmux-composer-context, .acpmux-location-picker").length ?? -1,
+      stripFolder: document.querySelector(".acpmux-composer-strip .acpmux-location-picker") !== null,
+      queue: rect(document.querySelector(".acpmux-composer-queue")),
+      form: rect(document.querySelector(".acpmux-composer")),
+      formPaddingTop: (() => {
+        const form = document.querySelector(".acpmux-composer");
+        return form ? parseFloat(getComputedStyle(form).paddingTop) || 0 : 0;
+      })(),
+    };
+  }
+
+  const surfaces = [
+    { name: "the chat composer", entry: "agent-pane.composer-strip", variant: "project", card: ".acpmux-composer-box" },
+    {
+      name: "a new chat's composer",
+      entry: "agent-pane.composer-strip",
+      variant: "no-project",
+      card: ".acpmux-composer-box",
+    },
+    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box" },
+  ];
+  for (const surface of surfaces)
+    for (const width of [420, 720])
+      test(`${surface.name} at ${width} px: the strip heads the card, one controls row inside`, async () => {
+        const page = await open(surface.entry, surface.variant, width);
+        await page.locator(`${surface.card}`).waitFor();
+        const measured = await page.evaluate(measureStrip, surface.card);
+        await page.close();
+        expect(measured.strip).not.toBeNull();
+        expect(measured.stripFolder).toBe(true);
+        const { strip, card } = measured as { strip: Rect; card: Rect };
+        expect(Math.abs(strip.bottom - card.top)).toBeLessThanOrEqual(1);
+        expect(strip.left).toBeGreaterThanOrEqual(card.left - 0.5);
+        expect(strip.right).toBeLessThanOrEqual(card.right + 0.5);
+        expect(measured.controlRows).toBe(1);
+        expect(measured.locationInCard).toBe(0);
+      });
+
+  test("the strip is as tall with no project, with a project and while the host loads", async () => {
+    const heights: Record<string, number> = {};
+    for (const [entry, variant] of [
+      ["agent-pane.composer-strip", "no-project"],
+      ["agent-pane.composer-strip", "project"],
+      ["agent-pane.composer-strip", "host-loading"],
+      ["agent-pane.new-tab", "empty"],
+    ] as const) {
+      const page = await open(entry, variant, 720);
+      await page.locator(".acpmux-composer-strip").waitFor();
+      heights[`${entry}#${variant}`] = await page.evaluate(
+        () => document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect().height,
+      );
+      await page.close();
+    }
+    const values = Object.values(heights);
+    expect(values.every((height) => height > 0 && Math.abs(height - values[0]!) < 0.5)).toBe(true);
+  });
+
+  test("a started chat has no strip and no gap where it stood", async () => {
+    const page = await open("agent-pane.composer-strip", "started", 720);
+    await page.locator(".acpmux-composer-box").waitFor();
+    const measured = await page.evaluate(measureStrip, ".acpmux-composer-box");
+    await page.close();
+    expect(measured.strip).toBeNull();
+    const { form, card } = measured as { form: Rect; card: Rect };
+    expect(Math.abs(card.top - form.top - measured.formPaddingTop)).toBeLessThanOrEqual(0.5);
+  });
+
+  test("a started chat's queued prompts sit on the card, with no strip between", async () => {
+    const page = await open("agent-pane.composer-strip", "queued", 720);
+    await page.locator(".acpmux-composer-queue").waitFor();
+    const measured = await page.evaluate(measureStrip, ".acpmux-composer-box");
+    await page.close();
+    expect(measured.strip).toBeNull();
+    const { queue, card } = measured as { queue: Rect; card: Rect };
+    expect(Math.abs(card.top - queue.bottom)).toBeLessThanOrEqual(0.5);
+  });
+
+  test("effort and access: no placeholder while they load, and the controls hold their places", async () => {
+    // The effort this harness's chats last showed (chipMemory.ts) and the start mode acpmux last
+    // answered for it (startMode.ts), as an earlier chat left them.
+    const remember = () => {
+      localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { effort: "Medium" } }));
+      localStorage.setItem(
+        "cmux.acpmux.startModes.v1",
+        JSON.stringify({ "claude\u0000/home/dev/earlier": { modeId: "auto", name: "Auto" } }),
+      );
+    };
+    const controls = async (variant: string) => {
+      const page = await open("agent-pane.composer-strip", variant, 720, remember);
+      await page.locator(".acpmux-composer-bar .acpmux-model").waitFor();
+      const measured = await page.evaluate(() => {
+        const bar = document.querySelector(".acpmux-composer-bar")!;
+        const left = (selector: string) => bar.querySelector(selector)?.getBoundingClientRect().left;
+        return {
+          placeholders: document.querySelectorAll(
+            '.acpmux-composer [class*="skeleton"], .acpmux-composer [class*="shimmer"], .acpmux-composer [class*="placeholder-pill"]',
+          ).length,
+          plus: left(".acpmux-composer-plus"),
+          model: left(".acpmux-model"),
+          effort: left(".acpmux-effort"),
+          access: left(".acpmux-access"),
+          send: left(".acpmux-send"),
+        };
+      });
+      await page.close();
+      return measured;
+    };
+    const loading = await controls("awaiting");
+    const arrived = await controls("reported");
+    expect(loading.placeholders).toBe(0);
+    expect(arrived.placeholders).toBe(0);
+    for (const name of ["plus", "model", "effort", "access", "send"] as const) {
+      expect(loading[name]).toBeDefined();
+      expect(Math.abs(loading[name]! - arrived[name]!)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("the folder popover names duplicates apart, keeps paths for hover and filters as typed", async () => {
+    const page = await open("agent-pane.composer-context", "duplicate-worktrees", 720);
+    // The variant's play opened the popover from the strip's Folder control.
+    expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe("true");
+    const options = page.locator('.acpmux-location-menu [role="option"]:has(.acpmux-location-row)');
+    await options.first().waitFor();
+    const rows = async () =>
+      options.evaluateAll((all) =>
+        all.map((row) => ({
+          text: (row.querySelector(".acpmux-menu-text")?.textContent ?? "").replace(/\s+/g, " ").trim(),
+          title: row.querySelector("[title]")?.getAttribute("title"),
+          checked: row.querySelector(".acpmux-location-check svg") !== null,
+        })),
+      );
+    const all = await rows();
+    // Duplicates carry their lane, a unique name none; no row prints a path.
+    expect(all.map((row) => row.text)).toEqual([
+      "cmux · cg-lane-adopt",
+      "cmux · fleet-ci",
+      "cmux · src",
+      "atlas-web",
+      "relay",
+    ]);
+    expect(all.every((row) => row.title?.startsWith("/Users/you/"))).toBe(true);
+    expect(all.filter((row) => row.checked).map((row) => row.text)).toEqual(["cmux · cg-lane-adopt"]);
+    // The search field has the keyboard: typing a lane keeps its row; a path's folder does too.
+    await page.keyboard.type("fleet");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
+    );
+    expect((await rows()).map((row) => row.text)).toEqual(["cmux · fleet-ci"]);
+    await page.getByRole("combobox", { name: "Search projects" }).fill("src");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 3,
+    );
+    // Choose folder… closes the list, after the folders and the other existing rows.
+    const actions = await page
+      .locator(".acpmux-location-menu .acpmux-location-action")
+      .evaluateAll((all) => all.map((row) => (row.textContent ?? "").trim()));
+    expect(actions).toEqual(["New Worktree", "Add project", "Choose folder…"]);
+    // ↓ moves the highlight from the first match to the next; Escape closes back to the strip.
+    const highlighted = () =>
+      page.evaluate(() =>
+        document.querySelector(".acpmux-location-menu [data-highlighted] [title]")?.getAttribute("title"),
+      );
+    expect(await highlighted()).toBe("/Users/you/src/cmux");
+    await page.keyboard.press("ArrowDown");
+    expect(await highlighted()).toBe("/Users/you/src/atlas-web");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-location-menu"));
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
+    await page.close();
+  });
+
+  // The seam: one column through the strip's empty fill and down into the card, at 2x. A line across
+  // the seam is a row far from its neighbors' tone; the strip's and the card's fills are the same.
+  for (const surface of [
+    { name: "the chat composer", entry: "agent-pane.composer-strip", variant: "project", card: ".acpmux-composer-box" },
+    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box" },
+  ])
+    test(`${surface.name}: no hairline across the seam under the strip`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 720, height: 560 }, deviceScaleFactor: 2 });
+      await page.goto(stageURL(surface.entry, surface.variant));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        (document.activeElement as HTMLElement | null)?.blur();
+      });
+      const probe = await page.evaluate((card) => {
+        const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
+        const box = document.querySelector(card)!.getBoundingClientRect();
+        // A column where the strip shows only its own fill (no control over it).
+        for (let x = strip.left + 24; x < strip.right - 24; x += 2) {
+          const hit = document.elementFromPoint(x, strip.top + strip.height / 2);
+          if (hit?.closest(".acpmux-composer-strip") && !hit.closest("button, a, span, svg, input, [role]"))
+            return { x, seam: box.top };
+        }
+        return null;
+      }, surface.card);
+      expect(probe).not.toBeNull();
+      const png = PNG.sync.read(
+        await page.screenshot({ clip: { x: probe!.x, y: probe!.seam - 4, width: 1, height: 8 } }),
+      );
+      await page.close();
+      const tones: number[] = [];
+      for (let y = 0; y < png.height; y++) {
+        const at = (png.width * y + Math.floor(png.width / 2)) * 4;
+        tones.push(0.2126 * png.data[at]! + 0.7152 * png.data[at + 1]! + 0.0722 * png.data[at + 2]!);
+      }
+      const sorted = [...tones].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)]!;
+      const worst = Math.max(...tones.map((tone) => Math.abs(tone - median)));
+      expect({ worst: Math.round(worst), tones: tones.map(Math.round) }).toEqual({
+        worst: Math.min(Math.round(worst), 5),
+        tones: tones.map(Math.round),
+      });
+    });
+});
