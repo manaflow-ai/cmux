@@ -64,6 +64,8 @@ extension ControlCommandCoordinator {
             return debugBrowserFavicon(request.params)
         case "debug.browser.find":
             return debugBrowserFind(request.params)
+        case "debug.browser.devtools":
+            return debugBrowserDevTools(request.params)
         case "debug.right_sidebar.focus":
             return debugRightSidebarFocus(request.params)
         case "debug.sidebar.visible":

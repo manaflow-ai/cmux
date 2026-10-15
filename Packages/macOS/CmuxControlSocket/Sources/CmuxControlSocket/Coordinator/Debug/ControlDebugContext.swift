@@ -286,6 +286,13 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The full call result.
     func controlDebugBrowserFind(params: [String: JSONValue]) -> ControlCallResult
 
+    /// Runs `debug.browser.devtools` for the given params: moves the panel's
+    /// in-pane DevTools to `dock` and reports whether they are open and where.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The full call result.
+    func controlDebugBrowserDevTools(params: [String: JSONValue]) -> ControlCallResult
+
     /// Reveals and focuses the right sidebar for `debug.right_sidebar.focus`.
     ///
     /// - Parameters:

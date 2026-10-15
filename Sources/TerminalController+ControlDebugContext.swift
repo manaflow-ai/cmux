@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxCanvasUI
 import CmuxControlSocket
 import CmuxSettings
@@ -404,6 +405,36 @@ extension TerminalController: ControlDebugContext {
                 "needle": state?.needle ?? "",
                 "total": v2OrNull(state?.total.map { Int($0) }),
                 "selected": v2OrNull(state?.selected.map { Int($0) }),
+            ])
+        }
+        switch result {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(
+                code: code,
+                message: message,
+                data: data.flatMap { JSONValue(foundationObject: $0) }
+            )
+        }
+    }
+
+    func controlDebugBrowserDevTools(params: [String: JSONValue]) -> ControlCallResult {
+        let dock = params["dock"].flatMap { value -> BrowserDevToolsDock? in
+            if case let .string(text) = value { return BrowserDevToolsDock(rawValue: text) }
+            return nil
+        }
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
+            guard let devTools = browserPanel.engineDevTools else {
+                return .err(code: "unsupported", message: "This browser panel has no in-pane DevTools", data: nil)
+            }
+            if let dock { devTools.performDevTools(.dock(dock)) }
+            let state = devTools.devToolsState
+            return .ok([
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "open": state.isOpen,
+                "dock": state.dock.rawValue,
             ])
         }
         switch result {
