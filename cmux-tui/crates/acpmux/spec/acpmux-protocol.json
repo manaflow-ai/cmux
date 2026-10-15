@@ -288,6 +288,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/btw",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tag",
       "params": true,
       "result": true
@@ -301,6 +307,12 @@
     {
       "kind": "request",
       "name": "_acpmux/events",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/attachment",
       "params": true,
       "result": true
     },
@@ -331,6 +343,12 @@
     {
       "kind": "request",
       "name": "_acpmux/prewarm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/start_mode",
       "params": true,
       "result": true
     },
@@ -644,6 +662,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/update",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sessions/restart_harness",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/registry",
       "params": true,
       "result": true
@@ -802,6 +832,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/harnesses_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/start_mode_changed",
       "params": true
     },
     {
@@ -1063,6 +1098,31 @@
       },
       "required": [
         "endedAt"
+      ],
+      "type": "object"
+    },
+    "McpServerStatus": {
+      "description": "`failed` also for one that waits on a sign-in (Claude Code `needs-auth`).",
+      "enum": [
+        "connected",
+        "failed",
+        "pending"
+      ],
+      "type": "string"
+    },
+    "McpServerSummary": {
+      "description": "One MCP server a harness loaded (`SessionSummary::mcp_servers`).",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/types/McpServerStatus"
+        }
+      },
+      "required": [
+        "name",
+        "status"
       ],
       "type": "object"
     },
@@ -1677,6 +1737,16 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "mcpServers": {
+          "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
+          "items": {
+            "$ref": "#/types/McpServerSummary"
+          },
+          "type": [
+            "array",
+            "null"
           ]
         },
         "model": {

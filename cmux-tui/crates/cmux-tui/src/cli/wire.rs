@@ -749,6 +749,21 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
 fn human_error_lines(error: &Value) -> String {
     let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
     let mut text = sanitize_human_block(message);
+    // cx-8mla8: an operation.failed message is only its reason ("internal");
+    // the daemon's own words are in details.extra.message.
+    let reason = error.pointer("/details/reason").and_then(Value::as_str);
+    if reason == Some(message)
+        && let Some(detail) = error
+            .pointer("/details/extra/message")
+            .and_then(Value::as_str)
+            .filter(|d| !d.trim().is_empty())
+    {
+        text.push_str(": ");
+        text.push_str(&sanitize_human_block(detail));
+    }
+    if let Some(id) = error.pointer("/details/extra/request_id").and_then(Value::as_str) {
+        text.push_str(&format!(" (Request ID {})", sanitize_human_cell(id)));
+    }
     text.push('\n');
     if let Some(candidates) =
         error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
@@ -980,6 +995,12 @@ mod sanitize;
 mod socket;
 pub(super) use hints::connect_failure;
 use sanitize::{sanitize_human_block, sanitize_human_cell};
+
+/// Remote-supplied error text made safe for a terminal (cx-8mla8: the chief
+/// CLI shows a daemon's own words).
+pub(in crate::cli) fn sanitize_remote_text(value: &str) -> String {
+    sanitize_human_block(value)
+}
 #[cfg(unix)]
 pub(super) use socket::resolve_failure_message;
 #[cfg(test)]
