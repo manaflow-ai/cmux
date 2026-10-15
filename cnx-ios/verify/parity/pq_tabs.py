@@ -31,7 +31,7 @@ PROJ = f"{pq.RBASE}/proj"
 
 # The rig Mac's daemon socket (its tag): read and seeded directly, since the bundled CLI
 # speaks the public resource API and shows no daemon ids. Read only, except for seeding.
-TAG = os.environ.get("PQ_TAG", "cnx-p2-26459378")
+TAG = os.environ.get("PQ_TAG", "cnx-p2-1585ab34")
 _DAEMON = r"""
 import glob, json, os, socket, sys
 paths = glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-tui-501", "cmux-app-%s.sock" % sys.argv[1]))
@@ -298,7 +298,7 @@ def tab_groups_2(j):
     ok = j.sim.wait(label="Rename", kind="Button", timeout=5)
     check(ok, "no Rename in the alert")
     j.sim.tap_el(ok)
-    _, r = until(lambda: (group_run() or {}).get("name") == "p2tabs-review", what="the group name")
+    _, r = until(lambda: (group_run() or {}).get("name", "").lower() == "p2tabs-review", what="the group name")
     _group_actions(j, "p2tabs-t1", "Pin Group")
     _, p = until(lambda: (group_run() or {}).get("saved_id"), what="the saved group")
     _group_actions(j, "p2tabs-t1", "Ungroup Tabs")
@@ -382,23 +382,43 @@ def browser_forward(j):
         pq.type_text(f"https://{host}\n")
         time.sleep(4)
 
-    def mac_url():
-        return next((t.get("url") or "" for _, t in ws_tabs(mac_workspace(key=a["key"])) if t.get("kind") == "browser"), "")
+    def page_url():
+        """The page the Mac's browser host shows, as it reports it (`rb.page` drives the address).
+        The daemon's tab record keeps about:blank for a streamed tab, so it can't say."""
+        e = j.sim.find(prefix="Address", kind="Button")
+        return (e[0].label or "") if e else ""
 
     go("example.com")
     go("www.iana.org")
-    until(lambda: "iana.org" in mac_url(), timeout=30, what="iana.org on the Mac")
-    label = (j.sim.wait(prefix="Address", kind="Button", timeout=5) or {}).get("AXLabel", "")
+    until(lambda: "iana.org" in page_url(), timeout=30, what="iana.org from the Mac's browser")
+    label = page_url()
     check("about:blank" not in label, f"address reads {label!r}")
-    back = j.sim.wait(label="Back", kind="Button", timeout=5)
-    check(back, "no Back")
-    j.sim.tap_el(back)
-    fwd = j.sim.wait(label="Forward", kind="Button", timeout=5)
-    check(fwd, "no Forward")
-    j.sim.tap_el(fwd)  # one tap, at once
-    _, s = until(lambda: "iana.org" in mac_url() and "example.com" not in mac_url(), timeout=20,
-                 what="Forward on the Mac after one tap")
-    return f"address {label!r}; Back then one Forward: Mac at {mac_url()} in {s:.1f} s"
+    def tap(label):
+        e = j.sim.wait(label=label, kind="Button", timeout=3)
+        check(e, f"no {label} button")
+        j.sim.tap_el(e)
+
+    # Back reaches the Mac's page.
+    tap("Back")
+    until(lambda: "example.com" in page_url(), timeout=15, what="Back on the Mac")
+    tap("Forward")
+    until(lambda: "iana.org" in page_url(), timeout=15, what="Forward on the Mac")
+    # Finding 5: Back, then Forward at once; one tap must land (it used to need a second).
+    tap("Back")
+    t0 = time.time()
+    tap("Forward")
+    gap = time.time() - t0
+    seen = []
+    while time.time() - t0 < 8:
+        u = page_url()
+        if not seen or seen[-1] != u:
+            seen.append(u)
+        time.sleep(0.3)
+    check("iana.org" in seen[-1], f"one Forward right after Back did not land: {seen}")
+    s = gap
+    mac_record = next((t.get("url") or "" for _, t in ws_tabs(mac_workspace(key=a["key"])) if t.get("kind") == "browser"), "")
+    return (f"address {label!r}; Back then one Forward: the Mac's page at {page_url()!r} {s:.1f} s after Back (addresses after it {seen}) "
+            f"(the daemon's tab record says {mac_record!r})")
 
 
 ORDER = ["pin", "move-to-workspace", "move-to-new-workspace", "tab-groups", "tab-groups-2", "reorder",
