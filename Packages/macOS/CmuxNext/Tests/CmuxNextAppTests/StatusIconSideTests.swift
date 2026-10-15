@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextIcons
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 import Testing
@@ -110,6 +111,30 @@ import Testing
             case .right:
                 #expect(glyph.frame.minX >= icon.maxX + Metrics.space2, "the icon \(glyph.frame) sits after the title, not on \(icon)")
             }
+        }
+    }
+
+    @Test(arguments: [SidebarStatusIconSide.left, .right])
+    func anAgentChatTabDrawsNoChatIconAndATerminalTabKeepsItsIcon(_ side: SidebarStatusIconSide) throws {
+        try Self.withStatusLook(side) {
+            var chat = TabItem(id: TabID("chat"), title: "fix the build", icon: .icon(.agentChat), status: .needsInput)
+            chat.isAgentChat = true
+            let cell = TabCell(item: chat)
+            cell.frame = CGRect(x: 0, y: 0, width: 220, height: 30)
+            cell.layoutLayers()
+            #expect(cell.iconLayer.contents == nil, "no chat icon")
+            let glyph = try #require(cell.statusGlyphLayer)
+            let slot = cell.iconLayer.frame
+            switch side {
+            case .left:
+                #expect(abs(glyph.frame.midX - slot.midX) < 0.5, "the status icon \(glyph.frame) takes the icon's slot \(slot)")
+            case .right:
+                #expect(cell.titleLayer.frame.minX <= slot.minX + 0.5, "the title \(cell.titleLayer.frame) starts where the icon was \(slot)")
+            }
+            let terminal = TabCell(item: TabItem(id: TabID("term"), title: "zsh", icon: .icon(.terminal), status: .needsInput))
+            terminal.frame = CGRect(x: 0, y: 0, width: 220, height: 30)
+            terminal.layoutLayers()
+            #expect(terminal.iconLayer.contents != nil, "a terminal tab keeps its icon")
         }
     }
 
