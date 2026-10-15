@@ -34,6 +34,11 @@ struct LocalFileHandoffCase: Decodable, CustomTestStringConvertible, Sendable {
     static let agentCases = PolicyVectors.load("schemas/agent-url-policy/vectors.json", as: AgentURLCase.self)
     static let handoffCases = PolicyVectors.load("schemas/local-file-handoff/vectors.json", as: LocalFileHandoffCase.self)
 
+    @Test func urlFormMatchesStringForm() throws {
+        #expect(try #require(URL(string: "chrome://settings")).isRefusedForAgentNavigation)
+        #expect(!(try #require(URL(string: "https://example.com"))).isRefusedForAgentNavigation)
+    }
+
     @Test func vectorsAreNotEmpty() {
         #expect(Self.agentCases.count > 20)
         #expect(Self.handoffCases.count > 5)
@@ -41,7 +46,7 @@ struct LocalFileHandoffCase: Decodable, CustomTestStringConvertible, Sendable {
 
     @Test(arguments: agentCases)
     func agentURLPolicy(_ vector: AgentURLCase) {
-        #expect(BrowserAgentURLPolicy.refuses(vector.url) == vector.refused)
+        #expect(vector.url.isRefusedForAgentNavigation == vector.refused)
     }
 
     @Test(arguments: handoffCases)
@@ -57,14 +62,14 @@ struct LocalFileHandoffCase: Decodable, CustomTestStringConvertible, Sendable {
     }
 
     @Test func externalAppSchemes() {
-        #expect(ChromiumExternalAppURL.isExternal("mailto:a@b.test"))
-        #expect(ChromiumExternalAppURL.isExternal("TEL:+1555"))
-        #expect(ChromiumExternalAppURL.isExternal("vscode://file/x"))
-        #expect(!ChromiumExternalAppURL.isExternal("https://example.com"))
-        #expect(!ChromiumExternalAppURL.isExternal("chrome://settings"))
-        #expect(!ChromiumExternalAppURL.isExternal("web+mastodon://share"))
-        #expect(!ChromiumExternalAppURL.isExternal("ext+foo:bar"))
-        #expect(!ChromiumExternalAppURL.isExternal("no-colon"))
-        #expect(!ChromiumExternalAppURL.isExternal(":leading"))
+        #expect("mailto:a@b.test".isChromiumExternalAppURL)
+        #expect("TEL:+1555".isChromiumExternalAppURL)
+        #expect("vscode://file/x".isChromiumExternalAppURL)
+        #expect(!"https://example.com".isChromiumExternalAppURL)
+        #expect(!"chrome://settings".isChromiumExternalAppURL)
+        #expect(!"web+mastodon://share".isChromiumExternalAppURL)
+        #expect(!"ext+foo:bar".isChromiumExternalAppURL)
+        #expect(!"no-colon".isChromiumExternalAppURL)
+        #expect(!":leading".isChromiumExternalAppURL)
     }
 }

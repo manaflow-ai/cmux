@@ -50,11 +50,11 @@ public struct BrowserCrashRecord: Hashable, Sendable {
     public var codeDescription: String? { BrowserPageProcessExit.codeDescription(status: status) }
 }
 
-/// Recent engine process failures, newest last, bounded. Read by the debug
-/// socket (`debug.browser.crashes`) and crash-injection tests.
+/// Recent engine process failures, newest last, bounded. The app owns one
+/// and injects it; the debug socket (`debug.browser.crashes`) and
+/// crash-injection tests read it.
 @MainActor
 public final class BrowserCrashLog {
-    public static let shared = BrowserCrashLog()
     public static let capacity = 64
 
     public private(set) var records: [BrowserCrashRecord] = []

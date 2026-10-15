@@ -13,27 +13,27 @@ public import Foundation
 /// `schemas/agent-url-policy/vectors.json`. WebKit panes do not apply it:
 /// WebKit has no privileged pages behind these schemes, and Classic's WebKit
 /// behavior stays unchanged.
-public enum BrowserAgentURLPolicy {
-    static let refusedSchemes: Set<String> = [
+extension String {
+    /// True when an agent-driven navigation in a Chromium pane must not load
+    /// this URL text.
+    public var isRefusedForAgentNavigation: Bool { agentRefuses(wrappers: 0) }
+
+    private static let agentRefusedSchemes: Set<String> = [
         "chrome", "chrome-extension", "chrome-untrusted", "chrome-search",
         "devtools", "chrome-devtools", "view-source",
         "cmux",
     ]
     /// Schemes whose inner URL names the origin.
-    static let wrapperSchemes: Set<String> = ["blob", "filesystem"]
+    private static let agentWrapperSchemes: Set<String> = ["blob", "filesystem"]
     /// The only `about:` pages Chromium does not turn into `chrome://` pages.
-    static let plainAboutPages: Set<String> = ["blank", "srcdoc"]
+    private static let agentPlainAboutPages: Set<String> = ["blank", "srcdoc"]
     /// More nested wrappers than this are refused (fail closed).
-    static let maxWrapperDepth = 2
+    private static let agentMaxWrapperDepth = 2
 
-    public static func refuses(_ url: URL) -> Bool { refuses(url.absoluteString) }
-
-    public static func refuses(_ text: String) -> Bool { refuses(text, wrappers: 0) }
-
-    static func refuses(_ text: String, wrappers: Int) -> Bool {
-        if wrappers > maxWrapperDepth { return true }
+    private func agentRefuses(wrappers: Int) -> Bool {
+        if wrappers > Self.agentMaxWrapperDepth { return true }
         // Chromium drops tabs and newlines anywhere and trims leading spaces and control characters.
-        let cleaned = String(String.UnicodeScalarView(text.unicodeScalars.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" }))
+        let cleaned = String(String.UnicodeScalarView(unicodeScalars.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" }))
         let trimmed = cleaned.drop { $0.unicodeScalars.allSatisfy { $0.value <= 0x20 } }
         guard let colon = trimmed.firstIndex(of: ":") else { return false }
         let scheme = trimmed[..<colon].lowercased()
@@ -41,12 +41,12 @@ public enum BrowserAgentURLPolicy {
               scheme.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || "+-.".unicodeScalars.contains($0) })
         else { return false }
         let rest = trimmed[trimmed.index(after: colon)...]
-        if refusedSchemes.contains(scheme) { return true }
-        if scheme == "cmux-page" { return isReservedPageHost(rest) }
-        if wrapperSchemes.contains(scheme) { return refuses(String(rest), wrappers: wrappers + 1) }
+        if Self.agentRefusedSchemes.contains(scheme) { return true }
+        if scheme == "cmux-page" { return Self.isReservedPageHost(rest) }
+        if Self.agentWrapperSchemes.contains(scheme) { return String(rest).agentRefuses(wrappers: wrappers + 1) }
         if scheme == "about" {
             let page = rest.prefix { $0 != "?" && $0 != "#" }.lowercased()
-            return !plainAboutPages.contains(page)
+            return !Self.agentPlainAboutPages.contains(page)
         }
         return false
     }
@@ -54,7 +54,7 @@ public enum BrowserAgentURLPolicy {
     /// First-party `cmux-page://` hosts (`cmux`, `cmux.<id>`, single-label
     /// shared hosts) are refused; dotted third-party app ids stay allowed.
     /// Fail closed on an empty host or a percent escape.
-    static func isReservedPageHost(_ rest: Substring) -> Bool {
+    private static func isReservedPageHost(_ rest: Substring) -> Bool {
         let afterSlashes = rest.drop { $0 == "/" || $0 == "\\" }
         var host = afterSlashes.prefix { !"/\\?#".contains($0) }
         if host.contains("%") { return true }
@@ -64,4 +64,10 @@ public enum BrowserAgentURLPolicy {
         while name.hasSuffix(".") { name.removeLast() }
         return name.isEmpty || name == "cmux" || name.hasPrefix("cmux.") || !name.contains(".")
     }
+}
+
+extension URL {
+    /// True when an agent-driven navigation in a Chromium pane must not load
+    /// this URL (see `String.isRefusedForAgentNavigation`).
+    public var isRefusedForAgentNavigation: Bool { absoluteString.isRefusedForAgentNavigation }
 }

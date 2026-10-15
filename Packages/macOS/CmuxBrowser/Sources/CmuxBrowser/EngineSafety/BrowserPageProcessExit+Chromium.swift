@@ -4,13 +4,14 @@ extension BrowserPageProcessExit {
     /// Maps CEF's `cef_termination_status_t` (TS_ABNORMAL_TERMINATION = 0,
     /// TS_PROCESS_WAS_KILLED, TS_PROCESS_CRASHED, TS_PROCESS_OOM,
     /// TS_LAUNCH_FAILED, TS_INTEGRITY_FAILURE) and its error code, which CEF
-    /// gives as the raw `waitpid` status on macOS. Launch and integrity
-    /// failures map to ``Kind/other``.
+    /// gives as the raw `waitpid` status on macOS. Integrity failures map
+    /// to ``Kind/other``.
     public static func chromium(terminationStatus status: Int, code: Int) -> BrowserPageProcessExit {
         let kind: Kind = switch status {
         case 1: .killed
         case 2: .crashed
         case 3: .outOfMemory
+        case 4: .launchFailed
         default: .other
         }
         return BrowserPageProcessExit(kind: kind, status: code == 0 ? nil : Int32(truncatingIfNeeded: code))
