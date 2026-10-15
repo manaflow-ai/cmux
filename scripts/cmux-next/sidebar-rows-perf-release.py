@@ -39,7 +39,11 @@ parser.add_argument("--clean", action="store_true",
 parser.add_argument("--frame", default="40,40,1100,820", help="--clean: the window frame (points, top-left, last screen) of every app")
 parser.add_argument("--floors", default="plain",
                     help="--clean: host floor variants (scripts/cmux-next/sidebar-scroll-floor.swift), comma list of plain, vib"
-                         " (behind-window sidebar material), vibfade (material + edge-fade mask); empty = none")
+                         " (behind-window sidebar material), vibfade (material + edge-fade mask), fade (edge-fade mask), optout"
+                         " (scrollWheel override: no responsive scrolling), optoutfade; empty = none")
+parser.add_argument("--variants", default="",
+                    help="--clean: more runs of the first app with extra launch env, 'label:KEY=V,KEY2=V;label2:KEY=V'"
+                         " (each variant is one more app in the rotation; it shares the tag's workspaces)")
 parser.add_argument("--floor-frames", default="",
                     help="--clean: extra frames for the plain floor (a window position probe), separated by ';'")
 opts = parser.parse_args()
@@ -150,7 +154,7 @@ def launch(frame="40,40,1100,820"):
         print(f"quit a leftover {TAG} app", flush=True)
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
-    env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
+    env = [*EXTRA_ENV, "CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
            f"CMUX_NEXT_CONFIG_FILE={CONFIG}", f"CMUX_NEXT_GHOSTTY_CONFIG={GHOSTTY}", f"CMUX_NEXT_TEST_WINDOW_FRAME={frame}"]
     subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
     if not wait(lambda: os.path.exists(SOCKET) and cli("--json", "workspace", "list").returncode == 0, 120):
@@ -506,9 +510,13 @@ def record(name, ticks, terms, profile):
     return result
 
 
+EXTRA_ENV = []
+
+
 def use(app):
-    """Points the module's app globals (APP, TAG, SOCKET, CLI, Target) at `app`."""
-    global APP, TAG, SOCKET, CLI
+    """Points the module's app globals (APP, TAG, SOCKET, CLI, Target, EXTRA_ENV) at `app`."""
+    global APP, TAG, SOCKET, CLI, EXTRA_ENV
+    EXTRA_ENV = list(app.get("env") or [])
     APP, TAG, SOCKET, CLI = app["app"], app["tag"], app["socket"], app["cli"]
     if app.get("target"):
         Target.pid, Target.window_id, Target.scale, Target.point, Target.screen_point = app["target"]
@@ -608,7 +616,8 @@ def build_floor():
 
 def floor_run(exe, variant, frame, label, i):
     """One plain-scroll gesture over the floor app in `frame`; the app quits after it."""
-    flags = {"plain": [], "vib": ["--vibrancy"], "vibfade": ["--vibrancy", "--fade"]}[variant]
+    flags = {"plain": [], "vib": ["--vibrancy"], "vibfade": ["--vibrancy", "--fade"], "fade": ["--fade"],
+             "optout": ["--opt-out"], "optoutfade": ["--opt-out", "--fade"]}[variant]
     proc = subprocess.Popen([exe, "--frame", frame, "--screen", "last", "--rows", str(opts.count), *flags],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     try:
@@ -710,7 +719,10 @@ try:
         A["frame"] = opts.frame
         for app in apps[1:]:
             app["frame"] = opts.frame
-        summary["method"] = {"clean": True, "frame": opts.frame, "floors": opts.floors, "floor_frames": opts.floor_frames}
+        for spec in [v for v in opts.variants.split(";") if v.strip()]:
+            name, _, env = spec.partition(":")
+            apps.append(dict(A, label=name.strip(), env=[e for e in env.split(",") if e]))
+        summary["method"] = {"clean": True, "variants": opts.variants, "frame": opts.frame, "floors": opts.floors, "floor_frames": opts.floor_frames}
         runs = run_clean(apps)
         summary["runs"] = runs
         summarize(runs, apps)

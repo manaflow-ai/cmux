@@ -10,7 +10,8 @@
 //
 // --vibrancy puts a behind-window sidebar material under the rows (clear table background), as the
 // cmux sidebar does. --fade adds a top/bottom gradient mask on the scroll view. Both are off by
-// default (the plain floor). The process prints "ready <pid>" when the window is on screen and
+// default (the plain floor). --opt-out uses an NSScrollView subclass that overrides scrollWheel(with:)
+// (it only calls super), which opts the view out of responsive scrolling, as the cmux sidebar's does. The process prints "ready <pid>" when the window is on screen and
 // quits on SIGTERM or when stdin closes.
 import AppKit
 
@@ -22,6 +23,7 @@ struct Options {
     var sidebarWidth: CGFloat = 260
     var vibrancy = false
     var fade = false
+    var optOut = false
 
     init(_ args: [String]) {
         var i = 1
@@ -39,11 +41,18 @@ struct Options {
             case "--sidebar-width": sidebarWidth = CGFloat(Double(value) ?? 260); i += 1
             case "--vibrancy": vibrancy = true
             case "--fade": fade = true
+            case "--opt-out": optOut = true
             default: break
             }
             i += 1
         }
     }
+}
+
+/// Overrides scrollWheel(with:) only to call super: AppKit then scrolls on the main thread
+/// (no responsive scrolling), like a scroll view that inspects wheel events.
+final class OptOutScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) { super.scrollWheel(with: event) }
 }
 
 final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
@@ -123,7 +132,8 @@ table.addTableColumn(column)
 table.dataSource = rows
 table.delegate = rows
 
-let scroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: options.sidebarWidth, height: rect.height - 52))
+let scrollFrame = CGRect(x: 0, y: 0, width: options.sidebarWidth, height: rect.height - 52)
+let scroll: NSScrollView = options.optOut ? OptOutScrollView(frame: scrollFrame) : NSScrollView(frame: scrollFrame)
 scroll.autoresizingMask = [.height]
 scroll.documentView = table
 scroll.hasVerticalScroller = true
