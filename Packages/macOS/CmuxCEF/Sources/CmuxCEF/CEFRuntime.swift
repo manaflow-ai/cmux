@@ -32,9 +32,15 @@ public final class CEFRuntime {
     public private(set) var shim: CEFShimLibrary?
     /// Where Chromium keeps its profiles. Set before `start` to move it.
     public var storage: CEFProfileStorage
-    /// The page background before the first paint (0xAARRGGBB; 0 keeps
-    /// Chromium's white). Applied at start and to browsers created later.
-    public var backgroundColorARGB: UInt32 = 0 {
+    /// The canvas behind page content (0xAARRGGBB), for pages that paint no
+    /// background of their own: opaque white, as Chrome and WebKit paint it in
+    /// light and dark mode alike (pages that honour prefers-color-scheme still
+    /// go dark). 0 would leave Chromium's choice, a dark #1f1f1f backdrop under
+    /// black text in dark mode. The host view, not this canvas, shows the
+    /// theme color before the first frame. Applied at start and to browsers
+    /// created later.
+    public static let defaultPageBackgroundARGB: UInt32 = 0xFFFF_FFFF
+    public var backgroundColorARGB: UInt32 = CEFRuntime.defaultPageBackgroundARGB {
         didSet { if state == .ready { shim?.setBackgroundColor(backgroundColorARGB) } }
     }
     /// The page chrome://newtab shows. Applied at start.

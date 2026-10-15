@@ -43,6 +43,10 @@ extension BrowserPanel {
                 resolved = BrowserEngineChoice(engine: .webkit, fallback: reason, source: .setting)
             }
         }
+        // A popup page the engine already created (keeps window.opener).
+        if let adopted = takePendingAdoptedEnginePage(engine: resolved.engine) {
+            return EnginePageSetup(page: adopted, notice: nil)
+        }
         guard resolved.engine != .webkit else {
             return EnginePageSetup(
                 page: nil,
@@ -118,9 +122,17 @@ extension BrowserPanel {
         enginePage
     }
 
+    /// Gives a non-WebKit page the pane's theme color until its first frame,
+    /// so it does not flash gray. The page's own background stays its default.
+    func applyEnginePagePlaceholderColor() {
+        guard let page = enginePage as? any BrowserPagePlaceholderColoring else { return }
+        page.placeholderColor = GhosttyBackgroundTheme.currentColor()
+    }
+
     /// Starts mirroring the non-WebKit page's events into the panel.
     func startEnginePageEvents() {
         guard let enginePage, enginePageEventsTask == nil else { return }
+        applyEnginePagePlaceholderColor()
         syncAgentNavigationGuard()
         ChromiumHelperCrashWatch.startIfNeeded()
         enginePageDelegate.panel = self
@@ -144,7 +156,10 @@ extension BrowserPanel {
             applyEnginePageState(state)
         case .faviconChanged(let data):
             applyEnginePageFavicon(data)
+        case .navigationCommitted:
+            finishEngineNavigation(failure: nil)
         case .navigationFinished(let url):
+            finishEngineNavigation(failure: nil)
             historyStore.recordVisit(url: url, title: pageTitle)
         case .closeRequested:
             webViewDidRequestClose?()
@@ -157,6 +172,7 @@ extension BrowserPanel {
                 fallBackToWebKit(reason: reason)
                 return
             }
+            finishEngineNavigation(failure: "navigation failed")
             applyEnginePageNavigationFailure(url: url)
         default:
             break
@@ -178,7 +194,78 @@ extension BrowserPanel {
             }
         }
         enginePage.load(request)
-        onNavigationStarted?(nil)
+        // A WKNavigation-shaped callback cannot carry an engine load; tie the
+        // load to automation's pending wait instead, and finish it from page events.
+        associateEngineNavigation(targetURL: request.url)
+    }
+
+    /// Steps a non-WebKit page's history.
+    ///
+    /// A person's Back and Forward follow the engine (Chromium skips entries
+    /// a page added without a user gesture, as Chrome's back button does).
+    /// Automation steps exactly one entry, as `history.back()` would, through
+    /// the DevTools Protocol when the engine has it, so a script's own
+    /// navigations are not skipped.
+    func goEngineHistory(_ page: any BrowserPage, offset: Int, dialogOwner: BrowserDialogOwner) {
+        guard dialogOwner == .automation, page.capabilities.contains(.devToolsProtocol) else {
+            offset < 0 ? page.goBack() : page.goForward()
+            return
+        }
+        Task { @MainActor [weak page] in
+            guard let page else { return }
+            guard let historyData = try? await page.sendDevToolsProtocolMessage(method: "Page.getNavigationHistory", params: nil),
+                  let entryID = BrowserPanel.historyEntryID(in: historyData, offset: offset),
+                  let params = try? JSONSerialization.data(withJSONObject: ["entryId": entryID]),
+                  (try? await page.sendDevToolsProtocolMessage(method: "Page.navigateToHistoryEntry", params: params)) != nil else {
+                offset < 0 ? page.goBack() : page.goForward()
+                return
+            }
+        }
+    }
+
+    /// The id of the history entry `offset` steps from the current one in a
+    /// `Page.getNavigationHistory` result, nil when there is none.
+    nonisolated static func historyEntryID(in result: Data, offset: Int) -> Int? {
+        guard let object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any],
+              let current = object["currentIndex"] as? Int,
+              let entries = object["entries"] as? [[String: Any]] else { return nil }
+        let target = current + offset
+        guard entries.indices.contains(target) else { return nil }
+        return entries[target]["id"] as? Int
+    }
+
+    /// A load the engine page started, as automation's navigation identity.
+    private final class EngineNavigationToken {}
+
+    /// Associates the engine page's newest load with automation's waiting
+    /// navigation ticket, if one is pending.
+    func associateEngineNavigation(targetURL: URL?) {
+        let token = EngineNavigationToken()
+        activeEngineNavigationToken = token
+        automationNavigationCoordinator.didAssociate(
+            instanceID: webViewInstanceID,
+            navigationID: ObjectIdentifier(token),
+            targetURL: targetURL
+        )
+    }
+
+    /// Finishes automation's wait for the engine page's newest load.
+    func finishEngineNavigation(failure: String?) {
+        guard let token = activeEngineNavigationToken else { return }
+        activeEngineNavigationToken = nil
+        if let failure {
+            automationNavigationCoordinator.didFail(
+                instanceID: webViewInstanceID, navigationID: ObjectIdentifier(token), message: failure
+            )
+        } else {
+            automationNavigationCoordinator.didCommit(instanceID: webViewInstanceID, navigationID: ObjectIdentifier(token))
+        }
+    }
+
+    /// Reloads the non-WebKit page for automation and ties the reload to its ticket.
+    func beginEngineReloadForAutomation(_ page: any BrowserPage, targetURL: URL) {
+        page.reload()
+        associateEngineNavigation(targetURL: targetURL)
     }
 
     /// Closes the non-WebKit page and stops mirroring it. Idempotent.

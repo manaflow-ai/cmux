@@ -26,7 +26,9 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
     // A main-actor generic class needs a nonisolated deinit while the package
     // targets macOS 14 (the isolated deinit's back-deploy path crashed the
     // Release inliner in cmux Next).
+    #if compiler(>=6.2)
     nonisolated deinit {}
+    #endif
 
     var count: Int { waiting.count }
 
