@@ -5,6 +5,9 @@
 //! and a peer of another user is refused by the daemon and by the CLI.
 #![cfg(windows)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -19,6 +22,7 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn acpmux(exe: &Path, home: &Path) -> Command {
     let mut cmd = Command::new(exe);
+    daemon_env::apply(&mut cmd, home, daemon_env::Agents::Deny, &[]);
     cmd.env("ACPMUX_HOME", home)
         .env("ACPMUX_CATALOG_FETCH", "0")
         .env("ACPMUX_REGISTRY_FETCH", "0")
@@ -38,7 +42,7 @@ fn spawns() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn exe() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_acpmux"))
+    daemon_env::bin().to_path_buf()
 }
 
 /// A daemon this test started; killed if the test ends early.

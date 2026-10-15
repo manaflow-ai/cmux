@@ -246,6 +246,20 @@ pub(super) fn session_cwd(
     Ok((cwd, remapped_from))
 }
 
+/// `session_cwd` and that folder's git branch and HEAD as the session starts
+/// (`git_state.rs`). Both read the disk, so `session/new` runs this off the
+/// async runtime.
+pub(super) fn start_folder(
+    cwd: Option<PathBuf>,
+    recorded: Option<PathBuf>,
+    family: &str,
+    cwd_map: &[(PathBuf, PathBuf)],
+) -> Result<(PathBuf, Option<PathBuf>, crate::git_state::GitState), RpcError> {
+    let (cwd, remapped_from) = session_cwd(cwd, recorded, family, cwd_map)?;
+    let git = crate::git_state::GitState::read(&cwd);
+    Ok((cwd, remapped_from, git))
+}
+
 /// Ok when `given` stands in for the gone `recorded` folder of a chat moved
 /// from another machine; else why not. `recorded` maps here through the first
 /// `cwd_map` entry (`FROM=TO`) that holds it, else through a home swap
