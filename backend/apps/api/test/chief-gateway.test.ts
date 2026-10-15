@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
+import { gatewayBaseUrl, mintRunToken } from "../src/model-gateway/run-token.ts"
 
 /**
  * The model gateway (model-gateway/gateway.ts) at the product boundary: a person writes to a Cloud
@@ -174,5 +175,50 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
       delete testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS
       testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "claude-haiku-5-5"
     }
+  })
+
+  it("serves a hand's coding agent over HTTP with a per-run token: Anthropic Messages in, events out, charged to the team", async () => {
+    const seen = fakeRoute()
+    const { chief, team } = await owner("brain-gateway-http", 5, "claude-opus-5-5", "low", true)
+    const ownerId = (await op(await sessionToken("brain-gateway-http"), "user.ensure", {})).value.id as string
+    const { token } = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_1", conversation: chief.main_conversation })
+    expect(gatewayBaseUrl(testEnv as any)).toBe("https://api.test/v1/model-gateway")
+    const before = await meter(team).creditBalance(team, 0, 5)
+    const body = { model: "claude-sonnet-5-5", max_tokens: 1000, stream: true, messages: [{ role: "user", content: "write a haiku" }] }
+    const call = (auth: Record<string, string>, b: unknown = body) => worker.fetch("https://api.test/v1/model-gateway/v1/messages", { method: "POST", headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(b) })
+    const res = await call({ authorization: `Bearer ${token}` })
+    expect(res.status, await res.clone().text()).toBe(200)
+    expect(res.headers.get("content-type")).toContain("text/event-stream")
+    const events = await res.text()
+    expect(events).toContain("Routed answer 1")
+    expect(events).toContain("message_stop")
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.headers["x-api-key"]).toBe(KEY)
+    expect(seen[0]!.headers["x-cmux-team-id"]).toBe(team)
+    expect(seen[0]!.headers["x-cmux-chief-id"]).toBe(chief.id)
+    expect(seen[0]!.body).toMatchObject({ model: "global.anthropic.claude-sonnet-5-5", anthropic_version: "bedrock-2023-05-31" })
+    // The call was held and then charged (usage from the stream), with no hold left.
+    let after = await meter(team).creditBalance(team, 0, 5)
+    for (let i = 0; i < 50 && after.balance_micros === before.balance_micros; i++) [await new Promise((r) => setTimeout(r, 20)), (after = await meter(team).creditBalance(team, 0, 5))]
+    expect(after.balance_micros).toBeLessThan(before.balance_micros)
+    expect(after.held_micros).toBe(0)
+    // x-api-key works too (stock clients); refusals: no token, a person's session token, a model it does not serve, no streaming.
+    expect((await call({ "x-api-key": token })).status).toBe(200)
+    expect((await call({})).status).toBe(401)
+    expect((await call({ authorization: `Bearer ${await sessionToken("brain-gateway-http")}` })).status).toBe(401)
+    expect((await call({ authorization: `Bearer ${token}` }, { ...body, model: "gpt-5" })).status).toBe(400)
+    expect((await call({ authorization: `Bearer ${token}` }, { ...body, stream: false })).status).toBe(400)
+    expect(seen).toHaveLength(2)
+  })
+
+  it("refuses a run token whose team has no credits (402) without calling the route", async () => {
+    const seen = fakeRoute()
+    const { chief, team } = await owner("brain-gateway-broke", 0, "claude-opus-5-5", "low", true)
+    const ownerId = (await op(await sessionToken("brain-gateway-broke"), "user.ensure", {})).value.id as string
+    const { token } = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_9" })
+    const res = await worker.fetch("https://api.test/v1/model-gateway/v1/messages", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 100, stream: true, messages: [{ role: "user", content: "hi" }] }) })
+    expect(res.status).toBe(402)
+    expect(((await res.json()) as any).error.message).toContain("out of Cloud credits")
+    expect(seen).toHaveLength(0)
   })
 })

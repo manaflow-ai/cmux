@@ -61,7 +61,7 @@ const CLAUDE_NAMES: Record<string, string> = { "claude-opus-5-5": "Claude Opus 5
 /** Prices per million tokens for names the catalog lacks (Haiku 5.5: Anthropic's Haiku tier). */
 const CLAUDE_COST: Record<string, Model<Api>["cost"]> = { "claude-haiku-5-5": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 } }
 
-const claudeModel = (name: string, baseUrl: string): Model<Api> => {
+export const claudeModel = (name: string, baseUrl: string): Model<Api> => {
   const known = (ANTHROPIC_MODELS as Record<string, Model<Api>>)[name]
   const base: Model<Api> = known ?? { id: name, name: CLAUDE_NAMES[name] ?? name, api: "anthropic-messages", provider: CLAUDE_PROVIDER, baseUrl, reasoning: true, input: ["text"], cost: CLAUDE_COST[name] ?? { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, contextWindow: 200_000, maxTokens: MAX_TOKENS, thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }, compat: { forceAdaptiveThinking: true, supportsTemperature: false } } as Model<Api>
   return { ...base, provider: CLAUDE_PROVIDER, baseUrl, maxTokens: Math.min(base.maxTokens || MAX_TOKENS, MAX_TOKENS) }
