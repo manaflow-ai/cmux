@@ -5626,5 +5626,157 @@
         ]
       }
     }
+  },
+  "cli.vm.doctor.column.agent": {
+    "source": "AGENT",
+    "identityLocales": {
+      "de": {
+        "reason": "Agent is the standard German and French noun for a coding agent, written in uppercase as a CLI table header; the translated entry is still required.",
+        "values": [
+          "AGENT"
+        ]
+      },
+      "fr": {
+        "reason": "Agent is the standard German and French noun for a coding agent, written in uppercase as a CLI table header; the translated entry is still required.",
+        "values": [
+          "AGENT"
+        ]
+      }
+    }
+  },
+  "cli.vm.doctor.column.status": {
+    "source": "STATUS",
+    "identityLocales": {
+      "de": {
+        "reason": "Status is the standard German word, written in uppercase as a CLI table header; the translated entry is still required.",
+        "values": [
+          "STATUS"
+        ]
+      }
+    }
+  },
+  "cloudAgentReadiness.agent.gh": {
+    "class": "brand",
+    "source": "GitHub (gh, git)"
+  },
+  "cloudAgentReadiness.ui.chip.accessibility": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "cloudAgentReadiness.ui.issue": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "cloudAgentReadiness.ui.title": {
+    "source": "Agents",
+    "identityLocales": {
+      "fr": {
+        "reason": "Agents is the standard French plural for coding agents; the translated entry is still required.",
+        "values": [
+          "Agents"
+        ]
+      }
+    }
+  },
+  "cloudAgentReadiness.ui.version": {
+    "source": "Version %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Version is spelled the same in German and French; the translated entry is still required.",
+        "values": [
+          "Version %@"
+        ]
+      },
+      "fr": {
+        "reason": "Version is spelled the same in German and French; the translated entry is still required.",
+        "values": [
+          "Version %@"
+        ]
+      }
+    }
+  },
+  "cloud.firstRun.duration": {
+    "source": "%.1f s",
+    "identityLocales": {
+      "de": {
+        "reason": "s is the invariant SI symbol for seconds in this locale; the translated entry is still required.",
+        "values": [
+          "%.1f s"
+        ]
+      },
+      "fr": {
+        "reason": "s is the invariant SI symbol for seconds in this locale; the translated entry is still required.",
+        "values": [
+          "%.1f s"
+        ]
+      },
+      "es": {
+        "reason": "s is the invariant SI symbol for seconds in this locale; the translated entry is still required.",
+        "values": [
+          "%.1f s"
+        ]
+      }
+    }
+  },
+  "cloud.firstRun.step.machine": {
+    "source": "Machine",
+    "identityLocales": {
+      "fr": {
+        "reason": "Machine is the standard French noun used for Cloud machines in cmux; the translated entry is still required.",
+        "values": [
+          "Machine"
+        ]
+      }
+    }
+  },
+  "cloudOpenRepository.agent.label": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": {
+        "reason": "Agent is the standard German and French noun for a coding agent; the translated entry is still required.",
+        "values": [
+          "Agent"
+        ]
+      },
+      "fr": {
+        "reason": "Agent is the standard German and French noun for a coding agent; the translated entry is still required.",
+        "values": [
+          "Agent"
+        ]
+      }
+    }
+  },
+  "cloudOpenRepository.field.label": {
+    "source": "Repository",
+    "identityLocales": {
+      "de": {
+        "reason": "Repository is the established German term for a Git repository; the translated entry is still required.",
+        "values": [
+          "Repository"
+        ]
+      }
+    }
+  },
+  "cloudPort.badge.public": {
+    "source": "Public",
+    "identityLocales": {
+      "fr": {
+        "reason": "Public is spelled the same in French; the translated entry is still required.",
+        "values": [
+          "Public"
+        ]
+      }
+    }
+  },
+  "cloudPort.badge.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": {
+        "reason": "Team is the standard German word for a group of collaborators; the translated entry is still required.",
+        "values": [
+          "Team"
+        ]
+      }
+    }
   }
 }

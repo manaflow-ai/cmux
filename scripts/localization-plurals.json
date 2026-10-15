@@ -865,5 +865,17 @@
     "arguments": [
       1
     ]
+  },
+  "cli.vm.doctor.problems": {
+    "source": "vm doctor: %1$ld agents on %2$@ need a fix.",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.doctor.summary": {
+    "source": "%1$@: %2$ld of %3$ld ready.",
+    "arguments": [
+      2
+    ]
   }
 }
