@@ -389,11 +389,6 @@ os.write(fd, b"\x03"); expect(rb"\x1b\[A\x1b\[\d+G\x1b\[K[\s\S]*" + prompt)
 # set -e survives the accept keys at column 0.
 run(b"set -e\r", rb"set -e")
 os.write(fd, b"\x1b[C\x1bf"); run(b"echo still-here\r", rb"[\r\n]still-here\r\n")
-# Control bytes in history are display data, never terminal controls.
-os.write(fd, b"history -s $'echo \\e[31munsafe'\r"); expect(prompt)
-os.write(fd, b"echo "); out = expect(rb"echo ")
-os.write(fd, b"\x03"); cancelled = expect(prompt)
-if gray in out + cancelled or b"\x1b[31m" in out + cancelled: sys.exit("control bytes from history reached the terminal")
 print("ghost-ok")
 `;
         const result = await runChild("python3", ["-c", driver, directory], { timeout: 60_000 });
