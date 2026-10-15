@@ -12,8 +12,8 @@ export type AskStartMode = (harness: string, cwd?: string) => Promise<StartMode 
 /// acpmux's last answers, per harness and folder, kept per viewer: a pending chat draws the last
 /// answer on its first frame (cx-uq9xi), then the one it asks for replaces it. Never the mode a
 /// chat ran: only what acpmux answered. `null`: acpmux answered that it sets none there. A folder
-/// acpmux has not answered for yet draws the harness's latest answer anywhere, so the access chip
-/// still holds its place on the first frame; the answer for that folder then replaces it.
+/// acpmux has not answered for yet borrows the harness's latest answer anywhere, so the access chip
+/// still holds its place on the first frame, naming no mode; that folder's answer then replaces it.
 const STORAGE_KEY = "cmux.acpmux.startModes.v1";
 
 let ask: AskStartMode | undefined;
@@ -74,9 +74,14 @@ function valid(mode: unknown): mode is StartMode {
   );
 }
 
+/// A kept answer; `borrowed`: acpmux has not answered for this folder yet, and this is its latest
+/// answer for the harness in another folder. A borrowed answer only holds the chip's place: that
+/// folder's profile or preset may start the chat in another mode, so it names no mode.
+export type KeptStartMode = StartMode & { borrowed?: true };
+
 /// acpmux's last answer for a new chat on `harness` in `cwd`, as this viewer saw it; for a folder
-/// it has not answered yet, its latest answer for `harness` in any folder.
-export function cachedStartMode(harness: string | undefined, cwd?: string): StartMode | undefined {
+/// it has not answered yet, its latest answer for `harness` in any folder, marked `borrowed`.
+export function cachedStartMode(harness: string | undefined, cwd?: string): KeptStartMode | undefined {
   if (!harness) return undefined;
   const all = load();
   const key = keyOf(harness, cwd);
@@ -89,7 +94,13 @@ export function cachedStartMode(harness: string | undefined, cwd?: string): Star
     .filter((other) => other.startsWith(`${harness}\u0000`))
     .at(-1);
   const mode = latest === undefined ? undefined : all[latest];
-  return valid(mode) ? mode : undefined;
+  return valid(mode) ? { ...mode, borrowed: true } : undefined;
+}
+
+/// acpmux's last answer for `harness` in this very folder; none borrowed from another.
+export function exactStartMode(harness: string | undefined, cwd?: string): StartMode | undefined {
+  const mode = cachedStartMode(harness, cwd);
+  return mode?.borrowed ? undefined : mode;
 }
 
 /// Keeps `mode` as acpmux's answer for `harness` in `cwd` (none: acpmux sets none there).
@@ -152,7 +163,7 @@ function watchPage(): void {
 /// Asks acpmux now and keeps its answer. Without a client: the kept answer.
 export async function askStartMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
   const source = ask;
-  if (!source) return cachedStartMode(harness, cwd);
+  if (!source) return exactStartMode(harness, cwd);
   const mode = await source(harness, cwd).catch(() => undefined);
   rememberStartMode(harness, cwd, mode);
   return mode;

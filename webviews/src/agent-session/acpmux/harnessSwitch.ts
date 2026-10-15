@@ -6,7 +6,7 @@ import { lastModel } from "./lastPick";
 import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
-import { askStartMode, cachedStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
+import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 // A harness or model switch as an intent. The pick changes the
@@ -729,7 +729,7 @@ export function applySwitch(
   const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles, intent.cwd);
   // Before the session reports, the mode acpmux answers it will start the chat in
   // (`_acpmux/start_mode`, kept per harness and folder), never the mode the harness's last chat
-  // ran; none without an answer.
+  // ran, nor another folder's answer; none without an answer for this folder.
   const modes =
     live?.modes ??
     (profile?.modes && {
@@ -737,7 +737,7 @@ export function applySwitch(
       currentModeId:
         raw.origin === "remote" || raw.origin === "peer"
           ? undefined
-          : cachedStartMode(intent.harness, intent.cwd)?.modeId,
+          : exactStartMode(intent.harness, intent.cwd)?.modeId,
     });
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),

@@ -444,11 +444,16 @@ export function ComposerPickers({
   // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
   const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
-  const startModeName = startMode
-    ? (startMode.name ??
-      harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)?.name ??
-      startMode.modeId)
-    : undefined;
+  // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
+  // place: this folder's profile or preset may start the chat in another mode, so it names none.
+  const startModeName = startMode?.borrowed
+    ? t(PICKER_LABELS.mode)
+    : startMode
+      ? (startMode.name ??
+        harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)
+          ?.name ??
+        startMode.modeId)
+      : undefined;
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortLabel)
       rememberLastChips(chipHarness, { effort: effortLabel });
@@ -524,7 +529,7 @@ export function ComposerPickers({
       )}
       {!(effort && efforts.length > 1) && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />}
       {modes.length === 0 && startMode && startModeName && (
-        <PendingChip kind="mode" label={startModeName} modeId={startMode.modeId} />
+        <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
       )}
       {modes.length > 0 && (
         <AccessMenu
