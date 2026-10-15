@@ -161,6 +161,35 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(events.last == .output(Data("fresh".utf8)))
     }
 
+    /// termqa V5-4: + → New Terminal made the open tab replay. The Mac sent
+    /// `resized` at the grid the phone already mirrors (53x39): a change of
+    /// the Mac's cell pixels only (`commit_geometry_for_runtime` sends a
+    /// replay to byte mirrors for it). The phone's mirror already holds that
+    /// state, so it keeps its screen: no reset, no second copy of the replay.
+    @Test func aResizeAtTheSameGridDoesNotResetTheMirror() async throws {
+        let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 53, "rows": 39,
+                                                "data": Data("screen".utf8).base64EncodedString()]))
+        events.removeAll()
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 53, "rows": 39,
+                                                "replay": Data("screen".utf8).base64EncodedString()]))
+        session.handle(FakeTerminalDaemon.line(["event": "output", "surface": 7, "data": Data("more".utf8).base64EncodedString()]))
+        #expect(!events.contains(.output(Data("\u{1B}c".utf8))))
+        #expect(events == [.output(Data("more".utf8))])
+        // A different grid still resets.
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 53, "rows": 42,
+                                                "replay": Data("fresh".utf8).base64EncodedString()]))
+        #expect(events.contains(.output(Data("\u{1B}c".utf8))))
+        #expect(events.last == .output(Data("fresh".utf8)))
+        // And then the same grid again does not.
+        events.removeAll()
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 53, "rows": 42,
+                                                "replay": Data("fresh".utf8).base64EncodedString()]))
+        #expect(events.isEmpty)
+    }
+
     @Test func resizedEventKeepsATUIWithoutAnOffOnFlicker() async throws {
         let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
         var events: [TerminalSessionEvent] = []
