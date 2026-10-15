@@ -88,9 +88,9 @@ import Testing
         #expect(prompt.contains("never reuse one"))
         // Code reaches a machine by a clone there when it can; a push is small, sized first and asked about past 1 GB.
         for rule in [
-            "cmux vm exec --timeout 600 <machine> -- git clone --depth 1 --branch <branch> <url> work/<slug>",
+            "cmux vm exec --timeout 600 <machine> -- git clone --depth 1 --branch <branch> <url> /home/cmux/work/<slug>",
             "du -sh <dir>", "--exclude .build --exclude DerivedData --exclude node_modules --exclude target",
-            "never push more than about 1 GB without asking", "use relative paths like `work/<slug>`",
+            "never push more than about 1 GB without asking", "Use the absolute `/home/cmux/work/<slug>` destination",
         ] {
             #expect(prompt.contains(rule), "missing \(rule)")
         }
