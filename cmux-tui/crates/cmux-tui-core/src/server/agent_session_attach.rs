@@ -86,7 +86,9 @@ pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
 /// Permission ids remembered per attachment (announced, not yet answered).
 const MAX_PERMISSIONS: usize = 64;
-const MAX_KINDS: usize = 8;
+/// Record kinds or categories one page may ask for: the agent pane asks for all
+/// the kinds it draws (9 since prompt bookmarks, cx-kpd0v), with room to grow.
+const MAX_KINDS: usize = 32;
 /// Worker calls (pages, prompts, permission answers) per attachment.
 const MAX_CALLS: usize = 8;
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);

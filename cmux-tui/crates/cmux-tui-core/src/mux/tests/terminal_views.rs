@@ -182,7 +182,7 @@ fn terminal_runtime_events_fan_out_only_to_materialized_views() {
     mux.emit_terminal_exited(source.id);
     assert_eq!(
         collect_two(|event| match event {
-            MuxEvent::SurfaceExited(surface) => Some(surface),
+            MuxEvent::SurfaceExited(surface, _) => Some(surface),
             _ => None,
         }),
         expected
@@ -332,7 +332,8 @@ fn hosted_terminal_exit_atomically_detaches_every_projected_view() {
     let mut exited = HashSet::new();
     while exited != placements {
         assert!(Instant::now() < deadline, "not every projected view observed terminal exit");
-        if let Ok(MuxEvent::SurfaceExited(surface)) = events.recv_timeout(Duration::from_millis(20))
+        if let Ok(MuxEvent::SurfaceExited(surface, _)) =
+            events.recv_timeout(Duration::from_millis(20))
         {
             exited.insert(surface);
         }
