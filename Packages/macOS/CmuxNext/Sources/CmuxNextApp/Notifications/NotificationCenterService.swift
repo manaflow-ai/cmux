@@ -53,6 +53,9 @@ final class NotificationCenterService {
     /// Showcase captures seed the real daemon ledger without showing banners
     /// or prompting for system authorization at launch.
     @ObservationIgnored var desktopPostingEnabled = true
+    /// When a banner shows an agent's last message (Show Previews, like macOS) and the screen lock it reads; tests pin both.
+    @ObservationIgnored var previews: NotificationPreviews = .whenUnlocked
+    @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
@@ -317,7 +320,7 @@ final class NotificationCenterService {
             let digest = program == nil ? finishedBursts.join(notification, workspace: located.workspace.id, tab: located.tab.id, clock: clock) : nil
             desktop.withdraw(digest?.replacing ?? [])
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: digest == nil ? decision.sound : nil,
-                 subtitle: digest == nil ? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName) : located.workspace.displayName,
+                 subtitle: digest == nil ? notification.shownSubtitle ?? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName) : located.workspace.displayName,
                  program: program, title: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
                                                                     table: "NotificationsPanel", bundle: .module) })
         }
@@ -333,7 +336,7 @@ final class NotificationCenterService {
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let title = title ?? program?.title(localizations: localizations)
             ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
-        desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
+        desktop.post(id: id, title: title, subtitle: subtitle, body: notification.bannerBody(previews: previews, screenLocked: screenLocked()), surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
                      attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
                      reply: notification.reply && tab?.kind == .pty)

@@ -62,7 +62,7 @@ impl Mux {
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
-        self.agent_prompts.lock().unwrap().remove(terminal_id);
+        self.agent_prompts.lock().unwrap().forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly.
         // The snapshot persists so a restart does not resurrect the entry;
