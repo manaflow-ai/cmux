@@ -79,14 +79,28 @@ struct DaemonRestartTests {
         """
     }
 
-    /// The app's startup path (launch window, startup loop, first attempt) on the stand-in.
-    private static func launch(stuck: Bool, refuse: Bool = false) throws -> Launched {
+    /// The daemon's launch snapshot (`launch-snapshot-v1`) of `session`: one workspace, as the
+    /// daemon leaves it in its state directory (`<session>-<id>/launch-snapshot.json`).
+    private static func writeLaunchSnapshot(session: String, stateDirectory: URL) throws {
+        let directory = stateDirectory.appendingPathComponent("\(session)-r1")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let json = """
+        {"schema_version":1,"session":"\(session)","tree":{"workspaces":[{"id":1,"name":"workspace-1","active":true,
+        "screens":[{"id":1,"active":true,"layout":{"type":"leaf","pane":1},"panes":[{"id":1,"tabs":[]}]}]}]}}
+        """
+        try Data(json.utf8).write(to: directory.appendingPathComponent("launch-snapshot.json"))
+    }
+
+    /// The app's startup path (launch window, startup loop, first attempt) on the stand-in; with
+    /// `snapshot`, the daemon's launch snapshot is there, so the window draws the saved layout.
+    private static func launch(stuck: Bool, refuse: Bool = false, snapshot: Bool = false) throws -> Launched {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-restart-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let standIn = StandIn(root: root)
         if stuck { standIn.mark(standIn.stuck) }
         if refuse { standIn.mark(standIn.refuse) }
         let session = "cn-restart-\(UUID().uuidString.prefix(8).lowercased())"
+        if snapshot { try writeLaunchSnapshot(session: session, stateDirectory: root.appendingPathComponent("state")) }
         let binary = root.appendingPathComponent("cmux-tui")
         try standInScript(standIn, session: session).write(to: binary, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
@@ -211,5 +225,37 @@ struct DaemonRestartTests {
         let retry = Self.shown("daemon.retryNow", in: view)
         #expect(retry != nil)
         #expect(retry?.isEnabled == true)
+    }
+
+    /// cx-jniyz.3: with a stuck owner and the launch snapshot present, the window draws the saved
+    /// layout instead of the connecting screen. Once the startup deadline passes it still says
+    /// cmux-tui is not connected, over that layout, with the same Retry Now and Restart cmux-tui.
+    @Test func aLayoutDrawnFromTheLaunchSnapshotStillSaysCmuxTuiIsNotConnected() async throws {
+        let launched = try Self.launch(stuck: true, snapshot: true)
+        defer { launched.stop() }
+        let standIn = launched.standIn
+        let controller = try #require(launched.services.windows.controllers.first)
+        #expect(controller.content != nil, "the launch snapshot's layout is drawn")
+        await Self.wait(within: .seconds(40)) { launched.services.daemon.startup.isUnavailable }
+        try #require(launched.services.daemon.startup.isUnavailable, "startup never gave up on the stuck owner")
+
+        let notice = { Self.control("daemon.notConnected", in: controller.window?.contentView, as: NSView.self) }
+        await Self.wait(within: .seconds(10)) {
+            notice().map { !$0.isHiddenOrHasHiddenAncestor } == true && Self.shown("daemon.restart", in: notice()) != nil
+        }
+        let shownNotice = try #require(notice(), "nothing over the restored layout says cmux-tui is not connected")
+        #expect(!shownNotice.isHiddenOrHasHiddenAncestor)
+        #expect(!(shownNotice.accessibilityLabel() ?? "").isEmpty)
+        // The layout stays: the notice is over it, not the connecting screen in its place.
+        #expect(controller.content != nil)
+        #expect(controller.connectingView == nil)
+        #expect(Self.shown("daemon.restart", in: shownNotice) != nil)
+
+        // Retry Now is the launch window's: it asks cmux-tui again.
+        let retry = try #require(Self.shown("daemon.retryNow", in: shownNotice))
+        let before = standIn.ensures().count
+        try Self.press(retry)
+        await Self.wait(within: .seconds(10)) { standIn.ensures().count > before }
+        #expect(standIn.ensures().count > before)
     }
 }
