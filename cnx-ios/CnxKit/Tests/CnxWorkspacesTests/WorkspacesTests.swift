@@ -269,7 +269,8 @@ import SwiftUI
         let refusing = RefusingForkBackend()
         let (_, refused) = make(backend: refusing)
         await refused.fork("t-claude")
-        #expect(refused.toastText == RefusingForkBackend.reason)
+        // In the Mac's own words, naming the Mac ("your Mac" reads as its name on the phone).
+        #expect(refused.toastText == "This chat runs with Aziz's Mac Studio's Claude permissions. Start a new chat from this device to control it remotely.")
         await source.archive("t-claude")
         #expect(backend.archived == ["t-claude"])
         #expect(store.workspace(id: "ws-cmux")?.tabs.contains { $0.id == "t-claude" } == false)

@@ -1040,19 +1040,19 @@ struct TabGroupChip: View {
     /// The nine Mac group colors, or a custom `#RRGGBB`.
     static func color(_ token: String) -> Color {
         switch token {
-        case "blue": .blue
-        case "red": .red
-        case "yellow": .yellow
-        case "green": .green
-        case "pink": .pink
-        case "purple": .purple
-        case "cyan": .cyan
-        case "orange": .orange
+        case "blue": return Color.blue
+        case "red": return Color.red
+        case "yellow": return Color.yellow
+        case "green": return Color.green
+        case "pink": return Color.pink
+        case "purple": return Color.purple
+        case "cyan": return Color.cyan
+        case "orange": return Color.orange
         default:
             if token.hasPrefix("#"), token.count == 7, let value = UInt32(token.dropFirst(), radix: 16) {
                 return Color(red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
             }
-            return .gray
+            return Color.gray
         }
     }
 }
