@@ -67,6 +67,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `sidebar.hoverCards.*`: hover cards on, and their delay.
     public var hoverCards = HoverCardSettings()
+    /// `appearance.colorTransition.*` (cx-3rf4z).
+    public var colorTransition = ColorTransitionSetting()
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
     public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
@@ -249,6 +251,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.hoverCards = HoverCardSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.colorTransition = ColorTransitionSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
                                                             diagnostics: &snapshot.diagnostics)
