@@ -222,7 +222,15 @@ export function copyErrors(
 
 // The iOS paywall payload (contract with the iOS app).
 
-export const IOS_PAYWALL_LAYOUTS = ["cards", "comparison", "focus"] as const;
+/** Every layout the server knows. An app declares the ones it can draw (`x-cmux-paywall-layouts`). */
+export const IOS_PAYWALL_LAYOUTS = ["cards", "comparison", "focus", "checklist", "planTabs", "hero", "trialTimeline"] as const;
+/** What an app that sends no `x-cmux-paywall-layouts` header can draw. */
+export const IOS_PAYWALL_BASE_LAYOUTS = ["cards", "comparison", "focus"] as const;
+export type IosPaywallLayout = (typeof IOS_PAYWALL_LAYOUTS)[number];
+/** `entry_point` values the app sends; `entryPointHeadlines` may override the headline for these. */
+export const IOS_PAYWALL_ENTRY_POINTS = [
+  "settings", "settings_upgrade_card", "cloud_banner", "cloud_new_machine", "locked_vm_size", "limit", "cloud_upgrade", "paywall_lab",
+] as const;
 export const IOS_PAYWALL_CTA_STYLES = ["price", "action"] as const;
 export const IOS_PAYWALL_PLAN_IDS = ["pro", "max"] as const;
 export const IOS_PAYWALL_BILLING_PERIODS = ["yearly", "monthly"] as const;
@@ -230,8 +238,16 @@ export const IOS_PAYWALL_BILLING_PERIODS = ["yearly", "monthly"] as const;
 export type IosPaywallConfig = {
   readonly experiment: string;
   readonly variant: string;
-  readonly layout: (typeof IOS_PAYWALL_LAYOUTS)[number];
+  readonly layout: IosPaywallLayout;
   readonly headline: string;
+  /** Optional headline per entry point, validated like `headline`. */
+  readonly entryPointHeadlines?: Readonly<Record<string, string>>;
+  /**
+   * Server-only: the layout to use when this variant's layout cannot be
+   * served (trialTimeline to a user who is not trial-eligible, or a layout
+   * the app does not declare). Never sent to the app.
+   */
+  readonly fallbackLayout?: IosPaywallLayout;
   readonly subheadline: string;
   readonly bullets: readonly string[];
   readonly highlightedPlanId: (typeof IOS_PAYWALL_PLAN_IDS)[number] | null;
@@ -250,12 +266,32 @@ function oneOf<T extends string>(values: readonly T[], value: unknown): value is
   return typeof value === "string" && (values as readonly string[]).includes(value);
 }
 
+function layoutErrors(record: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  if (!oneOf(IOS_PAYWALL_LAYOUTS, record.layout)) errors.push(`layout: must be one of ${IOS_PAYWALL_LAYOUTS.join(", ")}`);
+  if (record.fallbackLayout !== undefined && (!oneOf(IOS_PAYWALL_LAYOUTS, record.fallbackLayout) || record.fallbackLayout === "trialTimeline")) {
+    errors.push("fallbackLayout: must be a layout other than trialTimeline");
+  }
+  if (record.layout === "trialTimeline" && record.fallbackLayout === undefined) {
+    errors.push("fallbackLayout: required for trialTimeline (shown to users who cannot get the trial)");
+  }
+  return errors;
+}
+
+function entryPointKeyErrors(headlines: unknown): string[] {
+  if (headlines === undefined) return [];
+  if (!headlines || typeof headlines !== "object" || Array.isArray(headlines)) return ["entryPointHeadlines: must be an object"];
+  return Object.keys(headlines)
+    .filter((key) => !oneOf(IOS_PAYWALL_ENTRY_POINTS, key))
+    .map((key) => `entryPointHeadlines.${key}: unknown entry point`);
+}
+
 function iosPaywallShapeErrors(record: Record<string, unknown>, experiment: string, variant: string): string[] {
   const errors: string[] = [];
   if (record.experiment !== undefined && record.experiment !== experiment) errors.push("experiment: does not match the flag");
   if (record.variant !== undefined && record.variant !== variant) errors.push("variant: does not match the flag variant");
   if (!VARIANT_KEY.test(variant)) errors.push("variant: must be a lowercase key");
-  if (!oneOf(IOS_PAYWALL_LAYOUTS, record.layout)) errors.push("layout: must be cards, comparison or focus");
+  errors.push(...layoutErrors(record), ...entryPointKeyErrors(record.entryPointHeadlines));
   if (record.highlightedPlanId !== null && !oneOf(IOS_PAYWALL_PLAN_IDS, record.highlightedPlanId)) {
     errors.push("highlightedPlanId: must be pro, max or null");
   }
@@ -265,7 +301,7 @@ function iosPaywallShapeErrors(record: Record<string, unknown>, experiment: stri
   if (!Array.isArray(record.bullets) || record.bullets.length > 5) errors.push("bullets: must be a list of at most 5");
   const allowed = new Set([
     "experiment", "variant", "layout", "headline", "subheadline", "bullets",
-    "highlightedPlanId", "defaultBillingPeriod", "ctaStyle", "showYearlySavings",
+    "highlightedPlanId", "defaultBillingPeriod", "ctaStyle", "showYearlySavings", "entryPointHeadlines", "fallbackLayout",
   ]);
   for (const key of Object.keys(record)) {
     if (!allowed.has(key)) errors.push(`${key}: unknown field`);
@@ -301,6 +337,7 @@ export function validateIosPaywallPayload(
     ...(Array.isArray(record.bullets)
       ? record.bullets.flatMap((bullet, index) => copyErrors(`bullets[${index}]`, bullet, { maxLength: 80, required: true }, context))
       : []),
+    ...entryPointHeadlineErrors(record.entryPointHeadlines, context),
   ];
   if (errors.length > 0) return { ok: false, errors };
   return {
@@ -316,6 +353,14 @@ export function validateIosPaywallPayload(
       defaultBillingPeriod: record.defaultBillingPeriod as IosPaywallConfig["defaultBillingPeriod"],
       ctaStyle: record.ctaStyle as IosPaywallConfig["ctaStyle"],
       showYearlySavings: record.showYearlySavings as boolean,
+      ...(record.entryPointHeadlines ? { entryPointHeadlines: { ...(record.entryPointHeadlines as Record<string, string>) } } : {}),
+      ...(record.fallbackLayout ? { fallbackLayout: record.fallbackLayout as IosPaywallLayout } : {}),
     },
   };
+}
+
+function entryPointHeadlineErrors(value: unknown, context: CopyContext): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value).flatMap(([entryPoint, headline]) =>
+    copyErrors(`entryPointHeadlines.${entryPoint}`, headline, { maxLength: 60, required: true }, context));
 }

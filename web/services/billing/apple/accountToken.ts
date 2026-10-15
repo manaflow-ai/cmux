@@ -1,7 +1,7 @@
 import { isAdminUser } from "../../admin/access";
 import { isGoPlanEnabled } from "../goPlanFlag";
 import { resolveIosPaywall, type IosPaywallRequest } from "../paywall/iosPaywall";
-import type { IosPaywallConfig } from "../paywall/validator";
+import type { IosPaywallConfig, IosPaywallLayout } from "../paywall/validator";
 import {
   resolveProPlanStatus,
   stripeBillingStatusForUser,
@@ -41,6 +41,8 @@ export type AppleAccountTokenApp = {
    * experiments as the production channel.
    */
   readonly bundleIdHeader?: string | null;
+  /** Paywall layouts this app can draw (`x-cmux-paywall-layouts`). */
+  readonly paywallLayouts?: readonly IosPaywallLayout[];
 };
 
 export type AppleAccountTokenResponse = {
@@ -176,6 +178,7 @@ export async function appleAccountTokenResponse(
       bundleIdHeader: app.bundleIdHeader ?? null,
       purchasable: reason === null && products.length > 0,
       currentPlanId: status.planId,
+      supportedLayouts: app.paywallLayouts,
     })
     : undefined;
   return {

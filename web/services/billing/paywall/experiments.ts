@@ -30,6 +30,11 @@ export type ExperimentPolicy = {
   readonly retireBelowProbability: number;
   /** Halt all changes when the sample-ratio-mismatch test p-value is below this. */
   readonly srmAlpha: number;
+  /**
+   * At most this many arms (control included) get traffic at once; queued
+   * variants (0%, never retired) are promoted in flag order as challengers retire.
+   */
+  readonly maxLiveArms: number;
 };
 
 export type ExperimentDefinition = {
@@ -67,6 +72,7 @@ export const DEFAULT_EXPERIMENT_POLICY: ExperimentPolicy = {
   retireMinExposures: 300,
   retireBelowProbability: 0.02,
   srmAlpha: 0.001,
+  maxLiveArms: 4,
 };
 
 /**

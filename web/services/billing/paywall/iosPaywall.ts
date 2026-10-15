@@ -21,7 +21,13 @@ import {
   IOS_PAYWALL_EXPERIMENT,
 } from "./iosPaywallV1";
 import { databasePaywallAssignmentStore, type PaywallAssignmentStore } from "./store";
-import { validateIosPaywallPayload, type IosPaywallConfig } from "./validator";
+import {
+  IOS_PAYWALL_BASE_LAYOUTS,
+  IOS_PAYWALL_LAYOUTS,
+  validateIosPaywallPayload,
+  type IosPaywallConfig,
+  type IosPaywallLayout,
+} from "./validator";
 
 const FLAG_TIMEOUT_MS = 1_500;
 
@@ -50,7 +56,38 @@ export type IosPaywallRequest = {
   readonly purchasable: boolean;
   /** The account's current personal plan id. Only free accounts enter. */
   readonly currentPlanId: string;
+  /** Layouts the app can draw (`x-cmux-paywall-layouts`); see requestedPaywallLayouts. */
+  readonly supportedLayouts?: readonly IosPaywallLayout[];
+  /** The account may be offered the trial now; `trialTimeline` is served only then. */
+  readonly trialEligible?: boolean;
 };
+
+/**
+ * `x-cmux-paywall-layouts: cards,comparison,focus,...`: the layouts this app
+ * build can draw. An app that sends no header predates the header and knows
+ * only the original three. Unknown names are ignored; `cards` is always in.
+ */
+export function requestedPaywallLayouts(header: string | null): readonly IosPaywallLayout[] {
+  if (header === null) return IOS_PAYWALL_BASE_LAYOUTS;
+  const named = new Set(header.split(",").map((value) => value.trim()));
+  return IOS_PAYWALL_LAYOUTS.filter((layout) => layout === "cards" || named.has(layout));
+}
+
+/**
+ * The config as this app receives it: a layout the app cannot draw, or a
+ * trial layout for a user who cannot get the trial, becomes the variant's
+ * fallback layout when that one can be drawn, else `cards`. The server-only
+ * `fallbackLayout` is never sent.
+ */
+export function servedPaywallConfig(config: IosPaywallConfig, request: Pick<IosPaywallRequest, "supportedLayouts" | "trialEligible">): IosPaywallConfig {
+  const supported = request.supportedLayouts ?? IOS_PAYWALL_BASE_LAYOUTS;
+  const drawable = (layout: IosPaywallLayout | undefined) =>
+    layout !== undefined && supported.includes(layout) && (layout !== "trialTimeline" || request.trialEligible === true);
+  const layout = drawable(config.layout) ? config.layout : drawable(config.fallbackLayout) ? config.fallbackLayout! : "cards";
+  const served: IosPaywallConfig = { ...config, layout };
+  delete (served as { fallbackLayout?: IosPaywallLayout }).fallbackLayout;
+  return served;
+}
 
 export type IosPaywallDependencies = {
   readonly evaluateFlag: (distinctId: string) => Promise<PaywallFlagEvaluation>;
@@ -182,6 +219,14 @@ function assignmentEvent(userId: string, config: IosPaywallConfig, enrolled: Enr
   };
 }
 
+/** The copy stored with an assignment: the payload without the flag-supplied keys. */
+function storedPayload(config: IosPaywallConfig): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...config };
+  delete payload.experiment;
+  delete payload.variant;
+  return payload;
+}
+
 /**
  * The paywall for this user and app. Never throws: any failure serves
  * control without an exposure, so a broken experiment cannot break purchases.
@@ -191,32 +236,25 @@ export async function resolveIosPaywall(
   request: IosPaywallRequest,
   deps: IosPaywallDependencies = defaultDependencies(),
 ): Promise<IosPaywallConfig> {
+  const control = servedPaywallConfig(IOS_PAYWALL_CONTROL, request);
   const enrolled = enrollment(user, request, deps.env);
-  if (!enrolled) return IOS_PAYWALL_CONTROL;
+  if (!enrolled) return control;
   try {
     const flag = await deps.evaluateFlag(user.id);
     // The kill switch wins over stickiness.
-    if (flag.state === "off") return IOS_PAYWALL_CONTROL;
+    if (flag.state === "off") return control;
     const chosen = await chooseVariant(user.id, flag, deps);
-    if (!chosen) return IOS_PAYWALL_CONTROL;
+    if (!chosen) return control;
     // Assignment and copy are written once; later serves only touch served_at.
-    await deps.store.recordServed(user.id, IOS_PAYWALL_EXPERIMENT, chosen.config.variant, {
-      layout: chosen.config.layout,
-      headline: chosen.config.headline,
-      subheadline: chosen.config.subheadline,
-      bullets: chosen.config.bullets,
-      highlightedPlanId: chosen.config.highlightedPlanId,
-      defaultBillingPeriod: chosen.config.defaultBillingPeriod,
-      ctaStyle: chosen.config.ctaStyle,
-      showYearlySavings: chosen.config.showYearlySavings,
-    });
-    void deps.captureEvent(assignmentEvent(user.id, chosen.config, enrolled, chosen.sticky, deps.now()));
-    return chosen.config;
+    await deps.store.recordServed(user.id, IOS_PAYWALL_EXPERIMENT, chosen.config.variant, storedPayload(chosen.config));
+    const served = servedPaywallConfig(chosen.config, request);
+    void deps.captureEvent(assignmentEvent(user.id, served, enrolled, chosen.sticky, deps.now()));
+    return served;
   } catch (error) {
     console.error("billing.paywall.resolve_failed", {
       error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
     });
-    return IOS_PAYWALL_CONTROL;
+    return control;
   }
 }
 

@@ -5,6 +5,7 @@ import {
   requestedStoreKitEnvironment,
 } from "../../../../services/billing/apple/accountToken";
 import { authenticateAppleBillingRequest } from "../../../../services/billing/apple/routeAuth";
+import { requestedPaywallLayouts, servedPaywallConfig } from "../../../../services/billing/paywall/iosPaywall";
 import { IOS_PAYWALL_CONTROL } from "../../../../services/billing/paywall/iosPaywallV1";
 import { captureBillingError } from "../../../../services/errors";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
@@ -26,10 +27,11 @@ export async function GET(request: Request): Promise<Response> {
       storeKitEnvironment: requestedStoreKitEnvironment(request.headers.get("x-cmux-storekit-environment")),
       billingPeriods: requestedBillingPeriods(request.headers.get("x-cmux-billing-periods")),
       bundleIdHeader: request.headers.get("x-cmux-bundle-id"),
+      paywallLayouts: requestedPaywallLayouts(request.headers.get("x-cmux-paywall-layouts")),
     });
-    return jsonResponse({ paywall: body.paywall ?? IOS_PAYWALL_CONTROL }, 200, { "cache-control": "no-store" });
+    return jsonResponse({ paywall: body.paywall ?? servedPaywallConfig(IOS_PAYWALL_CONTROL, {}) }, 200, { "cache-control": "no-store" });
   } catch (error) {
     captureBillingError(error, { route: ROUTE, stackUserId: auth.user.id });
-    return jsonResponse({ paywall: IOS_PAYWALL_CONTROL }, 200, { "cache-control": "no-store" });
+    return jsonResponse({ paywall: servedPaywallConfig(IOS_PAYWALL_CONTROL, {}) }, 200, { "cache-control": "no-store" });
   }
 }

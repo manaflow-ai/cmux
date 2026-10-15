@@ -12,7 +12,7 @@ export type StaffVariant = {
   readonly platform: string;
   readonly variant: string;
   readonly name: string | null;
-  readonly status: "live" | "retired";
+  readonly status: "live" | "retired" | "queued";
   /** The validated payload (for iOS, the paywall object the app renders); null when it fails validation. */
   readonly paywall: unknown;
   readonly payloadErrors: readonly string[];
@@ -75,7 +75,7 @@ export async function staffVariantsView(experimentKey: string, log: PaywallExper
         platform: definition.platform,
         variant: variant.variant,
         name: variant.name,
-        status: (applied ? variant.rolloutAfter : variant.rolloutBefore) > 0 ? "live" : "retired",
+        status: (applied ? variant.rolloutAfter : variant.rolloutBefore) > 0 ? "live" : variant.status === "retired" ? "retired" : "queued",
         ...validated(variant.payload, variant.variant),
         trafficPercent: applied ? variant.rolloutAfter : variant.rolloutBefore,
         proposedTrafficPercent: applied ? null : variant.rolloutAfter,
@@ -102,7 +102,7 @@ export async function staffVariantsView(experimentKey: string, log: PaywallExper
         platform: definition.platform,
         variant: variant.key,
         name: variant.name ?? null,
-        status: variant.rolloutPercentage > 0 ? "live" : "retired",
+        status: variant.rolloutPercentage > 0 ? "live" : "queued",
         ...validated(typeof raw === "string" ? JSON.parse(raw) : raw, variant.key),
         trafficPercent: variant.rolloutPercentage,
         proposedTrafficPercent: null,

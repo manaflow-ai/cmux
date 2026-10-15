@@ -86,7 +86,7 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters
 const paywallRoute = await import("../app/api/billing/paywall/route");
 const accountTokenRoute = await import("../app/api/billing/apple/account-token/route");
 
-function request(path: string, method: "GET" | "POST", bundleId = "com.cmux.app") {
+function request(path: string, method: "GET" | "POST", bundleId = "com.cmux.app", layouts?: string) {
   return new Request(`https://cmux.test${path}`, {
     method,
     headers: {
@@ -96,13 +96,17 @@ function request(path: string, method: "GET" | "POST", bundleId = "com.cmux.app"
       "x-cmux-storekit-environment": "Production",
       "x-cmux-billing-periods": "monthly,yearly",
       "content-type": "application/json",
+      ...(layouts === undefined ? {} : { "x-cmux-paywall-layouts": layouts }),
     },
     ...(method === "POST" ? { body: "{}" } : {}),
   });
 }
 
-async function paywallFor(bundleId = "com.cmux.app") {
-  const response = await paywallRoute.GET(request("/api/billing/paywall", "GET", bundleId));
+const ALL_LAYOUTS = "cards,comparison,focus,checklist,planTabs,hero,trialTimeline";
+
+/** `layouts: null` sends no `x-cmux-paywall-layouts` header (an older app). */
+async function paywallFor(bundleId = "com.cmux.app", layouts: string | null = ALL_LAYOUTS) {
+  const response = await paywallRoute.GET(request("/api/billing/paywall", "GET", bundleId, layouts ?? undefined));
   expect(response.status).toBe(200);
   return (await response.json() as { paywall: Record<string, unknown> }).paywall;
 }
@@ -214,5 +218,35 @@ describe("POST /api/billing/apple/account-token", () => {
     currentUser = { ...currentUser!, primaryEmail: "dev@manaflow.ai" };
     const staff = await (await accountTokenRoute.POST(request("/api/billing/apple/account-token", "POST"))).json() as Record<string, unknown>;
     expect(staff.staff).toBe(true);
+  });
+});
+
+describe("layouts the app can draw", () => {
+  test("an app without the layouts header gets cards for a newer layout; the arm does not change", async () => {
+    flagAnswer = { variant: "checklist-pro-monthly", payload: seed("checklist-pro-monthly").payload };
+    const old = await paywallFor("com.cmux.app", null);
+    expect(old).toMatchObject({ variant: "checklist-pro-monthly", layout: "cards" });
+    expect(old.entryPointHeadlines).toEqual({ locked_vm_size: "Bigger VMs come with Pro", limit: "Need more Cloud VMs?" });
+    expect((await paywallFor()).layout).toBe("checklist");
+    expect(events.map((event) => event.properties?.paywall_layout)).toEqual(["cards", "checklist"]);
+  });
+
+  test("trialTimeline goes only to trial-eligible users; others get its fallback, which is never sent", async () => {
+    const timeline = { ...seed("hero-pro").payload, layout: "trialTimeline", fallbackLayout: "hero" };
+    flagAnswer = { variant: "hero-pro", payload: timeline };
+    const served = await paywallFor();
+    expect(served.layout).toBe("hero");
+    expect(served).not.toHaveProperty("fallbackLayout");
+    assignments.clear();
+    flagAnswer = { variant: "hero-pro", payload: { ...seed("hero-pro").payload, layout: "trialTimeline" } };
+    expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+  });
+
+  test("entry-point headlines are validated like the headline", async () => {
+    for (const entryPointHeadlines of [{ limit: "Unlimited Cloud VMs" }, { unknown_place: "Need more Cloud VMs?" }, { limit: "x".repeat(61) }]) {
+      assignments.clear();
+      flagAnswer = { variant: "hero-pro", payload: { ...seed("hero-pro").payload, entryPointHeadlines } };
+      expect(await paywallFor()).toEqual(IOS_PAYWALL_CONTROL);
+    }
   });
 });

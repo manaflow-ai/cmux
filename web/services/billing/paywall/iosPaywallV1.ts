@@ -95,6 +95,71 @@ export const IOS_PAYWALL_V1_SEED: readonly SeedVariant[] = [
       showYearlySavings: true,
     },
   },
+  // Queued challengers (0%): the optimizer keeps at most 4 arms live (control
+  // and 3 challengers) and promotes the next queued variant, in this order,
+  // when a challenger retires. See EXPERIMENTS.md "Live arm cap".
+  {
+    key: "checklist-pro-monthly",
+    name: "Checklist of what Pro adds, monthly first",
+    rolloutPercentage: 0,
+    payload: {
+      layout: "checklist",
+      headline: "Everything Pro adds to cmux",
+      subheadline: "Cloud VMs for your coding agents, billed monthly.",
+      bullets: [
+        "Up to 5 Cloud VMs",
+        "20 vCPUs and 40 GB RAM to share",
+        "A single VM can have up to 8 vCPUs and 16 GB RAM",
+        "Persistent Linux machines that keep your files",
+        "The iOS app and email support",
+      ],
+      highlightedPlanId: "pro",
+      defaultBillingPeriod: "monthly",
+      ctaStyle: "action",
+      showYearlySavings: false,
+      entryPointHeadlines: {
+        locked_vm_size: "Bigger VMs come with Pro",
+        limit: "Need more Cloud VMs?",
+      },
+    },
+  },
+  {
+    key: "plantabs-yearly",
+    name: "Pro and Max as tabs, yearly first",
+    rolloutPercentage: 0,
+    payload: {
+      layout: "planTabs",
+      headline: "Pick the plan that fits your agents",
+      subheadline: "Pro and Max both include up to 5 Cloud VMs. Yearly billing costs less per month.",
+      bullets: [
+        "Pro: 20 vCPUs and 40 GB RAM to share",
+        "Max: 80 vCPUs and 160 GB RAM to share",
+        "Max: a single VM can have up to 32 vCPUs and 64 GB RAM",
+      ],
+      highlightedPlanId: null,
+      defaultBillingPeriod: "yearly",
+      ctaStyle: "price",
+      showYearlySavings: true,
+    },
+  },
+  {
+    key: "hero-pro",
+    name: "Hero image, Pro",
+    rolloutPercentage: 0,
+    payload: {
+      layout: "hero",
+      headline: "Your agents, running in the cloud",
+      subheadline: "Persistent Cloud VMs keep your files and tools. Check in from your iPhone or your Mac.",
+      bullets: [],
+      highlightedPlanId: "pro",
+      defaultBillingPeriod: "yearly",
+      ctaStyle: "price",
+      showYearlySavings: true,
+      entryPointHeadlines: {
+        cloud_new_machine: "Create more Cloud VMs with Pro",
+      },
+    },
+  },
 ];
 
 /** The control config, served to everyone outside the experiment. */

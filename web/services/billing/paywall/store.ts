@@ -17,6 +17,8 @@ export type PaywallAssignment = {
 export type PaywallChangeKind =
   | "variant_created"
   | "variant_retired"
+  /** A queued variant got traffic (live-arm cap). */
+  | "variant_promoted"
   | "copy_changed"
   | "payload_invalid"
   | "allocation_changed"

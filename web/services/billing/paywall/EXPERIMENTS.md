@@ -102,6 +102,22 @@ Code:
 - Halts (SRM, control not live, flag off) are checked before everything
   else.
 
+## Live arm cap
+
+At most 4 arms get traffic at once: control and 3 challengers
+(`maxLiveArms`). Other variants wait at 0% as `queued`. When a challenger
+is retired, the optimizer promotes the next queued variant, in flag order,
+and records `variant_promoted`. The new arm starts with no exposures, so
+the split goes back to equal until every live arm has 50 exposures again.
+
+The cap exists because of traffic. Every live arm needs its own 50
+exposures before traffic can move, and 300 before it can be retired. At
+about 1 paywall view a day, 4 arms need about 200 days to reach the first
+traffic move, and 7 arms would need about 350. With more arms, every arm's
+estimate stays noise for longer, and the optimizer would hold an equal
+split for the whole experiment. Fewer arms reach a decision sooner, and the
+queue still lets every idea get tested in turn.
+
 ## ios-paywall-v1
 
 - **Flag:** `ios-paywall-v1`, a PostHog multivariate flag that the server
@@ -116,7 +132,23 @@ Code:
   capacity, or the outcome (agents keep working while the Mac sleeps),
   increase paid conversion compared with the current screen.
 - **Arms:** `control` (the app's built-in copy, cards), `focus-pro-yearly`,
-  `comparison` and `outcome-copy`, at 25% each.
+  `comparison` and `outcome-copy` start live at 25% each. Queued in this
+  order: `checklist-pro-monthly`, `plantabs-yearly` and `hero-pro`.
+- **Layouts:** `cards`, `comparison`, `focus`, `checklist`, `planTabs`,
+  `hero` and `trialTimeline`.
+  - The app declares the layouts it can draw in `x-cmux-paywall-layouts`.
+    An app that sends no header gets only `cards`, `comparison` and `focus`.
+  - The server sends a layout only if the app can draw it. Otherwise it sends
+    the variant's `fallbackLayout` if the app can draw that, and else
+    `cards`.
+  - `trialTimeline` is served only to a trial-eligible user. Every other user
+    gets the variant's `fallbackLayout`, which a `trialTimeline` variant must
+    have. `fallbackLayout` stays on the server and is never sent to the app.
+  - The arm stays the same when the layout falls back. The assignment record
+    carries the layout that was actually served (`paywall_layout`).
+- **Entry-point headlines:** a variant may set `entryPointHeadlines`, which
+  maps an `entry_point` to a headline. Each one is validated like
+  `headline`. The app uses it in place of `headline` for that entry point.
 - **Primary metric:** the share of exposed people with a
   `subscription_entitlement_granted` event (`source = apple`,
   `environment = Production`) after their first exposure.
