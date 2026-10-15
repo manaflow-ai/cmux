@@ -471,6 +471,8 @@ struct AnsweredSummary: View {
 struct FailureCard: View {
     let title: String
     let message: String
+    /// The agent's own message, when the sentence says it in plain words (the Mac's Details).
+    var detail: String?
     let retry: () -> Void
 
     var body: some View {
@@ -478,6 +480,17 @@ struct FailureCard: View {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 17))
             Text(title).font(.headline)
             Text(message).font(.subheadline).foregroundStyle(.secondary)
+            if let detail {
+                DisclosureGroup("Details") {
+                    Text(detail)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.footnote)
+                .tint(.secondary)
+            }
             Button("Retry", action: retry).buttonStyle(CnxCapsuleButtonStyle(.primary, size: .large))
         }
         .padding(16)

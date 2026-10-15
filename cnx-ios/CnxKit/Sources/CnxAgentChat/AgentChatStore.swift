@@ -17,6 +17,8 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     public var startedAt: Date?
     public var endedAt: Date?
     public var errorText: String?
+    /// The model request is being retried (attempt, of at most), while the turn runs.
+    public var retry: Retry?
     /// Tool calls drawn by something else (the subagent row that a spawn call started).
     public var hiddenToolCalls: Set<String> = []
 
@@ -25,6 +27,18 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         self.prompt = prompt
         self.attachments = attachments
         self.promptAt = promptAt
+    }
+
+    public struct Retry: Hashable, Sendable {
+        public var attempt: Int
+        public var maxAttempts: Int
+        public var status: Int?
+
+        /// "Retrying (2 of 10)", with the HTTP status when the agent gave one.
+        public var label: String {
+            let count = maxAttempts > 0 ? "\(attempt) of \(maxAttempts)" : "\(attempt)"
+            return status.map { "Retrying (\(count), error \($0))" } ?? "Retrying (\(count))"
+        }
     }
 
     public var duration: TimeInterval? {
@@ -293,8 +307,12 @@ public final class AgentChatStore {
                 $0.status = .running
             }
             summary.status = .running
+        case .retrying(let attempt, let maxAttempts, let status):
+            guard let index = turns.indices.last, turns[index].status == .running else { return }
+            turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
         case .turnResult(let turnId, let status, let errorText, let at):
             mutateTurn(turnId) { turn in
+                turn.retry = nil
                 turn.status = status
                 turn.endedAt = at
                 turn.errorText = errorText
@@ -318,6 +336,13 @@ public final class AgentChatStore {
             currentMessageID = nil
             summary.status = .idle
         case .update(let update):
+            // The model answered: the retry is over.
+            switch update {
+            case .agentMessageChunk, .agentThoughtChunk, .toolCall:
+                if let index = turns.indices.last, turns[index].retry != nil { turns[index].retry = nil }
+            default:
+                break
+            }
             applyUpdate(update)
         case .permissionRequest(let request):
             appendItem(.permission(PermissionRecord(request: request)))

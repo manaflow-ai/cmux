@@ -644,7 +644,7 @@ struct TurnView: View {
                         .transition(.opacity.animation(.easeOut(duration: 0.15)))
                 }
                 if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
-                    WorkingLabel("Working", since: turn.startedAt)
+                    WorkingLabel(turn.retry?.label ?? "Working", since: turn.startedAt)
                         .frame(minHeight: 28)
                         .transition(.opacity)
                 }
@@ -655,7 +655,8 @@ struct TurnView: View {
                 case .cancelled:
                     Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
                 case .failed:
-                    FailureCard(title: "Agent stopped", message: turn.errorText ?? "The turn ended with an error.") {
+                    let failure = TurnFailureCopy(message: turn.errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
+                    FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail) {
                         store.send(prompt: turn.prompt)
                     }
                 case .completed:
