@@ -46,7 +46,12 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
       const field = document.querySelector(".acpmux-md")!;
       const box = field.getBoundingClientRect();
       field.dispatchEvent(
-        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 12 }),
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: box.left + 40,
+          clientY: box.top + 12,
+        }),
       );
     });
     await page.waitForSelector(".ui-context-menu [role=menuitem]");
