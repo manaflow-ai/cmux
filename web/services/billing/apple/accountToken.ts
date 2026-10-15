@@ -1,4 +1,7 @@
+import { isAdminUser } from "../../admin/access";
 import { isGoPlanEnabled } from "../goPlanFlag";
+import { resolveIosPaywall, type IosPaywallRequest } from "../paywall/iosPaywall";
+import type { IosPaywallConfig } from "../paywall/validator";
 import {
   resolveProPlanStatus,
   stripeBillingStatusForUser,
@@ -32,6 +35,12 @@ export type AppleAccountTokenApp = {
    * every product in one plan list, so they get monthly products only.
    */
   readonly billingPeriods?: readonly AppleBillingPeriod[];
+  /**
+   * The raw `x-cmux-bundle-id` header. Unlike `bundleId` it has no default,
+   * so only an app that says it is the App Store app enters paywall
+   * experiments as the production channel.
+   */
+  readonly bundleIdHeader?: string | null;
 };
 
 export type AppleAccountTokenResponse = {
@@ -48,6 +57,10 @@ export type AppleAccountTokenResponse = {
     readonly planId: PersonalPlanId;
     readonly billingPeriod: AppleBillingPeriod;
   }[];
+  /** The server-configured paywall (services/billing/paywall); control outside the experiment. */
+  readonly paywall?: IosPaywallConfig;
+  /** Present and true for cmux staff: the app shows its Paywall Lab. */
+  readonly staff?: true;
 };
 
 export type AppleAccountUser = ProReconcileUser & BillingTeamUserLike & {
@@ -63,6 +76,8 @@ export type AppleAccountTokenDependencies = {
   readonly hasActiveStripeSubscription: (userId: string) => Promise<boolean>;
   readonly billedThroughTeam: (user: AppleAccountUser) => Promise<boolean>;
   readonly planStatus: typeof resolveProPlanStatus;
+  /** The paywall for this user; absent in callers that do not serve one. */
+  readonly paywall?: (user: AppleAccountUser, request: IosPaywallRequest) => Promise<IosPaywallConfig>;
   /** Deployment config for the Sandbox entitlement policy; defaults to the process environment. */
   readonly env?: Record<string, string | undefined>;
 };
@@ -79,6 +94,7 @@ const defaultDependencies = (): AppleAccountTokenDependencies => ({
     return team ? (await teamPlanStatusForTeam(team)).planId === "team" : false;
   },
   planStatus: resolveProPlanStatus,
+  paywall: (user, request) => resolveIosPaywall(user, request),
 });
 
 /** Account reasons first: they tell the user where billing lives. */
@@ -150,6 +166,18 @@ export async function appleAccountTokenResponse(
   });
   const plans: PersonalPlanId[] = goEnabled ? ["go", "pro", "max"] : ["pro", "max"];
   const { bundleId } = app;
+  const products = bundleId && reason !== "purchases_unavailable"
+    ? plans.flatMap((planId) => APPLE_PLAN_BILLING_PERIODS[planId]
+      .filter((billingPeriod) => (app.billingPeriods ?? ["monthly"]).includes(billingPeriod))
+      .map((billingPeriod) => ({ productId: appleProductId(bundleId, planId, billingPeriod), planId, billingPeriod })))
+    : [];
+  const paywall = deps.paywall
+    ? await deps.paywall(user, {
+      bundleIdHeader: app.bundleIdHeader ?? null,
+      purchasable: reason === null && products.length > 0,
+      currentPlanId: status.planId,
+    })
+    : undefined;
   return {
     appAccountToken,
     eligible: reason === null,
@@ -159,10 +187,8 @@ export async function appleAccountTokenResponse(
       source: status.billingSource,
       ...(status.manageUrl ? { manageUrl: status.manageUrl } : {}),
     },
-    products: bundleId && reason !== "purchases_unavailable"
-      ? plans.flatMap((planId) => APPLE_PLAN_BILLING_PERIODS[planId]
-        .filter((billingPeriod) => (app.billingPeriods ?? ["monthly"]).includes(billingPeriod))
-        .map((billingPeriod) => ({ productId: appleProductId(bundleId, planId, billingPeriod), planId, billingPeriod })))
-      : [],
+    products,
+    ...(paywall ? { paywall } : {}),
+    ...(isAdminUser({ ...user, isAnonymous: false }) ? { staff: true as const } : {}),
   };
 }

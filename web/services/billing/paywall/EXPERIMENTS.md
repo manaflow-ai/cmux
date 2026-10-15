@@ -1,0 +1,130 @@
+# Paywall and pricing experiments
+
+This file pre-registers every experiment that the paywall optimizer runs.
+Write the entry before the experiment gets traffic. Do not change the
+metrics or the decision rule of a running experiment. To change them, start
+a new experiment key (for example `ios-paywall-v2`).
+
+Code:
+
+- `experiments.ts`: the registry. The optimizer, the change log and the staff
+  variants route read it.
+- `facts.ts` and `validator.ts`: the copy rules. Every payload is validated
+  before it is served. An invalid payload serves control, logs an error and
+  records a `payload_invalid` change.
+- `optimizer.ts` and `runAll.ts`: the optimizer. Run it with
+  `scripts/paywall-optimizer/run.ts` (use `--dry-run` to write nothing) or
+  with the daily `/api/cron/paywall-optimizer` cron.
+- `iosPaywall.ts`: assignment and exposure for the iOS app.
+
+## Rules for every experiment
+
+1. **One platform per experiment.** Each experiment runs on iOS or on the web,
+   never on both. Rates from different platforms are never pooled. A
+   cross-platform question needs two experiments and two reports.
+2. **Sticky bucketing per user.** The unit is the cmux account. Its
+   `distinct_id` is the account's user id. The server records the first
+   variant served to each user in `paywall_assignments`. The user keeps that
+   variant when the optimizer changes the traffic split, and when the flag
+   is unavailable. The only exception is the kill switch: when the flag is
+   off, everyone gets control. The analysis counts each person once, in the
+   variant of their first exposure.
+3. **Exposure is the server's `$feature_flag_called` event.** It is recorded
+   when the server serves a variant. It carries `paywall_experiment`,
+   `paywall_variant`, `paywall_layout`, `paywall_platform`,
+   `paywall_channel`, `paywall_internal` and `paywall_sticky`.
+4. **Exclusions.** These groups never enter the analysis:
+   - internal accounts (staff, and `PAYWALL_EXPERIMENT_INTERNAL_EMAILS`),
+     which are tagged `paywall_internal`;
+   - synthetic probe accounts, which never enter the experiment;
+   - non-production channels (`paywall_channel` other than `production`);
+   - for web experiments, also bots (that predicate is set in each web
+     experiment's definition).
+   Internal accounts still get variants, so that staff can check them.
+5. **Sample-ratio-mismatch (SRM) check.** Every run compares the first
+   exposures since the last allocation change with that allocation, using a
+   chi-square goodness-of-fit test. If p < 0.001, or if anyone is first
+   exposed to a variant at 0%, the optimizer stops all changes, records
+   `srm_halt` and reports. Traffic stays frozen until a person explains the
+   mismatch.
+6. **Change log.** Every change is appended to `paywall_experiment_changes`
+   with a timestamp, the actor and the reason. Changes are: variant created,
+   variant retired, copy changed, invalid payload, allocation changed and SRM
+   halt. Each run is stored in `paywall_experiment_runs` with its snapshot and
+   its daily markdown report. Staff can read both through
+   `GET /api/billing/paywall/variants?experiment=<key>`.
+7. **Who may change traffic.** The cron writes splits only when
+   `PAYWALL_OPTIMIZER_APPLY=1`. Otherwise it observes: it records the run and
+   the proposed split, but it does not write the split to the flag.
+
+## Default decision rule (Beta-Bernoulli Thompson sampling)
+
+- Each variant has a Beta(1 + conversions, 1 + non-conversions) posterior on
+  its primary-metric rate. P(best) comes from 20,000 posterior draws, seeded
+  by experiment and date, so a run can be reproduced.
+- **Minimum sample.** Until every live variant has at least 50 exposed
+  people, the split stays equal across the live variants.
+- **Allocation after that.** Traffic is proportional to P(best). Control
+  keeps at least 10%, and every other live variant keeps at least 1%.
+- **Retirement.** A variant other than control is retired (set to 0%) when it
+  has at least 300 exposed people and P(best) < 0.02. People who were
+  already exposed keep that variant (rule 2).
+- Halts (SRM, control not live, flag off) are checked before everything
+  else.
+
+## ios-paywall-v1
+
+- **Flag:** `ios-paywall-v1`, a PostHog multivariate flag that the server
+  evaluates. The payload of each variant is its copy. The seed is
+  `iosPaywallV1.ts`. Create the flag with
+  `scripts/paywall-optimizer/create-flag.ts` after the migration is applied.
+- **Platform:** iOS, App Store app `com.cmux.app` (channel `production`) only.
+- **Who enters:** a signed-in account on the free plan that can buy in the
+  app (account-token `eligible` with products), plus internal accounts from
+  any channel. Everyone else gets control and has no exposure.
+- **Hypothesis:** paywall copy and layout that state concrete Cloud
+  capacity, or the outcome (agents keep working while the Mac sleeps),
+  increase paid conversion compared with the current screen.
+- **Arms:** `control` (the app's built-in copy, cards), `focus-pro-yearly`,
+  `comparison` and `outcome-copy`, at 25% each.
+- **Primary metric:** the share of exposed people with a
+  `subscription_entitlement_granted` event (`source = apple`,
+  `environment = Production`) after their first exposure.
+- **Secondary metric:** the share of exposed people with
+  `ios_paywall_cta_tapped` after exposure.
+- **Guardrails:** `subscription_refunded` and `subscription_revoked` among
+  exposed people. A guardrail rate above 2 times control, with at least 5
+  events, makes a person review the variant before the next run. The
+  optimizer reports guardrails; it does not act on them.
+- **Minimum exposures:** 50 per variant before traffic moves, and 300 before
+  a variant can be retired.
+- **Decision rule:** the default rule above.
+- **Stop:** when one variant has P(best) > 0.95 with at least 300 exposures,
+  or after 120 days. Then ship the winner as the new control under a new
+  experiment key.
+
+### What to expect at current traffic
+
+In the 14 days to 2026-10-14 there were about 82 iOS paywall views, and 71 of
+them came from the beta (TestFlight) app. The App Store app had about 11
+views. That is roughly 0.8 eligible views a day. Four arms need
+4 x 50 = 200 exposed people before the first traffic move, which is about
+250 days at that rate. So for months the optimizer will hold the equal 25%
+split and report "hold equal split". This is correct behavior, not a bug.
+With a base conversion rate in the low single digits, a 50-person arm cannot
+tell the variants apart. Moving traffic earlier would follow noise. The
+experiment pays off only when App Store paywall traffic grows, or when it is
+run with fewer arms.
+
+## Adding an experiment (for example web-pricing-v1)
+
+1. Append its definition to `PAYWALL_EXPERIMENTS` in `experiments.ts`. Give
+   it a flag key, a platform, a control variant, the exposure predicate
+   (`COMMON_EXPOSURE_EXCLUSIONS` plus bot filtering for the web), the metrics
+   and `validatePayload`. Use `copyErrors` from `validator.ts` for every
+   string field.
+2. Add a seed flag to `SEED_FLAGS` in `runAll.ts`, so that dry runs work
+   before the flag exists.
+3. Record the exposure with `$feature_flag_called` and the properties in
+   rule 3. Keep the assignment sticky through `PaywallAssignmentStore`.
+4. Add a section to this file before the experiment gets traffic.

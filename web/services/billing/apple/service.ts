@@ -11,6 +11,8 @@ import type {
 } from "@apple/app-store-server-library";
 
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
+import { IOS_PAYWALL_EXPERIMENT } from "../paywall/iosPaywallV1";
+import { servedPaywallVariant } from "../paywall/store";
 import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
 import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
 import { appleServerApi, type AppleServerApi } from "./serverApi";
@@ -48,6 +50,11 @@ export type AppleIapDependencies = {
    * `subscription_entitlement_granted`. Without it no grant event is sent.
    */
   readonly activeEntitlement?: (userId: string) => Promise<AppleEntitlementRow | null>;
+  /**
+   * The paywall experiment variant last served to the user, for
+   * `paywall_experiment` and `paywall_variant` on the grant event.
+   */
+  readonly paywallVariant?: (userId: string) => Promise<string | null>;
   readonly now: () => Date;
 };
 
@@ -91,6 +98,7 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
     },
     captureEvent: (input) => captureServerEvent(input),
     activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
+    paywallVariant: (userId) => servedPaywallVariant(userId, IOS_PAYWALL_EXPERIMENT),
     now: () => new Date(),
   };
   return defaultDependencies;
@@ -430,6 +438,7 @@ async function captureEntitlementGranted(
   try {
     const granting = await deps.activeEntitlement(written.userId);
     if (granting?.originalTransactionId !== written.originalTransactionId) return;
+    const paywallVariant = deps.paywallVariant ? await deps.paywallVariant(written.userId) : null;
     await deps.captureEvent({
       event: "subscription_entitlement_granted",
       distinctId: written.userId,
@@ -444,6 +453,8 @@ async function captureEntitlementGranted(
         transaction_id: written.lastTransactionId,
         status: written.status,
         expires_at: written.expiresAt?.toISOString() ?? null,
+        paywall_experiment: paywallVariant ? IOS_PAYWALL_EXPERIMENT : null,
+        paywall_variant: paywallVariant,
       },
     });
   } catch (error) {

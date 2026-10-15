@@ -25,6 +25,7 @@ export async function POST(request: Request): Promise<Response> {
       bundleId: requestedAppleBundleId(request.headers.get("x-cmux-bundle-id")),
       storeKitEnvironment: requestedStoreKitEnvironment(request.headers.get("x-cmux-storekit-environment")),
       billingPeriods: requestedBillingPeriods(request.headers.get("x-cmux-billing-periods")),
+      bundleIdHeader: request.headers.get("x-cmux-bundle-id"),
     });
     return jsonResponse(body, 200, { "cache-control": "no-store" });
   } catch (error) {
