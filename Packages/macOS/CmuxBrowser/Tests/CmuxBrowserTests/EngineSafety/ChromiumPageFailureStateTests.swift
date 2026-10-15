@@ -1,0 +1,98 @@
+import CmuxBrowser
+import Darwin
+import Foundation
+import Testing
+
+@Suite struct ChromiumPageFailureStateTests {
+    let start = Date(timeIntervalSince1970: 1_000)
+    let crash = BrowserPageEvent.processTerminated(BrowserPageProcessExit(kind: .crashed, status: SIGSEGV))
+
+    @Test func visibleCrashShowsAwSnapAndWaitsForReload() {
+        var state = ChromiumPageFailureState()
+        state.apply(crash, at: start, paneVisible: true)
+        #expect(state.failure == .crashed(
+            BrowserPageProcessExit(kind: .crashed, status: SIGSEGV),
+            isRepeat: false,
+            restoresWhenShown: false
+        ))
+        #expect(state.showsPrompt)
+        // Hiding and showing the pane does not reload a page that crashed in view.
+        let result1 = state.paneShown()
+        #expect(!result1)
+        #expect(state.showsPrompt)
+        state.userReloaded()
+        #expect(state.failure == nil)
+    }
+
+    @Test func hiddenCrashRestoresWhenShownWithinBudget() {
+        var state = ChromiumPageFailureState()
+        for index in 0..<BrowserCrashReloadGuard.limit {
+            state.apply(crash, at: start.addingTimeInterval(Double(index) * 60), paneVisible: false)
+            #expect(!state.showsPrompt)
+            let result2 = state.paneShown()
+            #expect(result2)
+            #expect(state.failure == nil)
+        }
+        // Budget spent: the next hidden crash shows the crash page when shown.
+        state.apply(crash, at: start.addingTimeInterval(300), paneVisible: false)
+        let result3 = state.paneShown()
+        #expect(!result3)
+        #expect(state.showsPrompt)
+    }
+
+    @Test func repeatCrashWithinTenSecondsSaysCantOpen() {
+        var state = ChromiumPageFailureState()
+        state.apply(crash, at: start, paneVisible: true)
+        state.userReloaded()
+        state.apply(.processTerminated(.init(kind: .outOfMemory)), at: start.addingTimeInterval(4), paneVisible: true)
+        guard case .crashed(let exit, let isRepeat, _) = state.failure else {
+            Issue.record("expected a crash page")
+            return
+        }
+        #expect(isRepeat)
+        #expect(exit.kind == .outOfMemory)
+        // A crash after the repeat window is a first crash again.
+        state.userReloaded()
+        state.apply(crash, at: start.addingTimeInterval(4 + ChromiumPageFailureState.repeatWindow), paneVisible: true)
+        if case .crashed(_, true, _) = state.failure { Issue.record("late crash counted as a repeat") }
+    }
+
+    @Test func committedNavigationClearsTheFailure() {
+        var state = ChromiumPageFailureState()
+        state.apply(crash, at: start, paneVisible: true)
+        state.apply(.navigationCommitted(URL(string: "https://example.com")), at: start, paneVisible: true)
+        #expect(state.failure == nil)
+    }
+
+    @Test func hangPromptWaitAndExit() {
+        var state = ChromiumPageFailureState()
+        state.apply(.unresponsiveChanged(true), at: start, paneVisible: true)
+        #expect(state.failure == .unresponsive)
+        state.answeredUnresponsive(terminate: false)
+        #expect(state.failure == nil)
+
+        state.apply(.unresponsiveChanged(true), at: start, paneVisible: true)
+        state.answeredUnresponsive(terminate: true)
+        #expect(state.failure == .unresponsive)
+        state.apply(.processTerminated(.init(kind: .killed, status: SIGKILL)), at: start, paneVisible: true)
+        guard case .crashed(let exit, _, false) = state.failure else {
+            Issue.record("expected a crash page after Exit page")
+            return
+        }
+        #expect(exit.codeDescription == "SIGKILL")
+    }
+
+    @Test func pageRecoveringClearsTheHangOnly() {
+        var state = ChromiumPageFailureState()
+        state.apply(.unresponsiveChanged(true), at: start, paneVisible: true)
+        state.apply(.unresponsiveChanged(false), at: start, paneVisible: true)
+        #expect(state.failure == nil)
+        // A late "responsive" never hides a crash page.
+        state.apply(crash, at: start, paneVisible: true)
+        state.apply(.unresponsiveChanged(false), at: start, paneVisible: true)
+        #expect(state.showsPrompt)
+        // A hang report while crashed does not replace the crash page.
+        state.apply(.unresponsiveChanged(true), at: start, paneVisible: true)
+        if case .crashed = state.failure {} else { Issue.record("crash page replaced") }
+    }
+}
