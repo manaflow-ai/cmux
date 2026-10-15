@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   aptClosureProblems,
   basePackageProblems,
@@ -51,6 +53,20 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
+  });
+
+  test("pins the daemon and hook to the current published cmux-tui tree", () => {
+    const lock = readInputsLock();
+    const daemon = lock.programs.find((program) => program.name === "cmux-tui")!;
+    const hook = lock.programs.find((program) => program.name === "cmux-tui-hook")!;
+    const repoRoot = path.resolve(path.dirname(DEFAULT_LOCK_PATH), "../..");
+    const treeKey = execFileSync("bash", [path.join(repoRoot, "scripts/cmux-next/pin-cmux-tui.sh"), "key"], { cwd: repoRoot, encoding: "utf8" }).trim();
+
+    expect(hook.version).toBe(daemon.version);
+    expect(daemon.url).toBe(`https://files.cmux.com/cmux-tui/${daemon.version}/cmux-tui-x86_64-unknown-linux-musl`);
+    expect(hook.url).toBe(`https://files.cmux.com/cmux-tui/${daemon.version}/cmux-tui-hook-x86_64-unknown-linux-musl`);
+    expect(daemon.source).toContain(`tree ${treeKey.slice(0, 12)}`);
+    expect(hook.source).toContain(`tree ${treeKey.slice(0, 12)}`);
   });
 
   test("refuses a version range or tag on a program", () => {

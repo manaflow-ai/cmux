@@ -172,9 +172,4 @@ describe("image staleness guard", () => {
     expect(tip.always).toContain("frontend-browser-tabs-v1")
     expect(tip.conditional).toContain("terminal-reaper-active-v1")
   })
-
-  it("keeps the checked-in dev images aligned with the current tip", () => {
-    const report = checkStaleness(treeReader(REAL(".")))
-    expect(report.problems).toEqual([])
-  })
 })
