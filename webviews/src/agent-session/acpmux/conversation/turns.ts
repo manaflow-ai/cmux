@@ -12,7 +12,7 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
-import { toolLabel } from "../toolPaths";
+import { editedPaths, toolLabel } from "../toolPaths";
 import type { Translate } from "../i18n";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -442,11 +442,19 @@ function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clock
     .reverse()
     .find((item) => item.tool && (item.tool.status === "pending" || item.tool.status === "in_progress"));
   const label = running?.tool
-    ? toolLabel(running.tool, running.text, (command) => command)
+    ? runningLabel(running.tool, running.text)
     : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
   let version = 1;
   for (let index = 0; index < label.length; index += 1) version = (version * 31 + label.charCodeAt(index)) % 1_000_003;
   return { id: `${ACTIVITY_LINE}-${user.id}`, version, at: user.at + clockOffset, kind: ACTIVITY_LINE, text: label };
+}
+
+/// One quiet line: an edited file by its name ('Edit ProductGrid.module.css'), as the card above names it.
+function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): string {
+  const path = editedPaths(tool)[0];
+  if (!path || tool.kind === "execute") return toolLabel(tool, text, (command) => command);
+  const verb = toolLabel(tool, text, (command) => command).split(/\s+/, 1)[0];
+  return `${verb} ${path.split("/").pop() || path}`;
 }
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
