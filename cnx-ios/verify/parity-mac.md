@@ -240,6 +240,7 @@ Phone: this branch's Demo build in one headless simulator, real link. Videos:
 | Codex tool approval: "echo hi > p2-approval.txt" | Pass: Codex asked first ("Codex wants to run a command"), Allow + Face ID (simulator match) on the phone, the file appeared on the Mac | `codex-approval.mp4` |
 | `claude-sr` (sr claude proxy) | Pass (was "agent process closed"): open 4.5 s, "PONG" 3.9 s | `sr-agent.mp4` |
 | `claude` (user settings route to the subrouter) | Pass: "PONG" 1.9 s | `claude-agent.mp4` |
+| Restart Shell Here (rig `cnx-p2-1585ab34`; the rig killed the tab's terminal host until the Mac stopped respawning it, as "Terminal stopped: its host kept failing") | Pass: the phone showed "The shell ended." with Restart Shell Here; one tap, the Mac listed the tab live in 0.1 s with a new shell (pid 55406 -> 55788), whose parent is the rig app's own `cmux-tui __terminal-host` on the Mac; the page reattached and `echo restarted-$((6*7))` printed `restarted-42` | `restart-shell.mp4` |
 | `cmux` (local relay to the cmux model router) | The request now reaches the relay from the sandbox (was: Working, no reply). The hosted router answered 403 "this team cannot use the model router on this deployment yet" for the test account: an account entitlement, not the phone path. On mini-cmux11s the rig's local router did not answer its admin socket (a Mac-side router problem; a Mac-local session failed the same way). | `cmux-agent.mp4` |
 
 Findings fixed in round 2:

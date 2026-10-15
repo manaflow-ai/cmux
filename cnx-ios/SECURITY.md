@@ -559,10 +559,15 @@ no `auth` before it (`echo` included) is refused at once. The design is in
 | Mutates or destroys objects the session does not own? | Only the person's own tab, as the Mac's button does. |
 | Reads local state the remote should not see? | No. |
 
-- **Rule 4 (live verification).** On the rig Mac (`cnx-p2-26459378`): see
-  `verify/parity-mac.md` Round 2 for the run in which a phone-made terminal whose
-  shell ended was restarted from the phone, and the Mac listed a new shell process
-  under the same tab.
+- **Rule 4 (live verification), 2026-10-15.** Rig Mac `cnx-p2-1585ab34` (a real
+  build of this branch on mini-cmux11s). The tab's terminal host was killed until
+  the Mac stopped respawning it (the tab dead, `restart_exhausted`); the phone's
+  Restart Shell Here sent `restart-tab {surface}`; the Mac listed the same tab live
+  with a new shell, pid 55788, whose parent was the rig app's own
+  `cmux-tui __terminal-host --owner com.cmuxterm.app.debug.cnx.p2.1585ab34`, i.e. it ran
+  on the Mac under the person's daemon, and a command typed from the phone ran
+  there (`verify/parity-mac.md` Round 2, `restart-shell.mp4`). The phone cannot pick
+  what runs: only the tab's own recorded launch restarts.
 - Tests: hostd `restart_shell_takes_only_the_tab`, Swift `DaemonLanePolicyRestartTests`.
 
 ### `acpmux`: the Mac's last New Tab pick (`_acpmux/new_chat_picks_set`)
