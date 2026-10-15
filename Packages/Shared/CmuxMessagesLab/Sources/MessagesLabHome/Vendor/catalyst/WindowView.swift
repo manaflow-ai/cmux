@@ -85,6 +85,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// Ask for `settle(at:)` at an engine time (event-driven cleanup).
     var requestWake: (Double) -> Void = { _ in }
     var onScrollPosition: () -> Void = {}
+    /// Called after the transcript applies a model/layout change. The host
+    /// uses the final offset to refresh overlays such as Chief's header fade.
+    var onGeometryChange: () -> Void = {}
     /// cmux-classic: a typing indicator that goes away leaves at once, with no fade (the Chief's turn ended,
     /// failed or waits on an approval card: the faded ghost lingered under the card and the last bubble).
     var cmuxTypingOffAtOnce = false
@@ -522,7 +525,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard bounds.size != laidOutSize else { return }
+        guard bounds.size != laidOutSize else {
+            onGeometryChange()
+            return
+        }
         let widthChanged = laidOutSize.width != 0 && bounds.width != laidOutSize.width
         laidOutSize = bounds.size
         // Pinned to the bottom, a resize keeps the bottom pinned: the last row stays on the
@@ -570,6 +576,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // The fills follow the new height (cells made later get it in decorate).
         let span = fillSpan
         for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
+        onGeometryChange()
     }
 
     /// A live window resize (appkit-native HostView viewWillStartLiveResize / viewDidEndLiveResize, cx-3cb
@@ -1056,6 +1063,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // target, a commit that moved nothing gave every row the rounding error as a delta (a
         // status change sprang ~35 rows by -0.05 pt, each with a container and a fill spring).
         newOffset = collection.contentOffset.y
+        onGeometryChange()
 
         phase("layoutPass")
         // A field height change from the draft (typing, an attachment) moves the rows at once, on

@@ -81,6 +81,9 @@ final class ChiefService {
     /// Conversations a transcript shows to the user now (key window, page
     /// visible), by the view that shows each.
     private var visibleTranscripts: [ObjectIdentifier: ConversationID] = [:]
+    /// Changes when a transcript becomes visible or hidden so Home's list can
+    /// clear an unread dot without waiting for a store mutation.
+    var visibleGeneration = 0
 
     /// Conversations the user can see now; their replies are read as they land.
     var visibleConversations: Set<ConversationID> { Set(visibleTranscripts.values) }
@@ -95,6 +98,7 @@ final class ChiefService {
     func setTranscript(_ key: ObjectIdentifier, showing conversation: ConversationID?) {
         guard visibleTranscripts[key] != conversation else { return }
         visibleTranscripts[key] = conversation
+        visibleGeneration &+= 1
     }
 
     /// Unread Chief messages in the conversations the user cannot see now

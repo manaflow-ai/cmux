@@ -155,6 +155,7 @@ final class ChiefHomeView: NSView {
         let me = ChiefService.shared.me
         let avatar = listAvatar
         // A conversation on screen is being read: no dot, even before its read cursor lands.
+        _ = ChiefService.shared.visibleGeneration
         let visible = ChiefService.shared.visibleConversations
         let pinned = pinnedOrder ?? rows.filter { $0.summary.pinRank != nil }
             .sorted { ($0.summary.pinRank ?? 0, $0.id.rawValue) < ($1.summary.pinRank ?? 0, $1.id.rawValue) }
@@ -175,7 +176,7 @@ final class ChiefHomeView: NSView {
                 // No message yet: no time (the list draws none for `.distantPast`), as Messages shows a new thread.
                 preview: Self.listPreview(row, line: line, waiting: waiting), previewSender: nil,
                 lastAt: Self.hasNoMessages(row) ? .distantPast : row.timestamp,
-                unreadCount: marked ? max(row.unread, 1) : (visible.contains(row.id) ? 0 : row.unread), pinned: pinnedSet.contains(row.id),
+                unreadCount: visible.contains(row.id) ? 0 : (marked ? max(row.unread, 1) : row.unread), pinned: pinnedSet.contains(row.id),
                 typing: row.isTyping && !working,
                 avatar: avatar)
         }

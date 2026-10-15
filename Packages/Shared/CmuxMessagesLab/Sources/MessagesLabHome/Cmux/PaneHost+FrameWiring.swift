@@ -18,6 +18,7 @@ extension ChatController {
             demo.widthFrameScheduler = { [weak self] f in if let self { self.nextFrame(f) } else { f() } }
             demo.onWidthPass = { [weak self] in self?.host.placeNativeViews() }
         }
+        demo.onGeometryChange = { [weak self] in self?.host.applyHeaderReveal() }
         demo.pageFollowers = [host.selectionHost.root]
         (host.scrollView.verticalScroller as? SequenceScroller)?.onPage = { [weak self] dir in
             // One page, animated as Messages does (TranscriptScrollView.page).
