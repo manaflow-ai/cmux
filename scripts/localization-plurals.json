@@ -849,7 +849,7 @@
     ]
   },
   "cli.vm.clone.setup.doneDetail": {
-    "source": "%ld step(s) in terminal %@",
+    "source": "%ld steps in terminal %@",
     "arguments": [
       1
     ]
@@ -858,6 +858,12 @@
     "source": "setup step %1$ld/%2$ld `%3$@` was still running after %4$ld minutes (not stopped)",
     "arguments": [
       4
+    ]
+  },
+  "cli.vm.clone.setup.confirm": {
+    "source": "Run these %1$ld setup commands from %2$@ on %3$@? They run with your Cloud Secrets. [y/N] ",
+    "arguments": [
+      1
     ]
   }
 }

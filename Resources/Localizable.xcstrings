@@ -658253,65 +658253,6 @@
         }
       }
     },
-    "cloud.gettingStarted.agent.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Run this in any terminal. It clones the repo onto a machine and starts the agent there."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아무 터미널에서나 실행하세요. 저장소를 머신에 클론하고 그곳에서 에이전트를 시작합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意のターミナルで実行してください。リポジトリをマシンにクローンし、そこでエージェントを起動します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在任意终端中运行此命令。它会将仓库克隆到机器上，并在那里启动代理。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在任何終端機中執行此指令。它會將儲存庫複製到機器上，並在那裡啟動代理程式。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ejecuta esto en cualquier terminal. Clona el repositorio en una máquina e inicia allí el agente."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "شغّل هذا في أي طرفية. يستنسخ المستودع على جهاز ويشغّل الوكيل هناك."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Führen Sie dies in einem beliebigen Terminal aus. Das Repository wird auf eine Maschine geklont und der Agent dort gestartet."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Exécutez cette commande dans n’importe quel terminal. Elle clone le dépôt sur une machine et y lance l’agent."
-          }
-        }
-      }
-    },
     "cloud.gettingStarted.agent.title": {
       "extractionState": "manual",
       "localizations": {
@@ -658371,65 +658312,6 @@
         }
       }
     },
-    "cloud.gettingStarted.keys.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Every machine gets them, so Claude Code and Codex sign in on their own. Values never pass through cmux servers."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모든 머신이 키를 받으므로 Claude Code와 Codex가 자동으로 로그인합니다. 값은 cmux 서버를 거치지 않습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのマシンに配布されるため、Claude Code と Codex が自動でサインインします。値が cmux のサーバを経由することはありません。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每台机器都会获得这些密钥，Claude Code 和 Codex 可以自行登录。值永远不会经过 cmux 服务器。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每部機器都會取得這些金鑰，因此 Claude Code 和 Codex 可以自行登入。值絕不會經過 cmux 伺服器。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Todas las máquinas las reciben, así que Claude Code y Codex inician sesión por sí solos. Los valores nunca pasan por los servidores de cmux."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحصل عليها كل جهاز، فيسجّل Claude Code وCodex الدخول تلقائيًا. لا تمر القيم أبدًا عبر خوادم cmux."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jede Maschine erhält sie, sodass sich Claude Code und Codex selbstständig anmelden. Die Werte laufen nie über cmux-Server."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chaque machine les reçoit, pour que Claude Code et Codex se connectent d’eux-mêmes. Les valeurs ne transitent jamais par les serveurs cmux."
-          }
-        }
-      }
-    },
     "cloud.gettingStarted.keys.title": {
       "extractionState": "manual",
       "localizations": {
@@ -658485,65 +658367,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ajoutez vos clés API"
-          }
-        }
-      }
-    },
-    "cloud.gettingStarted.machine.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A computer in the cloud that keeps running after you close your laptop."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트북을 닫은 후에도 계속 실행되는 클라우드 속 컴퓨터입니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ノートパソコンを閉じても動き続ける、クラウド上のコンピュータです。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一台云端计算机，合上笔记本电脑后仍会继续运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一部位於雲端的電腦，闔上筆電後仍會繼續執行。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un ordenador en la nube que sigue funcionando después de cerrar el portátil."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "كمبيوتر في السحابة يواصل العمل بعد إغلاق الكمبيوتر المحمول."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Computer in der Cloud, der weiterläuft, wenn Sie Ihren Laptop zuklappen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un ordinateur dans le cloud qui continue de tourner une fois votre portable fermé."
           }
         }
       }
@@ -658898,65 +658721,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Annuler"
-          }
-        }
-      }
-    },
-    "cloudSecrets.editor.getKey": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Get a %@ key"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 키 받기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ キーを取得"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "获取 %@ 密钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取得 %@ 金鑰"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obtener una clave de %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الحصول على مفتاح %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@-Schlüssel erhalten"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obtenir une clé %@"
           }
         }
       }
@@ -659669,65 +659433,6 @@
         }
       }
     },
-    "cloudSecrets.editor.value.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paste the key"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "키 붙여넣기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キーをペースト"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "粘贴密钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "貼上金鑰"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pega la clave"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الصق المفتاح"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schlüssel einfügen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Collez la clé"
-          }
-        }
-      }
-    },
     "cloudSecrets.empty.addAnthropic": {
       "extractionState": "manual",
       "localizations": {
@@ -659842,65 +659547,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ajouter une clé OpenAI"
-          }
-        }
-      }
-    },
-    "cloudSecrets.empty.addOther": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add another variable"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 변수 추가"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ほかの変数を追加"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添加其他变量"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "加入其他變數"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Añadir otra variable"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إضافة متغير آخر"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Andere Variable hinzufügen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajouter une autre variable"
           }
         }
       }
@@ -660078,65 +659724,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ajoutez votre première clé API"
-          }
-        }
-      }
-    },
-    "cloudSecrets.import.paste": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paste .env"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": ".env 붙여넣기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": ".env をペースト"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "粘贴 .env"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "貼上 .env"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pegar .env"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لصق .env"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": ".env einfügen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Coller un .env"
           }
         }
       }
@@ -661793,65 +661380,6 @@
         }
       }
     },
-    "cloudSecrets.presets.accessibility": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add %@ key"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 키 추가"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ キーを追加"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添加 %@ 密钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "加入 %@ 金鑰"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Añadir clave de %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إضافة مفتاح %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@-Schlüssel hinzufügen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajouter une clé %@"
-          }
-        }
-      }
-    },
     "cloudSecrets.presets.help": {
       "extractionState": "manual",
       "localizations": {
@@ -663264,183 +662792,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Supprimer"
-          }
-        }
-      }
-    },
-    "cloudSecrets.remove.message.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "It is deleted from this Mac’s Keychain and removed from every machine at the next sync. Shells that are already open keep the old value."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac의 키체인에서 삭제되고 다음 동기화 때 모든 머신에서 제거됩니다. 이미 열려 있는 셸은 이전 값을 유지합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac のキーチェーンから削除され、次回の同期ですべてのマシンから削除されます。すでに開いているシェルは古い値を保持します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它将从这台 Mac 的钥匙串中删除，并在下次同步时从所有机器上移除。已打开的 shell 会保留旧值。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它會從這部 Mac 的鑰匙圈中刪除，並在下次同步時從所有機器上移除。已開啟的 shell 會保留舊值。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se elimina del llavero de este Mac y de todas las máquinas en la próxima sincronización. Los shells que ya están abiertos conservan el valor anterior."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سيُحذف من سلسلة المفاتيح على جهاز Mac هذا ويُزال من كل الأجهزة عند المزامنة التالية. تحتفظ الصدفات المفتوحة بالفعل بالقيمة القديمة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es wird aus dem Schlüsselbund dieses Mac gelöscht und bei der nächsten Synchronisierung von allen Maschinen entfernt. Bereits geöffnete Shells behalten den alten Wert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il sera effacé du trousseau de ce Mac et retiré de toutes les machines lors de la prochaine synchronisation. Les shells déjà ouverts conservent l’ancienne valeur."
-          }
-        }
-      }
-    },
-    "cloudSecrets.remove.message.machine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "It is deleted from this Mac’s Keychain and removed from %@ at the next sync. Shells that are already open keep the old value."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac의 키체인에서 삭제되고 다음 동기화 때 %@에서 제거됩니다. 이미 열려 있는 셸은 이전 값을 유지합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac のキーチェーンから削除され、次回の同期で %@ から削除されます。すでに開いているシェルは古い値を保持します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它将从这台 Mac 的钥匙串中删除，并在下次同步时从 %@ 上移除。已打开的 shell 会保留旧值。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它會從這部 Mac 的鑰匙圈中刪除，並在下次同步時從 %@ 上移除。已開啟的 shell 會保留舊值。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se elimina del llavero de este Mac y de %@ en la próxima sincronización. Los shells que ya están abiertos conservan el valor anterior."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سيُحذف من سلسلة المفاتيح على جهاز Mac هذا ويُزال من %@ عند المزامنة التالية. تحتفظ الصدفات المفتوحة بالفعل بالقيمة القديمة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es wird aus dem Schlüsselbund dieses Mac gelöscht und bei der nächsten Synchronisierung von %@ entfernt. Bereits geöffnete Shells behalten den alten Wert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il sera effacé du trousseau de ce Mac et retiré de %@ lors de la prochaine synchronisation. Les shells déjà ouverts conservent l’ancienne valeur."
-          }
-        }
-      }
-    },
-    "cloudSecrets.remove.message.project": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "It is deleted from this Mac’s Keychain and removed from machines linked to %@ at the next sync. Shells that are already open keep the old value."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac의 키체인에서 삭제되고 다음 동기화 때 %@에 연결된 머신에서 제거됩니다. 이미 열려 있는 셸은 이전 값을 유지합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac のキーチェーンから削除され、次回の同期で %@ にリンクされたマシンから削除されます。すでに開いているシェルは古い値を保持します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它将从这台 Mac 的钥匙串中删除，并在下次同步时从关联到 %@ 的机器上移除。已打开的 shell 会保留旧值。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它會從這部 Mac 的鑰匙圈中刪除，並在下次同步時從連結至 %@ 的機器上移除。已開啟的 shell 會保留舊值。"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se elimina del llavero de este Mac y de las máquinas vinculadas a %@ en la próxima sincronización. Los shells que ya están abiertos conservan el valor anterior."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سيُحذف من سلسلة المفاتيح على جهاز Mac هذا ويُزال من الأجهزة المرتبطة بـ %@ عند المزامنة التالية. تحتفظ الصدفات المفتوحة بالفعل بالقيمة القديمة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es wird aus dem Schlüsselbund dieses Mac gelöscht und bei der nächsten Synchronisierung von den mit %@ verknüpften Maschinen entfernt. Bereits geöffnete Shells behalten den alten Wert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il sera effacé du trousseau de ce Mac et retiré des machines liées à %@ lors de la prochaine synchronisation. Les shells déjà ouverts conservent l’ancienne valeur."
           }
         }
       }
@@ -669098,114 +668449,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "the one this repository used last, else an idle pool machine, else a new one"
+            "value": "the one this repository used last, else your only running machine, else an idle pool machine, else a new one"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "die zuletzt von diesem Repository genutzte, sonst eine freie Pool-Maschine, sonst eine neue"
+            "value": "die zuletzt von diesem Repository genutzte, sonst Ihre einzige laufende Maschine, sonst eine freie Pool-Maschine, sonst eine neue"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "celle que ce dépôt a utilisée en dernier, sinon une machine inactive du pool, sinon une nouvelle"
+            "value": "celle que ce dépôt a utilisée en dernier, sinon votre seule machine en cours d’exécution, sinon une machine inactive du pool, sinon une nouvelle"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الجهاز الذي استخدمه هذا المستودع آخر مرة، وإلا فجهاز خامل من المجموعة، وإلا فجهاز جديد"
+            "value": "الجهاز الذي استخدمه هذا المستودع آخر مرة، وإلا فجهازك الوحيد قيد التشغيل، وإلا فجهاز خامل من المجموعة، وإلا فجهاز جديد"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "la que usó este repositorio la última vez; si no, una máquina inactiva del grupo; si no, una nueva"
+            "value": "la que usó este repositorio la última vez; si no, tu única máquina en ejecución; si no, una máquina inactiva del grupo; si no, una nueva"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此儲存庫上次使用的機器，否則使用閒置的集區機器，再否則建立新機器"
+            "value": "此儲存庫上次使用的機器，否則使用您唯一執行中的機器，否則使用閒置的集區機器，再否則建立新機器"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此仓库上次使用的机器；若没有，则使用空闲的池机器；再没有则新建一台"
+            "value": "此仓库上次使用的机器；若没有，则使用你唯一正在运行的机器；再没有，则使用空闲的池机器；仍没有则新建一台"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 저장소가 마지막으로 사용한 머신, 없으면 유휴 풀 머신, 그것도 없으면 새 머신"
+            "value": "이 저장소가 마지막으로 사용한 머신, 없으면 실행 중인 유일한 머신, 없으면 유휴 풀 머신, 그것도 없으면 새 머신"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このリポジトリが前回使用したマシン、なければ待機中のプールマシン、それもなければ新しいマシン"
-          }
-        }
-      }
-    },
-    "cli.vm.clone.setup.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %1$@ on %2$@. The \"setup\" terminal stays open in the checkout."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %1$@ auf %2$@. Das Terminal \"setup\" bleibt im Checkout geöffnet."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %1$@ sur %2$@. Le terminal \"setup\" reste ouvert dans le checkout."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %1$@ على %2$@. تبقى الطرفية \"setup\" مفتوحة في النسخة المستنسخة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %1$@ en %2$@. El terminal \"setup\" sigue abierto en la copia de trabajo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %2$@ 上發生 %1$@。\"setup\" 終端機會在檢出目錄中保持開啟。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %2$@ 上%1$@。“setup”终端在检出目录中保持打开。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %2$@에서 %1$@. \"setup\" 터미널은 체크아웃에서 열린 상태로 유지됩니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "vm clone: %2$@ で %1$@。\"setup\" ターミナルはチェックアウト内で開いたままです。"
+            "value": "このリポジトリが前回使用したマシン、なければ実行中の唯一のマシン、なければ待機中のプールマシン、それもなければ新しいマシン"
           }
         }
       }
@@ -671399,13 +670691,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No secret named %1$@ in %2$@."
+            "value": "No secret named %1$@ for %2$@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein Secret namens %1$@ im Bereich „%2$@“."
+            "value": "Kein Secret namens %1$@ für %2$@."
           }
         },
         "fr": {
@@ -671417,37 +670709,37 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يوجد سر باسم %1$@ في %2$@."
+            "value": "لا يوجد سر باسم %1$@ لـ %2$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay ningún secreto llamado %1$@ en %2$@."
+            "value": "No hay ningún secreto llamado %1$@ para %2$@."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%2$@ 中沒有名為 %1$@ 的機密。"
+            "value": "沒有為 %2$@ 儲存名為 %1$@ 的機密。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%2$@ 中没有名为 %1$@ 的机密。"
+            "value": "没有为 %2$@ 存储名为 %1$@ 的机密。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%2$@에 %1$@(이)라는 시크릿이 없습니다."
+            "value": "%2$@에 대한 %1$@(이)라는 시크릿이 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%2$@ に %1$@ という名前のシークレットはありません。"
+            "value": "%2$@ 用の %1$@ という名前のシークレットはありません。"
           }
         }
       }
@@ -675077,7 +674369,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%ld step(s) in terminal %@"
+                  "value": "%ld steps in terminal %@"
                 }
               }
             }
@@ -677105,6 +676397,2368 @@
           "stringUnit": {
             "state": "translated",
             "value": "%ld 台が実行中"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.dotDetachedHead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note: this checkout is on a detached HEAD (%1$@), so the machine clones origin's default branch, not that commit. Pass --branch <name> to clone a branch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملاحظة: هذه النسخة على detached HEAD (%1$@)، لذا يستنسخ الجهاز الفرع الافتراضي لـ origin وليس هذا الالتزام. مرّر --branch <name> لاستنساخ فرع."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinweis: Dieser Checkout ist auf einem detached HEAD (%1$@), daher klont die Maschine den Standard-Branch von origin, nicht diesen Commit. Übergeben Sie --branch <name>, um einen Branch zu klonen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nota: esta copia de trabajo está en un detached HEAD (%1$@), así que la máquina clona la rama predeterminada de origin, no ese commit. Pasa --branch <name> para clonar una rama."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remarque : ce checkout est sur un detached HEAD (%1$@), la machine clone donc la branche par défaut d’origin, et non ce commit. Passez --branch <name> pour cloner une branche."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意: このチェックアウトは detached HEAD（%1$@）のため、マシンはそのコミットではなく origin のデフォルトブランチをクローンします。ブランチをクローンするには --branch <name> を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참고: 이 체크아웃은 detached HEAD(%1$@) 상태이므로 머신은 해당 커밋이 아니라 origin의 기본 브랜치를 클론합니다. 브랜치를 클론하려면 --branch <name>을 전달하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意：此检出目录处于 detached HEAD（%1$@），因此机器会克隆 origin 的默认分支，而不是该提交。传入 --branch <name> 可克隆指定分支。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意：此檢出目錄位於 detached HEAD（%1$@），因此機器會複製 origin 的預設分支，而不是該提交。傳入 --branch <name> 即可複製特定分支。"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.onlyRunningMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using %@ (your only running machine). Use --new for a fresh one."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم استخدام %@ (جهازك الوحيد قيد التشغيل). استخدم --new للحصول على جهاز جديد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird verwendet (Ihre einzige laufende Maschine). Verwenden Sie --new für eine neue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usando %@ (tu única máquina en ejecución). Usa --new para una nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation de %@ (votre seule machine en cours d’exécution). Utilisez --new pour en créer une nouvelle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を使用します（実行中の唯一のマシン）。新しいマシンを使うには --new を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 사용 중(실행 중인 유일한 머신). 새 머신을 사용하려면 --new를 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用 %@（你唯一正在运行的机器）。使用 --new 可新建一台。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用 %@（您唯一執行中的機器）。使用 --new 可建立新機器。"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.setup.failed.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: setup did not finish on %@. The \"setup\" terminal stays open in the checkout."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: لم يكتمل الإعداد على %@. تبقى الطرفية \"setup\" مفتوحة في النسخة المستنسخة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: Die Einrichtung auf %@ wurde nicht abgeschlossen. Das Terminal \"setup\" bleibt im Checkout geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: la configuración no terminó en %@. El terminal \"setup\" sigue abierto en la copia de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: la configuration ne s’est pas terminée sur %@. Le terminal \"setup\" reste ouvert dans le checkout."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %@ でセットアップが完了しませんでした。\"setup\" ターミナルはチェックアウト内で開いたままです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %@에서 설정이 완료되지 않았습니다. \"setup\" 터미널은 체크아웃에서 열린 상태로 유지됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %@ 上的设置未完成。“setup”终端在检出目录中保持打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %@ 上的設定未完成。\"setup\" 終端機會在檢出目錄中保持開啟。"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.setup.skippedDeclined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup skipped."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تخطي الإعداد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einrichtung übersprungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración omitida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration ignorée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップをスキップしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 건너뛰었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已略過設定。"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.setup.skippedExisting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup skipped: %1$@ was already checked out on the machine. Run again with --setup to run its setup commands (%2$@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تخطي الإعداد: كان %1$@ مستخرجًا بالفعل على الجهاز. أعد التشغيل باستخدام --setup لتشغيل أوامر الإعداد الخاصة به (%2$@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einrichtung übersprungen: %1$@ war auf der Maschine bereits ausgecheckt. Führen Sie den Befehl erneut mit --setup aus, um die Einrichtungsbefehle auszuführen (%2$@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración omitida: %1$@ ya estaba extraído en la máquina. Vuelve a ejecutar con --setup para ejecutar sus comandos de configuración (%2$@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration ignorée : %1$@ était déjà extrait sur la machine. Relancez avec --setup pour exécuter ses commandes de configuration (%2$@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップをスキップしました: %1$@ はすでにマシンにチェックアウトされています。セットアップコマンド（%2$@）を実行するには --setup を付けて再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 건너뛰었습니다: %1$@이(가) 이미 머신에 체크아웃되어 있습니다. 설정 명령(%2$@)을 실행하려면 --setup으로 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过设置：%1$@ 已在机器上检出。请加上 --setup 重新运行，以执行其设置命令（%2$@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已略過設定：%1$@ 已在機器上檢出。請加上 --setup 重新執行，以執行其設定指令（%2$@）。"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.setup.skippedUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup skipped: run again with --setup to run the setup commands from %1$@ (%2$@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تخطي الإعداد: أعد التشغيل باستخدام --setup لتشغيل أوامر الإعداد من %1$@ (%2$@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einrichtung übersprungen: Führen Sie den Befehl erneut mit --setup aus, um die Einrichtungsbefehle aus %1$@ auszuführen (%2$@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración omitida: vuelve a ejecutar con --setup para ejecutar los comandos de configuración de %1$@ (%2$@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration ignorée : relancez avec --setup pour exécuter les commandes de configuration de %1$@ (%2$@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップをスキップしました: %1$@ のセットアップコマンド（%2$@）を実行するには --setup を付けて再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 건너뛰었습니다: %1$@의 설정 명령(%2$@)을 실행하려면 --setup으로 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过设置：请加上 --setup 重新运行，以执行 %1$@ 的设置命令（%2$@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已略過設定：請加上 --setup 重新執行，以執行 %1$@ 的設定指令（%2$@）。"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.unknownMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: no machine named %@. Run `cmux vm ls` to see your machines."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: لا يوجد جهاز باسم %@. شغّل `cmux vm ls` لعرض أجهزتك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: Keine Maschine namens %@. Führen Sie `cmux vm ls` aus, um Ihre Maschinen anzuzeigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: no hay ninguna máquina llamada %@. Ejecuta `cmux vm ls` para ver tus máquinas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: aucune machine nommée %@. Exécutez `cmux vm ls` pour voir vos machines."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %@ という名前のマシンはありません。`cmux vm ls` を実行してマシンを確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: 이름이 %@인 머신이 없습니다. `cmux vm ls`를 실행하여 머신 목록을 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: 没有名为 %@ 的机器。运行 `cmux vm ls` 查看你的机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: 沒有名為 %@ 的機器。執行 `cmux vm ls` 以查看您的機器。"
+          }
+        }
+      }
+    },
+    "cli.vm.machineLabel.destructiveNearMiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: no machine is named exactly %2$@. Did you mean %3$@ (%4$@)? Type its exact label or its id: cmux vm %1$@ %4$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: لا يوجد جهاز اسمه %2$@ بالضبط. هل تقصد %3$@ (%4$@)؟ اكتب تسميته الدقيقة أو معرّفه: cmux vm %1$@ %4$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: Keine Maschine heißt genau %2$@. Meinten Sie %3$@ (%4$@)? Geben Sie die genaue Bezeichnung oder die ID ein: cmux vm %1$@ %4$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: ninguna máquina se llama exactamente %2$@. ¿Querías decir %3$@ (%4$@)? Escribe su etiqueta exacta o su ID: cmux vm %1$@ %4$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: aucune machine ne s’appelle exactement %2$@. Vouliez-vous dire %3$@ (%4$@) ? Saisissez son libellé exact ou son ID : cmux vm %1$@ %4$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: 名前が %2$@ と完全に一致するマシンはありません。%3$@（%4$@）のことですか？正確なラベルまたは ID を入力してください: cmux vm %1$@ %4$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: 이름이 정확히 %2$@인 머신이 없습니다. %3$@(%4$@)을(를) 말씀하신 건가요? 정확한 레이블이나 ID를 입력하세요: cmux vm %1$@ %4$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: 没有名称完全为 %2$@ 的机器。你是指 %3$@（%4$@）吗？请输入其完整标签或 ID：cmux vm %1$@ %4$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm %1$@: 沒有名稱完全為 %2$@ 的機器。您是指 %3$@（%4$@）嗎？請輸入其完整標籤或 ID：cmux vm %1$@ %4$@"
+          }
+        }
+      }
+    },
+    "cloudSecrets.cli.scope.unknownMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: no machine is named %@ (see `cmux vm ls`); using it as typed, so a secret stored for it reaches no machine until one has that id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير: لا يوجد جهاز باسم %@ (راجع `cmux vm ls`)؛ سيُستخدم كما كُتب، لذا لن يصل السر المخزّن له إلى أي جهاز حتى يحمل جهاز هذا المعرّف."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung: Keine Maschine heißt %@ (siehe `cmux vm ls`); der Wert wird wie eingegeben verwendet, daher erreicht ein dafür gespeichertes Secret keine Maschine, bis eine diese ID hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertencia: ninguna máquina se llama %@ (consulta `cmux vm ls`); se usará tal como se escribió, así que un secreto guardado para ella no llegará a ninguna máquina hasta que una tenga ese ID."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertissement : aucune machine ne s’appelle %@ (voir `cmux vm ls`) ; la valeur est utilisée telle quelle, donc un secret enregistré pour elle n’atteint aucune machine tant qu’aucune n’a cet ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: %@ という名前のマシンはありません（`cmux vm ls` を参照）。入力どおりに使用するため、これに保存したシークレットは、その ID を持つマシンができるまでどのマシンにも届きません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고: 이름이 %@인 머신이 없습니다(`cmux vm ls` 참조). 입력한 그대로 사용하므로, 이 값으로 저장한 시크릿은 해당 ID를 가진 머신이 생길 때까지 어떤 머신에도 전달되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：没有名为 %@ 的机器（参见 `cmux vm ls`）；将按输入内容使用，因此为其存储的机密在有机器使用该 ID 之前不会送达任何机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：沒有名為 %@ 的機器（請參閱 `cmux vm ls`）；將依輸入內容使用，因此為其儲存的機密在有機器使用該 ID 之前不會送達任何機器。"
+          }
+        }
+      }
+    },
+    "cloud.gettingStarted.agent.why": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clones a repo onto a machine and starts the agent there."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستنسخ مستودعًا على جهاز ويشغّل الوكيل هناك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klont ein Repository auf eine Maschine und startet dort den Agent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clona un repositorio en una máquina e inicia allí el agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clone un dépôt sur une machine et y lance l’agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリをマシンにクローンし、そこでエージェントを起動します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소를 머신에 클론하고 그곳에서 에이전트를 시작합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将仓库克隆到机器上，并在那里启动代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將儲存庫複製到機器上，並在那裡啟動代理程式。"
+          }
+        }
+      }
+    },
+    "cloud.gettingStarted.done.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start another agent any time with cmux vm clone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابدأ وكيلًا آخر في أي وقت باستخدام cmux vm clone."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit cmux vm clone können Sie jederzeit einen weiteren Agent starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia otro agente cuando quieras con cmux vm clone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lancez un autre agent à tout moment avec cmux vm clone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm clone でいつでも別のエージェントを起動できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "언제든지 cmux vm clone으로 다른 에이전트를 시작할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随时可以使用 cmux vm clone 启动另一个代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隨時可以使用 cmux vm clone 啟動另一個代理程式。"
+          }
+        }
+      }
+    },
+    "cloud.gettingStarted.done.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re set up"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الإعداد بالكامل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles eingerichtet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo listo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout est prêt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップ完了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 완료"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定完成"
+          }
+        }
+      }
+    },
+    "cloud.gettingStarted.keys.why": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every machine gets them, so agents sign in on their own."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحصل عليها كل جهاز، فيسجّل الوكلاء الدخول تلقائيًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Maschine erhält sie, sodass sich Agents selbstständig anmelden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas las máquinas las reciben, así que los agentes inician sesión por sí solos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque machine les reçoit, pour que les agents se connectent d’eux-mêmes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのマシンに配布されるため、エージェントが自動でサインインします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 머신이 키를 받으므로 에이전트가 자동으로 로그인합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台机器都会获得这些密钥，代理可以自行登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每部機器都會取得這些金鑰，因此代理程式可以自行登入。"
+          }
+        }
+      }
+    },
+    "cloud.gettingStarted.machine.why": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It keeps running after you close your laptop."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يواصل العمل بعد إغلاق الكمبيوتر المحمول."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie läuft weiter, wenn Sie Ihren Laptop zuklappen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sigue funcionando después de cerrar el portátil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elle continue de tourner une fois votre portable fermé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートパソコンを閉じても動き続けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트북을 닫은 후에도 계속 실행됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合上笔记本电脑后仍会继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "闔上筆電後仍會繼續執行。"
+          }
+        }
+      }
+    },
+    "cloudSecrets.import.chooseFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose File…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختيار ملف…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei auswählen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir archivo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un fichier…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを選択…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 선택…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文件…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇檔案…"
+          }
+        }
+      }
+    },
+    "cloudSecrets.import.paste.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste from Clipboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لصق من الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus Zwischenablage einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pegar desde el portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller depuis le presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードからペースト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립보드에서 붙여넣기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从剪贴板粘贴"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從剪貼板貼上"
+          }
+        }
+      }
+    },
+    "cloudSecrets.row.replace.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace the value"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدال القيمة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wert ersetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sustituir el valor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacer la valeur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "値を置き換え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "값 바꾸기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取代值"
+          }
+        }
+      }
+    },
+    "cloudSecrets.editor.getAPIKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get an API key from %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحصول على مفتاح API من %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel von %@ erhalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener una clave de API de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtenir une clé API auprès de %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で API キーを取得"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 API 키 받기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %@ 获取 API 密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 %@ 取得 API 金鑰"
+          }
+        }
+      }
+    },
+    "cloudSecrets.editor.getToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get a token from %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحصول على رمز مميز من %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token von %@ erhalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener un token de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtenir un jeton auprès de %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でトークンを取得"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 토큰 받기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %@ 获取令牌"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 %@ 取得權杖"
+          }
+        }
+      }
+    },
+    "cloudSecrets.editor.value.placeholder.apiKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste the API key"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصق مفتاح API"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega la clave de API"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez la clé API"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API キーをペースト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 키 붙여넣기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴 API 密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上 API 金鑰"
+          }
+        }
+      }
+    },
+    "cloudSecrets.editor.value.placeholder.token": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste the token"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصق الرمز المميز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega el token"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez le jeton"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トークンをペースト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "토큰 붙여넣기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴令牌"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上權杖"
+          }
+        }
+      }
+    },
+    "cloudSecrets.editor.value.placeholder.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste the value"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصق القيمة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wert einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega el valor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez la valeur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "値をペースト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "값 붙여넣기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上值"
+          }
+        }
+      }
+    },
+    "cloudSecrets.import.kind.skipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم التخطي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übersprungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignoré"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "건너뜀"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已略過"
+          }
+        }
+      }
+    },
+    "cloudSecrets.machine.syncing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ المزامنة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird synchronisiert…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronisation…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在同步…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在同步…"
+          }
+        }
+      }
+    },
+    "cloudSecrets.presets.accessibility.apiKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add %@ API key"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة مفتاح API لـ %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@-API-Schlüssel hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir clave de API de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une clé API %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ API キーを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ API 키 추가"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加 %@ API 密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入 %@ API 金鑰"
+          }
+        }
+      }
+    },
+    "cloudSecrets.presets.accessibility.token": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add %@ token"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة رمز مميز لـ %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@-Token hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir token de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un jeton %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ トークンを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 토큰 추가"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加 %@ 令牌"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入 %@ 權杖"
+          }
+        }
+      }
+    },
+    "cloudSecrets.remove.body.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines lose it on their next sync."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفقده الأجهزة عند مزامنتها التالية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinen verlieren es bei ihrer nächsten Synchronisierung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas lo pierden en su próxima sincronización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines le perdent lors de leur prochaine synchronisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンは次回の同期でこのシークレットを失います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신은 다음 동기화 때 이 시크릿을 잃게 됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器会在下次同步时失去它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器會在下次同步時失去它。"
+          }
+        }
+      }
+    },
+    "cloudSecrets.remove.body.machine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ loses it on its next sync."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفقده %@ عند مزامنته التالية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ verliert es bei der nächsten Synchronisierung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ lo pierde en su próxima sincronización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ le perd lors de sa prochaine synchronisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は次回の同期でこのシークレットを失います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 다음 동기화 때 이 시크릿을 잃게 됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 会在下次同步时失去它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 會在下次同步時失去它。"
+          }
+        }
+      }
+    },
+    "cloudSecrets.remove.body.project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines linked to %@ lose it on their next sync."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفقده الأجهزة المرتبطة بـ %@ عند مزامنتها التالية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit %@ verknüpfte Maschinen verlieren es bei ihrer nächsten Synchronisierung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas vinculadas a %@ lo pierden en su próxima sincronización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines liées à %@ le perdent lors de leur prochaine synchronisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にリンクされたマシンは次回の同期でこのシークレットを失います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 연결된 머신은 다음 동기화 때 이 시크릿을 잃게 됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关联到 %@ 的机器会在下次同步时失去它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結至 %@ 的機器會在下次同步時失去它。"
+          }
+        }
+      }
+    },
+    "cloudSecrets.row.age.justNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "just now"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الآن"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gerade eben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hace un momento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "à l’instant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "たった今"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방금"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刚刚"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剛剛"
+          }
+        }
+      }
+    },
+    "cloudSecrets.state.syncing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ المزامنة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird synchronisiert…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronisation…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在同步…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在同步…"
+          }
+        }
+      }
+    },
+    "cloudSecrets.state.syncing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is sending this secret to the machine now."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسل cmux هذا السر إلى الجهاز الآن."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sendet dieses Secret gerade an die Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux está enviando este secreto a la máquina ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux envoie ce secret à la machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux がこのシークレットをマシンに送信しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 지금 이 시크릿을 머신으로 보내고 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在将此机密发送到机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在將此機密傳送到機器。"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.agentError.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent reported an error. Open the terminal to see what happened."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبلغ الوكيل عن خطأ. افتح الطرفية لمعرفة ما حدث."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent hat einen Fehler gemeldet. Öffnen Sie das Terminal, um zu sehen, was passiert ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El agente informó de un error. Abre el terminal para ver qué pasó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agent a signalé une erreur. Ouvrez le terminal pour voir ce qui s’est passé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがエラーを報告しました。ターミナルを開いて何が起きたか確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 오류를 보고했습니다. 터미널을 열어 무슨 일이 있었는지 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理报告了错误。打开终端查看发生了什么。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式回報了錯誤。開啟終端機以查看發生了什麼事。"
+          }
+        }
+      }
+    },
+    "cloudTree.organization.failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent reported an error"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبلغ وكيل عن خطأ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent hat einen Fehler gemeldet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente informó de un error"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent a signalé une erreur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがエラーを報告しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 오류를 보고했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理报告了错误"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式回報了錯誤"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.setup.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Run %1$ld setup command from %2$@ on %3$@? It runs with your Cloud Secrets. [y/N] "
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Run these %1$ld setup commands from %2$@ on %3$@? They run with your Cloud Secrets. [y/N] "
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$ld Einrichtungsbefehl aus %2$@ auf %3$@ ausführen? Er läuft mit Ihren Cloud-Secrets. [y/N] "
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Diese %1$ld Einrichtungsbefehle aus %2$@ auf %3$@ ausführen? Sie laufen mit Ihren Cloud-Secrets. [y/N] "
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Exécuter %1$ld commande de configuration de %2$@ sur %3$@ ? Elle s’exécute avec vos Secrets Cloud. [y/N] "
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Exécuter ces %1$ld commandes de configuration de %2$@ sur %3$@ ? Elles s’exécutent avec vos Secrets Cloud. [y/N] "
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Exécuter ces %1$ld commandes de configuration de %2$@ sur %3$@ ? Elles s’exécutent avec vos Secrets Cloud. [y/N] "
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "هل تريد تشغيل %1$ld أمر إعداد من %2$@ على %3$@؟ تعمل بأسرار Cloud الخاصة بك. [y/N] "
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "هل تريد تشغيل أمر الإعداد هذا (%1$ld) من %2$@ على %3$@؟ يعمل بأسرار Cloud الخاصة بك. [y/N] "
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "هل تريد تشغيل أمري الإعداد هذين (%1$ld) من %2$@ على %3$@؟ يعملان بأسرار Cloud الخاصة بك. [y/N] "
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "هل تريد تشغيل أوامر الإعداد الـ %1$ld هذه من %2$@ على %3$@؟ تعمل بأسرار Cloud الخاصة بك. [y/N] "
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "هل تريد تشغيل %1$ld أمر إعداد من %2$@ على %3$@؟ تعمل بأسرار Cloud الخاصة بك. [y/N] "
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "هل تريد تشغيل %1$ld أمر إعداد من %2$@ على %3$@؟ تعمل بأسرار Cloud الخاصة بك. [y/N] "
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "¿Ejecutar %1$ld comando de configuración de %2$@ en %3$@? Se ejecuta con tus Secretos de Cloud. [y/N] "
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "¿Ejecutar estos %1$ld comandos de configuración de %2$@ en %3$@? Se ejecutan con tus Secretos de Cloud. [y/N] "
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "¿Ejecutar estos %1$ld comandos de configuración de %2$@ en %3$@? Se ejecutan con tus Secretos de Cloud. [y/N] "
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "要在 %3$@ 上執行來自 %2$@ 的這 %1$ld 個設定指令嗎？它們會使用您的 Cloud 機密執行。 [y/N] "
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "要在 %3$@ 上运行来自 %2$@ 的这 %1$ld 条设置命令吗？它们会使用你的 Cloud 机密运行。 [y/N] "
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%2$@의 설정 명령 %1$ld개를 %3$@에서 실행할까요? Cloud 시크릿을 사용해 실행됩니다. [y/N] "
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%2$@ の %1$ld 個のセットアップコマンドを %3$@ で実行しますか？Cloud シークレットを使用して実行されます。 [y/N] "
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "cli.vm.clone.setup.failed.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: the \"setup\" terminal on %4$@ closed during setup step %1$ld of %2$ld (`%3$@`)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: Das Terminal \"setup\" auf %4$@ wurde während Einrichtungsschritt %1$ld von %2$ld (`%3$@`) geschlossen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: le terminal \"setup\" sur %4$@ s’est fermé pendant l’étape de configuration %1$ld sur %2$ld (`%3$@`)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: أُغلقت الطرفية \"setup\" على %4$@ أثناء خطوة الإعداد %1$ld من %2$ld (`%3$@`)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: el terminal \"setup\" en %4$@ se cerró durante el paso de configuración %1$ld de %2$ld (`%3$@`)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %4$@ 上的 \"setup\" 終端機在設定步驟 %1$ld/%2$ld（`%3$@`）期間關閉。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %4$@ 上的“setup”终端在设置步骤 %1$ld/%2$ld（`%3$@`）期间关闭。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %4$@의 \"setup\" 터미널이 설정 단계 %1$ld/%2$ld(`%3$@`) 중에 닫혔습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %4$@ の \"setup\" ターミナルが、セットアップのステップ %1$ld/%2$ld（`%3$@`）の実行中に閉じられました。"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.setup.failed.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: setup step %1$ld of %2$ld (`%3$@`) exited with code %4$ld on %5$@. The \"setup\" terminal stays open in the checkout."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: Einrichtungsschritt %1$ld von %2$ld (`%3$@`) wurde auf %5$@ mit Code %4$ld beendet. Das Terminal \"setup\" bleibt im Checkout geöffnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: l’étape de configuration %1$ld sur %2$ld (`%3$@`) a quitté avec le code %4$ld sur %5$@. Le terminal \"setup\" reste ouvert dans le checkout."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: انتهت خطوة الإعداد %1$ld من %2$ld (`%3$@`) برمز الخروج %4$ld على %5$@. تبقى الطرفية \"setup\" مفتوحة في النسخة المستنسخة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: el paso de configuración %1$ld de %2$ld (`%3$@`) terminó con el código %4$ld en %5$@. El terminal \"setup\" sigue abierto en la copia de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: 設定步驟 %1$ld/%2$ld（`%3$@`）在 %5$@ 上以結束代碼 %4$ld 結束。\"setup\" 終端機會在檢出目錄中保持開啟。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: 设置步骤 %1$ld/%2$ld（`%3$@`）在 %5$@ 上以退出码 %4$ld 退出。“setup”终端在检出目录中保持打开。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %5$@에서 설정 단계 %1$ld/%2$ld(`%3$@`)이(가) 코드 %4$ld(으)로 종료되었습니다. \"setup\" 터미널은 체크아웃에서 열린 상태로 유지됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: %5$@ でセットアップのステップ %1$ld/%2$ld（`%3$@`）が終了コード %4$ld で終了しました。\"setup\" ターミナルはチェックアウト内で開いたままです。"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.setup.failed.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: setup step %1$ld of %2$ld (`%3$@`) was still running on %4$@ after %5$@. It was not stopped; the \"setup\" terminal stays open in the checkout."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: Einrichtungsschritt %1$ld von %2$ld (`%3$@`) lief auf %4$@ nach %5$@ noch. Er wurde nicht angehalten; das Terminal \"setup\" bleibt im Checkout geöffnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: l’étape de configuration %1$ld sur %2$ld (`%3$@`) était toujours en cours sur %4$@ après %5$@. Elle n’a pas été arrêtée ; le terminal \"setup\" reste ouvert dans le checkout."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: كانت خطوة الإعداد %1$ld من %2$ld (`%3$@`) لا تزال قيد التشغيل على %4$@ بعد %5$@. لم تُوقَف، وتبقى الطرفية \"setup\" مفتوحة في النسخة المستنسخة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: el paso de configuración %1$ld de %2$ld (`%3$@`) seguía en ejecución en %4$@ después de %5$@. No se detuvo; el terminal \"setup\" sigue abierto en la copia de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: 設定步驟 %1$ld/%2$ld（`%3$@`）在 %4$@ 上經過 %5$@ 後仍在執行。它未被停止；\"setup\" 終端機會在檢出目錄中保持開啟。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: 设置步骤 %1$ld/%2$ld（`%3$@`）在 %4$@ 上运行 %5$@ 后仍未结束。它未被停止；“setup”终端在检出目录中保持打开。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: 설정 단계 %1$ld/%2$ld(`%3$@`)이(가) %5$@이 지난 후에도 %4$@에서 계속 실행 중이었습니다. 중지되지 않았으며, \"setup\" 터미널은 체크아웃에서 열린 상태로 유지됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm clone: セットアップのステップ %1$ld/%2$ld（`%3$@`）は %5$@ 経過後も %4$@ で実行中でした。停止はしていません。\"setup\" ターミナルはチェックアウト内で開いたままです。"
           }
         }
       }
