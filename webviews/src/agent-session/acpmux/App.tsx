@@ -761,11 +761,14 @@ type TranscriptRange = { anchorId: string; focusId: string };
 /// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
 /// floating action for prompts and tool rows; it shows only for keyboard focus and a selected
 /// range (a prompt's hover shows the Copy under its bubble). The child view's "Subagent of" pill
-/// is navigation, with nothing to copy.
+/// is navigation, with nothing to copy. The Edited files card keeps its own controls in that
+/// corner, where the floating Copy covered View changes once focus was in the card (cx-ncc.106);
+/// a selected range still copies it.
 const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "assistant" &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
+  rowKind(row) !== "editedFiles" &&
   transcriptCopyText(row).length > 0;
 
 /// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
