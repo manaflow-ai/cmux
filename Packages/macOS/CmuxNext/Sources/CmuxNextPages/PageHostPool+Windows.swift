@@ -12,8 +12,8 @@ extension PageHostPool {
     /// A main window showed (its first workspace content): the spare parks there when the pool has
     /// no window on screen yet. A window that never becomes key (an app launched in the background)
     /// otherwise left the pool without a target, and the first Settings open loaded cold.
-    public func windowDidAppear(_ window: NSWindow) {
-        guard target?.isVisible != true else { return }
+    public func windowDidAppear(_ window: NSWindow?) {
+        guard let window, target?.isVisible != true else { return }
         follow(window)
     }
 
