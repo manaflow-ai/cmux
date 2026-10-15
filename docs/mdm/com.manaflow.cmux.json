@@ -1467,6 +1467,12 @@
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
+    "labs.sessionRail" : {
+      "default" : false,
+      "description" : "Shows the chat's environment, context use and the files it changed in a rail beside the chat.",
+      "title" : "Session side rail",
+      "type" : "boolean"
+    },
     "layout.centerFocusedColumn" : {
       "default" : "never",
       "description" : "layout.centerFocusedColumn",
