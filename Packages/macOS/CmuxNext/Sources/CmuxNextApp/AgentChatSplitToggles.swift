@@ -43,11 +43,11 @@ final class AgentChatSplitToggles {
     private var opened: [(id: String, baseline: Set<String>)] = []
     private static let remembered = 8
 
-    /// Toggles header action `id` on chat tab `chat` (in `store`): closes the split it opened when
-    /// that tab is still in the chat's workspace, else opens one (an action that opens no tracked
-    /// kind just runs).
+    /// Toggles header action `id` on chat tab `chat` (in `store`): closes the split it opened while it is in the chat's
+    /// workspace, else opens one (an untracked kind just runs; Terminal always opens one with `terminalButtonAdds` on).
     func toggle(_ id: String, cwd: String?, url: String? = nil, chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
+        if id == "splitRight", AgentPaneTunables.terminalButtonAdds.value { return open(id, cwd: cwd, url: url, chat: chat, store: store, actions: actions) }
         guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
             return Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: nil, actions: actions)
         }
