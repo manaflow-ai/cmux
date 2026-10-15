@@ -33,9 +33,86 @@ extension CMUXCLI {
         case "base": return vmBaseUsage
         case "domains": return cloudDomainsUsage
         case "secrets": return vmSecretsUsage
-        default: return nil
+        default: return vmFoldedVerbUsage[verb]
         }
     }
+
+    /// Usage for the verbs the `cmux vm --help` overview lists below its "More:" fold
+    /// with one line each and that have no usage of their own elsewhere. The overview
+    /// used to carry these option lists inline; they live here so `cmux vm <verb> --help`
+    /// still prints every flag.
+    static let vmFoldedVerbUsage: [String: String] = {
+        let fork = """
+        Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
+
+        Fork a machine as a new tracked Cloud VM and open it unless --detach is passed.
+        """
+        let restore = """
+        Usage: cmux vm restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
+
+        Restore a snapshot (`cmux vm snapshot ls <id>`) as a new tracked Cloud VM.
+        """
+        let shell = """
+        Usage: cmux vm shell <id> [--window <id|ref|index>] [--focus|--no-focus]
+               cmux vm attach <id> …
+
+        Drop into an interactive shell on an existing machine. Machines with a desktop
+        image also stream their screen into a browser split.
+        """
+        let ssh = """
+        Usage: cmux vm ssh <id> [--window <id|ref|index>] [--focus|--no-focus]
+
+        Drop into a cmux-managed SSH workspace for an existing machine, using the same
+        session path as `cmux ssh`.
+        """
+        let sshInfo = """
+        Usage: cmux vm ssh-info <id>
+
+        Print SSH connection details when the machine exposes SSH.
+        """
+        let desktop = """
+        Usage: cmux vm desktop <id> [--workspace <id|ref|index>]
+               cmux vm vnc <id> …
+
+        Open the machine's noVNC desktop as a pane in your workspace.
+        """
+        let status = """
+        Usage: cmux vm status <id>
+
+        Print the machine's provider, status, and image.
+        """
+        let stats = """
+        Usage: cmux vm stats <id>
+
+        CPU, memory, and disk right now. A sleeping machine stays asleep.
+        """
+        let remove = """
+        Usage: cmux vm rm <id>
+
+        Destroy the machine. Aliases: `destroy`, `delete`.
+        """
+        let tools = """
+        Usage: cmux vm tools <id>
+
+        Inspect the tools installed inside the machine.
+        """
+        let handoff = """
+        Usage: cmux vm handoff <id>
+
+        Print a short attach handoff block for the machine.
+        """
+        let promote = """
+        Usage: cmux vm promote-template <id>
+
+        Snapshot the machine with a template-oriented name.
+        """
+        return [
+            "fork": fork, "restore": restore, "shell": shell, "attach": shell,
+            "ssh": ssh, "ssh-info": sshInfo, "desktop": desktop, "vnc": desktop,
+            "status": status, "info": status, "stats": stats, "top": stats, "rm": remove, "destroy": remove, "delete": remove,
+            "tools": tools, "tool-inspector": tools, "handoff": handoff, "promote-template": promote,
+        ]
+    }()
 
     /// Parse a Freestyle grow-only disk allocation expressed in GiB.
     ///
