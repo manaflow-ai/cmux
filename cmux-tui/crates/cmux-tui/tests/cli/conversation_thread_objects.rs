@@ -230,7 +230,8 @@ fn an_idempotency_conflict_names_the_keyed_conversation_only_to_a_participant() 
     };
     let bound = |participant: &str, token: String| {
         let mut connection = Unix::open(&server.socket);
-        connection.request("conversation-bind", json!({"participant": participant, "token": token}));
+        connection
+            .request("conversation-bind", json!({"participant": participant, "token": token}));
         connection
     };
     let dm = |title: &str| {
@@ -253,6 +254,9 @@ fn an_idempotency_conflict_names_the_keyed_conversation_only_to_a_participant() 
     let mut outsider = bound("agent_outsider", outsider_token);
     let conflict = outsider.reply("conversation-create", dm("Chief"));
     rejected(&conflict, "idempotency_conflict");
-    assert!(conflict.get("error_details").is_none(), "an outsider learned the keyed conversation: {conflict}");
+    assert!(
+        conflict.get("error_details").is_none(),
+        "an outsider learned the keyed conversation: {conflict}"
+    );
     assert!(!conflict.to_string().contains(&keyed), "{conflict}");
 }
