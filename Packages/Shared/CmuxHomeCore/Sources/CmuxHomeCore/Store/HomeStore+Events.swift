@@ -155,8 +155,13 @@ extension HomeStore {
                 log.dropIntents(outside: Set(mirror.conversations.keys))
                 dropOrphanUploadJobs()
             case .message(let message, _):
-                // The posted reply ends its draft in the same change.
+                // The posted reply ends its draft in the same change, and its author's typing: the owner
+                // sends no typing-off after a post (home-inbox-v1). An edit or a retraction keeps it.
                 if draftBook.posted(message) { drafts = draftBook.live }
+                if message.editedAt == nil, message.retractedAt == nil, typing[message.conversation]?.contains(message.author) == true {
+                    typing[message.conversation]?.remove(message.author)
+                    if typing[message.conversation]?.isEmpty == true { typing[message.conversation] = nil }
+                }
                 bumpTranscript(message.conversation)
             case .conversationPage(let page):
                 bumpTranscript(page.conversation.id)
