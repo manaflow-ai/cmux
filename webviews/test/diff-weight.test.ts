@@ -52,12 +52,6 @@ function renderRows(css: string) {
   return { weight };
 }
 
-function tintPercent(css: string, variable: string): number {
-  const match = css.match(new RegExp(`${variable}:\\s*color-mix\\(in srgb, [^;]*? (\\d+)%, transparent\\)`));
-  if (!match) throw new Error(`no tint for ${variable}`);
-  return Number(match[1]);
-}
-
 describe("diffs draw at the regular weight with calm tints", () => {
   test("code, line numbers and the file header compute to the normal weight", async () => {
     for (const [name, css] of Object.entries(await surfaces())) {
@@ -71,12 +65,12 @@ describe("diffs draw at the regular weight with calm tints", () => {
   test("both surfaces tint a changed row the same low amount, the changed word a step above", async () => {
     const all = Object.values(await surfaces());
     const rows = all.map((css) =>
-      tintPercent(
+      drawnTintPercent(
         css,
         '(?:--diffs-bg-addition-override|\\[data-line\\]\\[data-line-type="change-addition"\\] \\{ --diffs-line-bg)',
       ),
     );
-    const words = all.map((css) => tintPercent(css, "--diffs-bg-addition-emphasis-override"));
+    const words = all.map((css) => drawnTintPercent(css, "--diffs-bg-addition-emphasis-override"));
     expect(new Set(rows).size).toBe(1);
     expect(new Set(words).size).toBe(1);
     expect(rows[0]).toBeLessThanOrEqual(16);
