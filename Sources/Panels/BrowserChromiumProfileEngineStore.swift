@@ -86,23 +86,21 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
                 logger.error("chromium cookie clear failed: \(String(describing: error), privacy: .public)")
             }
         } else {
-            // Chromium has not opened the profile: its files are closed and
-            // can go directly, without starting Chromium.
-            let storage = storage
-            let cookieFileNames = Self.cookieFileNames
-            let removed = await Task.detached(priority: .utility) { () -> (cache: Bool, cookies: Bool) in
-                let cache = BrowserChromiumProfileStorageCleanup.removeCaches(ofProfileID: profileID, in: storage)
-                let profileDirectory = storage.cachePath(forProfileID: profileID)
-                var cookies = false
-                for name in cookieFileNames {
-                    if (try? FileManager.default.removeItem(at: profileDirectory.appendingPathComponent(name))) != nil {
-                        cookies = true
-                    }
-                }
-                return (cache, cookies)
-            }.value
-            if removed.cache { kinds.append("cache") }
-            if removed.cookies { kinds.append("cookies") }
+            // Chromium has not opened the profile: its files are closed. They
+            // move aside in this main-actor turn (Chromium opens profiles on
+            // the main thread, so no page can open them in between) and are
+            // deleted off the main thread.
+            let profileDirectory = storage.cachePath(forProfileID: profileID)
+            let caches = BrowserChromiumProfileStorageCleanup.moveAside(storage.cacheDirectories(forProfileID: profileID), in: storage)
+            let cookies = BrowserChromiumProfileStorageCleanup.moveAside(
+                Self.cookieFileNames.map { profileDirectory.appendingPathComponent($0) }, in: storage
+            )
+            if !caches.isEmpty { kinds.append("cache") }
+            if !cookies.isEmpty { kinds.append("cookies") }
+            let aside = caches + cookies
+            if !aside.isEmpty {
+                Task.detached(priority: .utility) { BrowserChromiumProfileStorageCleanup.deleteAside(aside) }
+            }
         }
         return kinds
     }
@@ -113,10 +111,12 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
         if pending.removeValue(forKey: profileID.uuidString) != nil { pendingPermissionResets = pending }
         cleanup.markDeleted(profileID)
         let runtime = runtime
+        // Checked and moved aside in one main-actor turn (see clearAllData).
         let directories = cleanup.takeRemovable { runtime.hasOpened(profile: $0) }
-        guard !directories.isEmpty else { return }
+        let aside = BrowserChromiumProfileStorageCleanup.moveAside(directories, in: storage)
+        guard !aside.isEmpty else { return }
         Task.detached(priority: .utility) {
-            BrowserChromiumProfileStorageCleanup.removeDirectories(directories)
+            BrowserChromiumProfileStorageCleanup.deleteAside(aside)
         }
     }
 
@@ -191,9 +191,10 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
     /// off the main thread without racing Chromium.
     private func removeDeletedProfilesBeforeLaunch() {
         let directories = cleanup.takeRemovable { _ in false }
+        let aside = BrowserChromiumProfileStorageCleanup.moveAside(directories, in: storage)
         let storage = storage
         Task.detached(priority: .utility) {
-            BrowserChromiumProfileStorageCleanup.removeDirectories(directories)
+            BrowserChromiumProfileStorageCleanup.deleteAside(aside)
             BrowserChromiumProfileStorageCleanup.removeLeftovers(in: storage)
         }
     }
