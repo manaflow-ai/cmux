@@ -27,6 +27,7 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod model_options;
+mod new_request;
 pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url,
 };
@@ -63,7 +64,7 @@ mod tags;
 mod tap;
 mod titles;
 mod tools;
-pub use lifecycle::{
+pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
 pub use paging::{EventFilter, EventPage};
