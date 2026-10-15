@@ -66,7 +66,9 @@ import Testing
         let scopes: [CloudSecretScope] = [.all, .project("github.com/o/r"), .machine("vm_123"), .project("a:b")]
         for scope in scopes {
             #expect(CloudSecretScope(wireValue: scope.wireValue) == scope)
-            let encoded = try JSONEncoder().encode(scope)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.withoutEscapingSlashes]
+            let encoded = try encoder.encode(scope)
             #expect(String(data: encoded, encoding: .utf8) == "\"\(scope.wireValue)\"")
             #expect(try JSONDecoder().decode(CloudSecretScope.self, from: encoded) == scope)
         }
