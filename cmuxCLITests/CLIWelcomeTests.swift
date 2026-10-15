@@ -37,8 +37,8 @@ struct CLIWelcomeTests {
           ⌘⇧U                 Jump to latest unread
           ⌥⌘U                 Toggle unread
         """
-        # The reference block is intentionally exact: these labels describe the
-        # factory defaults and should not follow user-customized settings.
+        // The reference block is intentionally exact: these labels describe the
+        // factory defaults and should not follow user-customized settings.
         #expect(output.contains(expectedShortcuts), Comment(rawValue: output))
         #expect(output.contains("Run cmux shortcuts to edit shortcuts."), Comment(rawValue: output))
         #expect(output.contains("Run cmux --help for all commands."), Comment(rawValue: output))
