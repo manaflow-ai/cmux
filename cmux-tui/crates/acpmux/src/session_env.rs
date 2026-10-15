@@ -118,6 +118,23 @@ pub fn parse(meta: Option<&Value>) -> Result<BTreeMap<String, String>, RpcError>
     Ok(env)
 }
 
+/// The session's cmux workspace (`_meta.acpmux.workspaceId` on
+/// `session/new` and `session/fork`, cx-ncc.5): `None` when absent or null,
+/// else a UUID, lowercased. It picks the computer use display in
+/// per-workspace display mode (`agent_displays.rs`); it is not env and
+/// reaches no agent process. Any origin may send it.
+pub fn workspace_id(meta: Option<&Value>) -> Result<Option<String>, RpcError> {
+    match meta.and_then(|m| m.get("workspaceId")) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(id)) if is_workspace_id(id) => Ok(Some(id.to_ascii_lowercase())),
+        Some(_) => Err(refusal(
+            "workspace.value_refused",
+            "workspaceId must be a workspace id (a UUID)".to_owned(),
+            None,
+        )),
+    }
+}
+
 /// Whether a request carries a session env at all (any non-null `env`).
 pub fn present(meta: Option<&Value>) -> bool {
     meta.and_then(|m| m.get("env")).is_some_and(|v| !v.is_null())

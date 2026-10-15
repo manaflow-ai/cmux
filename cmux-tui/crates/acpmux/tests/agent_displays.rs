@@ -76,7 +76,8 @@ impl Client {
 
     /// `session/new` with `meta` as `_meta.acpmux`: the reply.
     async fn new_reply(&mut self, meta: Value) -> Value {
-        let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": meta}});
+        let params =
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": meta}});
         self.call_text("session/new", params).await.0
     }
 

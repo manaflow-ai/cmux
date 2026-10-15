@@ -192,6 +192,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_turn: None,
         remote_origin: d.remote,
         session_env: Default::default(),
+        workspace_id: None,
         chat_store: None,
         adopted_cwd: None,
         harness_roots: vec![],
