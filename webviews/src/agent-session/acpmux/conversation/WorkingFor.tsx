@@ -1,6 +1,6 @@
 // The line over a running turn's work: "Working for 42s", ticking each second from the prompt,
-// or held at `durationMs` while text streams. When the turn ends, the "Worked for" disclosure
-// takes its place.
+// or held at `durationMs` while text streams. While it ticks, the "Thinking" sweep runs across it;
+// when the turn ends, the "Worked for" disclosure takes its place (foldMotion.ts moves the rows).
 import { useEffect, useState } from "react";
 import { type Translate, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -21,7 +21,9 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   }, [now, held]);
   return (
     <div className="cv-worked has-divider">
-      <span className="cv-worked__label">{workingLabel(t, row.at, held ? row.at + row.durationMs! : time)}</span>
+      <span className={`cv-worked__label${held ? "" : " cv-thinking"}`}>
+        {workingLabel(t, row.at, held ? row.at + row.durationMs! : time)}
+      </span>
     </div>
   );
 }
