@@ -222,7 +222,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     // :99 keeps its unit, without -noreset.
     expect(displayUnit()).toContain(`ExecStart=/usr/bin/Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -auth ${AGENT_XAUTHORITY} -s 0 -dpms\n`);
     const a11y = a11yTemplateUnit();
-    expect(a11y).toContain("Requires=cmux-agent-display@%i.service");
+    expect(a11y).toContain("BindsTo=cmux-agent-display@%i.service");
+    expect(a11y).not.toContain("Requires=");
     expect(a11y).toContain("After=cmux-agent-display@%i.service");
     expect(a11y).toContain("Environment=DISPLAY=:%i");
     expect(a11y).toContain(`Environment=XAUTHORITY=${agentXauthority("%i")}`);
@@ -288,10 +289,11 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-root-prop-"));
     const display = `:${200 + Math.floor(Math.random() * 500)}`;
     const auth = path.join(dir, "Xauthority");
+    // The cookie first: Xvfb reads its -auth file once, at start.
+    const cookie = (await runChild("/usr/bin/mcookie", [])).stdout.trim();
+    expect((await runChild("/usr/bin/xauth", ["-q", "-f", auth, "add", display, ".", cookie])).status).toBe(0);
     const xvfb = spawn("/usr/bin/Xvfb", [display, "-nolisten", "tcp", "-auth", auth, "-noreset"], { stdio: "ignore" });
     try {
-      const cookie = (await runChild("/usr/bin/mcookie", [])).stdout.trim();
-      expect((await runChild("/usr/bin/xauth", ["-q", "-f", auth, "add", display, ".", cookie])).status).toBe(0);
       const sock = `/tmp/.X11-unix/X${display.slice(1)}`;
       for (let i = 0; i < 100 && !existsSync(sock); i++) await new Promise((resolve) => setTimeout(resolve, 100));
       writeFileSync(path.join(dir, "set"), rootPropertyScript());

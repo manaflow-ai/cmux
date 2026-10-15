@@ -168,8 +168,13 @@ export function a11yTemplateUnit(): string {
   return [
     "[Unit]",
     "Description=cmux agent accessibility bus (AT-SPI) for display :%i, started on demand",
-    `Requires=${display}`,
+    // BindsTo, not Requires: when Xvfb restarts, its root window loses AT_SPI_BUS, so this unit
+    // restarts with it and publishes the address again.
+    `BindsTo=${display}`,
     `After=${display}`,
+    // A launcher that keeps failing (about 12 s per attempt) stops after 5 tries in 2 minutes.
+    "StartLimitIntervalSec=120",
+    "StartLimitBurst=5",
     "",
     "[Service]",
     "Type=simple",
@@ -183,7 +188,7 @@ export function a11yTemplateUnit(): string {
     "RuntimeDirectoryMode=0700",
     "NoNewPrivileges=yes",
     `ExecStart=${A11Y_SCRIPT}`,
-    `ExecStartPost=${waitForFile(`${a11yRuntimeDir("%i")}/at-spi-bus`, 25)}`,
+    `ExecStartPost=${waitForFile(`${a11yRuntimeDir("%i")}/at-spi-bus`, 45)}`,
     "Restart=on-failure",
     "RestartSec=2",
     "",
@@ -199,7 +204,7 @@ export function a11yTemplateUnit(): string {
  * exits 1, so the unit restarts. dbus-daemon and dbus-send are in the base image.
  */
 export function a11yScript(launcher = AT_SPI_BUS_LAUNCHER, setRootProperty = ROOT_PROPERTY_SCRIPT): string {
-  const send = "dbus-send --session --print-reply=literal";
+  const send = "dbus-send --session --reply-timeout=5000 --print-reply=literal";
   return [
     "#!/bin/bash",
     "# cmux VM agent tools (images/cmux-vm, managed, do not edit): the AT-SPI bus of one agent display.",
@@ -351,7 +356,7 @@ export function agentToolsLinkCommand(): string {
     `install -d -m 0755 ${AGENT_TOOLS_BIN}`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui ${AGENT_TOOLS_BIN}/cmux`,
     `test -x ${AGENT_TOOLS_BIN}/cmux && test -x ${AGENT_TOOLS_BIN}/cmux-cua && test -x ${CURRENT_BIN}/cmux-cua`,
-    `bash -n ${A11Y_SCRIPT} && python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${ROOT_PROPERTY_SCRIPT} && test -x ${AT_SPI_BUS_LAUNCHER} && command -v dbus-daemon dbus-send >/dev/null`,
+    `bash -n ${A11Y_SCRIPT} && python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${ROOT_PROPERTY_SCRIPT} && test -x ${AT_SPI_BUS_LAUNCHER} && command -v dbus-daemon >/dev/null && command -v dbus-send >/dev/null`,
     `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.config ${configDir}`,
     `if [ ! -e ${WORK_USER_CMUX_JSON} ]; then printf '%s' ${sq(WORK_USER_CMUX_JSON_TEXT)} > ${WORK_USER_CMUX_JSON} && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${WORK_USER_CMUX_JSON}; fi`,
     "systemctl daemon-reload",
