@@ -166,7 +166,7 @@ nonisolated enum AppearanceSettingsSchema {
                 kind: .number(SettingNumber(10...16, step: 1, unit: .points, placeholder: 12)),
                 default: nil, defaultLabel: densityDefault,
                 keywords: ["font", "text", "size", "chromeFontSize"]
-            ).hiddenFromSettingsPage("replaced by appearance.interfaceScale"),
+            ),
             SettingDescriptor(
                 InterfaceScaleSetting().configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
@@ -175,8 +175,8 @@ nonisolated enum AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.interfaceSize.summary", "Text size of tabs, sidebar and controls"),
                 kind: .number(SettingNumber(InterfaceScaleSetting().range, step: InterfaceScaleSetting().step, unit: .fraction, placeholder: InterfaceScaleSetting().fallback)),
                 default: nil, defaultLabel: densityDefault,
-                keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "interfaceScale", "labs"]
-            ),
+                keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "interfaceScale"]
+            ).hiddenFromSettingsPage("opt-in: the Debug Settings toggle chrome.interfaceSize turns it on, until it is promoted"),
             metric(.sidebarWidth, SettingsText.keyed("settings.appearance.sidebarWidth", "Sidebar Width"), look, densityDefault,
                    keywords: ["sidebar", "width", "size", "sidebarWidth"]),
             metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,

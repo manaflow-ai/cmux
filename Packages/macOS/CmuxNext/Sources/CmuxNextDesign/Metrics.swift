@@ -13,7 +13,7 @@ public enum Density: String, Sendable, CaseIterable, Codable {
 
 public struct Metrics {
     public init() {}
-    /// Applies the one live Labs chrome multiplier to every metric token.
+    /// Applies the one live chrome multiplier (when `interfaceScaleEnabled`) to every metric token.
     public static func scale(_ value: CGFloat) -> CGFloat {
         value * (DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1)
     }

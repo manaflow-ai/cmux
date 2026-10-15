@@ -45,7 +45,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         AgentPaneView.finishWarmup()
         view?.applyTheme()
         // The initial zoom can run before WebKit has a document. Reapply it after the
-        // document exists so the Labs interface scale and page scale are visible on first paint.
+        // document exists so the interface scale and page scale are visible on first paint.
         view?.applyZoom()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()

@@ -69,7 +69,7 @@ export type GalleryEnv = {
   density: Density;
   /** Interface scale (WKWebView pageZoom, DesignSettings.uiScale). */
   scale: number;
-  /** Labs chrome token multiplier, independent of document zoom. */
+  /** Chrome token multiplier (opt-in, Debug Settings `chrome.interfaceSize`), independent of document zoom. */
   interfaceScale: number;
   /** A named width or a number of px. */
   width: WidthName | number;

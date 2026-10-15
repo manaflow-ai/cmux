@@ -261,7 +261,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Page zoom follows `uiScale`; the Labs chrome multiplier is only the `--cmux-interface-scale` token.
+    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
     func applyUIScale() {
         webView.pageZoom = Double(DesignSettings.shared.uiScale) * additionalZoom
         webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)

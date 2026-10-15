@@ -63,12 +63,11 @@ enum AppearanceHandlers {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
-            try requireUnmanaged(fontSizePath, context); context.design.interfaceScale = CGFloat(InterfaceScaleSetting().fallback)
-            context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
+            let path = InterfaceSizeStep.path(context.design); try requireUnmanaged(path, context); InterfaceSizeStep.reset(context.design)
+            context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)
         })
     }
 
-    private static let fontSizePath = InterfaceScaleSetting().configPath
     private static let uiScalePath = UIScaleSetting().configPath
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
@@ -143,18 +142,11 @@ enum AppearanceHandlers {
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)
     }
 
-    /// The selected interface size multiplier for the app chrome.
-    static func interfaceSize(_ design: DesignSettings = .shared) -> Double {
-        Double(design.interfaceScale)
-    }
-
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
-        try requireUnmanaged(fontSizePath, context)
-        let values = InterfaceScaleSetting().values, current = interfaceSize(context.design)
-        let index = values.enumerated().min(by: { abs($0.element - current) < abs($1.element - current) })?.offset ?? 1
-        let next = values[min(max(index + Int(delta), 0), values.count - 1)]
-        context.design.interfaceScale = CGFloat(next)
-        context.writeSetting("set interface size", fontSizePath, .number(next), reloadOnFailure: true)
+        let path = InterfaceSizeStep.path(context.design)
+        try requireUnmanaged(path, context)
+        let value = InterfaceSizeStep.step(context.design, by: Int(delta))
+        context.writeSetting("set interface size", path, .number(value), reloadOnFailure: true)
     }
 
     private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {

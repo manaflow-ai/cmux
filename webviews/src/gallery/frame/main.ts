@@ -85,7 +85,7 @@ bootstrap.remove();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
   webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
 );
-// Document scale and Labs chrome scale are separate. The app sets pageZoom for the former and
+// Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
 if (env.scale !== 1) root.style.zoom = String(env.scale);
 root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));

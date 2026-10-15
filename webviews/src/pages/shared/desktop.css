@@ -416,7 +416,7 @@ input[type="submit"] {
 }
 /* type-scale:end */
 
-/* Labs interface size: the host updates one multiplier for the shared chrome tokens. */
+/* Interface size (opt-in, Debug Settings): the host updates one multiplier for the shared chrome tokens. */
 :root {
   --cmux-control-height: calc(24px * var(--cmux-interface-scale, 1));
 }

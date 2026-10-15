@@ -41,7 +41,6 @@ public final class SettingsApplier {
         if design.uiScale != uiScale { design.uiScale = uiScale }
         let interfaceScale = DesignSettings.clampedInterfaceScale(CGFloat(snapshot.interfaceScale))
         if design.interfaceScale != interfaceScale { design.interfaceScale = interfaceScale }
-        if design.interfaceScaleEnabled != snapshot.previewFeatures { design.interfaceScaleEnabled = snapshot.previewFeatures }
         let agentPaneZoom = CGFloat(min(max(snapshot.agentPaneZoom, AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound))
         if design.agentPaneZoom != agentPaneZoom { design.agentPaneZoom = agentPaneZoom }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }

@@ -32,7 +32,7 @@ test("search finds rows by keyword across sections, highlighted and editable", a
   await changeValue(search(page), "font");
   const keys = resultKeys(page);
   expect(keys).toContain("terminal.fontFamily");
-  expect(keys).toContain("appearance.interfaceScale");
+  expect(keys).toContain("appearance.metrics.chromeFontSize");
   expect(page.container.querySelector("[data-search-results] mark")?.textContent?.toLowerCase()).toBe("font");
   expect(
     page.container.querySelector('[data-search-results] [data-row-key="terminal.fontSize"] input.number'),

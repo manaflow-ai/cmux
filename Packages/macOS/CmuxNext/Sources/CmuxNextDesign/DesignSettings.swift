@@ -31,12 +31,13 @@ public final class DesignSettings {
     /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
-    /// Opt-in Labs multiplier for the app chrome. A single token multiplier drives
-    /// type, spacing and control heights across native surfaces.
+    /// `appearance.interfaceScale`: the opt-in multiplier for the app chrome. A single token
+    /// multiplier drives type, spacing and control heights across native surfaces.
     public var interfaceScale: CGFloat = 1
-    /// Set by the settings applier from `labs.previewFeatures`.
-    public var interfaceScaleEnabled = false
-    /// Sets the `--cmux-interface-scale` token web chrome reads: the Labs multiplier, or 1 when Labs is off.
+    /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
+    /// default (and always off in Release, where the tunable store is inert).
+    public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
+    /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
     public var interfaceScaleScript: String {
         "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
     }
