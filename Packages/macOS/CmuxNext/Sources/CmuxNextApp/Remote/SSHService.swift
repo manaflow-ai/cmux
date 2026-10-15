@@ -35,10 +35,8 @@ final class SSHService {
     @ObservationIgnored var savedHosts: (connection: ObjectIdentifier, store: SavedHostsStore)?
     /// Machines with an install (and its handoffs) running from this app: one at a time (cx-3r9mt).
     @ObservationIgnored private var installing: Set<String> = []
-    /// `machine|bundled commit` pairs whose automatic update ran in this app run: done for good
-    /// after a success (or a skip), else not tried again before the time (a build not published
-    /// yet, a busy machine), so a failure is not retried on every reconnect.
-    @ObservationIgnored private var autoUpdated: [String: ContinuousClock.Instant?] = [:]
+    /// Automatic updates tried in this app run (``RemoteUpdateCheck/Ledger``).
+    @ObservationIgnored private var autoUpdated = RemoteUpdateCheck.Ledger()
 
     init(machines: MachineRegistry, bundleID: String?) {
         self.machines = machines
@@ -327,19 +325,10 @@ final class SSHService {
         guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
               let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
         let tried = session.machineID + "|" + commit
-        if let entry = autoUpdated[tried] {
-            guard let retry = entry, ContinuousClock.now >= retry else { return }
-        }
-        guard !installing.contains(session.machineID) else { return }
-        // The machine's build facts (`remote-probe --json --build-facts`; an older cmux-tui ignores
-        // the flag and answers its plain probe, which the rule counts as older).
-        guard let facts = try? await SSHProcessRunner.run(
-            SSHCommandLine().command(session.host, "\(session.host.remoteBinary) remote-probe --json --build-facts </dev/null"),
-            environment: await Self.environment(), deadline: .seconds(20), label: "remote-probe \(session.host.destination)"),
-            facts.status == 0,
-            let line = facts.stdout.split(separator: "\n").last(where: { $0.hasPrefix("{") }),
-            let probe = try? RemoteProbe.decode(String(line)) else { return }
-        guard let answer = await RemoteUpdateNeed.ask(binary: binary, probe: probe) else { return }
+        guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),
+              let checked = await RemoteUpdateCheck.ask(binary: binary, host: session.host, environment: await Self.environment())
+        else { return }
+        let (probe, answer) = checked
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
         guard answer.need == "older" else { session.updateOffered = false; return }
         // The keyed restart's rule (cx-3r9mt, hq-a3 2026-10-15): by itself only on an idle machine;
@@ -347,12 +336,12 @@ final class SSHService {
         guard await agentDaemonIdleForUpdate(session) else {
             logger.info("update of \(session.host.destination.description, privacy: .public) offered: the machine is not idle")
             session.updateOffered = true
-            autoUpdated[tried] = .some(nil)
+            autoUpdated.done(tried)
             return
         }
-        autoUpdated[tried] = .some(nil)
+        autoUpdated.done(tried)
         do { try await install(session, automatic: probe.buildIdentity ?? "") } catch {
-            autoUpdated[tried] = .some(ContinuousClock.now.advanced(by: .seconds(120)))
+            autoUpdated.retry(tried, after: .seconds(120))
             logger.error("automatic update of \(session.host.destination.description, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
         }
     }
