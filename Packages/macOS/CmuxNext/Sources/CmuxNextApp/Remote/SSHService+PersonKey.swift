@@ -80,6 +80,34 @@ extension SSHService {
         }
     }
 
+    /// cx-3r9mt / cx-brq9m: after an install the machine's acpmux still runs the replaced binary
+    /// (its new starts fail). When it keeps agent hosts across a restart, the keyed restart hands it
+    /// over to the new binary (`shutdown --keep-agents`, then the keyed start, which adopts every
+    /// hosted agent) and binds this app's key; nothing runs: nothing to do. An acpmux without agent
+    /// hosts would lose its agents, so it stays; its chats show the restart notice. True when the
+    /// new binary's acpmux runs (or none ran).
+    @discardableResult
+    func handOffAgentDaemonAfterInstall(_ session: SSHMachineSession) async -> Bool {
+        guard let status = try? await SSHProcessRunner.run(
+            SSHCommandLine().command(session.host, "\(session.host.remoteBinary) acp --json daemon status </dev/null"),
+            environment: await Self.environment(), deadline: .seconds(10), label: "acpmux status \(session.host.destination)"),
+            status.status == 0,
+            let object = (try? JSONSerialization.jsonObject(with: Data(status.stdout.utf8))) as? [String: Any] else {
+            logger.info("agent daemon on \(session.host.destination.description, privacy: .public) left as it is after the install: status unreadable")
+            return false
+        }
+        if object["running"] as? Bool == false { return true }
+        guard object["agentHosts"] as? Bool == true else {
+            logger.info("agent daemon on \(session.host.destination.description, privacy: .public) left as it is after the install: no agent hosts")
+            return false
+        }
+        let handed = await RemoteApprovalPreparations.shared.run(machine: session.machineID, keepBusy: false) { [self] in
+            await restartWithApprovals(session) == nil
+        }
+        logger.info("agent daemon on \(session.host.destination.description, privacy: .public) handed over after the install: \(handed, privacy: .public)")
+        return handed
+    }
+
     /// The fallback for a cmux-tui without `agent-session-start-keyed-reason-v1` (remove with
     /// `.checkStatus`; the rule lives in cmux-tui's `keyed_restart_reason`): true only for an
     /// answer that shows nothing to lose (see ``restartWithApprovalsIfIdle``).
