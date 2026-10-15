@@ -24,10 +24,9 @@ import WebKit
         )
     }
 
-    static func defaultAutoSelection(
-        protectionSpace: URLProtectionSpace,
-        candidates: [BrowserClientCertificateCredentialCandidate]
-    ) -> BrowserClientCertificateCredentialCandidate? {
+    static let defaultAutoSelection: BrowserClientCertificateAuthenticationHandler.AutoSelection = {
+        protectionSpace,
+        candidates in
         guard let selection = BrowserClientCertificateAutoSelectionPolicy(defaults: .standard)
             .selection(for: protectionSpace) else {
             return nil
