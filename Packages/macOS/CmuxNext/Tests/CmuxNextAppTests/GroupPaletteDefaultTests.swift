@@ -158,7 +158,7 @@ import Testing
         let rows = Self.views(SidebarGroupEditorRow.self, in: content).map(\.item)
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
                                    "workspaceGroup.ungroup", "workspaceGroup.delete", "sidebar.group.moreActions"])
-        #expect(rows.map(\.title) == ["New Workspace in Group", "Move Group to New Window", "Close Group",
+        #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close Group",
                                       "Ungroup", "Delete Group", "More Group Actions…"])
     }
 
