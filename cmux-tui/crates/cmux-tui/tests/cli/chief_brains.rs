@@ -867,4 +867,18 @@ fn a_chief_rename_retitles_its_own_conversation_only() {
     assert_success(&again);
     assert_eq!(title(&mut home, &direct), "Scout Three");
     assert_eq!(title(&mut home, &channel), "Scout notes");
+
+    // A title the person gave the DM stays through an edit that sends the same name.
+    home.request(
+        "conversation-op",
+        json!({"conversation": direct, "idempotency_key": "my-title",
+               "op": {"kind": "title.set", "title": "My scout"}}),
+    );
+    let same = chief_cli(
+        &server,
+        &["edit", &scout, "--name", "Scout Three", "--role", "Day watch", "--json"],
+        "",
+    );
+    assert_success(&same);
+    assert_eq!(title(&mut home, &direct), "My scout");
 }

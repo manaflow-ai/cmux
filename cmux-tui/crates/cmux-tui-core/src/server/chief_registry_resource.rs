@@ -307,12 +307,13 @@ fn mutate(
         _ => None,
     };
     // An edit that changes nothing keeps the rev: no chief-changed for it.
-    let rev_before = match operation {
+    // The name before an update: only a changed name retitles (cx-di8pd).
+    let (rev_before, name_before) = match operation {
         Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet => store
             .get(chief_field(fields))
             .map_err(|e| internal(operation, &e))?
-            .map(|record| record.rev),
-        _ => None,
+            .map_or((None, None), |record| (Some(record.rev), Some(record.display_name))),
+        _ => (None, None),
     };
     let picture_before = match operation {
         Op::ChiefProfileAvatarSet => store
@@ -396,7 +397,9 @@ fn mutate(
                     chief: record.id.clone(),
                     change,
                 })));
-                if operation == Op::ChiefProfileUpdate && profile.contains_key("display_name") {
+                if operation == Op::ChiefProfileUpdate
+                    && name_before.as_deref() != Some(record.display_name.as_str())
+                {
                     PENDING_RETITLE.with(|slot| {
                         *slot.borrow_mut() =
                             Some((record.id.clone(), record.display_name.clone(), record.rev));

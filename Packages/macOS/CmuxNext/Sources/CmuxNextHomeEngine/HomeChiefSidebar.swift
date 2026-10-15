@@ -233,14 +233,17 @@ public final class HomeChiefSidebar: NSView {
     @discardableResult
     public func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
         let source = source
+        let home = muxHome
         // task-owner: one write off the main actor; ends when its result is shown
         return Task { [weak self] in
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.set(key, value)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
+            // A pick for the Chief shown before (another conversation) is not shown.
+            guard let self, muxHome == home else { return }
             switch result {
-            case .success(let snapshot): self?.show(snapshot)
-            case .failure(let error): self?.say(error, readable: true)
+            case .success(let snapshot): show(snapshot)
+            case .failure(let error): say(error, readable: true)
             }
         }
     }

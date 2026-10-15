@@ -139,11 +139,17 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50)
             return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) }),
                             "statusLine": view.debugStatusLine.map { .string($0) } ?? .null])
-        case "engine_set":
+        case "engine_set", "chief_control":
             // One pick in the shown conversation's Chief settings panel (`key`: harness, model or effort;
             // no `value`: default), as its popup does (scripts/cmux-next/chief-home-fixes-live.py).
-            guard let host = sequence(first: view as NSView, next: \.superview).lazy.compactMap({ $0 as? HomeHostView }).first,
-                  let key = params["key"]?.stringValue else { return .object(["error": .string("no Home host view or no key")]) }
+            // "chief_control": the named Chief the shown view's controls name (null: the default Chief).
+            guard let host = sequence(first: view as NSView, next: \.superview).lazy.compactMap({ $0 as? HomeHostView }).first else {
+                return .object(["error": .string("no Home host view")])
+            }
+            if params["action"]?.stringValue == "chief_control" {
+                return .object(["ok": .bool(true), "named": host.debugNamedChief.map { .string($0) } ?? .null])
+            }
+            guard let key = params["key"]?.stringValue else { return .object(["error": .string("engine_set needs key")]) }
             host.debugPickEngine(key, params["value"]?.stringValue)
             ok = true
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false

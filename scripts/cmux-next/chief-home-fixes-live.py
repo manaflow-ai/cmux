@@ -179,33 +179,41 @@ def check_rename_and_engine():
         sock = os.path.join(brain_dir(chief), "optchat", "tools.sock")
         up = wait(lambda: os.path.exists(sock), 120, step=1)
         shown = open_conversation(conv["id"])
+        # The view learns its Chief from the store (a main-actor task): wait until its controls name it.
+        # A build without chief_control (before the fix) answers an error: the pick then goes as it would.
+        controls = wait(lambda: (rpc("debug.home.drive", {"action": "chief_control"}) or {}).get("named") == chief, 15)
         before = {"default": effort(HOME_DIR), "named": effort(brain_dir(chief))}
         picked = rpc("debug.home.drive", {"action": "engine_set", "key": "effort", "value": "low"})
-        named = wait(lambda: effort(brain_dir(chief)) == "low", 60, step=1)
+        named = wait(lambda: effort(brain_dir(chief)) == "low", 60, step=1) and controls
         after = {"default": effort(HOME_DIR), "named": effort(brain_dir(chief))}
         row("cx-327wl: the named Chief's panel sets that Chief's engine, not the default's",
-            named and after["default"] != "low",
-            {"brain_socket": bool(up), "shown": bool(shown), "pick": picked, "before": before, "after": after})
+            named and after["default"] == before["default"],
+            {"brain_socket": bool(up), "shown": bool(shown), "controls_name_it": bool(controls), "pick": picked, "before": before, "after": after})
 
 
 def check_send_after_shutdown():
+    # Show the default Chief's conversation BEFORE the shutdown: showing another conversation is
+    # an ask of its own (TopHomePageView.show), which would start the brain without the fix.
     default = conversation_with("agent_mux")
+    if default:
+        open_conversation(default["id"])
     first = brain_pid()
     owner0 = home().get("chief_owner") or {}
     stopped = cli("chief", "shutdown", "--chief-home", HOME_DIR, timeout=150)
     back = wait(lambda: (lambda o: o if o.get("connected") and o.get("daemon_pid") and o.get("daemon_pid") != owner0.get("daemon_pid")
                          else None)(home().get("chief_owner") or {}), 240, step=1)
-    idle = brain_pid()
-    if default:
-        open_conversation(default["id"])
+    # The shutdown marker holds: no brain until an ask (the send).
+    idle = wait(lambda: brain_pid() is None, 20)
+    time.sleep(5)  # test harness: a restart that ignores the marker would show within this window
+    idle = idle and brain_pid() is None
     marker = f"FIX-SEND-{RUN}"
     steps = [rpc("debug.home.drive", {"action": a, **x}) for a, x in
              (("focus", {}), ("type", {"text": f"{marker} after a chief shutdown: reply with only the word back."}), ("send", {}))]
     second = wait(lambda: (lambda p: p if p and p != first else None)(brain_pid()), 90, step=1)
     heard = wait(lambda: logged(marker), 240, step=2) if second else 0
     row("cx-4io0o: a Home send after cmux chief shutdown starts the brain, which gets the send",
-        bool(back) and bool(second) and bool(heard),
-        {"first_brain": first, "shutdown_exit": stopped["exit"], "owner_back": bool(back), "brain_before_send": idle,
+        bool(back) and bool(idle) and bool(second) and bool(heard),
+        {"first_brain": first, "shutdown_exit": stopped["exit"], "owner_back": bool(back), "no_brain_before_send": bool(idle),
          "send": steps[-1], "new_brain": second, "logged": heard})
 
 

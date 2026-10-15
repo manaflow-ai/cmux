@@ -55,10 +55,12 @@ struct HomeChiefControl {
             .appendingPathComponent(String(named.suffix(8)).lowercased(), isDirectory: true)
     }
 
-    /// The local Chief of a conversation's participants: nil for the
-    /// default Chief (agent_mux) or none.
+    /// The local Chief of a conversation's participants when it is not the
+    /// default: nil with the default Chief (agent_mux) among them, with no
+    /// Chief, or with more than one (a group; the default rule stays).
     static func namedChief(in participants: [Participant]) -> String? {
-        guard let id = participants.first(where: \.isChief)?.id.rawValue, id != HomeService.mux.id else { return nil }
+        let chiefs = participants.filter(\.isChief).map(\.id.rawValue)
+        guard chiefs.count == 1, let id = chiefs.first, id != HomeService.mux.id else { return nil }
         return id
     }
 

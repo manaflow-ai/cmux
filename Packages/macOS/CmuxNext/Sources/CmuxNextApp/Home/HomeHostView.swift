@@ -307,6 +307,8 @@ final class HomeHostView: NSView {
     #if DEBUG
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
     func debugPickEngine(_ key: String, _ value: String?) { sidebar.pick(key, value) }
+    /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
+    var debugNamedChief: String? { control.named }
     #endif
 
     /// The view that takes the keyboard when the tab's pane is focused.
