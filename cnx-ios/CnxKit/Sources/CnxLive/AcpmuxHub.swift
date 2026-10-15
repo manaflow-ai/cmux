@@ -286,6 +286,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The history page size and the most records to keep on attach.
     static let pageSize = 400
     static let maxHistory = 2000
+    /// The records a chat shows: acpmux's `transcript`, and by name the queue changes
+    /// (Edit queued prompt, Move up / down, a held queue) that an older Mac's
+    /// `transcript` leaves out, so the queue rows follow the Mac's queue; and Claude Code's API
+    /// retries (a harness record, never `transcript`), so a retrying turn says so.
+    static let chatKinds: JSONValue = .array(
+        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry"].map { .string($0) })
 
     init(hub: AcpmuxHub, sessionID: String, summary: AgentSessionSummary) {
         self.hub = hub
@@ -536,7 +542,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             case "permission.person_required":
                 return "This iPhone can't approve on the Mac yet. Allow it in the Mac's Settings → Mobile, or approve on the Mac."
             case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
-            default: return error.message
+            case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
+            default:
+                if error.message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
+                return error.message
             }
         }
         return LinkController.reason(error)
@@ -560,7 +569,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             var params: [String: JSONValue] = [
                 "sessionId": .string(sessionID),
                 "limit": .number(Double(Self.pageSize)),
-                "kinds": .array([.string("transcript")]),
+                "kinds": Self.chatKinds,
                 "eventStream": .bool(true),
             ]
             if lastSeq > 0 { params["afterSeq"] = .number(Double(lastSeq)) }
@@ -571,7 +580,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 while page.count < Self.maxHistory, let oldest = page.first?["seq"]?.numberValue {
                     let older = try await hub.request("_acpmux/events", .object([
                         "sessionId": .string(sessionID), "beforeSeq": .number(oldest),
-                        "limit": .number(Double(Self.pageSize)), "kinds": .array([.string("transcript")]),
+                        "limit": .number(Double(Self.pageSize)), "kinds": Self.chatKinds,
                     ]))
                     let events = older["events"]?.arrayValue ?? []
                     page = events + page

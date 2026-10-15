@@ -338,6 +338,8 @@ class Journey:
         self.sim.dismiss_keyboard_intro()
         self.sim.softtype("42")
         go = [e for e in self.sim.find(kind="Button") if e.label in ("Send code", "Continue") and e.frame[1] < 560]
+        # With a hardware keyboard attached no software keyboard lifts the button.
+        go = go or [e for e in self.sim.find(kind="Button") if e.label in ("Send code", "Continue")]
         check(go, "no Send code / Continue button on the email step")
         t = self.sim.tap_el(go[0])
         i, _ = self.sim.wait_any([dict(ident="setup.teams.create"), dict(ident="setup.teams.choose"),

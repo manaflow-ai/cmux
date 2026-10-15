@@ -307,6 +307,13 @@ final class ShellModel {
         sidebar.allowsInteractiveOpen = depth == 0
     }
 
+    /// A team switch (a tap or a follow): screens that show the old team's Macs close (an
+    /// open workspace and a chat opened from the Feed); Home and Settings stay.
+    func closeTeamScreens() {
+        workspacesPath.removeAll()
+        feedPath.removeAll()
+    }
+
     /// Row tap: selection haptic, highlight moves, drawer closes, content
     /// crossfades to the new team (SPEC 3.3 "Team switch").
     func switchTeam(to id: String) {
@@ -319,7 +326,7 @@ final class ShellModel {
         withAnimation(theme.motion.snap.animation) {
             store.selectTeam(id)
         }
-        workspacesPath.removeAll()
+        closeTeamScreens()
         sidebar.close()
         live?.activeTeamChanged(byUser: true)
         guard !id.hasPrefix("personal-") else { return }

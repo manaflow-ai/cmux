@@ -120,6 +120,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "close-tab-group",
         "save-tab-group",
         "unsave-tab-group",
+        // Saved tab groups: the saved id (and, to reopen, a pane) only
+        // (`creation_fields`, `saved_group_refusal`). Reopen restarts the
+        // saved terminals as the person's login shell in their saved folder,
+        // on this Mac (cnx-ios/SECURITY.md "Reopen Saved Tab Group").
         "delete-saved-tab-group",
         "reopen-saved-tab-group",
         "ack-tab-notifications",
@@ -169,11 +173,30 @@ const PERSONAL_WORKSPACE_FIELDS: &[&str] = &["session_id", "workspace_key", "ind
 /// - `sidebar_layout.update`: Unpin Workspace only, an `item.remove` of a
 ///   pinned item the Mac minted (`itm_` + 16 base32 characters); never a
 ///   built-in item, a section, a reset or an added item.
+/// - `workspace_group.create`: a new personal workspace group with a name, a
+///   palette color and the room it shows in (cnx-ios/SECURITY.md "Workspace
+///   groups"). Never its id, place (`index`), icon or pin.
+/// - `workspace_group.update`: Rename Group…, its color, Collapse / Expand, of
+///   a group whose workspaces are all this session's (`Ownership::OwnGroup`).
+///   Never `room` (which pins every member to another room), `top_index`,
+///   `icon` or `pinned`.
+/// - `workspace_group.delete`: Ungroup Workspaces / Delete Group (the
+///   workspaces stay open), same ownership.
+/// - `workspace.place`: Move Workspace to Group / Remove Workspace from Group,
+///   a live workspace of this session (`ws_…`) into one of those groups or out
+///   (`group: null`); never its `index`.
 const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
     ("notification.clear", &["machine", "session"]),
     ("sidebar_layout.get", &["machine", "session"]),
     ("sidebar_layout.update", &["machine", "session", "op"]),
+    ("workspace_group.create", &["machine", "session", "name", "color", "room"]),
+    ("workspace_group.update", &["machine", "session", "workspace_group", "name", "color", "collapsed"]),
+    ("workspace_group.delete", &["machine", "session", "workspace_group"]),
+    ("workspace.place", &["machine", "session", "workspace", "group"]),
 ];
+
+/// The group colors the Mac's menus offer (cmux-next `GroupColor`).
+const GROUP_COLORS: &[&str] = &["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 /// Envelope members a phone may send (never `origin` or `credential`).
 const RESOURCE_FIELDS: &[&str] = &["protocol", "type", "id", "operation", "params", "idempotency_key"];
 
@@ -187,6 +210,11 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
     let extra: &[&'static str] = match command {
         // The tab's recorded launch on this Mac; the phone names only the tab.
         "restart-tab" => return Some(["surface"].into_iter().collect()),
+        // A saved group of this daemon, reopened into one of its panes: the
+        // daemon starts each terminal member as the login shell in the
+        // folder the record holds; the phone names no program, folder or env.
+        "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
+        "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -280,6 +308,11 @@ impl DaemonPolicy {
                     &format!("{command} does not take {names} from a phone"),
                 ));
             }
+        }
+        if (command == "reopen-saved-tab-group" || command == "delete-saved-tab-group")
+            && let Some(why) = saved_group_refusal(&object, command == "reopen-saved-tab-group")
+        {
+            return Verdict::Refuse(error_line(id, "forbidden", &why));
         }
         if command == "set-personal-workspace"
             && let Err(why) = personal_workspace(&object)
@@ -378,6 +411,41 @@ impl DaemonPolicy {
 
 /// `set-personal-workspace` from a phone: a short session id, a workspace key
 /// and a place, nothing else.
+/// Why a saved tab group line is refused, or `None`: `saved` is a short
+/// identifier (the daemon mints `saved_<hex>`), a reopen names its `pane` (a
+/// pane number or a short public id), and `transaction` is 1-128 printable
+/// ASCII characters, as the daemon checks.
+fn saved_group_refusal(object: &Map<String, Value>, reopen: bool) -> Option<String> {
+    if !object.get("saved").and_then(Value::as_str).is_some_and(|saved| short_identifier(saved, 128)) {
+        return Some("a saved tab group is named by its id".into());
+    }
+    if reopen {
+        let pane = match object.get("pane") {
+            Some(Value::Number(number)) => number.is_u64(),
+            Some(Value::String(pane)) => short_identifier(pane, 128),
+            _ => false,
+        };
+        if !pane {
+            return Some("reopen-saved-tab-group needs the pane to reopen it in".into());
+        }
+    }
+    if let Some(transaction) = object.get("transaction") {
+        let ok = transaction.as_str().is_some_and(|text| {
+            (1..=128).contains(&text.len()) && text.bytes().all(|byte| byte.is_ascii_graphic())
+        });
+        if !ok {
+            return Some("transaction is 1-128 printable characters".into());
+        }
+    }
+    None
+}
+
+/// `[A-Za-z0-9._:-]`, 1 to `limit` bytes.
+fn short_identifier(text: &str, limit: usize) -> bool {
+    (1..=limit).contains(&text.len())
+        && text.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+}
+
 fn personal_workspace(object: &Map<String, Value>) -> Result<(), String> {
     if let Some(key) = object
         .keys()
@@ -446,6 +514,9 @@ fn check_resource(object: &Map<String, Value>) -> Result<(), String> {
             return Err(format!("{operation} needs an idempotency_key"));
         }
     }
+    if operation.starts_with("workspace_group.") || operation == "workspace.place" {
+        group_params(operation, params)?;
+    }
     if operation == "sidebar_layout.update" {
         let unpin = params.get("op").and_then(Value::as_object).is_some_and(|op| {
             op.len() == 2
@@ -454,6 +525,67 @@ fn check_resource(object: &Map<String, Value>) -> Result<(), String> {
         });
         if !unpin {
             return Err("a phone may only unpin a workspace from the sidebar".into());
+        }
+    }
+    Ok(())
+}
+
+/// A short identifier: 1 to `max` of `[A-Za-z0-9_.:-]` (the daemon's group,
+/// room and workspace id characters).
+fn short_id(value: Option<&Value>, max: usize) -> bool {
+    value.and_then(Value::as_str).is_some_and(|text| {
+        (1..=max).contains(&text.len())
+            && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
+    })
+}
+
+/// The values of a workspace group operation from a phone: a group name of
+/// 1-256 characters without control characters, a palette color, a short
+/// group / room id, a live workspace's `ws_` id, a Bool for `collapsed`.
+fn group_params(operation: &str, params: &Map<String, Value>) -> Result<(), String> {
+    let name = params.get("name");
+    if name.is_some_and(|name| {
+        name.as_str().is_none_or(|text| {
+            text.trim().is_empty() || text.chars().count() > 256 || text.chars().any(char::is_control)
+        })
+    }) {
+        return Err(format!("{operation} name is a short name"));
+    }
+    if params.get("color").is_some_and(|color| color.as_str().is_none_or(|c| !GROUP_COLORS.contains(&c))) {
+        return Err(format!("{operation} color is one of the Mac's group colors"));
+    }
+    if params.get("collapsed").is_some_and(|collapsed| !collapsed.is_boolean()) {
+        return Err(format!("{operation} collapsed is true or false"));
+    }
+    match operation {
+        "workspace_group.create" => {
+            if name.is_none() {
+                return Err("workspace_group.create needs a name".into());
+            }
+            if params.get("room").is_some_and(|room| !short_id(Some(room), 64)) {
+                return Err("workspace_group.create room is a room id".into());
+            }
+        }
+        "workspace_group.update" | "workspace_group.delete" => {
+            if !short_id(params.get("workspace_group"), 64) {
+                return Err(format!("{operation} needs a workspace_group"));
+            }
+            if operation == "workspace_group.update"
+                && !["name", "color", "collapsed"].iter().any(|key| params.contains_key(*key))
+            {
+                return Err("workspace_group.update needs a name, color or collapsed".into());
+            }
+        }
+        _ => {
+            let workspace = params.get("workspace").and_then(Value::as_str).unwrap_or_default();
+            if !workspace.starts_with("ws_") || !short_id(params.get("workspace"), 128) {
+                return Err("workspace.place needs a workspace of this Mac".into());
+            }
+            match params.get("group") {
+                Some(Value::Null) => {}
+                Some(group) if short_id(Some(group), 64) => {}
+                _ => return Err("workspace.place takes a group, or null to remove it from one".into()),
+            }
         }
     }
     Ok(())
@@ -477,6 +609,12 @@ pub enum Ownership {
     PersonalWorkspace { session: String, key: String },
     /// Unpin: an item of the pinned section that shows a workspace (`sidebar_layout.get`).
     PinnedWorkspaceTile { item: String },
+    /// `workspace_group.update` / `.delete`: a personal group (`list-personal`)
+    /// whose workspaces are all of this session (`list-workspaces` `registry_id`).
+    OwnGroup { group: String },
+    /// `workspace.place`: a live workspace of this session (its `resource_id`), and
+    /// the group it joins, when it joins one, as for [`Ownership::OwnGroup`].
+    PlaceWorkspace { workspace: String, group: Option<String> },
 }
 
 /// The check a forwarded line needs, or None (any other line).
@@ -489,11 +627,50 @@ pub fn ownership(line: &[u8]) -> Option<Ownership> {
             key: text("workspace_key")?,
         });
     }
-    if object.get("operation").and_then(Value::as_str) == Some("sidebar_layout.update") {
-        let item = object.get("params")?.get("op")?.get("id")?.as_str()?.to_string();
-        return Some(Ownership::PinnedWorkspaceTile { item });
+    let params = object.get("params");
+    let text = |key: &str| params?.get(key)?.as_str().map(str::to_string);
+    match object.get("operation").and_then(Value::as_str)? {
+        "sidebar_layout.update" => {
+            let item = params?.get("op")?.get("id")?.as_str()?.to_string();
+            Some(Ownership::PinnedWorkspaceTile { item })
+        }
+        "workspace_group.update" | "workspace_group.delete" => {
+            Some(Ownership::OwnGroup { group: text("workspace_group")? })
+        }
+        "workspace.place" => {
+            Some(Ownership::PlaceWorkspace { workspace: text("workspace")?, group: text("group") })
+        }
+        _ => None,
     }
-    None
+}
+
+/// The `registry_id` (this session) of a `list-workspaces` reply.
+pub fn registry_id(reply: &Value) -> Option<&str> {
+    reply.get("data").unwrap_or(reply).get("registry_id").and_then(Value::as_str)
+}
+
+/// Whether `list-workspaces` (`reply`) lists a workspace whose `resource_id` is `resource`.
+pub fn lists_workspace(reply: &Value, resource: &str) -> bool {
+    reply.get("data").unwrap_or(reply).get("workspaces").and_then(Value::as_array).is_some_and(|list| {
+        list.iter().any(|ws| ws.get("resource_id").and_then(Value::as_str) == Some(resource))
+    })
+}
+
+/// Whether `list-personal` (`personal`) has group `group` and every personal
+/// row in it is a workspace of session `registry`: the person's own group of
+/// this Mac's workspaces (or an empty one), never one holding another
+/// machine's workspaces.
+pub fn owns_group(personal: &Value, registry: &str, group: &str) -> bool {
+    let data = personal.get("data").unwrap_or(personal);
+    let known = data.get("groups").and_then(Value::as_array).is_some_and(|groups| {
+        groups.iter().any(|candidate| candidate.get("id").and_then(Value::as_str) == Some(group))
+    });
+    known
+        && data.get("workspaces").and_then(Value::as_array).is_none_or(|rows| {
+            rows.iter()
+                .filter(|row| row.get("group").and_then(Value::as_str) == Some(group))
+                .all(|row| row.get("session_id").and_then(Value::as_str) == Some(registry))
+        })
 }
 
 /// Whether `list-workspaces` (`reply`) lists workspace `key` of session `session`.
@@ -536,6 +713,13 @@ pub fn not_owned(line: &[u8], what: &Ownership) -> String {
         Ownership::PinnedWorkspaceTile { .. } => {
             resource_refusal(id.as_ref(), "a phone may only unpin a pinned workspace")
         }
+        Ownership::OwnGroup { .. } => {
+            resource_refusal(id.as_ref(), "a phone may only change a group of this Mac's workspaces")
+        }
+        Ownership::PlaceWorkspace { .. } => resource_refusal(
+            id.as_ref(),
+            "a phone may only move a workspace of this Mac into a group of this Mac's workspaces",
+        ),
     }
 }
 
@@ -695,6 +879,44 @@ mod tests {
             br#"{"id":1,"cmd":"restart-tab","surface":12,"env":{"BASH_ENV":"/tmp/x"}}"#,
             br#"{"id":1,"cmd":"restart-tab","tab":12}"#,
             br#"{"id":1,"cmd":"restart-tab","surface":12,"initial_command":"id"}"#,
+        ] {
+            let Verdict::Refuse(answer) = policy().evaluate(line) else {
+                panic!("forwarded {}", String::from_utf8_lossy(line));
+            };
+            assert!(answer.contains("forbidden"), "{answer}");
+        }
+    }
+
+    /// Reopen / Delete Saved Tab Group: the saved id and a pane only; the
+    /// daemon starts each terminal of the record as the login shell in its
+    /// saved folder, so no program, folder, env or host comes from the phone.
+    #[test]
+    fn saved_tab_groups_take_only_the_saved_id_and_a_pane() {
+        for line in [
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"saved_0123abcd","pane":4}"#.as_slice(),
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"saved_0123abcd","pane":"pane_01J","transaction":"tx-1"}"#,
+            br#"{"id":1,"cmd":"delete-saved-tab-group","saved":"saved_0123abcd"}"#,
+            br#"{"id":1,"cmd":"list-saved-tab-groups"}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        for line in [
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"command":"id"}"#.as_slice(),
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"argv":["sh"]}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"cwd":"/"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"env":{"BASH_ENV":"/tmp/x"}}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"terminal_host":"h"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"members":[]}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"origin":"user"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":-1}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":"a b"}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"s","pane":4,"transaction":""}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":"../x","pane":4}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","saved":12,"pane":4}"#,
+            br#"{"id":1,"cmd":"reopen-saved-tab-group","pane":4}"#,
+            br#"{"id":1,"cmd":"delete-saved-tab-group","saved":"s","cwd":"/"}"#,
+            br#"{"id":1,"cmd":"delete-saved-tab-group"}"#,
         ] {
             let Verdict::Refuse(answer) = policy().evaluate(line) else {
                 panic!("forwarded {}", String::from_utf8_lossy(line));
@@ -940,6 +1162,149 @@ mod tests {
         );
         assert_eq!(serde_json::from_str::<Value>(&not_owned(&unpin, &what)).unwrap()["type"], "response");
         assert_eq!(ownership(br#"{"cmd":"list-personal","id":1}"#), None);
+    }
+
+    /// Workspace groups: the exact lines the iOS app sends (CnxLive
+    /// `LiveWorkspaceGroups`), as the Mac's own sidebar sends them.
+    #[test]
+    fn allows_the_workspace_group_ops() {
+        let with = |extra: Value| {
+            let mut params = json!({"machine": "current", "session": "current"});
+            params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            params
+        };
+        for (operation, params) in [
+            ("workspace_group.create", with(json!({"name": "Release", "color": "red", "room": "default"}))),
+            ("workspace_group.create", with(json!({"name": "New Group"}))),
+            ("workspace_group.update", with(json!({"workspace_group": "grp_0a1b", "name": "Ship"}))),
+            ("workspace_group.update", with(json!({"workspace_group": "grp_0a1b", "color": "cyan"}))),
+            ("workspace_group.update", with(json!({"workspace_group": "grp_0a1b", "collapsed": true}))),
+            ("workspace_group.delete", with(json!({"workspace_group": "grp_0a1b"}))),
+            ("workspace.place", with(json!({"workspace": "ws_01HZY", "group": "grp_0a1b"}))),
+            ("workspace.place", with(json!({"workspace": "ws_01HZY", "group": null}))),
+        ] {
+            let line = resource(operation, params, Some("cnx-ios-group-1"));
+            let Verdict::Rewrite(sent) = policy().evaluate(&line) else {
+                panic!("not forwarded {}", String::from_utf8_lossy(&line));
+            };
+            assert_eq!(
+                serde_json::from_slice::<Value>(&sent).unwrap(),
+                serde_json::from_slice::<Value>(&line).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn refuses_other_workspace_group_shapes() {
+        let current = json!({"machine": "current", "session": "current"});
+        let with = |extra: Value| {
+            let mut params = current.clone();
+            params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            params
+        };
+        for (operation, params) in [
+            // Operations the phone does not need: list, move, rooms.
+            ("workspace_group.list", current.clone()),
+            ("workspace_group.move", with(json!({"workspace_group": "g", "index": 0}))),
+            ("workspace.placement.list", current.clone()),
+            ("room.create", with(json!({"name": "x"}))),
+            ("room.pin", with(json!({"workspace": "ws_1", "room": "default"}))),
+            // Fields the phone never sets.
+            ("workspace_group.create", with(json!({"name": "a", "index": 0}))),
+            ("workspace_group.create", with(json!({"name": "a", "collapsed": true}))),
+            ("workspace_group.create", with(json!({"name": "a", "workspace_group": "grp_x"}))),
+            ("workspace_group.create", with(json!({"name": "a", "icon": "star"}))),
+            ("workspace_group.update", with(json!({"workspace_group": "g", "room": "other"}))),
+            ("workspace_group.update", with(json!({"workspace_group": "g", "top_index": 0}))),
+            ("workspace_group.update", with(json!({"workspace_group": "g", "pinned": true}))),
+            ("workspace_group.update", with(json!({"workspace_group": "g", "icon": "star"}))),
+            ("workspace.place", with(json!({"workspace": "ws_1", "group": "g", "index": 2}))),
+            ("workspace.place", with(json!({"workspace": "ws_1", "group": "g", "cwd": "/"}))),
+            ("workspace_group.create", with(json!({"name": "a", "command": "id"}))),
+            ("workspace_group.create", with(json!({"name": "a", "argv": ["sh"]}))),
+            ("workspace_group.create", with(json!({"name": "a", "env": {"BASH_ENV": "/tmp/x"}}))),
+            // Bad values.
+            ("workspace_group.create", current.clone()),
+            ("workspace_group.create", with(json!({"name": "  "}))),
+            ("workspace_group.create", with(json!({"name": "a\nb"}))),
+            ("workspace_group.create", with(json!({"name": "x".repeat(257)}))),
+            ("workspace_group.create", with(json!({"name": 7}))),
+            ("workspace_group.create", with(json!({"name": "a", "color": "#ff0000"}))),
+            ("workspace_group.create", with(json!({"name": "a", "color": "chartreuse"}))),
+            ("workspace_group.create", with(json!({"name": "a", "room": "a room"}))),
+            ("workspace_group.update", with(json!({"name": "a"}))),
+            ("workspace_group.update", with(json!({"workspace_group": "g"}))),
+            ("workspace_group.update", with(json!({"workspace_group": "g", "collapsed": "yes"}))),
+            ("workspace_group.update", with(json!({"workspace_group": "g", "color": null}))),
+            ("workspace_group.delete", current.clone()),
+            ("workspace_group.delete", with(json!({"workspace_group": "../g"}))),
+            ("workspace.place", with(json!({"workspace": "ws_1"}))),
+            ("workspace.place", with(json!({"group": "g"}))),
+            ("workspace.place", with(json!({"workspace": "current", "group": "g"}))),
+            ("workspace.place", with(json!({"workspace": 3, "group": "g"}))),
+            ("workspace.place", with(json!({"workspace": "ws_1", "group": 3}))),
+            // Another machine or session.
+            ("workspace_group.delete", json!({"machine": "other", "workspace_group": "g"})),
+            ("workspace.place", json!({"session": "s2", "workspace": "ws_1", "group": null})),
+        ] {
+            let line = resource(operation, params, Some("k"));
+            let answer = refused(&line);
+            assert_eq!(answer["ok"], false, "{}", String::from_utf8_lossy(&line));
+            assert_eq!(answer["type"], "response");
+        }
+        // A mutation without its idempotency key.
+        refused(&resource("workspace_group.delete", with(json!({"workspace_group": "g"})), None));
+    }
+
+    /// A group the phone changes, or a workspace it places, is confirmed by the
+    /// Mac's own state: a group of this session's workspaces, a live workspace.
+    #[test]
+    fn group_ownership_is_checked_against_the_macs_state() {
+        let update =
+            resource("workspace_group.update", json!({"workspace_group": "grp_1", "name": "x"}), Some("k"));
+        assert_eq!(ownership(&update), Some(Ownership::OwnGroup { group: "grp_1".into() }));
+        let delete = resource("workspace_group.delete", json!({"workspace_group": "grp_1"}), Some("k"));
+        assert_eq!(ownership(&delete), Some(Ownership::OwnGroup { group: "grp_1".into() }));
+        let place = resource("workspace.place", json!({"workspace": "ws_a", "group": "grp_1"}), Some("k"));
+        assert_eq!(
+            ownership(&place),
+            Some(Ownership::PlaceWorkspace { workspace: "ws_a".into(), group: Some("grp_1".into()) })
+        );
+        let out = resource("workspace.place", json!({"workspace": "ws_a", "group": null}), Some("k"));
+        assert_eq!(
+            ownership(&out),
+            Some(Ownership::PlaceWorkspace { workspace: "ws_a".into(), group: None })
+        );
+        // Creating a group names no existing object.
+        assert_eq!(ownership(&resource("workspace_group.create", json!({"name": "a"}), Some("k"))), None);
+
+        let tree = json!({"ok": true, "data": {"registry_id": "reg", "workspaces": [
+            {"key": "k1", "resource_id": "ws_a"}, {"key": "k2", "resource_id": "ws_b"}]}});
+        assert_eq!(registry_id(&tree), Some("reg"));
+        assert!(lists_workspace(&tree, "ws_a"));
+        assert!(!lists_workspace(&tree, "ws_z"), "a workspace the Mac does not list");
+        let personal = json!({"ok": true, "data": {
+        "groups": [{"id": "grp_1"}, {"id": "grp_empty"}, {"id": "grp_mixed"}, {"id": "grp_other"}],
+        "workspaces": [
+            {"session_id": "reg", "workspace_key": "k1", "group": "grp_1"},
+            {"session_id": "reg", "workspace_key": "k2", "group": "grp_mixed"},
+            {"session_id": "remote", "workspace_key": "r1", "group": "grp_mixed"},
+            {"session_id": "remote", "workspace_key": "r2", "group": "grp_other"},
+            {"session_id": "reg", "workspace_key": "k3"},
+        ]}});
+        assert!(owns_group(&personal, "reg", "grp_1"));
+        assert!(owns_group(&personal, "reg", "grp_empty"), "an empty group of the person's");
+        assert!(!owns_group(&personal, "reg", "grp_mixed"), "holds another machine's workspace");
+        assert!(!owns_group(&personal, "reg", "grp_other"), "another machine's group");
+        assert!(!owns_group(&personal, "reg", "grp_unknown"), "no such group");
+        for (line, what) in [
+            (&update, Ownership::OwnGroup { group: "grp_1".into() }),
+            (&place, Ownership::PlaceWorkspace { workspace: "ws_a".into(), group: None }),
+        ] {
+            let answer: Value = serde_json::from_str(&not_owned(line, &what)).unwrap();
+            assert_eq!(answer["type"], "response");
+            assert_eq!(answer["error"]["code"], "origin.forbidden");
+        }
     }
 
     /// A duplicate key reaches the daemon as one value: the object checked here.

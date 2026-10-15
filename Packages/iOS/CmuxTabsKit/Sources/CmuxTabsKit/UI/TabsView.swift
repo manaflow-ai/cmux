@@ -94,6 +94,14 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     @State private var zoomPinchActive = false
+    /// The insets the grid last had on screen: a page that hides a tab bar or
+    /// the status bar has smaller ones, and a card revealed or laid out
+    /// against them landed under the grid's bar once they came back
+    /// (cmux-next real host, Back to Terminals: 63 pt short).
+    @State private var gridTop: CGFloat = 0
+    @State private var gridBottom: CGFloat = 0
+    private var gridSafeTop: CGFloat { max(safeTop, gridTop) }
+    private var gridSafeBottom: CGFloat { max(safeBottom, gridBottom) }
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
     @State private var menuContent = false
@@ -119,7 +127,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
+        OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
                        pinned: pinnedCount)
     }
 
@@ -160,6 +168,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
             }
 
             pageLayer
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
+                // The grid's bottom bar stays on top of it: a page zooming into
+                // a card that reaches the bar covered (+) and the count
+                // (cmux-next re-audit 3 #11).
+                .mask { BarCutout(bar: overviewLayout.barRect, shown: overviewShown) }
 
             if chrome.editing {
                 source.editingBackground(addressEditing)
@@ -239,6 +252,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .gesture(ZoomPinchGesture { handlePinch($0) })
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
+        .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
+            if top >= 0 { gridTop = top }
+        }
+        .onChange(of: zoomState.phase == .overview ? safeBottom : -1) { _, bottom in
+            if bottom >= 0 { gridBottom = bottom }
+        }
         .onChange(of: zoomState.phase == .overview) { _, onGrid in
             if onGrid {
                 if let id = activeID, source.showStaticCard(for: id) { staticCardID = id }
@@ -361,6 +380,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .overlay(alignment: .topTrailing) {
             if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, let id = activeID {
                 Button {
+                    if !UIAccessibility.isReduceMotionEnabled { cardSwipes.holdCountForTapClose(max(1, tabs.count)) }
                     Task { _ = await closeFromGrid(id) }
                 } label: {
                     CardCloseGlyph().padding(4).contentShape(.rect)
@@ -374,7 +394,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
         }
         .modifier(GridFollowOffset(origin: CGPoint(x: g.rect.minX + (chrome.swiping ? chrome.swipeOffset : 0), y: g.rect.minY),
                                    scroll: phase == .overview ? gridScroll : nil))
-        .opacity(asCard || (phase == .overview && gridDrawsActive) ? 0 : phase == .overview ? (activeID.map { cardSwipes.opacity($0) } ?? 1) : 1)
+        // Hidden under its lifted long-press preview too.
+        .opacity(asCard || (phase == .overview && gridDrawsActive) || (phase == .overview && activeID != nil && cardSwipes.menuCard == activeID) ? 0
+                 : phase == .overview ? (activeID.map { cardSwipes.opacity($0) } ?? 1) : 1)
         // On the settled grid this is the active card: it moves with the
         // grid's reflow (a closed tab, the lone-tab layout) instead of jumping.
         // Not while a new tab is being added: its zoom from the screen's
@@ -389,7 +411,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The active tab's card in the grid's content coordinates.
     private var activeCardContentRect: CGRect {
         let index = activeIndex ?? 0
-        return OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount).card(index)
+        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount).card(index)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at
@@ -454,7 +476,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private func zoomEndpoint() -> CGRect {
         if let id = newTabZoomID, id == zoomTabId {
             guard newTabZoom.fromLoneSlot else { return newTabZoom.rect(in: fullRect) }
-            let lone = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: 1)
+            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1)
             return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
         }
         let index: Int
@@ -463,7 +485,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.firstIndex { $0.id == id } } ?? (activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -520,7 +542,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         source.overviewWillAppear()
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen.
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: count, pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()
@@ -782,6 +804,24 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 chrome.swiping = false
             }
         }
+    }
+}
+/// A mask showing everything but the grid's bottom bar, as far as the
+/// bar's controls have faded in (`shown`, 0 on the page, 1 on the grid).
+struct BarCutout: View {
+    var bar: CGRect
+    var shown: Double
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+            Rectangle()
+                .frame(width: bar.width, height: bar.height + 16)
+                .offset(x: bar.minX, y: bar.minY - 8)
+                .opacity(min(1, max(0, shown)))
+                .blendMode(.destinationOut)
+        }
+        .compositingGroup()
     }
 }
 #endif

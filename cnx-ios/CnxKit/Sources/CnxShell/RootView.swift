@@ -426,6 +426,8 @@ struct ShellView: View {
         }
         .onChange(of: shell.live?.followed) { _, followed in
             guard let followed else { return }
+            // Followed to another team: the old team's screens close, as on a tap.
+            shell.closeTeamScreens()
             shell.toast = CnxToast(symbol: "desktopcomputer", text: "\(followed.macName) is in \(followed.teamName). Switched to it.")
         }
         .onChange(of: shell.settings.transport) { _, transport in

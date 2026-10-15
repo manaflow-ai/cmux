@@ -45,6 +45,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case queueOrder([String])
     case turnStarted(turnId: String, at: Date)
     case turnResult(turnId: String, status: AgentTurn.Status, errorText: String?, at: Date)
+    /// The agent's request to its model failed and it is trying again (Claude Code's
+    /// `system/api_retry`): the running turn says so instead of a bare "Working".
+    case retrying(attempt: Int, maxAttempts: Int, status: Int?)
     /// `permission_request` / `_acpmux/permission_pending` that is a tool permission.
     case permissionRequest(ACPPermissionRequest)
     /// A permission request that maps to a question (AskUserQuestion, Codex user input).

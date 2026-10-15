@@ -346,7 +346,11 @@ public struct DiffFileScreen: View {
         }
         var visible = DiffFile(path: file.path, status: file.status, lines: lines, hasFullContext: true).hunks().map(\.range)
         if visible.isEmpty { visible = [0...lines.count - 1] }
-        visible += expanded[file.id] ?? []
+        // Expanded ranges index the lines as they were (Hide Whitespace changes the count).
+        let last = lines.count - 1
+        visible += (expanded[file.id] ?? []).compactMap { range in
+            range.lowerBound <= last ? range.lowerBound...min(range.upperBound, last) : nil
+        }
         visible.sort { $0.lowerBound < $1.lowerBound }
         var merged: [ClosedRange<Int>] = []
         for range in visible {

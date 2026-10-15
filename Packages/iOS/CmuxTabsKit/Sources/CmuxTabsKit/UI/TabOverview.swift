@@ -193,13 +193,15 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .frame(width: layout.size.width, height: layout.contentHeight, alignment: .topLeading)
                 // The grid reflows when a tab leaves (the data source removes
                 // it once its close succeeded).
-                .animation(theme.motion.resolve(theme.motion.reflow), value: tabs.map(\.id))
+                .animation(reflowAnimation, value: tabs.map(\.id))
                 // Long press, then drag from the lifted preview: the card moves
                 // to the slot under the finger (Safari).
                 .onDrop(of: [.text], delegate: CardReorderDrop(layout: layout, ids: tabs.map(\.id), pinned: layout.pinned,
                                                             canMove: source.supportsReordering, dragging: $dragging,
                                                             move: { source.moveTab($0, to: $1) }))
                 .onChange(of: tabs.map(\.id)) { _, ids in
+                    // A fling's count is the list's now.
+                    if swipes.reflowCue == 0, swipes.countHold == max(1, ids.count) { swipes.countHold = nil }
                     if let d = dragging, !ids.contains(d) { dragging = nil }
                     selection.retain(ids)
                 }
@@ -289,10 +291,12 @@ struct TabOverview<Source: TabsDataSource>: View {
                 radius: layout.cardRadius, showsClose: !selecting, closeOpacity: chrome.closeOpacity,
                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
                 contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
-                onClose: { Task { _ = await onClose(tab.id) } }) {
+                onClose: { Task { _ = await closeTapped(tab.id) } }) {
             source.card(for: tab)
                 .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))
         }
+        // Under its lifted long-press preview the card is hidden.
+        .opacity(swipes.menuCard == tab.id ? 0 : 1)
         .overlay(alignment: .topLeading) {
             if selecting { SelectionMark(selected: selection.contains(tab.id), width: r.width, height: r.height, radius: layout.cardRadius) }
         }
@@ -312,6 +316,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 },
                 previewScale: CardMenuPreview<EmptyView>.scale,
                 dragKey: selecting || !source.supportsReordering ? nil : tab.id,
+                onMenu: { open in swipes.menuChanged(tab.id, open) },
                 onTap: {
                     if selecting { selection.toggle(tab.id) }
                     else if gridInteractive { onSelect(tab.id) } else if swipeInteractive { onQueueSelect(tab.id) }
@@ -324,9 +329,12 @@ struct TabOverview<Source: TabsDataSource>: View {
                         return
                     }
                     switch phase {
-                    case .changed(let dx): swipes.track(tab.id, translation: dx, reduceMotion: rm)
+                    case .changed(let dx):
+                        swipes.track(tab.id, translation: dx, reduceMotion: rm, cardWidth: r.width,
+                                     onFling: { swipes.countHold = $0 ? max(1, source.tabs.count - 1) : nil })
                     case .ended(_, let v):
-                        swipes.release(tab.id, velocity: v, card: r, reduceMotion: rm, departing: copy) {
+                        swipes.release(tab.id, velocity: v, card: r, reduceMotion: rm, departing: copy,
+                                       onCommit: { swipes.countHold = max(1, source.tabs.count - 1) }) {
                             let closed = await onClose(tab.id)
                             // Safari opens the last tab when a swipe leaves only one.
                             if closed, source.tabs.count == 1, let last = source.tabs.first { onSelect(last.id) }
@@ -353,6 +361,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         let r = layout.card(index)
         PinnedCard(title: tab.title, systemImage: tab.systemImage, width: r.width, height: r.height,
                    selected: selecting ? selection.contains(tab.id) : nil)
+            .opacity(swipes.menuCard == tab.id ? 0 : 1)
             .overlay {
                 CardInteraction(
                     card: r.size, radius: r.height / 2, passThrough: nil,
@@ -362,6 +371,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                             .environment(\.tabsKitTheme, theme))
                     },
                     previewScale: 1.15, dragKey: nil,
+                    onMenu: { open in swipes.menuChanged(tab.id, open) },
                     onTap: { if selecting { selection.toggle(tab.id) } else if gridInteractive { onSelect(tab.id) } },
                     onPan: { _ in }, onDragStart: {}, onDragEnd: {})
             }
@@ -389,7 +399,7 @@ struct TabOverview<Source: TabsDataSource>: View {
             main.insert(pin, at: min(1, main.count))
         }
         main.append(CardMenuEntry(title: "Select Tabs", symbol: "checkmark.circle") { beginSelecting(tab.id) })
-        main.append(CardMenuEntry(title: "Close Tab", symbol: "xmark", destructive: true) { Task { _ = await onClose(tab.id) } })
+        main.append(CardMenuEntry(title: "Close Tab", symbol: "xmark", destructive: true) { Task { _ = await closeTapped(tab.id) } })
         var sections = [main]
         if !pinned, source.tabs.count > 1 {
             let others = source.tabs.map(\.id).filter { $0 != tab.id && !source.pinnedTabIDs.contains($0) }
@@ -492,6 +502,20 @@ struct TabOverview<Source: TabsDataSource>: View {
         .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
     }
 
+    /// The grid's reflow: the theme's, or after a ✕ the same curve cued to
+    /// time the count (`CardSwipeState.holdCountForTapClose`).
+    private var reflowAnimation: Animation {
+        let reflow = theme.motion.resolve(theme.motion.reflow)
+        guard swipes.reflowCue != 0, reflow == Animation(SafariCurveAnimation(curve: .reflow)) else { return reflow }
+        return .safari(.reflow, cue: swipes.reflowCue)
+    }
+
+    /// A card's ✕ (or the menu's Close Tab): the count waits for the reflow.
+    private func closeTapped(_ id: TabsKitTab.ID) async -> Bool {
+        if !UIAccessibility.isReduceMotionEnabled { swipes.holdCountForTapClose(max(1, source.tabs.count)) }
+        return await onClose(id)
+    }
+
     private func bottomBar(count: Int) -> some View {
         let bar = layout.barRect
         let options = source.newTabOptions
@@ -528,7 +552,7 @@ struct TabOverview<Source: TabsDataSource>: View {
             }
 
             // One glass shape per control (nested glass reads as a double background).
-            Text(count == 1 ? "1 Tab" : "\(count) Tabs")
+            TabCountLabel(swipes: swipes, count: count)
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(theme.colors.label)
                 .padding(.horizontal, 22)
@@ -664,6 +688,17 @@ struct CardReorderDrop: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         dragging = nil
         return true
+    }
+}
+/// The bar's "N Tabs", apart from the grid's body: it follows a close's own
+/// clock (`CardSwipeState.countHold`) without re-rendering the cards.
+struct TabCountLabel: View {
+    var swipes: CardSwipeState
+    var count: Int
+
+    var body: some View {
+        let shown = swipes.countHold ?? count
+        Text(shown == 1 ? "1 Tab" : "\(shown) Tabs")
     }
 }
 #endif

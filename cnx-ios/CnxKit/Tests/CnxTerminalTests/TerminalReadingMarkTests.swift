@@ -37,6 +37,33 @@ import Testing
         #expect(found?.row == 15037 - 771)
     }
 
+    /// VERIFY-round8 T-LIFE-09/15 (disruptive): after a drop while output kept
+    /// arriving, the page came back 225-388 rows lower, 3 of 3 runs, a single
+    /// drop with no prune included. The anchor's rows and the old end were
+    /// past the readable rows near the new end, so the search fell back to the
+    /// same distance from the end: the rows that arrived during the drop pushed
+    /// the reader down by their count. Rows that arrive only append; with
+    /// nothing found by text, the reader's row stays where it was.
+    @Test func rowsThatArriveDuringTheDropNeverPushTheReaderDown() throws {
+        let before = (0..<1000).map { "GEN-\($0)" }
+        let m = try #require(mark(in: before, at: 600))
+        let after = before + (1000..<1300).map { "GEN-\($0)" }
+        let readable = (after.count - 151)..<after.count
+        let found = m.locate(totalRows: after.count) { readable.contains($0) ? after[$0] : nil }
+        #expect(found?.row == 600)
+    }
+
+    /// The same drop with repeated rows (a GEN loop prints the same lines): the
+    /// match nearest the reader's own row wins, not the one nearest the
+    /// distance from the end.
+    @Test func repeatedRowsAfterOutputDuringTheDropKeepTheReadersRow() throws {
+        let block = (0..<50).map { "loop \($0)" }
+        let before = Array((0..<20).map { _ in block }.joined())
+        let m = try #require(mark(in: before, at: 610))
+        let after = before + Array((0..<6).map { _ in block }.joined())
+        #expect(locate(m, in: after)?.row == 610)
+    }
+
     @Test func theSameHistoryKeepsTheSameRow() throws {
         let rows = history(500)
         let m = try #require(mark(in: rows, at: 200))

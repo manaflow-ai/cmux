@@ -1046,3 +1046,19 @@ final class Seen: @unchecked Sendable {
         #expect(loaded.first?.kind == .failed)
     }
 }
+
+// MARK: Queue changes reach the chat (parity round 3, live finding)
+
+@Suite struct ChatKindsTests {
+    /// A Mac's acpmux may leave Edit queued prompt and Move up / down out of its
+    /// `transcript` records: the phone asks for them by name, so its queue rows follow.
+    @Test @MainActor func theChatAsksForQueueChangesByName() {
+        guard case .array(let kinds) = AcpmuxSessionSource.chatKinds else {
+            Issue.record("kinds is not a list"); return
+        }
+        let names = kinds.compactMap(\.stringValue)
+        #expect(names.contains("transcript"))
+        #expect(names.contains("queue_updated"))
+        #expect(names.contains("queue_order"))
+    }
+}

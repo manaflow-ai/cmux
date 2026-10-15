@@ -151,7 +151,7 @@ public struct PermissionActionBar: View {
 
     public var body: some View {
         VStack(spacing: 8) {
-            ForEach(request.options) { option in
+            ForEach(request.phoneOptions) { option in
                 Button {
                     // The allow already waiting for Face ID ignores a second tap.
                     guard !(option.isAllow && approvingOptionID != nil) else { return }
@@ -166,7 +166,7 @@ public struct PermissionActionBar: View {
                             Text(Self.waitingForFaceID).lineLimit(2).multilineTextAlignment(.center)
                         } else {
                             if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
-                            Text(option.name).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                            Text(option.phoneLabel).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
                         }
                     }
                     .animation(.cnxSnap, value: approvingOptionID)
@@ -471,6 +471,8 @@ struct AnsweredSummary: View {
 struct FailureCard: View {
     let title: String
     let message: String
+    /// The agent's own message, when the sentence says it in plain words (the Mac's Details).
+    var detail: String?
     let retry: () -> Void
 
     var body: some View {
@@ -478,6 +480,17 @@ struct FailureCard: View {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 17))
             Text(title).font(.headline)
             Text(message).font(.subheadline).foregroundStyle(.secondary)
+            if let detail {
+                DisclosureGroup("Details") {
+                    Text(detail)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.footnote)
+                .tint(.secondary)
+            }
             Button("Retry", action: retry).buttonStyle(CnxCapsuleButtonStyle(.primary, size: .large))
         }
         .padding(16)

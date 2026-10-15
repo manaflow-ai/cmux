@@ -9,14 +9,19 @@ import CoreGraphics
 /// history can start later than the phone's did). So the anchored row is
 /// found again by content, not by index:
 /// 1. the anchor's own rows, exactly, at the same row and then nearest-first
-///    around the row the same distance from the end;
+///    around it (rows that arrive only append, so the reader's own row is the
+///    best guess; never the distance from the end: T-LIFE-09/15);
 /// 2. else every row read (the screen around the anchor, neighbours above
 ///    included) votes for where the window starts in the replay; the best
 ///    supported start wins, so a few rows that read differently in the replay
 ///    (a redrawn status row, a line serialized another way) or blank rows at
 ///    the anchor do not lose the place (round 3: 5 of 5 read-drops lost it
 ///    once the row counts differed);
-/// 3. else the same distance from the end.
+/// 3. else the shift of the rows that were at the end;
+/// 4. else the same row. The change in total rows is never applied: rows that
+///    arrived during a drop pushed the reader down by their count (round 8).
+/// The screen reads every row for it (`TerminalScreenRows`), so 1 and 2 reach
+/// the whole replay.
 struct TerminalReadingMark: Equatable {
     /// The rows read, from `rowsBefore` rows above the anchor down (text,
     /// trailing blanks trimmed).
@@ -69,7 +74,7 @@ struct TerminalReadingMark: Equatable {
     /// The anchor in a rebuilt scrollback of `totalRows` rows.
     func locate(totalRows: Int, rowText: (Int) -> String?) -> TerminalScrollModel.Anchor? {
         guard totalRows > 0 else { return nil }
-        let byEnd = totalRows - rowsFromEnd
+        let center = min(max(0, row), totalRows - 1)
         var cache: [Int: String] = [:]
         func text(_ row: Int) -> String? {
             if let hit = cache[row] { return hit }
@@ -87,7 +92,7 @@ struct TerminalReadingMark: Equatable {
             }
             if matches(row) { return .init(row: row, delta: delta) }
             for distance in 0...Self.searchRows {
-                for candidate in distance == 0 ? [byEnd] : [byEnd - distance, byEnd + distance] where matches(candidate) {
+                for candidate in distance == 0 ? [center] : [center - distance, center + distance] where matches(candidate) {
                     return .init(row: candidate, delta: delta)
                 }
             }
@@ -98,7 +103,7 @@ struct TerminalReadingMark: Equatable {
         positions = positions.filter { $0.value.count <= Self.maxRepeats }
         let voters = positions.values.reduce(0) { $0 + $1.count }
         if voters > 0 {
-            let expectedStart = byEnd - anchorIndex
+            let expectedStart = center - anchorIndex
             let low = max(0, expectedStart - Self.searchRows)
             let high = min(totalRows - 1, expectedStart + Self.searchRows + rows.count)
             var votes: [Int: Int] = [:]
@@ -123,9 +128,8 @@ struct TerminalReadingMark: Equatable {
             let anchor = min(max(0, row + shift), totalRows - 1)
             return .init(row: anchor, delta: delta)
         }
-        // 4. The same distance from the end.
-        let fallback = min(max(0, byEnd), totalRows - 1)
-        return .init(row: fallback, delta: delta)
+        // 4. The same row.
+        return .init(row: center, delta: delta)
     }
 
     /// The shift (new row - old row) most of the distinctive tail rows agree

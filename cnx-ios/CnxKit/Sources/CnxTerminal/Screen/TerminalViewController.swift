@@ -93,6 +93,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var document: TerminalDocumentLayout?
     /// Text selection over the rows (G-14).
     let selection = TerminalSelectionController()
+    /// Selection in a full-screen app (vim, htop): a long press always selects,
+    /// like Shift-drag on the Mac when the app captures the mouse (G-14).
+    let tuiSelection = TerminalSelectionController()
     private var documentRows: Int { document?.rowCount ?? 0 }
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
@@ -987,7 +990,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
         let total = scrollbar.total
         let reader = rowReader
-        guard let anchor = mark.locate(totalRows: total, rowText: { reader.text(TerminalAbsoluteRow($0)) }) else { return }
+        // Every row of the replay, read once (the whole-screen read is not
+        // clamped to the grid; round 9): the rows far from the end are found
+        // by their text too, so output during the drop cannot push the reader
+        // down (T-LIFE-09/15). Rows past the read's trimmed end use the reader.
+        let screen = surface.screenRows()
+        guard let anchor = mark.locate(totalRows: total, rowText: { row in
+            if let screen, row < screen.count { return screen.rows[row] }
+            return reader.text(TerminalAbsoluteRow(row))
+        }) else { return }
         sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
         restoredMark = (mark, anchor)
@@ -1352,6 +1363,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // where its rows now belong.
             place(atRow: presentedTop)
             selection.redraw()
+            tuiSelection.redraw()
         }
         // The scroll model places the rows: the bottom when following, the
         // anchored rows when reading, nothing while a finger owns the page.
@@ -1597,6 +1609,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if hadFocus, !surface.isFirstResponder { surface.becomeFirstResponder() }
         }
         if tui {
+            selection.clear()
             tuiSizing.tuiStarted()
             scrollView.isScrollEnabled = false
             scrollView.topEdgeEffect.style = .hard
@@ -1609,6 +1622,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
         } else {
+            // The app's screen is gone: its selection goes with it.
+            tuiSelection.clear()
             tuiSizing.tuiEnded()
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
@@ -1822,8 +1837,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     @objc private func terminalTapped() {
         // A tap outside the menu ends a selection, like iOS text.
-        if selection.selection != nil {
+        if selection.selection != nil || tuiSelection.selection != nil {
             selection.clear()
+            tuiSelection.clear()
             return
         }
         focusTerminal()
@@ -1907,6 +1923,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if let press = selection.longPress {
             press.addTarget(self, action: #selector(selectionPressChanged(_:)))
         }
+        installTUISelection()
+    }
+
+    /// The alternate screen's selection: viewport rows in the TUI host, the
+    /// text read from the surface's viewport (no scrollback, no autoscroll).
+    private func installTUISelection() {
+        let geometry = { [weak self] () -> TerminalTUISelectionGeometry in
+            guard let self else { return TerminalTUISelectionGeometry(cellSize: .zero, padding: .zero, rows: 0, columns: 0) }
+            return TerminalTUISelectionGeometry(cellSize: CGSize(width: cell.width, height: cell.height), padding: surface.gridPadding,
+                                                rows: surface.grid.rows, columns: surface.grid.columns)
+        }
+        tuiSelection.isEnabled = { [weak self] in
+            guard let self else { return false }
+            return model.isTUI && cell.height > 0 && surface.superview === tuiHost
+        }
+        tuiSelection.columns = { [weak self] in max(1, self?.surface.grid.columns ?? 1) }
+        tuiSelection.documentRows = { [weak self] in 0..<max(0, self?.surface.grid.rows ?? 0) }
+        tuiSelection.cellAt = { geometry().cell(at: $0) }
+        tuiSelection.rectFor = { geometry().rect(for: $0) }
+        tuiSelection.rowText = { [weak self] row in
+            guard let self else { return nil }
+            let last = max(0, surface.grid.columns - 1)
+            return surface.viewportText(from: TerminalCellPoint(row: row, column: 0), to: TerminalCellPoint(row: row, column: last))
+        }
+        tuiSelection.text = { [weak self] start, end in self?.surface.viewportText(from: start, to: end) }
+        tuiSelection.install(in: tuiHost)
     }
 
     /// While a long press selects, the page does not scroll under the finger.

@@ -40,11 +40,14 @@ public struct SidebarArrangement: Equatable, Sendable {
         public var session: String
         public var key: String
         public var index: Int
+        /// Its personal group (`group`), if any.
+        public var group: String?
 
-        public init(session: String, key: String, index: Int) {
+        public init(session: String, key: String, index: Int, group: String? = nil) {
             self.session = session
             self.key = key
             self.index = index
+            self.group = group
         }
     }
 
@@ -63,10 +66,19 @@ public struct SidebarArrangement: Equatable, Sendable {
     public var rows: [Row]?
     /// Pinned tiles in order (nil: the Mac has no sidebar layout; the legacy flag counts).
     public var pins: [Pin]?
+    /// The person's workspace groups (`list-personal.groups`); empty on a Mac without them.
+    public var groups: [MacWorkspaceGroup]
+    /// Rooms (`list-personal.profiles`) and workspaces pinned to one
+    /// (`list-personal.pins`): the room a new group of a workspace goes to.
+    public var rooms: [Room]
+    public var roomPins: [RoomPin]
 
-    public init(rows: [Row]? = nil, pins: [Pin]? = nil) {
+    public init(rows: [Row]? = nil, pins: [Pin]? = nil, groups: [MacWorkspaceGroup] = [], rooms: [Room] = [], roomPins: [RoomPin] = []) {
         self.rows = rows
         self.pins = pins
+        self.groups = groups
+        self.rooms = rooms
+        self.roomPins = roomPins
     }
 
     public static let pinnedSectionID = "sec_pinned"
@@ -77,7 +89,7 @@ public struct SidebarArrangement: Equatable, Sendable {
         guard let list = data["workspaces"] as? [[String: Any]] else { return nil }
         return list.compactMap { row in
             guard let session = row["session_id"] as? String, let key = row["workspace_key"] as? String else { return nil }
-            return Row(session: session, key: key, index: row["index"] as? Int ?? 0)
+            return Row(session: session, key: key, index: row["index"] as? Int ?? 0, group: row["group"] as? String)
         }
     }
 
@@ -124,7 +136,9 @@ public struct SidebarArrangement: Equatable, Sendable {
             }
             // Rowed workspaces by personal place, then the rest in daemon order (the Mac's `order`).
             workspaces[i].sidebarIndex = rows == nil ? i : (place[ws.id] ?? rowCount + i)
+            workspaces[i].group = nil
         }
+        if let registryID, rows != nil, !groups.isEmpty { applyGroups(to: &workspaces, registryID: registryID) }
     }
 
     /// Where Move Up / Down puts `workspace` among `visible` (the Mac's sidebar

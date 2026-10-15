@@ -73,12 +73,24 @@ public struct DaemonLanePolicy: Sendable {
 
     /// `cmux.protocol/2` operations a phone may send, each with the params it
     /// may carry (cnx-ios/SECURITY.md "Workspace pins, order and Clear All
-    /// Notifications"). Every other resource operation is refused.
+    /// Notifications" and "Workspace groups"). Every other resource operation
+    /// is refused. Group edits name a personal group (`workspace_group.update`,
+    /// `.delete`) or place a workspace (`workspace.place`): cnx-hostd confirms
+    /// those against the Mac's state, so this lane refuses them
+    /// (`needsOwnershipCheck`); a new group (`workspace_group.create`) names
+    /// no existing object.
     static let allowedResourceOperations: [String: Set<String>] = [
         "notification.clear": ["machine", "session"],
         "sidebar_layout.get": ["machine", "session"],
         "sidebar_layout.update": ["machine", "session", "op"],
+        "workspace_group.create": ["machine", "session", "name", "color", "room"],
+        "workspace_group.update": ["machine", "session", "workspace_group", "name", "color", "collapsed"],
+        "workspace_group.delete": ["machine", "session", "workspace_group"],
+        "workspace.place": ["machine", "session", "workspace", "group"],
     ]
+
+    /// The group colors the Mac's menus offer (`GroupColor`).
+    static let groupColors: Set<String> = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]
 
     /// Envelope members a phone may send (never `origin` or `credential`).
     static let resourceFields: Set<String> = ["protocol", "type", "id", "operation", "params", "idempotency_key"]
@@ -106,6 +118,11 @@ public struct DaemonLanePolicy: Sendable {
             "create-terminal": mutation.union(size).union(["workspace", "key", "name"]),
             // The tab's recorded launch on this Mac; the phone names only the tab.
             "restart-tab": ["surface"],
+            // A saved group of this daemon, reopened into one of its panes: each terminal
+            // member starts as the login shell in the record's folder (SECURITY.md
+            // "Reopen Saved Tab Group"); the phone names no program, folder or env.
+            "reopen-saved-tab-group": ["saved", "pane", "transaction"],
+            "delete-saved-tab-group": ["saved"],
         ]
     }()
 
@@ -143,6 +160,10 @@ public struct DaemonLanePolicy: Sendable {
                                               message: "\(command) does not take \(extra.sorted().joined(separator: ", ")) from a phone"))
             }
         }
+        if command == "reopen-saved-tab-group" || command == "delete-saved-tab-group",
+           let why = Self.savedGroupRefusal(object, reopen: command == "reopen-saved-tab-group") {
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: why))
+        }
         if command == "set-personal-workspace", let why = Self.personalWorkspaceRefusal(object) {
             return .refuse(Self.errorLine(id: id, code: "forbidden", message: why))
         }
@@ -169,6 +190,34 @@ public struct DaemonLanePolicy: Sendable {
         if !write, scope != "personal" { return .forward }
         return .refuse(Self.errorLine(id: id, code: "forbidden",
                                       message: "phones may only use the personal projection \(projectionSubject)"))
+    }
+
+    /// Why a saved tab group line is refused, or nil: `saved` is a short identifier, a
+    /// reopen names its `pane` (a number or a short public id), and `transaction` is
+    /// 1-128 printable ASCII characters (cnx-hostd `saved_group_refusal`).
+    static func savedGroupRefusal(_ object: [String: Any], reopen: Bool) -> String? {
+        guard let saved = object["saved"] as? String, shortIdentifier(saved) else {
+            return "a saved tab group is named by its id"
+        }
+        if reopen {
+            let pane = object["pane"]
+            let ok = (pane as? String).map(shortIdentifier) ?? pane.map(isPlace) ?? false
+            if !ok { return "reopen-saved-tab-group needs the pane to reopen it in" }
+        }
+        if let transaction = object["transaction"] {
+            guard let text = transaction as? String, (1...128).contains(text.utf8.count),
+                  text.utf8.allSatisfy({ $0 > 0x20 && $0 < 0x7F }) else {
+                return "transaction is 1-128 printable characters"
+            }
+        }
+        return nil
+    }
+
+    /// `[A-Za-z0-9._:-]`, 1 to 128 bytes.
+    static func shortIdentifier(_ text: String) -> Bool {
+        (1...128).contains(text.utf8.count) && text.utf8.allSatisfy { b in
+            (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || b == 0x2D || b == 0x5F || b == 0x2E || b == 0x3A
+        }
     }
 
     /// Why a `set-personal-workspace` line is refused, or nil: a short session id,
@@ -206,7 +255,9 @@ public struct DaemonLanePolicy: Sendable {
     /// object (`services::owned_check`: a live workspace of this session, a pinned
     /// workspace tile). This lane has no such check, so it refuses them.
     static func needsOwnershipCheck(_ object: [String: Any]) -> Bool {
-        object["cmd"] as? String == "set-personal-workspace" || object["operation"] as? String == "sidebar_layout.update"
+        if object["cmd"] as? String == "set-personal-workspace" { return true }
+        return ["sidebar_layout.update", "workspace_group.update", "workspace_group.delete", "workspace.place"]
+            .contains(object["operation"] as? String ?? "")
     }
 
     /// A `cmux.protocol/2` request: one of `allowedResourceOperations` with only its
@@ -214,7 +265,9 @@ public struct DaemonLanePolicy: Sendable {
     static func resourceVerdict(_ object: [String: Any]) -> Verdict {
         let id = object["id"]
         if let why = resourceRefusal(object) { return .refuse(resourceErrorLine(id: id, message: why)) }
-        if needsOwnershipCheck(object) { return .refuse(resourceErrorLine(id: id, message: "Unpin from the Mac app's phone link only")) }
+        if needsOwnershipCheck(object) {
+            return .refuse(resourceErrorLine(id: id, message: "\(object["operation"] as? String ?? "this") needs the Mac app's phone link"))
+        }
         guard let line = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return .refuse(resourceErrorLine(id: id, message: "request is not a JSON object"))
         }
@@ -241,10 +294,59 @@ public struct DaemonLanePolicy: Sendable {
                 return "\(operation) needs an idempotency_key"
             }
         }
+        if operation.hasPrefix("workspace_group.") || operation == "workspace.place", let why = groupRefusal(operation, params) {
+            return why
+        }
         if operation == "sidebar_layout.update" {
             guard let op = params["op"] as? [String: Any], op.count == 2, op["kind"] as? String == "item.remove",
                   let id = op["id"] as? String, mintedItem(id) else {
                 return "a phone may only unpin a workspace from the sidebar"
+            }
+        }
+        return nil
+    }
+
+    /// 1 to `max` of `[A-Za-z0-9_.:-]` (the daemon's group, room and workspace id characters).
+    static func shortID(_ value: Any?, max: Int) -> Bool {
+        guard let text = value as? String, (1...max).contains(text.utf8.count) else { return false }
+        return text.utf8.allSatisfy { b in
+            (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || b == 0x2D || b == 0x5F || b == 0x2E || b == 0x3A
+        }
+    }
+
+    /// Why a workspace group operation's values are refused, or nil (policy.rs
+    /// `group_params`): a name of 1-256 characters without control characters,
+    /// a palette color, a Bool `collapsed`, short group and room ids, a `ws_` id.
+    static func groupRefusal(_ operation: String, _ params: [String: Any]) -> String? {
+        if let name = params["name"] {
+            guard let text = name as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.unicodeScalars.count <= 256,
+                  !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
+                return "\(operation) name is a short name"
+            }
+        }
+        if let color = params["color"], !(color is String && groupColors.contains(color as? String ?? "")) {
+            return "\(operation) color is one of the Mac's group colors"
+        }
+        if let collapsed = params["collapsed"] {
+            guard let number = collapsed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+                return "\(operation) collapsed is true or false"
+            }
+        }
+        switch operation {
+        case "workspace_group.create":
+            if params["name"] == nil { return "workspace_group.create needs a name" }
+            if let room = params["room"], !shortID(room, max: 64) { return "workspace_group.create room is a room id" }
+        case "workspace_group.update", "workspace_group.delete":
+            guard shortID(params["workspace_group"], max: 64) else { return "\(operation) needs a workspace_group" }
+            if operation == "workspace_group.update", !["name", "color", "collapsed"].contains(where: { params[$0] != nil }) {
+                return "workspace_group.update needs a name, color or collapsed"
+            }
+        default:
+            guard let workspace = params["workspace"] as? String, workspace.hasPrefix("ws_"), shortID(workspace, max: 128) else {
+                return "workspace.place needs a workspace of this Mac"
+            }
+            guard let group = params["group"], group is NSNull || shortID(group, max: 64) else {
+                return "workspace.place takes a group, or null to remove it from one"
             }
         }
         return nil

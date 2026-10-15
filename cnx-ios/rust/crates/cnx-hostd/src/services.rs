@@ -746,11 +746,19 @@ async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
     daemon_query(path, b"{\"cmd\":\"list-workspaces\",\"id\":\"cnx-upload\"}\n", "cnx-upload").await
 }
 
+/// The daemon at `path`'s `list-personal` reply: the person's sidebar order and groups (at most 5 s).
+async fn list_personal(path: &Path) -> Result<Value, Refusal> {
+    daemon_query(path, b"{\"cmd\":\"list-personal\",\"id\":\"cnx-personal\"}\n", "cnx-personal").await
+}
+
 /// The verdict for a line the policy let through, once the Mac's own state
 /// (read on a separate connection) confirms the phone's object
 /// (`policy::ownership`); a refusal otherwise, or when the Mac cannot answer.
 async fn owned_check(path: &Path, line: Vec<u8>, verdict: Verdict) -> Verdict {
-    use crate::policy::{Ownership, is_pinned_workspace_tile, not_owned, ownership, owns_personal_workspace};
+    use crate::policy::{
+        Ownership, is_pinned_workspace_tile, lists_workspace, not_owned, ownership, owns_group,
+        owns_personal_workspace, registry_id,
+    };
     let Some(what) = ownership(&line) else { return verdict };
     let owned = match &what {
         Ownership::PersonalWorkspace { session, key } => {
@@ -762,6 +770,25 @@ async fn owned_check(path: &Path, line: Vec<u8>, verdict: Verdict) -> Verdict {
                 .await
                 .is_ok_and(|reply| is_pinned_workspace_tile(&reply, item))
         }
+        Ownership::OwnGroup { group } => match list_workspaces(path).await {
+            Ok(tree) => match registry_id(&tree) {
+                Some(registry) => {
+                    list_personal(path).await.is_ok_and(|personal| owns_group(&personal, registry, group))
+                }
+                None => false,
+            },
+            Err(_) => false,
+        },
+        Ownership::PlaceWorkspace { workspace, group } => match list_workspaces(path).await {
+            Ok(tree) if lists_workspace(&tree, workspace) => match (group, registry_id(&tree)) {
+                (None, _) => true,
+                (Some(group), Some(registry)) => {
+                    list_personal(path).await.is_ok_and(|personal| owns_group(&personal, registry, group))
+                }
+                (Some(_), None) => false,
+            },
+            _ => false,
+        },
     };
     if owned { verdict } else { Verdict::Refuse(not_owned(&line, &what)) }
 }

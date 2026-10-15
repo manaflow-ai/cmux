@@ -23,6 +23,7 @@ CLI (it needs a Codex login on the rig's Mac) and prompts it on the phone.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -87,9 +88,12 @@ def install(build):
         j.s_sign_in()
     import rigsetup
     i, _ = sim.wait_any([dict(ident="setup.teams.create"), dict(ident="setup.teams.choose"),
-                         dict(contains="Connect your Mac"), dict(label="Workspaces", kind="RadioButton")], timeout=30)
-    if i in (0, 1):
-        p = sim.find(ident="setup.teams.personal") or sim.find(label="Not now", kind="Button")
+                         dict(contains="Connect your Mac"), dict(label="Workspaces", kind="RadioButton"),
+                         dict(contains="Choose a space")], timeout=30)
+    if i in (0, 1, 4):
+        # Old builds: "Choose a space" lists Personal as a row with no identifier.
+        p = (sim.find(ident="setup.teams.personal") or sim.find(label="Not now", kind="Button")
+             or [e for e in sim.find(contains="Personal") if e.frame[1] > 100])
         sim.tap_el(p[0])
         sim.wait_any([dict(contains="Connect your Mac"), dict(label="Workspaces", kind="RadioButton")], timeout=20)
     if sim.find(contains="Connect your Mac"):
@@ -120,17 +124,89 @@ def open_tab(sim, prefix):
 
 def stage_fixtures():
     src = os.path.join(HERE, "fixtures")
-    subprocess.run(["rsync", "-a", src + "/", f"{tq.HOST}:tqf/"], check=True)
+    dest = os.path.expanduser("~/tqf/") if tq.HOST == "local" else f"{tq.HOST}:tqf/"
+    subprocess.run(["rsync", "-a", src + "/", dest], check=True)
 
 
-def start_agent(j, agent, args):
-    """Typed on the phone (composer paste + Send)."""
+CODEX_PROMPT = "Print the numbers 1 to {n}, one per line, each followed by a short sentence. No tools."
+CODEX_DIR = os.environ.get("TQ_CODEX_DIR", "~/cnx-ios-e2e/tq10/proj")
+
+
+def wait_mac(pred, timeout, every=1.5):
+    """Polls the Mac's screen of the tab (read for timing only; every input is typed on the phone)."""
+    t_end = time.time() + timeout
+    while time.time() < t_end:
+        try:
+            text = tq.mac_screen()
+        except Exception:
+            text = ""
+        if pred(text):
+            return text
+        time.sleep(every)
+    return None
+
+
+def codex_working(text):
+    return "esc to interrupt" in text or "Working" in text
+
+
+def leave_codex(j):
+    """A Codex left running in the tab by an earlier run: stop it from the phone's key
+    bar (Control C twice) so the next command reaches the shell."""
+    try:
+        text = tq.mac_screen()
+    except Exception:
+        return
+    if "OpenAI Codex" not in text and "Ask Codex" not in text and not codex_working(text):
+        return
+    if not j.sim.find(label="Control C", kind="Button"):
+        f = j.sim.find(ident="terminal.composer.field")
+        if f:
+            j.sim.tap_el(f[0]); time.sleep(1.2)
+    for _ in range(3):
+        j.keybar("Control C"); time.sleep(0.4)
+        j.keybar("Control C"); time.sleep(2)
+        if wait_mac(lambda t: "Ask Codex" not in t.splitlines()[-1] if t.strip() else True, 6) and \
+                "esc to interrupt" not in tq.mac_screen():
+            break
+
+
+def start_agent(j, agent, args, phase="streaming", count=400):
+    """Typed on the phone (composer paste + Send). Real Codex: phase "streaming"
+    returns once its answer rows are arriving, "idle" once it is back at its prompt
+    with the answer on screen (the Mac's screen is read for timing only)."""
+    leave_codex(j)
     if agent == "codexlike":
         tq.paste_composer("clear; python3 ~/tqf/codexlike.py " + " ".join(str(a) for a in args))
     else:
-        tq.paste_composer("clear; codex --yolo")
-        time.sleep(8)
-        tq.paste_composer("Print the numbers 1 to 400, one per line, each followed by a short sentence. No tools.")
+        tq.paste_composer(f"clear; mkdir -p {CODEX_DIR} && cd {CODEX_DIR} && codex --yolo")
+        if not wait_mac(lambda t: "Ask Codex" in t or "›" in t, 60):
+            raise RuntimeError("codex prompt never showed")
+        time.sleep(1)
+        tq.paste_composer(CODEX_PROMPT.format(n=count))
+        # This Codex shows no working indicator on screen; its state is read from the
+        # answer itself: rows arriving (streaming), or "Worked for" / row 400 with the
+        # screen unchanged across two reads 3 s apart (idle).
+        prev = [None]
+
+        def numbered(t):
+            return sum(bool(re.match(r"\s*\d{1,4}\b", l)) for l in t.splitlines())
+
+        if phase == "streaming":
+            def streaming(t):
+                moving = prev[0] is not None and t != prev[0]
+                prev[0] = t
+                return moving and numbered(t) >= 8
+            if not wait_mac(streaming, 300):
+                raise RuntimeError("codex never streamed its answer")
+        else:
+            def idle(t):
+                same = prev[0] == t
+                prev[0] = t
+                finished = "Worked for" in t or re.search(r"(?m)^\s*%d\b" % count, t) is not None
+                return same and finished
+            if not wait_mac(idle, 900, every=3):
+                raise RuntimeError("codex never finished its answer")
     time.sleep(1)
     touch("key")
 
@@ -180,7 +256,7 @@ def window(m, t0, a, b):
 # ------------------------------------------------------------------ scenarios
 def s1337(sim, mac, j, agent, name):
     """Codex idle at its prompt, page at and near the bottom, keyboard down, no touch."""
-    start_agent(j, agent, [6, 20, 45, 3])
+    start_agent(j, agent, [6, 20, 45, 3], phase="idle")
     j.hide_keyboard()
     touch("key")
     time.sleep(8)  # the working part ends; the agent idles and redraws its live area
@@ -215,7 +291,7 @@ def s1337(sim, mac, j, agent, name):
 def s1259(sim, mac, j, agent, name):
     """Following a working agent (keyboard down, then up), scrolling history while it
     streams, then a long fling to the top and back."""
-    start_agent(j, agent, [70, 15, 5, 2])
+    start_agent(j, agent, [70, 15, 5, 2], count=1500)
     j.hide_keyboard()
     touch("key")
     time.sleep(3)
@@ -242,6 +318,11 @@ def s1259(sim, mac, j, agent, name):
     time.sleep(3)
     seg["fling"] = (a, time.time())
     tq.rec_stop()
+    try:
+        end_screen = tq.mac_screen()
+    except Exception:
+        end_screen = ""
+    streamed_through = "Worked for" not in end_screen
     m = analyse(video, t0, name)
     w = {k: window(m, t0, *v) for k, v in seg.items()}
     rows = {
@@ -250,7 +331,8 @@ def s1259(sim, mac, j, agent, name):
                          "evidence": w["up"]},
         "T-REG-1259-c": {"red": w["scroll"]["flashes"] > 0, "evidence": w["scroll"]},
         "T-REG-1259-d": {"red": w["fling"]["black"] > 0, "evidence": w["fling"]},
-        "T-REG-1259-e": {"red": sum(x["black"] for x in w.values()) > 0, "note": "any black frame in the run"},
+        "T-REG-1259-e": {"red": sum(x["black"] for x in w.values()) > 0, "note": "any black frame in the run",
+                         "evidence": {"agent_still_streaming_at_end": streamed_through}},
         "T-REG-1259-f": {"red": None, "note": "excluded: the run logs every touch (M-TOUCH); spontaneous reversals are in a/b",
                          "evidence": {k: v["spont_reversals"] for k, v in w.items()}},
     }
@@ -260,7 +342,7 @@ def s1259(sim, mac, j, agent, name):
 def s1350(sim, mac, j, agent, name):
     """The grid card of a working agent shows its live bottom; a refused + -> New Claude
     Chat adds no card and changes no label."""
-    start_agent(j, agent, [40, 10, 30, 2])
+    start_agent(j, agent, [40, 10, 30, 2], phase="idle")
     j.hide_keyboard()
     touch("key")
     time.sleep(10)
@@ -270,37 +352,71 @@ def s1350(sim, mac, j, agent, name):
     time.sleep(2.5)
     shot = tq.shot(f"{name}-grid")
     texts = [t for x, y, w, h, t in sim.ocr()]
-    prompt = any("Ask Codex" in t or "context left" in t for t in texts)
+    # The card's text is small: OCR often loses the "A" under the cursor block.
+    prompt = any(k in t for t in texts for k in ("Ask Codex", "Codex to do", "context left", "Worked for"))
     rows_seen = [t for t in texts if t.startswith("#00")]
     cards0 = sorted(e.label for e in sim.find(kind="Button") if (e.label or "").startswith("e2e-"))
     # + -> New Claude Chat (refused by the Mac's cwd policy).
     # The grid bar's (+) is a pop-up "New": "New Claude Chat" (old builds) or
     # "New Agent Chat With…" -> Claude (newer builds).
-    plus = sim.find(label="New", kind="PopUpButton")
-    labels, menu = [], None
-    if plus:
-        sim.tap_el(plus[0]); touch("tap")
-        i, _ = sim.wait_any([dict(label="New Claude Chat"), dict(label="New Agent Chat With…")], timeout=4)
-        if i == 0:
-            menu = sim.find(label="New Claude Chat")[0]
-        elif i == 1:
-            sim.tap_el(sim.find(label="New Agent Chat With…")[0]); touch("tap")
-            menu = sim.wait(contains="Claude", timeout=4)
+    labels, menu, menu_labels = [], None, []
+    menu = open_claude_item(sim, menu_labels)
     if menu:
-        sim.tap_el(menu); touch("tap")
+        if menu != "refused":
+            sim.tap_el(menu); touch("tap")
         t_end = time.time() + 4
         while time.time() < t_end:
             labels.append((round(time.time() - t0, 2), sorted(e.label for e in sim.find(kind="Button")
                                                                if e.frame[1] > 60 and e.frame[3] > 100)))
+    else:
+        log(f"1350-b: no Claude item; labels seen: {menu_labels[:40]}")
     tq.rec_stop()
     phantom = [l for l in labels if len(l[1]) > len(cards0)]
     rows = {
         "T-REG-1350-a": {"red": not prompt, "evidence": {"shot": shot, "prompt_in_card": prompt, "history_rows": rows_seen[:5]}},
         "T-REG-1350-b": {"red": (bool(phantom) if menu else None),
-                         "evidence": {"cards": cards0, "menu": bool(menu), "phantom": phantom[:5], "samples": len(labels)}},
+                         "evidence": {"cards": cards0, "menu": bool(menu), "menu_labels": menu_labels[:40],
+                                      "phantom": phantom[:5], "samples": len(labels)}},
         "T-REG-1350-c": {"red": None, "note": "toast placement: read the recording (not automated)"},
     }
     return rows, video
+
+
+def open_claude_item(sim, seen):
+    """The grid bar's (+) -> the Claude item. Old builds: a pop-up "New" with "New
+    Claude Chat"; newer: "New Agent Chat With…" -> Claude. The (+) is found by
+    label "New" (any kind) or "Add"/"plus", and the menu's items by substring,
+    since UIMenu items reach the AX tree as buttons or cells. Every label seen is
+    kept in `seen` for the verdict's evidence."""
+    def labels():
+        out = sorted({(e.label or "") for e in sim.find() if e.label})
+        seen[:] = out
+        return out
+    plus = (sim.find(label="New", kind="PopUpButton") or sim.find(label="New", kind="Button") or sim.find(label="New")
+            or sim.find(label="Add", kind="Button") or sim.find(contains="plus"))
+    if not plus:
+        labels()
+        return None
+    for attempt in range(2):
+        sim.tap_el(plus[0]); touch("tap")
+        t_end = time.time() + 5
+        while time.time() < t_end:
+            ls = labels()
+            claude = [l for l in ls if "Claude" in l and "Codex" not in l]
+            agent = [l for l in ls if "Agent Chat" in l]
+            if claude:
+                return sim.find(label=claude[0])[0]
+            refusal = [l for l in ls if "allow agent chats" in l or "Can't start" in l]
+            if refusal:
+                # This build's (+) "New" starts the agent chat at once; the Mac refused it.
+                return "refused"
+            if agent:
+                sim.tap_el(sim.find(label=agent[0])[0]); touch("tap")
+                el = sim.wait(contains="Claude", timeout=4)
+                labels()
+                return el
+            time.sleep(0.3)
+    return None
 
 
 SCENARIOS = {"1259": s1259, "1337": s1337, "1350": s1350}

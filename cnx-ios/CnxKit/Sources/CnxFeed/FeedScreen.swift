@@ -114,9 +114,15 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
-                      let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else { return }
+                      let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else {
+                    // A chat with no tab in a workspace on the Mac (one the Mac started on its own):
+                    // the reply was never sent, so it must not read as sent.
+                    return .failed("This chat isn't in a workspace tab on the Mac, so it can't be answered from here. Open it in cmux on the Mac.")
+                }
                 let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
-                AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac).send(prompt: text)
+                let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
+                chat.send(prompt: text)
+                return .sent(chat)
             }
         }
         #if DEBUG

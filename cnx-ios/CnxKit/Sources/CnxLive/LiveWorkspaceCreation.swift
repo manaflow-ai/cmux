@@ -153,6 +153,100 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    /// One tab of a phone's Duplicate Workspace.
+    enum DuplicateStep: Hashable, Sendable {
+        /// A new shell; `folder` is typed as `cd` when it can be (nil: the Mac's default).
+        case terminal(folder: String?)
+        case browser(url: String)
+    }
+
+    /// What Duplicate Workspace makes, as the Mac's `WorkspaceBlueprint`: each terminal tab
+    /// again as a new shell in its folder, each web page again, in tab order. Agent chats and
+    /// pages that are not http or https are left out (a phone never opens those itself).
+    nonisolated static func duplicatePlan(_ workspace: Workspace, directories: [String: String]) -> [DuplicateStep] {
+        workspace.tabs.compactMap { tab in
+            switch tab.kind {
+            case .terminal:
+                return .terminal(folder: directories[tab.id] ?? tab.subtitle)
+            case .browser:
+                guard let url = tab.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+                return .browser(url: url.absoluteString)
+            case .agent:
+                return nil
+            }
+        }
+    }
+
+    /// The Mac's Duplicate Workspace (`workspace.duplicate`), from lines a phone already
+    /// sends: `new-workspace {name}` (one shell), then in its pane `new-tab {pane}` per
+    /// terminal and `new-browser-tab {url, pane}` per page, and each shell gets
+    /// `cd '<folder>' && clear` typed (`changeDirectoryLine`), as New Workspace in a folder.
+    /// The daemon never takes a program or folder from the phone. Unlike the Mac, every tab
+    /// goes in one pane (the phone does not copy splits), and color and icon stay.
+    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+        guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
+            throw WorkspaceCreationError("Not connected")
+        }
+        guard !workspace.isHome else { throw WorkspaceCreationError("Home has no duplicate.", isForPerson: true) }
+        let plan = Self.duplicatePlan(workspace, directories: tree.directories)
+        do {
+            func surface(_ reply: Data) throws -> Int {
+                guard let id = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                    throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+                }
+                return id
+            }
+            let first = try surface(await client.request("new-workspace", params: ["name": workspace.title]))
+            let listed = try await sync.listNow()
+            let firstID = DaemonTree.tabID(surface: first)
+            guard let pane = listed.tabPlaces[firstID]?.pane,
+                  let createdID = listed.workspaces.first(where: { $0.tabs.contains { $0.id == firstID } })?.id else {
+                // Its first tab is all there is of it: close it, so no empty copy stays.
+                _ = try? await client.request("close-surface", params: ["surface": first])
+                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            }
+            // Pages only on a Mac that streams browser tabs; one that fails is left out (as
+            // New Browser Tab is optional elsewhere), never the terminals after it.
+            let pages = Self.streamsBrowser(capabilities(workspace.macID))
+            var firstUsed = false
+            do {
+                for step in plan {
+                    switch step {
+                    case .terminal(let folder):
+                        let shell: Int
+                        if firstUsed {
+                            shell = try surface(await client.request("new-tab", params: ["pane": pane]))
+                        } else {
+                            shell = first
+                            firstUsed = true
+                        }
+                        if let folder, let line = Self.changeDirectoryLine(folder) {
+                            _ = try? await client.request("send", params: ["surface": shell, "text": line])
+                        }
+                    case .browser(let url):
+                        guard pages else { continue }
+                        _ = try? await client.request("new-browser-tab", params: ["url": url, "pane": pane])
+                    }
+                }
+            } catch {
+                // A half-made copy is never left behind.
+                _ = try? await client.request("close-workspace", params: ["key": createdID])
+                throw error
+            }
+            // Only pages: the first shell goes, as the Mac's builder closes its initial tab.
+            if !firstUsed, !plan.isEmpty {
+                _ = try? await client.request("close-surface", params: ["surface": first])
+            }
+            let tree = try await sync.listNow()
+            guard let created = tree.workspaces.first(where: { $0.id == createdID }) else {
+                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            }
+            return created
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
     /// The daemon lane allows `rename-workspace` and `close-workspace` on
     /// the linked Mac.
     public func canManage(on macID: String) -> Bool { canCreate(on: macID) }
@@ -299,6 +393,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 ? "\(folder) is marked Don't Trust on this Mac. Trust it in cmux on the Mac to start agent chats there."
                 : Self.trustSteps(folder: folder),
                 isForPerson: true)
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "route.unavailable" {
+            throw WorkspaceCreationError(Self.routeUnavailable(error.message), isForPerson: true)
         } catch {
             throw WorkspaceCreationError(AcpmuxSessionSource.message(error))
         }
@@ -315,6 +411,16 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             }
         }
         return (choice.id, session)
+    }
+
+    /// acpmux could not reach the model service the agent's route needs (`route.unavailable`):
+    /// the cmux model service on the Mac (its local router) is not running or not signed in.
+    /// Said plainly, without the Mac's command line.
+    nonisolated static func routeUnavailable(_ detail: String) -> String {
+        if detail.contains("not connected") {
+            return "cmux's model service isn't signed in on the Mac. Open cmux on the Mac, then try again, or choose another agent."
+        }
+        return "cmux's model service isn't running on the Mac. Quit and reopen cmux on the Mac, then try again, or choose another agent."
     }
 
     /// What to do when acpmux waits for the person to trust a new folder: it
@@ -536,6 +642,53 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         case .unsave:
             try await run(client, "unsave-tab-group", ["group": try group(of: tab)])
         }
+    }
+
+    // MARK: Saved tab groups (Reopen / Delete Saved Tab Group…)
+
+    /// The Mac's saved groups (`list-saved-tab-groups`), each marked open when one of its live
+    /// groups (`list-tab-groups`) links to it, as the Mac's `openGroup`.
+    public func savedTabGroups(on macID: String) async throws -> [SavedTabGroup] {
+        guard canManage(on: macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        do {
+            let saved = try WorkspaceSync.check(await client.request("list-saved-tab-groups"))
+            let open = try WorkspaceSync.check(await client.request("list-tab-groups"))
+            return Self.savedTabGroups(saved: saved, open: open)
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    /// Parses `list-saved-tab-groups` and `list-tab-groups` replies (`{"ok":true,"data":{...}}`
+    /// or the bare data object).
+    nonisolated static func savedTabGroups(saved: [String: Any], open: [String: Any]) -> [SavedTabGroup] {
+        func data(_ reply: [String: Any]) -> [String: Any] { reply["data"] as? [String: Any] ?? reply }
+        let linked = Set((data(open)["groups"] as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["saved_id"] as? String })
+        return (data(saved)["saved_groups"] as? [Any] ?? []).compactMap { value -> SavedTabGroup? in
+            guard let record = value as? [String: Any], let id = record["id"] as? String, !id.isEmpty else { return nil }
+            let kinds = (record["members"] as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["kind"] as? String }
+            return SavedTabGroup(id: id, name: record["name"] as? String ?? "", color: record["color"] as? String ?? "grey",
+                                 terminals: kinds.filter { $0 == "terminal" }.count,
+                                 browsers: kinds.filter { $0 == "browser" }.count, isOpen: linked.contains(id))
+        }
+    }
+
+    /// The Mac's `tabGroup.reopenSaved`: the saved id and the pane only. The Mac reopens each
+    /// terminal from its own record (a new login shell in the saved folder, or the same
+    /// terminal while it still runs); the phone names no program, folder or environment.
+    public func reopenSavedTabGroup(_ saved: SavedTabGroup, besides tab: WorkspaceTab, in workspace: Workspace) async throws {
+        let (client, _) = try target(tab, in: workspace)
+        guard !saved.isOpen else { throw WorkspaceCreationError(SavedTabGroupAction.alreadyOpen, isForPerson: true) }
+        guard let pane = sync.tree?.tabPlaces[tab.id]?.pane ?? sync.tree?.panes[workspace.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        try await run(client, "reopen-saved-tab-group", ["saved": saved.id, "pane": pane])
+    }
+
+    /// The Mac's `tabGroup.deleteSaved`: the record goes; an open group stays, unpinned.
+    public func deleteSavedTabGroup(_ saved: SavedTabGroup, on macID: String) async throws {
+        guard canManage(on: macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        try await run(client, "delete-saved-tab-group", ["saved": saved.id])
     }
 
     /// The Mac's refusal (`RefusalStrings.pinnedCannotGroup`), as a sentence.

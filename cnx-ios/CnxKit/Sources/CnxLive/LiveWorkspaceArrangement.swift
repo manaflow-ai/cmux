@@ -101,7 +101,7 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
 
     // MARK: Lines
 
-    private func daemonClient(_ macID: String) throws -> DaemonClient {
+    func daemonClient(_ macID: String) throws -> DaemonClient {
         guard canManage(on: macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
         return client
     }
@@ -129,11 +129,13 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         }
     }
 
-    private func resource(_ client: DaemonClient, _ operation: String, _ params: sending [String: Any], key: String) async throws {
+    /// Sends one `cmux.protocol/2` mutation and returns its response object.
+    @discardableResult
+    func resource(_ client: DaemonClient, _ operation: String, _ params: sending [String: Any], key: String) async throws -> [String: Any] {
         do {
             let line = try await client.resourceRequest(operation, params: params, idempotencyKey: "\(key)-\(UUID().uuidString.lowercased())",
                                                         deadline: .seconds(15))
-            try WorkspaceSync.checkResource(line)
+            return try WorkspaceSync.checkResource(line)
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }

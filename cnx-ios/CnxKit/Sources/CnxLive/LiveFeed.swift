@@ -112,7 +112,12 @@ public final class LiveFeed: FeedActions {
     func turnItem(_ session: AcpmuxSession, fallbackKey: String, at date: Date) -> FeedItem {
         let failed = session.lastTurnStatus == "failed"
         let stopped = session.lastTurnStatus == "cancelled"
-        let markdown = session.preview.flatMap { $0.isEmpty ? nil : $0 }
+        // A failed turn says why (the chat's failure sentence), not the preview: the preview is
+        // the chat's last reply, which can be an earlier turn's.
+        let failure = failed ? session.lastTurnError.map {
+            TurnFailureCopy(message: $0, harness: session.harness, harnessName: DaemonTree.agentName(session.harness)).sentence
+        } : nil
+        let markdown = failure ?? session.preview.flatMap { $0.isEmpty ? nil : $0 }
             ?? (failed ? "The turn failed." : stopped ? "Stopped." : "Finished.")
         var item = item(id: "turn-\(session.id)-\(session.lastTurnID ?? fallbackKey)", kind: failed ? .failed : .response,
                         sessionID: session.id, session: session, markdown: markdown,
@@ -192,5 +197,11 @@ public final class LiveFeed: FeedActions {
 
     public func message(for error: any Error) -> String {
         AcpmuxSessionSource.message(error)
+    }
+
+    /// acpmux answers a decided (or withdrawn) ask with not-found "no pending permission <id>".
+    public func isAlreadyAnswered(_ error: any Error) -> Bool {
+        guard let error = error as? AcpmuxConnection.RPCError else { return false }
+        return error.message.hasPrefix("no pending permission")
     }
 }

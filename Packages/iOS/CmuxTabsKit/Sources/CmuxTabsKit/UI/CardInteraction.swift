@@ -34,6 +34,10 @@ struct CardInteraction: UIViewRepresentable {
     var previewScale: CGFloat
     /// The item key a drag from the lifted preview carries; nil: no drag.
     var dragKey: String?
+    /// The menu opened (true) or finished closing (false): the card hides
+    /// under its lifted preview meanwhile (Safari; the system does not hide
+    /// a card whose preview is drawn separately).
+    var onMenu: (Bool) -> Void = { _ in }
     var onTap: () -> Void
     var onPan: (CardSwipePhase) -> Void
     var onDragStart: () -> Void
@@ -164,6 +168,7 @@ struct CardInteraction: UIViewRepresentable {
         func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration,
                                     animator: (any UIContextMenuInteractionAnimating)?) {
             menuActive = true
+            owner?.onMenu(true)
             // The card's own recognizers let go of the touch that opened the
             // menu (a swipe that began meanwhile never acts on it, and a
             // pending tap must not hold the touch the menu now tracks).
@@ -176,6 +181,12 @@ struct CardInteraction: UIViewRepresentable {
         func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
                                     animator: (any UIContextMenuInteractionAnimating)?) {
             menuActive = false
+            // Shown again once the preview has settled back onto it.
+            if let animator {
+                animator.addCompletion { [weak self] in self?.owner?.onMenu(false) }
+            } else {
+                owner?.onMenu(false)
+            }
         }
 
         // MARK: Drag (from the lifted preview)
