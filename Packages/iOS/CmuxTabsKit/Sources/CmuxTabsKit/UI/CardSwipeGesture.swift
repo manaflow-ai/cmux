@@ -120,12 +120,11 @@ final class CardSwipeState {
             offsets[key] = start
         }
         let target = CardSwipe.flyOffOffset(cardMinX: card.minX, cardWidth: card.width)
-        let speed = max(abs(velocity), CardSwipe.flyOffMinSpeed)
-        // Driven on the display clock from the release time: each frame puts
-        // the card where the release speed has carried it by then, so it
-        // never holds after the release however late a frame comes (a
-        // SwiftUI linear animation started 3-4 frames after the release).
-        flights[key] = Flight(start: start, target: target, speed: speed, t0: CACurrentMediaTime(), landed: landed)
+        // Driven on the display clock from the release time along Safari's
+        // own fling (it holds 2 frames, accelerates and slows to the edge;
+        // a constant speed left 120-210 ms early, re-audit 3 D1), scaled to
+        // this card's distance to the screen edge.
+        flights[key] = Flight(start: start, target: target, t0: CACurrentMediaTime(), landed: landed)
         flightLink.start { [weak self] now in self?.stepFlights(now) ?? false }
         // The tab leaves the grid one frame after the release (Safari's count
         // changes about 10 ms after it, re-audit 2 D10): the fly-off's first
@@ -142,7 +141,6 @@ final class CardSwipeState {
     private struct Flight {
         let start: CGFloat
         let target: CGFloat
-        let speed: CGFloat
         let t0: CFTimeInterval
         let landed: () -> Void
     }
@@ -151,13 +149,14 @@ final class CardSwipeState {
 
     /// One display frame of every fly-off; false when none is left.
     private func stepFlights(_ now: CFTimeInterval) -> Bool {
-        var t = Transaction()
-        t.disablesAnimations = true
+        var t0 = Transaction()
+        t0.disablesAnimations = true
         for (key, f) in flights {
             guard isDeparting(key) else { flights[key] = nil; continue }
-            let x = max(f.target, f.start - f.speed * CGFloat(now - f.t0))
-            withTransaction(t) { offsets[key] = x }
-            if x <= f.target {
+            let t = now - f.t0
+            let x = f.start + (f.target - f.start) * CGFloat(SafariCurve.fling.value(at: t))
+            withTransaction(t0) { offsets[key] = x }
+            if t >= SafariCurve.fling.duration {
                 flights[key] = nil
                 f.landed()
             }
@@ -189,10 +188,11 @@ final class CardSwipeState {
                 if self?.offsets[key] == 0 { self?.raised.remove(key) }
             }
         } else {
-            let s = from > 0 ? CardSwipe.snapBackRight : CardSwipe.snapBack
-            // The spring's velocity is a fraction of the change per second.
-            let relative = abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0
-            let animation = s.animation(initialVelocity: relative)
+            // Left: Safari's own spring back replayed from the turnaround
+            // (cmux-next re-audit 3 3g); right: the fitted spring (3i passes).
+            let animation: Animation = from > 0
+                ? CardSwipe.snapBackRight.animation(initialVelocity: abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0)
+                : .safari(.snapBack)
             withAnimation(animation, completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1

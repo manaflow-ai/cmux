@@ -111,11 +111,9 @@ public struct TabsKitTheme: Sendable {
         /// Page menu glass morph.
         public var menu = Animation.spring(response: 0.40, dampingFraction: 0.78)
         /// Card reflow after closing a tab (0.427 / 0.89, x and y).
-        /// Card reflow after a close, fitted to Safari's own frames: 0.43 /
-        /// 0.865 from rest (about 0.8 pt overshoot, Safari 0.7), as a plain
-        /// damped oscillator (SwiftUI's `.spring(response:dampingFraction:)`
-        /// renders stiffer than its parameters; cmux-next re-audits D8).
-        public var reflow = Animation.interpolatingSpring(mass: 1, stiffness: 213.5, damping: 25.28, initialVelocity: 0)
+        /// Card reflow after a close: Safari's own reflow curve replayed
+        /// (`SafariCurve.reflow`; fitted springs stayed 1-2 frames off).
+        public var reflow = Animation(SafariCurveAnimation(curve: .reflow))
         /// Toolbar swipe snap.
         public var swipe = Animation.spring(response: 0.40, dampingFraction: 0.9)
 

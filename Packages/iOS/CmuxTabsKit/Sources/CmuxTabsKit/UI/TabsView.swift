@@ -718,7 +718,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Release: on to the grid or back to the page, on the release spring.
     private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        zoomDriver.endInteraction(velocity: BarSwipe.releaseVelocity(velocity), startedFromOverview: false)
+        // Safari goes on to the grid along its own curve from where the
+        // finger left the page; a swipe back down (or barely up) returns.
+        if up > 24 && velocity >= 0 {
+            zoomDriver.releaseOnSwipeUpCurve()
+        } else {
+            zoomDriver.endInteraction(velocity: BarSwipe.releaseVelocity(velocity), startedFromOverview: false)
+        }
     }
 
     /// Closing from the grid: the active card is first handed to the grid
