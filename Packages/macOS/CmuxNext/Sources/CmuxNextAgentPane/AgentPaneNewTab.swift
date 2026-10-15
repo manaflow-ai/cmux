@@ -30,6 +30,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
     /// "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
+    /// The style switch's look (Debug Settings `newTab.styleSwitch`); nil is the page's default.
+    public var styleSwitch: String?
     /// The agent last picked.
     public var lastAgent: String?
     /// The harness and model picked last, anywhere and per folder; nil when none was.
@@ -55,7 +57,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil) {
+                template: String? = nil, styleSwitch: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -66,6 +68,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.layout = layout
         self.template = template
+        self.styleSwitch = styleSwitch
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home

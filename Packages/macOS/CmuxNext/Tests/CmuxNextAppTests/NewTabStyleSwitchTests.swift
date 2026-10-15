@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
@@ -54,5 +55,24 @@ struct NewTabStyleSwitchTests {
         #expect(saves.count == 3)
         for save in saves { await save.value }
         #expect(settings.snapshot.newTabTemplate == .threads)
+    }
+
+    /// Every look the New Tab style switch has is a Debug Settings choice (`newTab.styleSwitch`; no
+    /// Labs, Lawrence 2026-10-14) that reaches the next New Tab; with none set the page draws its
+    /// own look, round dots.
+    @Test func eachDebugStyleSwitchLookReachesTheNextNewTab() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register(NewTabTunables.all)
+        defer { store.reset([NewTabTunables.styleSwitch.key]) }
+
+        #expect(NewTabPage.sparePage(services).styleSwitch == nil)
+        for look in NewTabStyleSwitchChoice.allCases {
+            #expect(store.set(NewTabTunables.styleSwitch.key, .choice(look.rawValue)) != nil)
+            #expect(NewTabPage.sparePage(services).styleSwitch == look.rawValue)
+        }
+        #expect(Set(NewTabStyleSwitchChoice.allCases.map(\.rawValue)) == ["round", "hint", "dots", "strip", "names"])
     }
 }
