@@ -659,7 +659,10 @@ async fn dispatch_request(
             if conn.origin == Origin::Local
                 && let Some(obj) = detail.as_object_mut()
             {
-                obj.insert("sessionEnv".into(), json!(s.meta().session_env));
+                obj.insert(
+                    "sessionEnv".into(),
+                    json!(crate::session_env::shown(&s.meta().session_env)),
+                );
             }
             Ok(detail)
         }

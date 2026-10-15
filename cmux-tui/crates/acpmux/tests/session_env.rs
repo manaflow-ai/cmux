@@ -181,3 +181,29 @@ async fn only_the_unix_socket_reads_a_session_env() {
         );
     }
 }
+
+/// A Chief turn's seal (optchat-chief `chiefs` tool): the unix socket sets it
+/// for one session, the harness gets it, and `_acpmux/info` never shows it.
+#[tokio::test]
+async fn a_chief_turn_seal_reaches_its_session_and_is_never_shown() {
+    let hub = hub();
+    let mut local = client(&hub, Origin::Local);
+    let seal = "ab".repeat(32);
+    let reply =
+        local.call("session/new", new_params(json!({"env": {"OPTCHAT_TURN_SEAL": seal}}))).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(local.env_of(&id, "OPTCHAT_TURN_SEAL").await, format!("OPTCHAT_TURN_SEAL={seal}"));
+    let info = local.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert_eq!(
+        info.pointer("/result/sessionEnv/OPTCHAT_TURN_SEAL"),
+        Some(&json!("(hidden)")),
+        "{info}"
+    );
+    assert!(!info.to_string().contains(&seal), "{info}");
+    for bad in [json!("short"), json!("zz".repeat(32))] {
+        let reply =
+            local.call("session/new", new_params(json!({"env": {"OPTCHAT_TURN_SEAL": bad}}))).await;
+        assert_eq!(reason(&reply), "env.value_refused", "{bad}: {reply}");
+    }
+}
