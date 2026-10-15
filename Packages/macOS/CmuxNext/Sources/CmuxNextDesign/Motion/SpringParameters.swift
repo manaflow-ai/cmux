@@ -105,12 +105,20 @@ public nonisolated struct SpringValue: Hashable, Sendable {
 
     /// Displacement from the target and velocity `time` seconds after a state, for `parameters`
     /// (mass 1), from cmux-motion's closed form (`cmux_motion_step` with no settle). The FFI caps one
-    /// step at 0.1 s, so a longer time is solved in exact 0.1 s pieces (the solution composes).
+    /// step at 0.1 s, so a time is solved in exact 0.1 s pieces (the solution composes), at most 100:
+    /// at or past the settle horizon, min(10 s, 20 x response), and for a non-finite time, the spring
+    /// is at rest. A non-finite or non-positive tuning takes `move`'s, as cmux-motion `finite_or` does,
+    /// so an undamped spring settles too. (ColorTransition is the only caller; it moves to
+    /// cmux_motion_spring_progress_monotone, after which this goes.)
     public static func solve(displacement x0: Double, velocity v0: Double, time t: Double,
                              parameters: SpringParameters) -> (displacement: Double, velocity: Double) {
+        let fallback = MotionSpring.move.base
+        let response = parameters.response.isFinite && parameters.response > 0 ? parameters.response : fallback.response
+        let damping = parameters.dampingFraction.isFinite && parameters.dampingFraction > 0 ? parameters.dampingFraction : fallback.dampingFraction
+        guard t.isFinite, t < min(10, 20 * response) else { return (0, 0) }
         var state = CmuxMotionState(value: x0, velocity: v0, target: 0)
-        let spring = CmuxMotionSpring(response: parameters.response, damping_fraction: parameters.dampingFraction)
-        var left = t.isFinite ? max(t, 0) : 0
+        let spring = CmuxMotionSpring(response: response, damping_fraction: damping)
+        var left = max(t, 0)
         while left > 0 {
             let dt = min(left, 0.1)
             _ = cmux_motion_step(&state, dt, spring, 0)
