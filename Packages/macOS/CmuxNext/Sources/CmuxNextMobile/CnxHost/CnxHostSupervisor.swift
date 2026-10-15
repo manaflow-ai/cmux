@@ -70,6 +70,12 @@ public actor CnxHostSupervisor {
     /// A run up this long (seconds) resets the backoff.
     static let healthyRun: TimeInterval = 60
 
+    /// Whether a run that started at `started`, came online at `online` (nil:
+    /// never) and ended at `ended` starts the next restart from the first delay.
+    static func resetsBackoff(started: Date, online: Date?, ended: Date) -> Bool {
+        ended.timeIntervalSince(started) >= healthyRun
+    }
+
     public init(clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         (states, continuation) = AsyncStream.makeStream(of: CnxHostState.self, bufferingPolicy: .bufferingNewest(1))
         (pairing, pairingContinuation) = AsyncStream.makeStream(of: CnxHostEvent.self, bufferingPolicy: .bufferingNewest(32))
@@ -146,7 +152,7 @@ public actor CnxHostSupervisor {
                 publish { $0.reset(to: .removed) }
                 return
             }
-            if now().timeIntervalSince(started) >= Self.healthyRun { backoff.reset() }
+            if Self.resetsBackoff(started: started, online: nil, ended: now()) { backoff.reset() }
             logger.notice("cnx-hostd ended (\(reason, privacy: .public)); restarting after backoff")
             publish { $0.reset(to: .waiting(reason)) }
             do {

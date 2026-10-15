@@ -263,6 +263,23 @@ import Testing
         await supervisor.stop()
     }
 
+    /// termqa (cnx-ios round 4): hostd killed every 13-45 s came back after 7, 16,
+    /// 32 and 61 s, because only a minute-long run reset the restart backoff. A run
+    /// that reached the service and stayed up a few seconds is not a crash loop:
+    /// the next restart is at the first delay, so phones reconnect within seconds.
+    @Test func aRunThatCameOnlineRestartsAtTheFirstDelay() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
+        // Online after 1 s, killed 12 s later: healthy.
+        #expect(CnxHostSupervisor.resetsBackoff(started: start, online: at(1), ended: at(13)))
+        // Never online: a crash loop keeps backing off.
+        #expect(!CnxHostSupervisor.resetsBackoff(started: start, online: nil, ended: at(13)))
+        // Online, then gone within the settle time: still a crash loop.
+        #expect(!CnxHostSupervisor.resetsBackoff(started: start, online: at(1), ended: at(3)))
+        // A minute up resets whatever it did.
+        #expect(CnxHostSupervisor.resetsBackoff(started: start, online: nil, ended: at(60)))
+    }
+
     @Test func dropPhoneIsOneControlLine() {
         #expect(String(decoding: CnxHostLaunch.dropPhoneLine("p1"), as: UTF8.self) == #"{"phone_device_id":"p1","type":"drop_phone"}"# + "\n")
     }
