@@ -19,8 +19,10 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="$HERE/../remote-ios.sh"
 HOST="${CMUX_NEXT_IOS_HOST:-aziz-other-macbook}"
-OUT="${TMPDIR:-/tmp}/tabs-curves"; mkdir -p "$OUT"
+OUT="${TMPDIR:-/tmp}/tabs-curves/$slot"; mkdir -p "$OUT"
 U=$(ssh "$HOST" "cat ~/nx-ios/$slot/sim.udid")
+# The colours tracked (lastTab's black start page) are dark mode's.
+ssh "$HOST" "xcrun simctl ui $U appearance dark"
 axe() { ssh "$HOST" "axe $* --udid $U >/dev/null 2>&1 || ~/nx-ios/axe/axe $* --udid $U >/dev/null 2>&1"; }
 fail=0
 for m in "${motions[@]}"; do
@@ -54,12 +56,14 @@ for m in "${motions[@]}"; do
       twoToOne) g="tap -x 178 -y 137" ;;
       lastTab)  g="tap -x 320 -y 137" ;;
       # Tabs, then GitHub's card inside the zoom-out (one AXe session: a
-      # second process starts about 230 ms later, after the zoom-out). The
-      # zoom-out starts 250-370 ms after the first tap, so 0.3 s lands the
-      # second tap in it; when the card opens does not depend on it.
+      # second process starts about 230 ms later, after the zoom-out). Each
+      # AXe tap lands about 0.27 s after the previous one ends, so 0.05 s
+      # lands the second tap 250-300 ms into the zoom-out (0.3 s landed it
+      # at about 520 ms, after Safari's open, and measured AXe instead). A
+      # card tapped before 0.42 s opens at 0.42 s (TabZoomState.queuedOpenAfter).
       tapZoomOut)
-        ssh "$HOST" "printf 'tap -x 344 -y 816\\nsleep 0.3\\ntap -x 297 -y 250\\n' > /tmp/tc-tapzoomout.steps"
-        g="batch --file /tmp/tc-tapzoomout.steps" ;;
+        ssh "$HOST" "printf 'tap -x 344 -y 816\\nsleep 0.05\\ntap -x 297 -y 250\\n' > /tmp/tc-$slot-tapzoomout.steps"
+        g="batch --file /tmp/tc-$slot-tapzoomout.steps" ;;
     esac
     name="$m"
     if [[ $app == kit ]]; then
@@ -70,9 +74,9 @@ for m in "${motions[@]}"; do
         snapBack) g="drag --start-x 140 --start-y 250 --end-x 40 --end-y 250 --duration 1.0 --steps 60" ;;
       esac
     fi
-    ssh "$HOST" "rm -f /tmp/tc.mp4; (xcrun simctl io $U recordVideo --codec=h264 --force /tmp/tc.mp4 >/dev/null 2>&1 & echo \$! > /tmp/tc.pid); sleep 1.5; (axe $g --udid $U || ~/nx-ios/axe/axe $g --udid $U) >/dev/null 2>&1; sleep 1.8; kill -INT \$(cat /tmp/tc.pid); while kill -0 \$(cat /tmp/tc.pid) 2>/dev/null; do sleep 0.2; done"
+    ssh "$HOST" "rm -f /tmp/tc-$slot.mp4; (xcrun simctl io $U recordVideo --codec=h264 --force /tmp/tc-$slot.mp4 >/dev/null 2>&1 & echo \$! > /tmp/tc-$slot.pid); sleep 1.5; (axe $g --udid $U || ~/nx-ios/axe/axe $g --udid $U) >/dev/null 2>&1; sleep 1.8; kill -INT \$(cat /tmp/tc-$slot.pid); while kill -0 \$(cat /tmp/tc-$slot.pid) 2>/dev/null; do sleep 0.2; done"
     rm -f "$OUT/$name-$i.mp4"
-    if ! scp -q "$HOST:/tmp/tc.mp4" "$OUT/$name-$i.mp4"; then
+    if ! scp -q "$HOST:/tmp/tc-$slot.mp4" "$OUT/$name-$i.mp4"; then
       # No recording (another simctl recording holds the simulator): fail,
       # never re-check an older video.
       printf 'run %d %s: no recording  FAIL\n' "$i" "$name"; fail=1; continue

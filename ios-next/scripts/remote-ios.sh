@@ -68,7 +68,8 @@ ensure_sim() {
       udid=\$(xcrun simctl create $SIM com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro \"\$rt\")
     fi
     xcrun simctl bootstatus \"\$udid\" -b >/dev/null
-    echo \$udid > ~/$R/sim.udid
+    # Only when it changed: a full disk must not truncate it.
+    [ \"\$(cat ~/$R/sim.udid 2>/dev/null)\" = \"\$udid\" ] || echo \$udid > ~/$R/sim.udid
   "
 }
 
