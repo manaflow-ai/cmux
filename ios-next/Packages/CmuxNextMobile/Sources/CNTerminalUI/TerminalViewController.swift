@@ -56,6 +56,11 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private var fitPasses = 0
     /// A pinch on a mirrored grid sets the zoom until the Mac's grid changes.
     private var mirrorZoomed = false
+    /// The grid last asked of the host for a mirrored terminal (the phone's
+    /// own size; the bridge applies it only to terminals the phone created).
+    private var requestedViewport: (cols: Int, rows: Int)?
+    /// Height under the grid kept clear of the home indicator (no keyboard).
+    private var homeIndicatorInset: CGFloat = 0
     private var fontAtLastFit: Double = 0
     /// Composer (when shown) over the key bar, riding the keyboard's top.
     let accessoryStack = UIStackView()
@@ -217,6 +222,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         }
         // The grid ends on the settled top of the key bar, composer or
         // keyboard (never the live, animating one).
+        homeIndicatorInset = homeIndicator
         var inset = homeIndicator
         if let window = view.window, let coverTop = settledCoverTop {
             let bottomInWindow = view.convert(CGPoint(x: 0, y: view.bounds.maxY), to: window).y
@@ -247,6 +253,32 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             return
         }
         if !mirrored, let hostGrid, hostGrid != fit { scheduleResize(fit) }
+        if mirrored { requestViewportIfChanged() }
+    }
+
+    /// The grid that fills the screen (without the keyboard: a mirrored
+    /// grid slides above it) at the user's text size. Exact only while the
+    /// text is at that size, so nil otherwise.
+    private var mirrorViewportGrid: (cols: Int, rows: Int)? {
+        guard mirrored, !mirrorZoomed, terminalView.fontSize == TerminalFontSize.stored,
+              let cell = terminalView.cellMetrics, cell.width > 0, cell.height > 0 else { return nil }
+        let safe = view.safeAreaLayoutGuide.layoutFrame
+        let width = safe.width - 2 * cell.padLeft
+        let height = view.bounds.maxY - homeIndicatorInset - safe.minY - 2 * cell.padTop
+        guard width.isFinite, height.isFinite else { return nil }
+        let grid = (cols: Int((width / cell.width).rounded(.down)), rows: Int((height / cell.height).rounded(.down)))
+        return grid.cols >= 2 && grid.rows >= 2 ? grid : nil
+    }
+
+    /// Asks the host for the phone's grid once per change (rotation, the
+    /// keyboard-free height). A terminal the phone created follows it; the
+    /// Mac keeps its own terminals' grids and answers with them.
+    private func requestViewportIfChanged() {
+        guard let want = mirrorViewportGrid, let client, streamId != nil, let terminalId else { return }
+        if let requestedViewport, requestedViewport == want { return }
+        requestedViewport = want
+        if let macGrid, macGrid == want { return }
+        Task { try? await client.resizeTerminal(terminalId, cols: want.cols, rows: want.rows) }
     }
 
     // MARK: Mirrored terminals (the Mac owns the grid)
@@ -389,6 +421,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
                 self.setMirrored(self.connection.hostInfo?.supports(.terminalMirror) ?? false)
                 if self.mirrored {
                     self.macGrid = nil
+                    self.requestedViewport = nil
                     self.macGridChanged(result.terminal)
                 }
                 self.startStream(client: client, streamId: result.streamId)
