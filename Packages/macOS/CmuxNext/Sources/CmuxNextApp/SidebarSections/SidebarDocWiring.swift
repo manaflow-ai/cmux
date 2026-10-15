@@ -37,29 +37,16 @@ enum SidebarDocWiring {
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
         // Link rows draw the favicon at their item's icon address; an open tab's favicon address is stored on the item.
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
-        // task-owner: the app's services (live for the app); event-driven (Observation)
-        Task { [weak services] in
-            // An open tab's favicon address can change while its image is cached already (no favicon revision): watch
-            // the addresses too, read once per change into one origin -> favicon table for every link.
-            var last: [String: String]?
-            var lastVersion: UInt64?
-            for await (revision, version, byOrigin) in ObservationStream({ (services?.favicons.revision, store.version, services?.openTabFaviconsByOrigin() ?? [:]) }) {
-                _ = revision
-                NotificationCenter.default.post(name: SidebarModel.itemFaviconsChanged, object: nil)
-                guard byOrigin != last || version != lastVersion else { continue } // a tab change that moves no favicon address
-                (last, lastVersion) = (byOrigin, version)
-                store.storeIconURLs { page in URL(string: page).flatMap(BookmarkURL.faviconKey(for:)).flatMap { byOrigin[$0] } }
-            }
-        }
-        // task-owner: the app's services (live for the app); event-driven (Observation)
-        Task { for await _ in ObservationStream({ (local.connection != nil, serves()) }) { store.refresh() } }
-        // task-owner: the app's services; one view call per document or live-set change
-        Task {
-            for await live in ObservationStream({ () -> [SidebarDocWorkspaceRef] in _ = (store.version, store.isActive); return liveRefs(machines) }) {
-                store.show(live: live, connectedRemotes: Set(machines.daemons.filter { $0 !== local && $0.connection != nil }.compactMap(\.store.registryID)))
-                if layout.docLayout != store.shown?.layout { layout.docLayout = store.shown?.layout }
-            }
-        }
+        SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
+                                          byOrigin: { [weak services] in services?.openTabFaviconsByOrigin() ?? [:] }, faviconKey: BookmarkURL.faviconKey(for:))
+        docMachines(machines).follow(store, connected: { local.connection != nil }, serves: serves, connectedRemotes: {
+            Set(machines.remoteDaemons.filter { $0.connection != nil }.compactMap(\.store.registryID))
+        }, shown: { if layout.docLayout != $0 { layout.docLayout = $0 } })
+    }
+
+    /// The document over `machines`' daemon stores (`SidebarDocMachines`).
+    static func docMachines(_ machines: MachineRegistry) -> SidebarDocMachines {
+        SidebarDocMachines(stores: { machines.daemons.map(\.store) }, machine: { machines.daemon(machine: $0)?.store })
     }
 
     /// Why band edits are refused now: nil while the document is active (it takes them), else the older owner's reason.
@@ -87,49 +74,14 @@ enum SidebarDocWiring {
     }
 
     /// Every workspace of `daemon` in the document's order (window membership order), whatever its room; nil off the document path.
-    static func orderedIDs(of daemon: DaemonService) -> [String]? {
-        guard isActive, let shown = SidebarDocStore.current?.shown, let session = daemon.store.registryID else { return nil }
-        let listed = docSections.sections(shown, session: session, workspaces: daemon.store.workspaces).flatMap(\.workspaces).map(\.id)
-        let seen = Set(listed)
-        return listed + daemon.store.workspaces.map(\.id).filter { !seen.contains($0) }
-    }
-
-    static func liveRefs(_ machines: MachineRegistry) -> [SidebarDocWorkspaceRef] {
-        machines.daemons.flatMap { daemon in daemon.store.workspaces.compactMap { SidebarDocSections.ref(of: $0, session: daemon.store.registryID) } }
-    }
+    static func orderedIDs(of daemon: DaemonService) -> [String]? { docSections.orderedIDs(of: daemon.store) }
 
     /// The document item that places sidebar workspace `id`.
-    static func item(workspace id: String, _ machines: MachineRegistry) -> String? {
-        guard let store = SidebarDocStore.current, let (workspace, daemon) = machines.workspace(id: id),
-              let ref = SidebarDocSections.ref(of: workspace, session: daemon.store.registryID) else { return nil }
-        return store.shown?.items[ref]
-    }
-
-    /// The drag half for `bridge`'s model while the document is active.
-    static func drag(_ bridge: SidebarBridge) -> SidebarDocDrag? {
-        guard let store = SidebarDocStore.current, store.isActive, store.shown != nil else { return nil }
-        let machines = bridge.services.machines
-        return SidebarDocDrag(item: { key in
-            switch key {
-            case .workspace(let id): item(workspace: id.rawValue, machines)
-            case .group(let group): group.rawValue
-            default: nil
-            }
-        }, section: { id in
-            switch id {
-            case .pinned, .custom: SidebarDocStore.pinnedSection // SidebarDocDrag answers .custom itself
-            case .machine(let machine): machines.daemon(machine: machine.rawValue)?.store.registryID.flatMap { store.shown?.machineSections[$0] }
-            }
-        }, begin: { store.acceptance(dragging: $0) }, drop: { store.move($0, to: $1, title: SidebarDocStore.moveTitle) }, adoptRef: { id in
-            guard let (workspace, daemon) = machines.workspace(id: id.rawValue), let ref = SidebarDocSections.ref(of: workspace, session: daemon.store.registryID) else { return nil }
-            return ["session_id": ref.sessionID, "workspace_id": ref.workspaceID, "workspace_key": workspace.key?.rawValue ?? workspace.id]
-        })
-    }
+    static func item(workspace id: String, _ machines: MachineRegistry) -> String? { docMachines(machines).item(workspace: id) }
 
     /// Sends a move intent as one document move. False: not a move, or the
     /// document is not active (the older path handles it).
     static func handle(_ intent: SidebarIntent, bridge: SidebarBridge) -> Bool {
-        guard let store = SidebarDocStore.current, let drag = drag(bridge) else { return false }
-        return store.handle(intent, model: bridge.model, drag: drag, pinTitle: PinStrings.pinWorkspace, unpinTitle: PinStrings.unpinWorkspace)
+        docMachines(bridge.services.machines).handle(intent, model: bridge.model, pinTitle: PinStrings.pinWorkspace, unpinTitle: PinStrings.unpinWorkspace)
     }
 }

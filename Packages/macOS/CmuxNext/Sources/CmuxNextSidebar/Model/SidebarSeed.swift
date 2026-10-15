@@ -1,5 +1,3 @@
-import CmuxNextSidebar
-
 /// What a window's sidebar shows while its machines are still loading
 /// (snapshot-first launch): the live sections, with each section that is
 /// still loading and has no rows filled from the window's saved sidebar
@@ -10,17 +8,18 @@ import CmuxNextSidebar
 /// saved rows, so they never come back later. A section given placeholders
 /// at launch keeps them past the launch until its machine connects or
 /// fails, so the end of the launch never empties it in between.
-struct SidebarSeed {
+/// (Moved from CmuxNextApp, SW14: the merge is pure sidebar logic.)
+public struct SidebarSeed {
     /// Placeholder rows in a loading section with nothing saved, shown from
     /// the launch only (never on a later Cloud reconnect).
-    static let placeholderCount = 3
+    public static let placeholderCount = 3
 
-    private(set) var sections: [SidebarSection]
+    public private(set) var sections: [SidebarSection]
     /// Sections that showed placeholders at launch and have not stopped
     /// loading since.
     private var placeholderSections: Set<SectionID> = []
 
-    init(sections: [SidebarSection] = []) {
+    public init(sections: [SidebarSection] = []) {
         self.sections = sections
     }
 
@@ -28,7 +27,7 @@ struct SidebarSeed {
     /// app restored its windows (or the local daemon is unavailable).
     /// `failed` lists machines whose first connection gave up while their
     /// header still says connecting: their placeholders end.
-    mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = []) -> [SidebarSection] {
+    public mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = []) -> [SidebarSection] {
         var result: [SidebarSection] = []
         for section in live {
             let loading = Self.isLoading(section, launching: launching)
@@ -65,14 +64,14 @@ struct SidebarSeed {
 
     /// The local machine (and the pinned area, which holds its rows) loads
     /// until the launch ends; another machine while it connects.
-    static func isLoading(_ section: SidebarSection, launching: Bool) -> Bool {
+    public static func isLoading(_ section: SidebarSection, launching: Bool) -> Bool {
         guard let machine = section.machine else { return launching }
         return machine.kind == .local ? launching : machine.status == .connecting
     }
 
     /// Placeholder rows of machine `machine`; their ids never collide with
     /// a daemon workspace id.
-    static func placeholders(machine: MachineID) -> [SidebarWorkspace] {
+    public static func placeholders(machine: MachineID) -> [SidebarWorkspace] {
         (0..<placeholderCount).map { index in
             SidebarWorkspace(id: WorkspaceID("placeholder:\(machine.rawValue):\(index)"), machineID: machine, title: "",
                              rowState: .placeholder)

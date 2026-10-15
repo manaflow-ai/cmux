@@ -216,7 +216,7 @@ final class SidebarBridge {
         var sections = seed.merge(live, launching: launching, failed: failed)
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
-        model.docDrag = SidebarDocWiring.drag(self) // the sidebar document's drag half, nil keeps the older resolver
+        model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)))
