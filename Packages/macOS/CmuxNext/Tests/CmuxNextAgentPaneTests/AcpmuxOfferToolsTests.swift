@@ -1,12 +1,12 @@
-import CmuxNextCompat
+import CmuxNextDesign
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// cx-lo9yf at the daemon spawn boundary (``AcpmuxHost``): with `labs.previewFeatures` on, the
-/// acpmux daemon the app starts has `ACPMUX_OFFER_TOOLS=1`, so every local session gets the
-/// cmux-sessions MCP server; off (the default) it does not. The flag is read at each daemon
-/// start, so a toggle applies to the next daemon this app starts.
+/// cx-lo9yf at the daemon spawn boundary (``AcpmuxHost``): with the Debug Settings toggle
+/// `agent.suggestedTasks` on, the acpmux daemon the app starts has `ACPMUX_OFFER_TOOLS=1`, so every
+/// local session gets the cmux-sessions MCP server; off (the default) it does not. The toggle is
+/// read at each daemon start, so a change applies to the next daemon this app starts.
 @Suite(.serialized)
 struct AcpmuxOfferToolsTests {
     /// A short temp root with a stand-in `acpmux` that appends the `ACPMUX_OFFER_TOOLS` it was
@@ -39,28 +39,34 @@ struct AcpmuxOfferToolsTests {
         func remove() { try? FileManager.default.removeItem(at: root) }
     }
 
-    /// The Labs switch as the app holds it: any thread reads it at a daemon start.
-    nonisolated final class Labs: Sendable {
-        let on: Mutex<Bool>
-        init(_ on: Bool) { self.on = Mutex(on) }
-        var isOn: Bool { on.withLock { $0 } }
+    /// Debug Settings as the app holds them, with `agent.suggestedTasks` `on` (nil: never set).
+    static func tunables(_ on: Bool?) -> TunableStore {
+        let store = TunableStore()
+        store.register(AgentPaneTunables.all)
+        store.activate(file: nil)
+        if let on { store.set(AgentPaneTunables.suggestedTasks.key, .bool(on)) }
+        return store
     }
 
-    @Test func previewFeaturesGiveTheDaemonTheSessionOfferTools() async throws {
+    /// The host as the app makes it: the toggle read from `store` at each daemon start.
+    static func host(_ environment: AcpmuxEnvironment, _ store: TunableStore) -> AcpmuxHost {
+        AcpmuxHost(resolve: { environment },
+                   offersSessionTools: { AgentPaneTunables.suggestedTasks.value(in: store) })
+    }
+
+    @Test func suggestedTasksGiveTheDaemonTheSessionOfferTools() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let environment = fixture.environment
-        let host = AcpmuxHost(resolve: { environment }, offersSessionTools: { true })
+        let host = Self.host(fixture.environment, Self.tunables(true))
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["1"], "acpmux started without ACPMUX_OFFER_TOOLS=1: \(fixture.launches)")
     }
 
-    @Test func withoutPreviewFeaturesTheDaemonGetsNoOfferTools() async throws {
+    @Test func byDefaultTheDaemonGetsNoOfferTools() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let environment = fixture.environment
-        let host = AcpmuxHost(resolve: { environment }, offersSessionTools: { false })
+        let host = Self.host(fixture.environment, Self.tunables(nil))
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["unset"], "acpmux started with ACPMUX_OFFER_TOOLS: \(fixture.launches)")
@@ -69,12 +75,11 @@ struct AcpmuxOfferToolsTests {
     @Test func aToggleAppliesToTheNextDaemonStart() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let labs = Labs(false)
-        let environment = fixture.environment
-        let host = AcpmuxHost(resolve: { environment }, offersSessionTools: { labs.isOn })
+        let store = Self.tunables(false)
+        let host = Self.host(fixture.environment, store)
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
-        labs.on.withLock { $0 = true }
+        store.set(AgentPaneTunables.suggestedTasks.key, .bool(true))
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["unset", "1"], "the second daemon start missed the toggle: \(fixture.launches)")
     }
