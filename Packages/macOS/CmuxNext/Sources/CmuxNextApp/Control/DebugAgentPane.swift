@@ -13,7 +13,7 @@ import WebKit
 /// one). Never changes app or window focus; `open_menu` moves focus inside
 /// the page to the menu's button, as a click does.
 ///
-/// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
+/// `action`: `seed_rows` (`count`, default 5000; `fixture: "links"` seeds a reply with two links and a path; `fixture: "worked-turn"`
 /// seeds a turn that edits three files instead, for the changes view), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
