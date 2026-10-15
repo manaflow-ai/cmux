@@ -100,3 +100,16 @@ public struct ChromiumPageGone: Hashable, Sendable {
         }
     }
 }
+
+extension ChromiumPageGone {
+    /// The sad tab for an engine-neutral process exit (`BrowserPageEvent.processTerminated`).
+    public init(_ exit: BrowserPageProcessExit) {
+        let reason: Reason = switch exit.kind {
+        case .crashed: .crashed
+        case .killed: .killed
+        case .outOfMemory: .outOfMemory
+        case .other: .abnormal
+        }
+        self.init(reason: reason, code: exit.status.map(Int.init))
+    }
+}

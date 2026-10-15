@@ -91,3 +91,16 @@ public enum ChromiumWindowOpenRoute: Equatable, Sendable {
         }
     }
 }
+
+extension ChromiumWindowOpenRoute {
+    /// The engine-neutral placement the Chromium page reports to its
+    /// `BrowserPageUIDelegate`, nil for a route the page handles itself
+    /// (load or download in the opener) or refuses.
+    public func openRequestPlacement(width: Double?, height: Double?) -> BrowserPageOpenRequest.Placement? {
+        switch self {
+        case .popupWindow: .popup(width: width, height: height)
+        case .newTab(let focus): focus ? .foregroundTab : .backgroundTab
+        case .loadInOpener, .downloadInOpener, .refuse: nil
+        }
+    }
+}

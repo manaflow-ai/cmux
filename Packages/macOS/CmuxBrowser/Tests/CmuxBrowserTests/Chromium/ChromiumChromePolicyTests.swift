@@ -158,3 +158,19 @@ import Testing
         #expect(ChromiumWindowOpenDisposition(raw: Int.max) == .unknown)
     }
 }
+
+@Suite struct ChromiumEngineBridgeTests {
+    @Test func processExitMapsToSadTab() {
+        #expect(ChromiumPageGone(BrowserPageProcessExit(kind: .crashed, status: 11)) == ChromiumPageGone(reason: .crashed, code: 11))
+        #expect(ChromiumPageGone(BrowserPageProcessExit(kind: .other)).reason == .abnormal)
+        #expect(ChromiumPageGone(BrowserPageProcessExit(kind: .outOfMemory)).codeDescription == nil)
+    }
+
+    @Test func routesMapToEngineOpenPlacements() {
+        #expect(ChromiumWindowOpenRoute.popupWindow.openRequestPlacement(width: 400, height: 300) == .popup(width: 400, height: 300))
+        #expect(ChromiumWindowOpenRoute.newTab(focus: true).openRequestPlacement(width: nil, height: nil) == .foregroundTab)
+        #expect(ChromiumWindowOpenRoute.newTab(focus: false).openRequestPlacement(width: nil, height: nil) == .backgroundTab)
+        #expect(ChromiumWindowOpenRoute.loadInOpener.openRequestPlacement(width: nil, height: nil) == nil)
+        #expect(ChromiumWindowOpenRoute.refuse.openRequestPlacement(width: nil, height: nil) == nil)
+    }
+}
