@@ -32,6 +32,8 @@ final class PaneHeaderView: NSView {
     var pictureCache: CGImage?
     var pictureKey = ""
     var picturePending = false
+    /// Bumped whenever the avatar's content changes (the picture's cache key).
+    var avatarVersion = 0
     let pill = NSButton()
     /// cmux: a small translucent capsule behind the pill, always shown, so
     /// its title reads over the rows when the header has no band
@@ -169,6 +171,7 @@ final class PaneHeaderView: NSView {
     @objc private func contactClicked() { onContact() }
 
     private func applyAvatar() {
+        avatarVersion &+= 1
         avatar.image = picture.map(PaneHeaderView.avatarImage(picture:)) ?? PaneHeaderView.avatarImage(initials, light: light)
     }
 
@@ -198,8 +201,10 @@ final class PaneHeaderView: NSView {
     func applyGlassTint() {
         guard #available(macOS 26, *), let glass = pillGlass as? NSGlassEffectView else { return }
         glass.style = .clear
+        // Dark: round 15 measured 56/67/83 with 110/132/165 at 60 %, against Messages' 84 -> 106 body;
+        // the tint is scaled by about 1.5 toward it.
         glass.tintColor = light ? NSColor(srgbRed: 78 / 255, green: 94 / 255, blue: 117 / 255, alpha: 0.35)
-            : NSColor(srgbRed: 110 / 255, green: 132 / 255, blue: 165 / 255, alpha: 0.6)
+            : NSColor(srgbRed: 160 / 255, green: 186 / 255, blue: 226 / 255, alpha: 0.7)
     }
 
     /// The pill's capsule is the system glass (macOS 26 and newer).
@@ -246,10 +251,11 @@ extension PaneHeaderView {
     /// measured 0.419 dark and 0.615 light at 0.559, and the box mean scales with the gain:
     /// 0.559 x 0.51 / 0.419 and 0.559 x 0.51 / 0.615.
     static func headerGain(light: Bool) -> CGFloat { light ? 0.464 : 0.680 }
-    /// Messages' header blurs later than our transcript (round 14: its avatar is half blurred at 140-198 ms
-    /// after the click, ours at 60-73 ms with the vendored backdrop's timing): the header's open waits this
-    /// long after the backdrop's, then takes its duration and curve.
-    static let openLag: CFTimeInterval = 0.09
+    /// Messages' header blurs later than our transcript. Fitted from round 14's avatar curves: Messages'
+    /// avatar is half blurred 140-198 ms after the click (mid 169 ms; its own transcript starts at about
+    /// 117 ms, blur-fit.txt), ours was at 60-73 ms (mid 67 ms) on the vendored backdrop's timing with no
+    /// lag, so the header's open waits 169 - 67 = 102 ms, then takes the vendored duration and curve.
+    static let openLag: CFTimeInterval = 0.10
     /// Messages' titlebar blurs its controls more than the transcript: on tp0600 the pill's row (58 pt)
     /// rises 10 -> 90 % over about 57 pt at its edges, about 22 pt sigma for a box edge, where the
     /// transcript's is about 9.5 (blur-fit.txt). Fitted: twice ThreadBackdrop.radius.
@@ -259,11 +265,15 @@ extension PaneHeaderView {
     static var pictureMargin: CGFloat { headerBlurRadius * 3 }
     /// The pill in the picture: Messages' glass body colour (its tp0000 mean, rgb 78/94/117); light grey on
     /// a light theme.
-    /// The live pill's measured colour (round 14 capture, the system glass as drawn: light 178/185/193;
-    /// dark with the new tint, Messages' body 78/94/117), so the picture at blur 0 matches it.
+    /// The live pill's colour as drawn, so the picture at blur 0 matches it. The live glass cannot be
+    /// sampled without the Screen Recording permission (round 15: CGWindowListCreateImage is unavailable
+    /// in the macOS 15 SDK and ScreenCaptureKit asks for the permission, also for the app's own windows;
+    /// cacheDisplay and layer.render(in:) do not include the glass), so it is the measured value per
+    /// appearance: light 178/185/193 (round 14), dark the at-rest target the dark tint is fitted to
+    /// (Messages' body, 84 -> 106 down the capsule: its mid value 95/103/118 neutral-blue).
     static func blurredPillFill(light: Bool) -> NSColor {
         light ? NSColor(srgbRed: 178 / 255, green: 185 / 255, blue: 193 / 255, alpha: 1)
-            : NSColor(srgbRed: 78 / 255, green: 94 / 255, blue: 117 / 255, alpha: 1)
+            : NSColor(srgbRed: 84 / 255, green: 99 / 255, blue: 122 / 255, alpha: 1)
     }
 
     /// The thread view's effect on the header while a thread or reply view is open (round 13):
@@ -286,8 +296,10 @@ extension PaneHeaderView {
         let timing = blur ?? tint
         if open {
             let scale = window?.backingScaleFactor ?? 2
-            threadBlurHost.show(cachedPicture(scale: scale), size: pictureSize, centre: controlsCentre, scale: scale,
-                                gain: Self.headerGain(light: light))
+            if pictureKeyFor(scale: scale) != pictureKey || threadBlurHost.image.contents == nil {
+                threadBlurHost.prepare(cachedPicture(scale: scale), size: pictureSize, centre: controlsCentre, scale: scale)
+            }
+            threadBlurHost.show(centre: controlsCentre, gain: Self.headerGain(light: light))
             liveControls(visible: false)
         } else {
             // The live controls return, and the picture leaves, on the frame the blur reaches 0 (a step at the
@@ -335,18 +347,24 @@ extension PaneHeaderView {
     /// Draws the thread view's picture ahead, on a later main run-loop pass than the change that needs it
     /// (title, theme, avatar, size), so an open never draws it (round 13: 9-17 ms at the open).
     func preparePicture() {
-        guard !picturePending else { return }
+        guard !picturePending, pictureKeyFor(scale: window?.backingScaleFactor ?? 2) != pictureKey || threadBlurHost.image.contents == nil else { return }
         picturePending = true
         RunLoop.main.perform(inModes: [.default]) { [weak self] in
             guard let self else { return }
             self.picturePending = false
             guard self.window != nil, !self.title.isEmpty else { return }
-            _ = self.cachedPicture(scale: self.window?.backingScaleFactor ?? 2)
+            let scale = self.window?.backingScaleFactor ?? 2
+            // The host holds it, hidden, so an open only shows it and starts the animations.
+            self.threadBlurHost.prepare(self.cachedPicture(scale: scale), size: self.pictureSize, centre: self.controlsCentre, scale: scale)
         }
     }
 
+    /// What the picture shows: the title, theme, avatar content (its version: `applyAvatar` bumps it when
+    /// the picture or the initials change), scale and pill size.
+    func pictureKeyFor(scale: CGFloat) -> String { "\(title)|\(light)|\(avatarVersion)|\(scale)|\(pill.frame.size)" }
+
     func cachedPicture(scale: CGFloat) -> CGImage? {
-        let key = "\(title)|\(light)|\(avatar.image.map { ObjectIdentifier($0).hashValue } ?? 0)|\(scale)|\(pill.frame.size)"
+        let key = pictureKeyFor(scale: scale)
         if key == pictureKey, let p = pictureCache { return p }
         let p = Self.picture(self, scale: scale)
         pictureKey = key; pictureCache = p
@@ -433,11 +451,9 @@ final class HeaderThreadBlur: NSView {
 
     private(set) var gain: CGFloat = 0.6
 
-    func show(_ picture: CGImage?, size: CGSize, centre: CGPoint, scale: CGFloat, gain: CGFloat) {
-        self.gain = gain
-        tint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - gain), alpha: 1).cgColor
-        image.removeAnimation(forKey: "cmux.thread.return")
-        image.opacity = 1
+    /// The picture, ahead of an open (hidden: nothing renders it until `show`).
+    func prepare(_ picture: CGImage?, size: CGSize, centre: CGPoint, scale: CGFloat) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
         let f = CGRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2, width: size.width, height: size.height)
         if frame != f { frame = f }
         image.frame = bounds
@@ -445,7 +461,19 @@ final class HeaderThreadBlur: NSView {
         image.contents = picture
         image.contentsScale = scale
         image.contentsGravity = .resize
+        CATransaction.commit()
+    }
+
+    /// An open: the prepared picture shows; only opacity and the animations change in this frame.
+    func show(centre: CGPoint, gain: CGFloat) {
+        if self.gain != gain {
+            self.gain = gain
+            tint.backgroundColor = NSColor(white: ThreadBackdrop.base / 255 / (1 - gain), alpha: 1).cgColor
+        }
+        image.removeAnimation(forKey: "cmux.thread.return")
+        image.opacity = 1
         isHidden = false
+        move(centre: centre)
     }
 
     /// Follows a resize (the controls' centre) without redrawing.

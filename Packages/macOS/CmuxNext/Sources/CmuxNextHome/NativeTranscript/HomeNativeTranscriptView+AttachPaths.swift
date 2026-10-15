@@ -109,9 +109,9 @@ extension HomeNativeTranscriptView {
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
     public var debugStatusLine: String? { transcript.debugStatusLine }
+    #if DEBUG
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
     public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
-    #if DEBUG
     /// The same click through the real mouse path (mouseDown and mouseUp); the open thread's root.
     public func debugClickNewestReplies() -> String? { transcript.debugClickNewestReplies() }
     #endif

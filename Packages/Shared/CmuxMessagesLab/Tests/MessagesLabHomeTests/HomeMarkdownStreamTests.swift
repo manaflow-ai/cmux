@@ -11,13 +11,15 @@ import Testing
 
     // MARK: A running reply (streaming)
 
-    @Test func aStreamingUnclosedBoldOnTheLastLineStylesTheRest() {
+    /// Shown plain (no raw marker, no style) until its closer arrives, so the next words append in place.
+    @Test func aStreamingUnclosedBoldOnTheLastLineShowsPlain() {
         let r = HomeMarkdown.render("the **focused", streaming: true)
         #expect(r.text == "the focused")
-        #expect(Self.styles(r) == ["4+7:bold"])
+        #expect(r.runs.isEmpty)
         let more = HomeMarkdown.render("the **focused tests", streaming: true)
         #expect(more.text == "the focused tests")
-        #expect(Self.styles(more) == ["4+13:bold"])
+        #expect(more.runs.isEmpty)
+        #expect(Self.styles(HomeMarkdown.render("the **focused tests** now", streaming: true)) == ["4+13:bold"])
     }
 
     @Test func aStreamingUnclosedCodeOrItalicOnTheLastLine() {
@@ -80,7 +82,7 @@ import Testing
     @Test func aSplitInsideBold() {
         Self.checkEverySplit("Run the **focused** tests now.")
         #expect(Self.shown("Run the **focused*").text == "Run the focused")
-        #expect(Self.styles(Self.shown("Run the **focused*")) == ["8+7:bold"])
+        #expect(Self.shown("Run the **focused*").runs.isEmpty)
     }
 
     @Test func aSplitInsideACodeSpan() {

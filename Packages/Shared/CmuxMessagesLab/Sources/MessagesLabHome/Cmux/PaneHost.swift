@@ -59,7 +59,7 @@ final class HostView: NSView {
     /// The window view the thread layer was last searched in.
     var threadLayerSearch: ObjectIdentifier?
     /// A thread or reply view is open (PaneHost+ThreadLayer.swift, followed after every engine change).
-    var veilOpen = false
+    var threadViewOpen = false
     /// `--scroll-trace` uses a scroll view that takes the probe's posted
     /// events (README: responsive scrolling).
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
@@ -567,10 +567,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // sits above the thread view's blur). cmux: the scroll view, scroller included, is under
         // `threadHost` (PaneHost+ThreadLayer.swift), so the thread backdrop blurs and darkens it with
         // the transcript, as real Messages does; its alpha stays SequenceScroller's own.
-        // cmux: the avatar's dimming and the thread rows' masks, only when a thread view opens, closes, is
+        // cmux: the header's blur and dim (PaneHost+ThreadLayer.swift), only when a thread view opens, closes, is
         // open or still has rows (not on every streamed word or status).
         let threadOpen = demo?.threadOpen ?? false
-        if threadOpen || host.veilOpen || host.threadRowsShown { host.followThread(open: threadOpen) }
+        if threadOpen || host.threadViewOpen || host.threadRowsShown { host.followThread(open: threadOpen) }
         prefetchNextReceipt()
         scheduleWake()
     }

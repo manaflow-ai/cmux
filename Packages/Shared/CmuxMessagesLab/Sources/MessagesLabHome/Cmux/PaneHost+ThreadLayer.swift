@@ -1,16 +1,13 @@
 import AppKit
 import os
 
-// cmux: real Messages blurs and darkens the header's avatar and name pill with the transcript under
-// an open thread or reply view (thread-open-esc reference: the avatar 237 -> 103). The vendored
-// window view keeps its thread layer (ThreadBackdrop, a live blur and tint, and the thread's rows)
-// in its own layer tree, under the in-pane header (`PaneHeaderView`, AppKit views above that tree),
-// so the header stayed sharp. As the morph and compose layers are hosted on their own (HostView
-// install), the thread layer's CALayer moves to `threadHost`, a layer host above the header and
-// below the selection, morph, field and compose hosts: the backdrop blurs and darkens the live
-// header (its glass, title and avatar as drawn) on its own open and close curves, and the field
-// stays above it. The thread layer view stays the window view's subview (frames, hit tests and
-// scale walks are unchanged); only where its layer draws moves.
+// cmux: the vendored window view keeps its thread layer (ThreadBackdrop, a live blur and tint, and the
+// thread's rows) in its own layer tree, under the field, morph and compose layers Home hosts on their
+// own. Its CALayer moves to `threadHost`, a layer host below the in-pane header (`PaneHeaderView`) and
+// the selection, morph, field and compose hosts: the thread's rows pass under the header, as under
+// Messages' titlebar, and the header blurs and dims itself on the backdrop's timing
+// (PaneHeaderView.setThreadBlur). The thread layer view stays the window view's subview (frames, hit
+// tests and scale walks are unchanged); only where its layer draws moves.
 //
 // The thread layer is the vendored `UIView` shim (appkit-port LayerViews.swift: an NSObject that
 // owns a plain CALayer), not an NSView, so AppKit never re-attaches its layer; only the shim's own
@@ -82,7 +79,7 @@ extension HostView {
     /// The thread view's open state, followed after the engine changes that matter: the header blurs and
     /// dims with the backdrop, on its animations' begin time, duration and curve.
     func followThread(open: Bool) {
-        veilOpen = open
+        threadViewOpen = open
         let parts = vendoredBackdropRoot?.sublayers ?? []
         let tint = parts.last?.animation(forKey: "thread") as? CABasicAnimation
         let blur = parts.count > 1 ? parts.first?.animation(forKey: "thread") as? CABasicAnimation : nil

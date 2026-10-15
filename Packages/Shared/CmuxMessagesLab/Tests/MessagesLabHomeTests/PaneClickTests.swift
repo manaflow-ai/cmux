@@ -94,7 +94,7 @@ import Testing
         #expect(controller.selection.selectedKey == nil)
     }
 
-    @Test func theThreadLayerDrawsOverTheHeader() {
+    @Test func theThreadLayerIsLiftedIntoThreadHost() {
         let (controller, _, _) = Self.pane()
         #expect(controller.host.threadLayerLifted)
     }

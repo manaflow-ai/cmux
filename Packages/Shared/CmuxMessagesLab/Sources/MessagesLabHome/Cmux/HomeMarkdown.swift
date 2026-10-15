@@ -13,11 +13,13 @@ import Foundation
 /// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 ///
-/// cmux (streaming, round 4 capture): an agent's running reply arrives a few words at a time, so
+/// cmux (streaming, rounds 4 and 15): an agent's running reply arrives a few words at a time, so
 /// its last line can hold an opener whose closer has not arrived yet (`**focused`). With
 /// `streaming` (the running reply only, HomeProjection+Draft), an opener on the last line at the
 /// start of a word (after the line start, a space or punctuation) with text right after it and no
-/// closer styles the rest of the line, so no raw marker is drawn while the reply grows. A posted
+/// closer is dropped and the rest of the line shows plain: no raw marker, and the words that keep
+/// arriving inside the span are appended in place (a style on them would redraw the window per word);
+/// the span takes its style when its closer arrives. A posted
 /// message is never streaming: there an unclosed opener stays as written (`an *idea`).
 enum HomeMarkdown {
     /// The part of a running reply's text that renders the same whatever arrives next (round 8): a
@@ -156,7 +158,8 @@ enum HomeMarkdown {
                     }
                     if openEnded, opensWord(c, i, ticks) {
                         flush()
-                        out.append(String(c.slice(i + ticks, c.count)), add("code", to: styles), link: link)
+                        // cmux (round 15): shown plain until it closes, so growing words append in place.
+                        out.append(String(c.slice(i + ticks, c.count)), styles, link: link)
                         i = c.count; continue
                     }
                     plain += String(repeating: "`", count: ticks); i += ticks; continue
@@ -183,7 +186,8 @@ enum HomeMarkdown {
                     }
                     if openEnded, let (style, width) = delimiter(ch, n), n == width, opensWord(c, i, width) {
                         flush()
-                        parse(Array(c.slice(i + width, c.count)), into: &out, styles: add(style, to: styles), link: link, openEnded: true)
+                        _ = style  // shown plain until it closes (round 15), so growing words append in place
+                        parse(Array(c.slice(i + width, c.count)), into: &out, styles: styles, link: link, openEnded: true)
                         i = c.count; continue
                     }
                     plain += String(repeating: String(ch), count: n); i += n; continue

@@ -398,6 +398,7 @@ public final class MessagesLabHomeView: NSView {
         return nil
     }
 
+    #if DEBUG
     /// Automation (DEBUG socket): a click on the newest thread's "N Replies" or
     /// thread preview through the click's path (`ChatController.clicked`). The
     /// open thread's root (its transcript id) after the click, nil when none opened.
@@ -407,7 +408,6 @@ public final class MessagesLabHomeView: NSView {
         return debugOpenThread
     }
 
-    #if DEBUG
     /// Automation (DEBUG socket): the same click, through the real mouse path (`debugClick`: the
     /// transcript's mouseDown and mouseUp, then `ChatController.mouseUp` -> `clicked`).
     public func debugClickNewestReplies() -> String? {
@@ -415,7 +415,6 @@ public final class MessagesLabHomeView: NSView {
         _ = debugClick(atWindow: controller.host.convert(p, to: nil))
         return debugOpenThread
     }
-    #endif
 
     /// A point (transcript coordinates) on the newest "N Replies" row or thread preview, read from
     /// the row itself (the part of a preview `MessagesWindowView.repliesHit` takes), checked once
@@ -439,6 +438,7 @@ public final class MessagesLabHomeView: NSView {
         }
         return nil
     }
+    #endif
 
     /// Automation (DEBUG socket): the open thread's root (its transcript id), nil when none is open.
     public var debugOpenThread: String? { controller.store?.state.ui.openThread?.messageId }

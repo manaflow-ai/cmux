@@ -71,6 +71,8 @@ extension ProjectionCore {
             let next = bubble(want, text: stable)
             defer { live.shown = next; shownDraft = live }
             guard next.parts != live.shown.parts else { return step }
+            // Text that only grows, with the shown text's styling unchanged, is appended in place (a style
+            // that starts only in the new text needs the redraw: `.appendText` carries no runs).
             if case let .text(old, oldRuns)? = Self.onlyText(live.shown), case let .text(new, newRuns)? = Self.onlyText(next),
                new.hasPrefix(old), newRuns == oldRuns {
                 step.actions.append(.appendText(live.id, String(new.dropFirst(old.count))))
