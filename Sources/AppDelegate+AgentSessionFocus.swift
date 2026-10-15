@@ -1,4 +1,5 @@
 import AppKit
+import CmuxMobileHost
 import Foundation
 
 /// Shared action path for the sidebar session rows, the `jumpToLastPrompt`

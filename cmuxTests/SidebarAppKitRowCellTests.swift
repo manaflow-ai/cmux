@@ -17,7 +17,7 @@ struct SidebarAppKitRowCellTests {
         isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
-        compactStatusGlyph: SidebarCompactStatusGlyph? = nil
+        compactStatusGlyph: SidebarCompactStatusGlyph? = nil,
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -59,7 +59,7 @@ struct SidebarAppKitRowCellTests {
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
             checklistFirstUncheckedText: nil,
-            compactStatusGlyph: compactStatusGlyph
+            compactStatusGlyph: compactStatusGlyph,
             agentSessions: []
         )
     }
@@ -88,7 +88,7 @@ struct SidebarAppKitRowCellTests {
                 isPinned: isPinned,
                 metadataEntries: metadataEntries,
                 metadataBlocks: metadataBlocks,
-                compactStatusGlyph: compactStatusGlyph
+                compactStatusGlyph: compactStatusGlyph,
             ),
             settings: resolvedSettings,
             isActive: isActive,

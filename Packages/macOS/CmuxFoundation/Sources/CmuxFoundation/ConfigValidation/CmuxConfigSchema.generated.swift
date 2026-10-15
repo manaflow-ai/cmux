@@ -1770,6 +1770,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show the loading spinner on workspaces with running coding agents or active loaders."
         },
+        "showAgentSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "List each workspace's live coding-agent sessions under its title: a state dot, the agent's own title, an age, and (for the selected workspace and the session you last typed into) your last prompt."
+        },
         "loadingSpinnerPosition": {
           "type": "string",
           "enum": ["leading", "trailing"],
