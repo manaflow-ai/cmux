@@ -186,16 +186,14 @@ extension BrowserPanel {
         browserEmulation.reset()
     }
 
-    /// Applies automation emulation to the current web view and every web
-    /// view that later replaces it.
-    func setBrowserEmulation(_ overrides: BrowserEmulationOverrides) async throws {
-        let target = webView
-        try await browserEmulation.update(overrides, on: target)
-        // A web view that replaced `target` while the rules compiled was
-        // created with the previous overrides.
-        if webView !== target {
-            browserEmulation.install(on: webView)
-        }
+    /// Applies a change to the automation emulation of the current web view
+    /// and every web view that later replaces it.
+    /// - Returns: The overrides now in effect.
+    @discardableResult
+    func updateBrowserEmulation(
+        _ change: (inout BrowserEmulationOverrides) -> Void
+    ) async throws -> BrowserEmulationOverrides {
+        try await browserEmulation.update(on: { self.webView }, change)
     }
 
     func makeReplacementWebView(
