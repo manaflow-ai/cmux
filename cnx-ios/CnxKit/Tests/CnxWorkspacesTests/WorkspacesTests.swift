@@ -162,6 +162,9 @@ import SwiftUI
         let order = source.tabs.map(\.id)
         source.moveTab(order[0], to: 2)
         #expect(source.tabs.map(\.id) == [order[1], order[2], order[0]] + order.dropFirst(3))
+        // The Mac's answer to the first move arrives before the next one is tried.
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(source.tabs.map(\.id) == [order[1], order[2], order[0]] + order.dropFirst(3))
         backend.failNext = "pane is gone"
         source.moveTab(order[1], to: 1)
         for _ in 0..<100 where source.tabs.first?.id != order[1] { try? await Task.sleep(for: .milliseconds(10)) }
