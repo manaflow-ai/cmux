@@ -70,6 +70,9 @@ nonisolated enum AcpmuxPaneMethods {
         // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
         // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
         "_acpmux/offer_respond",
+        // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
+        // which a pending chat's access chip names. Read only.
+        "_acpmux/start_mode",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
