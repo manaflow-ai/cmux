@@ -286,7 +286,9 @@ fn mutate(
             Op::ChiefProfileCreate => chief_registry::create(tx, &profile),
             Op::ChiefProfileAdopt => match adoptee {
                 Some(Adoptee { id, display_name: Some(name) }) => {
-                    chief_registry::adopt(tx, id, name, &profile)
+                    chief_registry::adopt(tx, id, name, &profile, || {
+                        mux.claim_unbound_participant(id)
+                    })
                 }
                 Some(Adoptee { id, .. }) if id == chief_registry::DEFAULT_CHIEF => {
                     Ok(Err(Refusal::DefaultChief))
@@ -335,6 +337,12 @@ fn mutate(
         Err(Refusal::KeyConflict(committed)) => {
             Err(ResourceError::idempotency_conflict(&key, &committed))
         }
+        Err(Refusal::ParticipantBound) => Err(ResourceError::operation_failed(
+            operation.wire_name(),
+            Refusal::ParticipantBound.reason(),
+            json!({"message": "stop its current agent session first",
+                   "hint": "stop its current agent session first"}),
+        )),
         Err(refusal) => Err(refused(operation, &refusal)),
     }
 }
@@ -492,6 +500,19 @@ fn with_store<T>(
         *store = Some(ChiefStore::open(directory.as_deref()).map_err(|e| internal(operation, &e))?);
     }
     run(store.as_mut().expect("chief registry opened above"))
+}
+
+/// Whether `participant` is a live Chief record other than the default Chief
+/// (its credential is its brain's, or the person's on a daemon with no brain
+/// supervisor). An unreadable registry answers true: fail closed.
+pub(super) fn is_owned_chief(mux: &Mux, participant: &str) -> bool {
+    if participant == chief_registry::DEFAULT_CHIEF || !participant.starts_with("agent_") {
+        return false;
+    }
+    with_store(mux, Op::ChiefProfileGet, |store| {
+        store.get(participant).map_err(|e| internal(Op::ChiefProfileGet, &e))
+    })
+    .map_or(true, |record| record.is_some())
 }
 
 /// The participant `chief.profile.adopt` names: its id, and its display name

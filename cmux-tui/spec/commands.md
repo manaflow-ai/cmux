@@ -6490,6 +6490,15 @@ connection whose principal is `user_local` may call it. The owner stores the
 token's SHA-256; a new token replaces the old one and ends the bindings made
 with it. With `conversation-person-credentials-v1`, `participant` may also be
 a person other than `user_local` (a `user_` id), never a `remote_` device.
+For a Chief record other than `agent_mux` (`chief.profile.create` or
+`chief.profile.adopt`), only its brain holds the credential when the daemon
+runs a Chief brain supervisor (the supervisor mints it in process; this
+command is refused), and on a daemon with no supervisor only the person's own
+terminal mints it: a page (WebSocket or the host's page relay), a paired or
+remote device and an agent are refused. `chief.profile.adopt` revokes every
+credential issued for the participant before the adopt, and `conversation-bind`
+checks the credential and binds under one lock, so a revoked credential never
+binds after it.
 
 Params: `participant` (required).
 

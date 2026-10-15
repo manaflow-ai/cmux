@@ -579,9 +579,12 @@ pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result
         crate::conversation_store::credentialed(&participant),
         "only agent participants and other people bind with a token"
     );
-    let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
+    // The check and the binding under one lock: a credential that
+    // chief.profile.adopt revoked never binds after the adopt.
+    let valid = mux.bind_conversation_principal_if(client, participant.clone(), || {
+        mux.with_conversations(|store| store.verify_agent_token(&participant, &token))
+    })?;
     anyhow::ensure!(valid, "conversation agent token is not valid for {participant}");
-    mux.bind_conversation_principal(client, participant.clone())?;
     Ok(json!({"participant": participant}))
 }
 
@@ -599,6 +602,23 @@ pub(super) fn agent_token(
         crate::conversation_store::credentialed(&params.participant),
         "participant tokens are only for agents and other people"
     );
+    // A Chief record's credential (other than the default Chief's): with a
+    // brain supervisor only its brain gets one (minted in process); without
+    // one, only the person's own terminal mints it, never a page, a paired or
+    // remote device or an agent (chief.profile.adopt, hq-6d 2026-10-14).
+    if super::chief_registry_resource::is_owned_chief(mux, &params.participant) {
+        anyhow::ensure!(
+            crate::chief_brains::taken().is_none(),
+            "{} is a Chief: its brain holds its credential",
+            params.participant
+        );
+        anyhow::ensure!(
+            !mux.is_remote_client(client)
+                && super::origin_gate::connection_page(mux, client).is_none()
+                && !super::origin_gate::is_page(mux, client),
+            "only the person, from a terminal on this machine, mints a Chief's credential"
+        );
+    }
     let token = mux.with_conversations(|store| store.mint_agent_token(&params.participant))?;
     // A replaced token also ends the connections bound with the old one.
     mux.unbind_conversation_participant(&params.participant);

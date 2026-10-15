@@ -1233,7 +1233,13 @@ participant it takes its id and, without `display_name`, its display name.
 Chief `deleted_chief` (an adopt never revives a deleted Chief or its kept
 memory), an id whose brain directory (its last 8 characters, lowercased)
 another live or deleted Chief already has `brain_home_taken`, and a person
-or an unknown id `not_an_agent_participant`
+or an unknown id `not_an_agent_participant`. A participant with a bound
+connection is `participant_bound` ("stop its current agent session first"):
+two processes never speak as one participant. In the same write every
+credential issued for the participant is revoked; afterwards only the
+supervisor-started brain's credential binds, or, on a daemon with no brain
+supervisor, one the person mints with `conversation-agent-token` from a local
+terminal (never a page, a paired or remote device or an agent)
 (`operation.failed` `details.reason`). It is idempotent per key like
 `chief.profile.create`, reaches the brain supervisor as a create does and
 publishes `chief-changed` with change `created`.

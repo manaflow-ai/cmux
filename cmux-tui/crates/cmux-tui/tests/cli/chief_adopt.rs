@@ -59,6 +59,36 @@ fn dm_with(home: &mut Conn, agent: &str, name: &str) -> String {
     created["conversation"]["id"].as_str().unwrap().to_owned()
 }
 
+/// One v1 request; the whole reply, refused or not.
+fn try_request(conn: &mut Conn, cmd: &str, params: Value) -> Value {
+    let id = json!(format!("try-{}", conn.next));
+    conn.next += 1;
+    let mut body = params.as_object().cloned().unwrap_or_default();
+    body.insert("id".into(), id.clone());
+    body.insert("cmd".into(), json!(cmd));
+    writeln!(conn.writer, "{}", Value::Object(body)).unwrap();
+    loop {
+        let value = conn.line();
+        if value.get("event").is_none() && value["id"] == id {
+            return value;
+        }
+    }
+}
+
+/// `chief.profile.adopt` on `home`, retried while the participant's old
+/// connection is still being closed by the daemon (`participant_bound`).
+fn adopt_once_unbound(home: &mut Conn, params: Value, key: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let response = v2(home, "chief.profile.adopt", params.clone(), Some(key));
+        if response["ok"] == true || reason(&response) != "participant_bound" {
+            return response;
+        }
+        assert!(Instant::now() < deadline, "the old connection never went away: {response}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn say(conn: &mut Conn, conversation: &str, key: &str, text: &str) {
     conn.request(
         "conversation-op",
@@ -112,11 +142,20 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
     );
     watcher.request("subscribe", json!({}));
 
-    // The CLI adopts it: its id and name, a new Chief's defaults, the role given.
+    // While its agent session is bound, the adopt is refused with a hint:
+    // two processes never speak as one participant.
     let output =
         chief_cli(&server, &["adopt", "agent_release", "--role", "Release trains", "--json"], "");
-    assert_success(&output);
-    let record: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("participant_bound"), "{output:?}");
+    // The session stops; the adopt goes through.
+    drop(agent);
+    let record = adopt_once_unbound(
+        &mut home,
+        json!({"participant_id": "agent_release", "role": "Release trains"}),
+        "adopt-release",
+    );
+    let record = ok(&record)["value"].clone();
     assert_eq!(record["id"], "agent_release", "{record}");
     assert_eq!(record["display_name"], "Release Chief");
     assert_eq!(record["role"], "Release trains");
@@ -134,8 +173,24 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
     assert_eq!(change["chief"], "agent_release", "{change}");
     assert_eq!(change["change"], "created", "{change}");
 
-    // The DM and its history are the same, and the agent's credential still posts there.
+    // The DM and its history are the same. The credential issued before the
+    // adopt is revoked; the person mints the Chief's new one (no brain
+    // supervisor here) and it posts in the same DM.
     assert_eq!(texts(&mut home, &dm), before);
+    let mut old = Conn::open(&server.socket);
+    let refused = try_request(
+        &mut old,
+        "conversation-bind",
+        json!({"participant": "agent_release", "token": token}),
+    );
+    assert_eq!(refused["ok"], false, "a pre-adopt credential bound: {refused}");
+    let fresh =
+        home.request("conversation-agent-token", json!({"participant": "agent_release"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let mut agent = Conn::open(&server.socket);
+    agent.request("conversation-bind", json!({"participant": "agent_release", "token": fresh}));
     say(&mut agent, &dm, "a2", "Adopted and still here.");
     let after = texts(&mut home, &dm);
     assert_eq!(after.len(), before.len() + 1);
@@ -271,12 +326,26 @@ fn an_adopted_chief_reaches_the_brain_supervisor_like_a_create() {
     );
     let mut home = Conn::open(&server.socket);
     let _ = dm_with(&mut home, "agent_release", "Release Chief");
-    ok(&v2(
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_release"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let mut session = Conn::open(&server.socket);
+    session.request("conversation-bind", json!({"participant": "agent_release", "token": token}));
+    let bound = v2(
         &mut home,
         "chief.profile.adopt",
         json!({"participant_id": "agent_release"}),
-        Some("adopt-release"),
-    ));
+        Some("a0"),
+    );
+    assert_eq!(reason(&bound), "participant_bound");
+    drop(session);
+    ok(&adopt_once_unbound(&mut home, json!({"participant_id": "agent_release"}), "adopt-release"));
+    // With a brain supervisor, only the brain holds the Chief's credential.
+    let mint =
+        try_request(&mut home, "conversation-agent-token", json!({"participant": "agent_release"}));
+    assert_eq!(mint["ok"], false, "the person minted a supervised Chief's credential: {mint}");
     let id = "agent_release";
     let brain = chief_home.join("c").join(id[id.len() - 8..].to_ascii_lowercase());
     let starts = brain.join("starts");
@@ -285,6 +354,14 @@ fn an_adopted_chief_reaches_the_brain_supervisor_like_a_create() {
         assert!(Instant::now() < deadline, "the adopted Chief's brain never started");
         std::thread::sleep(Duration::from_millis(25));
     }
+    // The brain's credential (minted by the supervisor) binds; the old one does not.
+    let brain_token = fs::read_to_string(brain.join("agent-token")).unwrap();
+    let mut chief = Conn::open(&server.socket);
+    chief.request("conversation-bind", json!({"participant": id, "token": brain_token.trim()}));
+    let mut old = Conn::open(&server.socket);
+    let refused =
+        try_request(&mut old, "conversation-bind", json!({"participant": id, "token": token}));
+    assert_eq!(refused["ok"], false, "{refused}");
     let daemon = i32::try_from(server.child.id()).unwrap();
     // SAFETY: the test's own daemon child.
     unsafe { libc::kill(daemon, libc::SIGTERM) };

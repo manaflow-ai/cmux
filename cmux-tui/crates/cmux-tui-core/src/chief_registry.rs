@@ -103,6 +103,9 @@ pub(crate) enum Refusal {
     /// characters, lowercased), so adopting it would share or revive that
     /// brain and its memory.
     BrainHomeTaken,
+    /// `chief.profile.adopt`: a connection is bound to the participant (its
+    /// current agent session); two processes never speak as one participant.
+    ParticipantBound,
 }
 
 impl Refusal {
@@ -119,6 +122,7 @@ impl Refusal {
             Self::DefaultChief => "default_chief",
             Self::NotAgentParticipant => "not_an_agent_participant",
             Self::BrainHomeTaken => "brain_home_taken",
+            Self::ParticipantBound => "participant_bound",
         }
     }
 }
@@ -506,6 +510,7 @@ pub(crate) fn adopt(
     id: &str,
     display_name: &str,
     fields: &Map<String, Value>,
+    claim: impl FnOnce() -> anyhow::Result<bool>,
 ) -> anyhow::Result<Outcome<ChiefRecord>> {
     if id == DEFAULT_CHIEF {
         return Ok(Err(Refusal::DefaultChief));
@@ -540,6 +545,12 @@ pub(crate) fn adopt(
         tx.query_row("SELECT COUNT(*) FROM chief WHERE record IS NOT NULL", [], |r| r.get(0))?;
     if usize::try_from(live).unwrap_or(usize::MAX) >= MAX_CHIEFS {
         return Ok(Err(Refusal::TooMany));
+    }
+    // Last, inside this write: the participant must have no bound connection,
+    // and every credential issued for it is revoked (`claim`), so the old
+    // agent session never speaks as the Chief.
+    if !claim()? {
+        return Ok(Err(Refusal::ParticipantBound));
     }
     let mut fields = fields.clone();
     fields.entry("display_name").or_insert_with(|| Value::String(display_name.to_owned()));

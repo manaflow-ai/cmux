@@ -172,16 +172,86 @@ fn only_the_owners_own_unix_connection_adopts_an_agent() {
     // Nothing was written by any of them.
     assert_eq!(chief_ids(&mux, &owner), vec!["agent_mux".to_owned()]);
 
+    // The agent's session is still bound: two processes never speak as one
+    // participant, so the adopt waits until that session is gone.
+    let bound = send(&mux, &owner, &v2("chief.profile.adopt", &adopt, Some("o0"), None));
+    assert_eq!(bound["error"]["code"], "operation.failed", "{bound}");
+    assert_eq!(bound["error"]["details"]["reason"], "participant_bound", "{bound}");
+    assert_eq!(chief_ids(&mux, &owner), vec!["agent_mux".to_owned()]);
+    mux.unbind_conversation_participant("agent_release");
+
     // The owner's own terminal adopts it.
     let adopted = send(&mux, &owner, &v2("chief.profile.adopt", &adopt, Some("o1"), None));
     assert_eq!(adopted["ok"], true, "{adopted}");
     assert_eq!(adopted["result"]["value"]["id"], "agent_release");
     assert_eq!(chief_ids(&mux, &owner), vec!["agent_mux".to_owned(), "agent_release".to_owned()]);
-    // Now a live Chief, bound on its own connection: still refused.
-    let mut again = adopt.clone();
-    again["participant_id"] = json!("agent_release");
-    assert_eq!(
-        forbidden(&send(&mux, &agent, &v2("chief.profile.adopt", &again, Some("a2"), None))),
-        "chief_adopt_owner_only"
+
+    // The credential issued before the adopt is revoked: the old session cannot come back.
+    let old = connect(&mux, ClientTransport::Unix);
+    let command_result = |conn: &Conn, request: Value| {
+        let command: Command = serde_json::from_value(request).unwrap();
+        handle_command(&mux, conn.client, command, &conn.writer)
+    };
+    assert!(
+        command_result(
+            &old,
+            json!({"cmd": "conversation-bind", "participant": "agent_release", "token": token})
+        )
+        .is_err(),
+        "a pre-adopt credential bound"
     );
+
+    // With no brain supervisor, only the person's own terminal mints the
+    // adopted Chief's new credential: never a page relay, a WebSocket page, a
+    // paired or remote device, or an agent.
+    let mint = json!({"cmd": "conversation-agent-token", "participant": "agent_release"});
+    let relay_mint = connect(&mux, ClientTransport::Unix);
+    set_role_for_test(&mux, relay_mint.client, "page_relay");
+    set_page(&mux, relay_mint.client, "home-channels".to_owned());
+    let page_mint = connect(&mux, ClientTransport::WebSocket);
+    set_scoped_page(&mux, page_mint.client, "home-channels".to_owned());
+    let device_mint = connect(&mux, ClientTransport::Remote);
+    let paired_mint = connect(&mux, ClientTransport::WebSocket);
+    mux.control_clients.mark_person(paired_mint.client);
+    let other_token = command(
+        &mux,
+        &owner,
+        json!({"cmd": "conversation-create", "idempotency_key": "dm-helper", "actor": "user_local",
+               "title": "Helper", "participants": [
+                   {"id": "user_local", "kind": "human", "display_name": "Me"},
+                   {"id": "agent_helper", "kind": "agent", "display_name": "Helper",
+                    "agent_class": "mux"}]}),
+    );
+    assert!(other_token["conversation"]["id"].is_string());
+    let helper_token = command(
+        &mux,
+        &owner,
+        json!({"cmd": "conversation-agent-token", "participant": "agent_helper"}),
+    )["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let agent_mint = connect(&mux, ClientTransport::Unix);
+    command(
+        &mux,
+        &agent_mint,
+        json!({"cmd": "conversation-bind", "participant": "agent_helper", "token": helper_token}),
+    );
+    for (who, conn) in [
+        ("page relay", &relay_mint),
+        ("page websocket", &page_mint),
+        ("remote device", &device_mint),
+        ("paired device", &paired_mint),
+        ("agent", &agent_mint),
+    ] {
+        assert!(command_result(conn, mint.clone()).is_err(), "{who} minted a Chief credential");
+    }
+    let fresh = command(&mux, &owner, mint.clone())["token"].as_str().unwrap().to_owned();
+    let chief = connect(&mux, ClientTransport::Unix);
+    let bound = command(
+        &mux,
+        &chief,
+        json!({"cmd": "conversation-bind", "participant": "agent_release", "token": fresh}),
+    );
+    assert_eq!(bound["participant"], "agent_release", "{bound}");
 }
