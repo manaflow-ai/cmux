@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 import { readWebThemeBootstrap } from "../dev-server/galleryHost";
 
 const literal = (body: string) => {
@@ -18,13 +19,14 @@ const literal = (body: string) => {
 describe("readWebThemeBootstrap", () => {
   test("the app's script parses as JavaScript", () => {
     const script = readWebThemeBootstrap();
-    expect(() => new Function(script)).not.toThrow();
+    expect(() => new vm.Script(script)).not.toThrow();
   });
 
   test("a Swift \\\\ is one backslash", () => {
     const script = readWebThemeBootstrap(literal(String.raw`    var rgba = /^rgba?\\(\\s*([\\d.]+)\\)$/;`));
     expect(script).toBe(String.raw`var rgba = /^rgba?\(\s*([\d.]+)\)$/;`);
-    expect((new Function(`${script}; return rgba;`)() as RegExp).exec("rgb(12)")?.[1]).toBe("12");
+    const rgba = vm.runInNewContext(`${script}; rgba`) as RegExp;
+    expect(rgba.exec("rgb(12)")?.[1]).toBe("12");
   });
 
   test("any other escape or an interpolation still stops the reader", () => {
