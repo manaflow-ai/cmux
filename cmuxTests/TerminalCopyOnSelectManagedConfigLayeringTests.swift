@@ -78,6 +78,20 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
     }
 
     @Test
+    func managedSettingsKeepComplexScriptShapingRunsTogether() throws {
+        let suiteName = "cmux-terminal-shaping-break-layering-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let effectiveValues = Self.effectiveGhosttyValues(afterLoading: [
+            "font-shaping-break = cursor",
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+        ])
+
+        #expect(effectiveValues["font-shaping-break"] == "no-cursor")
+    }
+
+    @Test
     func managedSettingsDoNotClobberOtherClipboardAndSelectionSettings() throws {
         let suiteName = "cmux-terminal-copy-on-select-neighbors-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
