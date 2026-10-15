@@ -419,3 +419,21 @@ extension BrowserPanel {
 
 /// Web Inspector stays owned by the panel; ``BrowserPanel/page`` forwards to it.
 extension BrowserPanel: WebKitBrowserPageDevToolsControlling {}
+
+extension BrowserPanel {
+    /// ``resolvedEngineChoice(requested:runtime:)`` for a panel opened from
+    /// another one: with no explicit request, the opener's engine is
+    /// inherited (after `CMUX_BROWSER_ENGINE`, before the setting), and an
+    /// unavailable inherited Chromium opens WebKit with the notice.
+    static func resolvedEngineChoice(
+        requested: BrowserEngineKind?,
+        inherited: BrowserEngineKind?
+    ) -> BrowserEngineChoice? {
+        switch BrowserEngineRuntime.shared.resolve(requested: requested, inherited: inherited) {
+        case .open(let choice):
+            return choice
+        case .refuse:
+            return nil
+        }
+    }
+}
