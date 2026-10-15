@@ -96,7 +96,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.density` | string | `"compact"` | `compact`, `comfortable` | Density |
 | `app.uiScale` | real | `1` | 0.85 to 1.5 | Interface Scale |
 | `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
-| `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
 | `appearance.metrics.columnGap` | real |  | 0 to 24 | Column Gap |
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
@@ -168,6 +167,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `appearance.fonts.ui` | string | `"system"` | `system`, `rounded`, `serif`, `mono` | Text Font. The face of chats, the composer, pages and the window's own text. |
+| `appearance.fonts.code` | string |  |  | Code Font. The face of code in chats, diffs and files. Unset, code uses the terminal's font. |
+| `appearance.fonts.chatSize` | real | `14` | 11 to 20 | Chat Text Size. The size of chat messages. |
 | `appearance.sidebarSurface` | string | `"same"` | `same`, `separate` | Sidebar Background. Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane. |
 | `sidebar.border` | boolean | `false` |  | Border. A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it. |
 | `sidebar.borderWidth` | real |  | 0.5 to 4 | Border Width |

@@ -628,6 +628,31 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.fonts.chatSize" : {
+      "default" : 14,
+      "description" : "The size of chat messages.",
+      "maximum" : 20,
+      "minimum" : 11,
+      "title" : "Chat Text Size",
+      "type" : "number"
+    },
+    "appearance.fonts.code" : {
+      "description" : "The face of code in chats, diffs and files. Unset, code uses the terminal's font.",
+      "title" : "Code Font",
+      "type" : "string"
+    },
+    "appearance.fonts.ui" : {
+      "default" : "system",
+      "description" : "The face of chats, the composer, pages and the window's own text.",
+      "enum" : [
+        "system",
+        "rounded",
+        "serif",
+        "mono"
+      ],
+      "title" : "Text Font",
+      "type" : "string"
+    },
     "appearance.glassTransparency" : {
       "default" : 0,
       "description" : "How much of the desktop or wallpaper shows through the glass.",
@@ -642,13 +667,6 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Hue",
-      "type" : "number"
-    },
-    "appearance.interfaceScale" : {
-      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
-      "maximum" : 1.25,
-      "minimum" : 0.9,
-      "title" : "Interface Size",
       "type" : "number"
     },
     "appearance.metrics.chromeFontSize" : {
